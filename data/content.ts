@@ -455,35 +455,87 @@ export const designDifferentiators = [
 /* ------------------------------------------------------------------ */
 export const projectDocCategories = [
   {
-    key: "enterprise",
-    label: "대기업·공공기관",
-    description:
-      "SK, 삼성화재, CJ, 중소벤처기업부, 중소벤처기업진흥공단, 한국수자원공사, 애경산업, IBK투자증권, 금호석유화학 등 대기업·공공기관의 서류·PPT를 기획·디자인했습니다.",
-    images: ["/images/portfolio/p-37.png", "/images/portfolio/p-33.png", "/images/portfolio/p-18.png"],
-  },
-  {
     key: "intro",
-    label: "소개서",
-    description: "기업·브랜드·제품의 강점을 명확하게 전달하는 회사소개서·제품소개서.",
-    images: ["/images/portfolio/p-37.png", "/images/portfolio/p-12.png", "/images/portfolio/p-34.png"],
+    label: "회사·제품 소개서",
+    description: "기업·브랜드·제품의 강점을 목적과 독자에 맞춰 명확하게 전달한 소개서입니다.",
   },
   {
     key: "proposal",
     label: "제안서",
     description: "입찰·제휴·납품·영업 목적에 맞춘 설득형 제안서.",
-    images: ["/images/proof/plan-5.png", "/images/proof/plan-6.png", "/images/proof/plan-8.png"],
   },
   {
     key: "ir",
     label: "사업계획서·IR",
     description: "사업모델·시장성·수익구조를 체계적으로 정리한 사업계획서·IR 자료.",
-    images: ["/images/proof/plan-3.png", "/images/proof/plan-1.png", "/images/proof/plan-7.png"],
   },
   {
     key: "report",
     label: "발표 PT·보고서",
     description: "발표 흐름과 데이터를 읽기 쉬운 구조로 재편집한 발표자료·보고서.",
-    images: ["/images/portfolio/p-33.png", "/images/portfolio/p-36.png", "/images/portfolio/p-19.png"],
+  },
+];
+
+export const portfolioProjects = [
+  {
+    id: "keepu",
+    company: "㈜킵유",
+    title: "유기농 블루베리즙 제품소개서",
+    type: "제품소개서",
+    industry: "유통·판매",
+    category: "intro",
+    cover: "/images/projects/keepu/cover.webp",
+    images: [
+      "/images/projects/keepu/cover.webp",
+      "/images/projects/keepu/slide-01.webp",
+      "/images/projects/keepu/slide-02.webp",
+      "/images/projects/keepu/slide-03.webp",
+    ],
+  },
+  {
+    id: "lekaming",
+    company: "르카밍",
+    title: "스킨케어 제품소개서",
+    type: "제품소개서",
+    industry: "뷰티",
+    category: "intro",
+    cover: "/images/projects/lekaming/cover.webp",
+    images: [
+      "/images/projects/lekaming/cover.webp",
+      "/images/projects/lekaming/slide-01.webp",
+      "/images/projects/lekaming/slide-02.webp",
+      "/images/projects/lekaming/slide-03.webp",
+    ],
+  },
+  {
+    id: "vaa",
+    company: "VAA",
+    title: "모델 에이전시 회사소개서",
+    type: "회사소개서",
+    industry: "모델 에이전시",
+    category: "intro",
+    cover: "/images/projects/vaa/cover.webp",
+    images: [
+      "/images/projects/vaa/cover.webp",
+      "/images/projects/vaa/slide-01.webp",
+      "/images/projects/vaa/slide-02.webp",
+      "/images/projects/vaa/slide-03.webp",
+    ],
+  },
+  {
+    id: "dreamheart",
+    company: "드림하트",
+    title: "신발 깔창 제품소개서",
+    type: "제품소개서",
+    industry: "신발 깔창 판매",
+    category: "intro",
+    cover: "/images/projects/dreamheart/cover.webp",
+    images: [
+      "/images/projects/dreamheart/cover.webp",
+      "/images/projects/dreamheart/slide-01.webp",
+      "/images/projects/dreamheart/slide-02.webp",
+      "/images/projects/dreamheart/slide-03.webp",
+    ],
   },
 ];
 
