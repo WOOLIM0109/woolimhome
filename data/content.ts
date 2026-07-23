@@ -484,9 +484,9 @@ export const portfolioProjects = [
     type: "제품소개서",
     industry: "유통·판매",
     category: "intro",
-    cover: "/images/projects/keepu/cover.webp",
+    cover: "/images/projects/keepu/cover.png",
     images: [
-      "/images/projects/keepu/cover.webp",
+      "/images/projects/keepu/cover.png",
       "/images/projects/keepu/slide-01.webp",
       "/images/projects/keepu/slide-02.webp",
       "/images/projects/keepu/slide-03.webp",
@@ -514,9 +514,9 @@ export const portfolioProjects = [
     type: "회사소개서",
     industry: "모델 에이전시",
     category: "intro",
-    cover: "/images/projects/vaa/cover.webp",
+    cover: "/images/projects/vaa/cover.png",
     images: [
-      "/images/projects/vaa/cover.webp",
+      "/images/projects/vaa/cover.png",
       "/images/projects/vaa/slide-01.webp",
       "/images/projects/vaa/slide-02.webp",
       "/images/projects/vaa/slide-03.webp",
