@@ -173,22 +173,33 @@ export const caseHighlights = [
 /* 대기업·공공기관 고객사 (실적)                                        */
 /* ------------------------------------------------------------------ */
 export const clients = [
-  "SK",
-  "삼성화재",
-  "CJ",
-  "중소벤처기업부",
-  "중소벤처기업진흥공단",
-  "한국수자원공사",
-  "애경산업",
-  "IBK투자증권",
-  "금호석유화학",
-  "한국법교육센터",
-  "충북대학교",
-  "광주소방서",
-  "부평소방서",
-  "인천광역시 장애인체육회",
-  "초록우산 어린이재단",
-  "청곡종합사회복지관",
+  { name: "SK", logo: "/logos/sk.png" },
+  { name: "삼성화재", logo: "/logos/samsung-fire.png" },
+  { name: "CJ", logo: "/logos/cj.svg" },
+  { name: "중소벤처기업부", logo: "/logos/mss.svg" },
+  { name: "중소벤처기업진흥공단", logo: "/logos/kosmes.svg" },
+  { name: "한국수자원공사", logo: "/logos/kwater.png" },
+  { name: "애경산업", logo: "/logos/aekyung.png" },
+  { name: "IBK투자증권", logo: "/logos/ibk-securities.png" },
+  { name: "금호석유화학", logo: "/logos/kumho-petrochemical.gif" },
+  {
+    name: "한국법교육센터",
+    logo: "/logos/korea-law-education.png",
+    darkBackground: true,
+  },
+  { name: "충북대학교", logo: "/logos/chungbuk-university.png" },
+  { name: "광주소방서", logo: "/logos/gwangju-fire.png" },
+  {
+    name: "부평소방서",
+    logo: "/logos/bupyeong-fire.png",
+    supportingLabel: "부평소방서",
+  },
+  {
+    name: "인천광역시 장애인체육회",
+    logo: "/logos/incheon-para-sports.png",
+  },
+  { name: "초록우산", logo: "/logos/childfund-korea.png" },
+  { name: "청곡종합사회복지관", logo: "/logos/cheonggok-welfare.png" },
 ];
 
 /* ------------------------------------------------------------------ */

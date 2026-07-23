@@ -5,15 +5,32 @@ export default function ClientMarquee() {
   return (
     <section className="border-y border-[var(--line)] bg-white">
       <div className="relative overflow-hidden py-10">
-        <div className="pointer-events-none absolute inset-y-0 left-0 z-10 w-16 bg-[linear-gradient(90deg,#fff,transparent)]" />
-        <div className="pointer-events-none absolute inset-y-0 right-0 z-10 w-16 bg-[linear-gradient(270deg,#fff,transparent)]" />
-        <ul className="marquee-track gap-3 px-3" aria-label="주요 고객사">
-          {row.map((name, index) => (
+        <div className="pointer-events-none absolute inset-y-0 left-0 z-10 w-20 bg-[linear-gradient(90deg,#fff,transparent)]" />
+        <div className="pointer-events-none absolute inset-y-0 right-0 z-10 w-20 bg-[linear-gradient(270deg,#fff,transparent)]" />
+        <ul className="marquee-track gap-4 px-4" aria-label="주요 고객사">
+          {row.map((client, index) => (
             <li
-              key={`${name}-${index}`}
-              className="flex h-12 shrink-0 items-center justify-center rounded-full border border-[var(--line)] bg-[var(--surface-strong)] px-6 text-sm font-bold text-[#3a2e25]"
+              key={`${client.name}-${index}`}
+              className={`flex h-20 w-52 shrink-0 items-center justify-center rounded-2xl border px-6 shadow-[0_8px_24px_rgba(67,48,35,0.06)] ${
+                "darkBackground" in client && client.darkBackground
+                  ? "border-[#2b2522] bg-[#2b2522]"
+                  : "border-[#efe5dc] bg-white"
+              }`}
+              title={client.name}
             >
-              {name}
+              <div className="flex max-h-12 max-w-full flex-col items-center justify-center gap-1">
+                <img
+                  src={client.logo}
+                  alt={`${client.name} 로고`}
+                  className="max-h-11 max-w-[160px] object-contain"
+                  draggable={false}
+                />
+                {"supportingLabel" in client && client.supportingLabel ? (
+                  <span className="text-[11px] font-semibold tracking-[-0.02em] text-[#3a2e25]">
+                    {client.supportingLabel}
+                  </span>
+                ) : null}
+              </div>
             </li>
           ))}
         </ul>
