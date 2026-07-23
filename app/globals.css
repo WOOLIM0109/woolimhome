@@ -1,6 +1,13 @@
 @import url("https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css");
-@import url("https://cdn.jsdelivr.net/gh/fonts-archive/Paperlogy/subsets/Paperlogy-dynamic-subset.css");
 @import "tailwindcss";
+
+@font-face {
+  font-family: "Paperlogy";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 700;
+  src: url("/fonts/Paperlogy-7Bold.ttf") format("truetype");
+}
 
 :root {
   --background: #fffaf7;
