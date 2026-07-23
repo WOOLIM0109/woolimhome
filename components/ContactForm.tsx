@@ -4,13 +4,16 @@ import { useState } from "react";
 import { Loader2, Send } from "lucide-react";
 
 const CATEGORIES = [
-  "경영컨설팅",
-  "정부지원사업·정책자금",
-  "기업인증",
-  "사업계획서·IR",
-  "비즈니스문서·PPT",
-  "디자인서비스",
-  "기타 문의",
+  "정부지원사업",
+  "정책자금",
+  "기업인증 (벤처인증)",
+  "기업인증 (이노비즈, 메인비즈)",
+  "기업인증 (ISO)",
+  "사업계획서 IR",
+  "소개서, 제안서 등 PPT",
+  "디자인 서비스",
+  "종합 경영컨설팅",
+  "기타문의",
 ];
 
 export default function ContactForm() {
