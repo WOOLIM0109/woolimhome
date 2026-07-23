@@ -1,0 +1,230 @@
+@import url("https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css");
+@import url("https://cdn.jsdelivr.net/gh/fonts-archive/Paperlogy/subsets/Paperlogy-dynamic-subset.css");
+@import "tailwindcss";
+
+:root {
+  --background: #fffaf7;
+  --foreground: #1f1712;
+  --muted: #6f6258;
+  --line: #eadfd5;
+  --surface: #ffffff;
+  --surface-strong: #fff1e6;
+  --primary: #eb6826;
+  --primary-strong: #cf591d;
+  --accent: #c2571a;
+  --accent-soft: #fff4df;
+  --blue-soft: #eaf5f2;
+  --deep: #2c211a;
+  --deep-2: #17100c;
+  --brand-gradient: linear-gradient(135deg, #ef8e36 0%, #eb6826 100%);
+  --brand-gradient-soft: linear-gradient(135deg, rgba(239, 142, 54, 0.18), rgba(235, 104, 38, 0.06));
+  --shadow-float: 0 22px 55px rgba(96, 49, 23, 0.18);
+  --shadow-button: 0 12px 26px rgba(235, 104, 38, 0.28);
+  --shadow-card: 0 1px 2px rgba(31, 23, 18, 0.04), 0 10px 30px rgba(96, 49, 23, 0.06);
+  --radius: 16px;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: "Pretendard", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-display: "Paperlogy", "Pretendard", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+/* ---------------------------------------------------------------- */
+/* 기본 요소 리셋 — @layer base 안에 둬야 Tailwind 색상 유틸리티       */
+/* (text-white 등)가 정상적으로 덮어쓸 수 있음                        */
+/* ---------------------------------------------------------------- */
+@layer base {
+  * {
+    box-sizing: border-box;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    margin: 0;
+    background: var(--background);
+    color: var(--foreground);
+    font-family: "Pretendard", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    letter-spacing: 0;
+  }
+
+  h1,
+  h2,
+  h3 {
+    font-family: "Paperlogy", "Pretendard", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    letter-spacing: 0;
+    font-weight: 700;
+  }
+
+  a {
+    color: inherit;
+    text-decoration: none;
+  }
+
+  img {
+    max-width: 100%;
+    height: auto;
+  }
+
+  button,
+  input,
+  textarea,
+  select {
+    font: inherit;
+  }
+
+  ::selection {
+    background: rgba(235, 104, 38, 0.2);
+  }
+}
+
+/* ---------------------------------------------------------------- */
+/* 컴포넌트 클래스 — @layer components 안에 둬야 유틸리티가 우선함     */
+/* ---------------------------------------------------------------- */
+@layer components {
+  .btn-gradient {
+    background: var(--brand-gradient);
+    box-shadow: var(--shadow-button);
+    transition:
+      transform 180ms ease,
+      box-shadow 180ms ease,
+      filter 180ms ease;
+  }
+  .btn-gradient:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 16px 34px rgba(235, 104, 38, 0.34);
+    filter: saturate(1.04);
+  }
+
+  .floating-card {
+    box-shadow: var(--shadow-float);
+    transition:
+      transform 180ms ease,
+      box-shadow 180ms ease;
+  }
+  .floating-card:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 28px 65px rgba(96, 49, 23, 0.22);
+  }
+
+  .glass-panel {
+    background: rgba(255, 255, 255, 0.82);
+    box-shadow: 0 22px 60px rgba(18, 14, 11, 0.22);
+    backdrop-filter: blur(18px);
+  }
+
+  /* 섹션 라벨 (eyebrow) */
+  .eyebrow {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.6rem;
+    font-size: 0.8rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--primary);
+  }
+  .eyebrow::before {
+    content: "";
+    width: 1.6rem;
+    height: 2px;
+    border-radius: 2px;
+    background: var(--primary);
+  }
+  .eyebrow--light {
+    color: #ef8e36;
+  }
+  .eyebrow--light::before {
+    background: #ef8e36;
+  }
+
+  /* 카드 시스템 */
+  .card {
+    display: flex;
+    flex-direction: column;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow-card);
+    transition:
+      transform 200ms ease,
+      box-shadow 200ms ease,
+      border-color 200ms ease;
+  }
+  .card-hover:hover {
+    transform: translateY(-4px);
+    border-color: #ecceba;
+    box-shadow: var(--shadow-float);
+  }
+
+  .section-title {
+    font-family: var(--font-display);
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    line-height: 1.2;
+  }
+
+  .prose-muted {
+    color: var(--muted);
+    line-height: 1.85;
+  }
+
+  /* 폼 입력 */
+  .form-input {
+    width: 100%;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: #fff;
+    padding: 0.75rem 0.9rem;
+    font-size: 0.95rem;
+    color: var(--foreground);
+    transition:
+      border-color 160ms ease,
+      box-shadow 160ms ease;
+  }
+  .form-input::placeholder {
+    color: #b3a89e;
+  }
+  .form-input:focus {
+    outline: none;
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgba(235, 104, 38, 0.14);
+  }
+}
+
+/* ---------------------------------------------------------------- */
+/* 유틸리티성 헬퍼 (유틸리티 레이어와 함께 동작)                       */
+/* ---------------------------------------------------------------- */
+@layer utilities {
+  .bg-grid {
+    background-image:
+      linear-gradient(rgba(235, 104, 38, 0.05) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(235, 104, 38, 0.05) 1px, transparent 1px);
+    background-size: 44px 44px;
+  }
+
+  @keyframes marquee {
+    from {
+      transform: translateX(0);
+    }
+    to {
+      transform: translateX(-50%);
+    }
+  }
+  .marquee-track {
+    display: flex;
+    width: max-content;
+    animation: marquee 38s linear infinite;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .marquee-track {
+      animation: none;
+      flex-wrap: wrap;
+      width: 100%;
+    }
+  }
+}
