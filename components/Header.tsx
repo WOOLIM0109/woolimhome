@@ -24,11 +24,11 @@ export default function Header() {
 
         <nav className="hidden items-center gap-7 lg:flex" aria-label="주요 메뉴">
           {navigation.map((item) => (
-            <div key={item.href} className="group relative">
+            <div key={item.href} className="group relative flex h-18 items-center">
               <Link href={item.href} className="text-sm font-semibold text-[#26302a] transition hover:text-[var(--primary)]">
                 {item.label}
               </Link>
-              <div className="invisible absolute left-1/2 top-8 min-w-44 -translate-x-1/2 rounded-sm border border-[var(--line)] bg-white p-2 opacity-0 shadow-xl transition group-hover:visible group-hover:opacity-100">
+              <div className="invisible absolute left-1/2 top-full min-w-44 -translate-x-1/2 rounded-sm border border-[var(--line)] bg-white p-2 opacity-0 shadow-xl transition group-hover:visible group-hover:opacity-100">
                 {item.children.map((child) => (
                   <Link
                     key={child.href}
