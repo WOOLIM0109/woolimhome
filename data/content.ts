@@ -181,11 +181,10 @@ export const clients = [
   { name: "한국수자원공사", logo: "/logos/kwater.png" },
   { name: "애경산업", logo: "/logos/aekyung.png" },
   { name: "IBK투자증권", logo: "/logos/ibk-securities.png" },
-  { name: "금호석유화학", logo: "/logos/kumho-petrochemical.gif" },
+  { name: "금호석유화학", logo: "/logos/kumho-petrochemical.png" },
   {
     name: "한국법교육센터",
-    logo: "/logos/korea-law-education.png",
-    darkBackground: true,
+    logo: "/logos/korea-law-education-black.png",
   },
   { name: "충북대학교", logo: "/logos/chungbuk-university.png" },
   { name: "광주소방서", logo: "/logos/gwangju-fire.png" },

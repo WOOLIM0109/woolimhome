@@ -11,11 +11,7 @@ export default function ClientMarquee() {
           {row.map((client, index) => (
             <li
               key={`${client.name}-${index}`}
-              className={`flex h-20 w-52 shrink-0 items-center justify-center rounded-2xl border px-6 shadow-[0_8px_24px_rgba(67,48,35,0.06)] ${
-                "darkBackground" in client && client.darkBackground
-                  ? "border-[#2b2522] bg-[#2b2522]"
-                  : "border-[#efe5dc] bg-white"
-              }`}
+              className="flex h-20 w-52 shrink-0 items-center justify-center rounded-2xl border border-[#efe5dc] bg-white px-6 shadow-[0_8px_24px_rgba(67,48,35,0.06)]"
               title={client.name}
             >
               <div className="flex max-h-12 max-w-full flex-col items-center justify-center gap-1">
