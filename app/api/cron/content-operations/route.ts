@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { EDITORIAL_SLOTS } from "@/lib/content-ops/config";
+import { generateContentWorkItem } from "@/lib/content-ops/generate";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 export const maxDuration = 60;
@@ -48,7 +49,20 @@ export async function GET(request: Request) {
       metadata: { slotKey: slot.key, automated: true },
     }, { onConflict: "schedule_key", ignoreDuplicates: true }).select().maybeSingle();
     if (error) return NextResponse.json({ error: error.message, scheduleKey }, { status: 500 });
-    if (data) created.push(data);
+    const workItem = data || (await admin.from("content_work_items").select("*").eq("schedule_key", scheduleKey).single()).data;
+    if (workItem && slot.channel !== "homepage" && workItem.status === "topic_candidate") {
+      try {
+        const generated = await generateContentWorkItem(slot, scheduleKey);
+        created.push(generated);
+      } catch (generationError) {
+        await admin.from("content_work_items").update({
+          status: "on_hold",
+          review_note: generationError instanceof Error ? generationError.message : "자동 생성 실패",
+          updated_at: new Date().toISOString(),
+        }).eq("schedule_key", scheduleKey);
+        created.push({ ...workItem, status: "on_hold" });
+      }
+    } else if (workItem) created.push(workItem);
   }
   return NextResponse.json({ success: true, created });
 }
