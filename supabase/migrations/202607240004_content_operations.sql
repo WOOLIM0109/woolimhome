@@ -17,6 +17,7 @@ create table if not exists public.content_work_items (
   published_at timestamptz,
   review_note text,
   metadata jsonb not null default '{}'::jsonb,
+  schedule_key text unique,
   created_by text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
@@ -24,6 +25,13 @@ create table if not exists public.content_work_items (
 
 create index if not exists content_work_items_queue_idx
   on public.content_work_items (channel, status, scheduled_at, created_at desc);
+
+alter table public.content_work_items
+  add column if not exists schedule_key text;
+
+create unique index if not exists content_work_items_schedule_key_idx
+  on public.content_work_items (schedule_key)
+  where schedule_key is not null;
 
 create table if not exists public.content_review_assets (
   id uuid primary key default gen_random_uuid(),
@@ -85,3 +93,13 @@ comment on table public.content_review_assets is
   'Only finished JPG/PNG/article previews shown to the operator for review.';
 comment on table public.content_source_registry is
   'Official and approved sources used to continuously expand consulting topics.';
+
+insert into public.content_source_registry
+  (name, base_url, source_grade, collection_method, topic_families, cadence)
+values
+  ('기업마당', 'https://www.bizinfo.go.kr', 1, 'page', array['정부지원사업', '기업지원'], 'daily'),
+  ('중소벤처기업부', 'https://www.mss.go.kr', 1, 'page', array['중소기업정책', '창업', 'R&D'], 'daily'),
+  ('중소벤처기업진흥공단', 'https://www.kosmes.or.kr', 1, 'page', array['정책자금', '수출', '기업성장'], 'daily'),
+  ('국가법령정보센터', 'https://www.law.go.kr', 1, 'page', array['법인', '인증', '제도변경'], 'weekly'),
+  ('K-Startup', 'https://www.k-startup.go.kr', 1, 'page', array['창업', '사업화', '투자'], 'daily')
+on conflict (base_url) do nothing;

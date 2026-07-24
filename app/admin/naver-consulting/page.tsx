@@ -2,6 +2,7 @@ import Link from "next/link";
 import { BookOpen, Bot, ExternalLink, Radar } from "lucide-react";
 import AdminPortal from "@/components/admin/AdminPortal";
 import StatusBadge from "@/components/admin/StatusBadge";
+import WorkQueue from "@/components/admin/WorkQueue";
 import TwoWeekSchedule from "@/components/admin/TwoWeekSchedule";
 import { CONSULTING_TOPIC_FAMILIES } from "@/lib/content-ops/config";
 
@@ -82,6 +83,10 @@ export default function NaverConsultingAdminPage() {
       <section className="mt-10">
         <h2 className="mb-4 text-2xl font-bold">향후 2주 일정</h2>
         <TwoWeekSchedule channel="naver_consulting" />
+      </section>
+      <section className="mt-10">
+        <h2 className="text-2xl font-bold">실제 자동화 작업 큐</h2>
+        <WorkQueue channel="naver_consulting" />
       </section>
     </AdminPortal>
   );

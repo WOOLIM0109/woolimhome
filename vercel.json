@@ -3,6 +3,10 @@
     {
       "path": "/api/cron/columns",
       "schedule": "0 1 * * 2,4,6"
+    },
+    {
+      "path": "/api/cron/content-operations",
+      "schedule": "0 5 * * 1-5"
     }
   ]
 }
