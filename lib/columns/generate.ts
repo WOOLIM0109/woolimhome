@@ -178,14 +178,14 @@ JSON만 반환:
  "expertQuestions":["hybrid/authority인데 원천자료가 부족할 때 대표에게 물을 질문 2~3개"]
 }`;
 
-  try {
+  const requestGemini = async (promptText: string) => {
     const response = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${apiKey}`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          contents: [{ role: "user", parts: [{ text: prompt }] }],
+          contents: [{ role: "user", parts: [{ text: promptText }] }],
           generationConfig: { responseMimeType: "application/json", maxOutputTokens: 32768 },
         }),
         signal: AbortSignal.timeout(120_000),
@@ -195,13 +195,30 @@ JSON만 반환:
     const payload = await response.json();
     const text = payload.candidates?.[0]?.content?.parts?.map((part: { text?: string }) => part.text || "").join("");
     if (!text) throw new Error("AI 응답이 비어 있습니다.");
-    const generated = JSON.parse(stripFence(text)) as Generated;
+    return JSON.parse(stripFence(text)) as Generated;
+  };
+
+  try {
+    let generated = await requestGemini(prompt);
+    let initialCharCount = visibleText(generated.bodyHtml).replace(/\s/g, "").length;
+    if (initialCharCount < 3000) {
+      generated = await requestGemini(`
+다음 JSON은 최소 분량에 미달한 한국어 비즈니스 칼럼 초안입니다.
+군더더기, 반복, 출처에 없는 사실을 추가하지 말고 한국어 가시 문자 3,500~4,000자로 다시 작성하세요.
+JSON 구조, contentKind, usedSourceUrls, FAQ 3~4개는 유지하세요.
+실무 설명, 판단 기준, 예시, 실행 단계를 자연스러운 H2/H3 구조로 보강하세요.
+JSON만 반환하세요.
+
+${JSON.stringify(generated)}
+`);
+      initialCharCount = visibleText(generated.bodyHtml).replace(/\s/g, "").length;
+    }
 
     const usedSources = generated.usedSourceUrls
       .map((url) => candidates.find((source) => source.url === url))
       .filter((source): source is Candidate => Boolean(source));
     const issues: string[] = [];
-    const charCount = visibleText(generated.bodyHtml).replace(/\s/g, "").length;
+    const charCount = initialCharCount;
     const h2Count = (generated.bodyHtml.match(/<h2[\s>]/gi) || []).length;
     if (charCount < 3000) issues.push(`본문이 짧습니다(${charCount}자).`);
     if (h2Count < 3) issues.push("H2가 3개 미만입니다.");
