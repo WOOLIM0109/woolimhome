@@ -2,15 +2,24 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { BookOpen, Bot, Edit, Eye, EyeOff, LogOut, Trash2 } from "lucide-react";
+import { AlertTriangle, BookOpen, Bot, CheckCircle2, Edit, Eye, EyeOff, LogOut, Trash2 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import type { ColumnPost } from "@/lib/columns/types";
 
 const ADMIN_EMAIL = "miseong0928@gmail.com";
+type KnowledgeSummary = {
+  id: string;
+  topic: string;
+  approved: boolean;
+  use_count: number;
+  last_used_at: string | null;
+  created_at: string;
+};
 
 export default function AdminColumnsPage() {
   const { user, loading, signInWithGoogle, signOut } = useAuth();
   const [posts, setPosts] = useState<ColumnPost[]>([]);
+  const [knowledge, setKnowledge] = useState<KnowledgeSummary[]>([]);
   const [loadingPosts, setLoadingPosts] = useState(true);
   const isAdmin = user?.email?.toLowerCase() === ADMIN_EMAIL;
 
@@ -22,10 +31,15 @@ export default function AdminColumnsPage() {
 
   useEffect(() => {
     if (!loading && user && isAdmin) {
-      fetch("/api/admin/columns", { cache: "no-store" })
-        .then((response) => response.ok ? response.json() : [])
-        .then((data: ColumnPost[]) => setPosts(data))
-        .finally(() => setLoadingPosts(false));
+      Promise.all([
+        fetch("/api/admin/columns", { cache: "no-store" })
+          .then((response) => response.ok ? response.json() : []),
+        fetch("/api/admin/columns/knowledge?summary=1", { cache: "no-store" })
+          .then((response) => response.ok ? response.json() : []),
+      ]).then(([postData, knowledgeData]: [ColumnPost[], KnowledgeSummary[]]) => {
+        setPosts(postData);
+        setKnowledge(knowledgeData);
+      }).finally(() => setLoadingPosts(false));
     }
   }, [loading, user, isAdmin]);
 
@@ -59,6 +73,15 @@ export default function AdminColumnsPage() {
     await loadPosts();
   };
 
+  const approvedKnowledge = knowledge.filter((item) => item.approved);
+  const remainingKnowledgeUses = approvedKnowledge.reduce(
+    (total, item) => total + Math.max(0, 3 - Number(item.use_count || 0)),
+    0,
+  );
+  const knowledgeLevel = remainingKnowledgeUses === 0
+    ? "empty"
+    : remainingKnowledgeUses <= 3 ? "low" : "enough";
+
   return (
     <AdminShell>
       <div className="flex flex-wrap items-center justify-between gap-5">
@@ -77,6 +100,32 @@ export default function AdminColumnsPage() {
             <LogOut size={17} /> 로그아웃
           </button>
         </div>
+      </div>
+
+      <div className={`mt-8 flex flex-col gap-4 rounded-sm border p-5 sm:flex-row sm:items-center sm:justify-between ${
+        knowledgeLevel === "empty"
+          ? "border-red-200 bg-red-50"
+          : knowledgeLevel === "low" ? "border-amber-200 bg-amber-50" : "border-emerald-200 bg-emerald-50"
+      }`}>
+        <div className="flex gap-3">
+          {knowledgeLevel === "enough"
+            ? <CheckCircle2 className="mt-0.5 shrink-0 text-emerald-700" />
+            : <AlertTriangle className={`mt-0.5 shrink-0 ${knowledgeLevel === "empty" ? "text-red-700" : "text-amber-700"}`} />}
+          <div>
+            <p className="font-bold">
+              {knowledgeLevel === "empty" ? "노하우 원천자료가 부족합니다"
+                : knowledgeLevel === "low" ? "노하우 원천자료가 곧 부족해집니다"
+                  : "노하우 원천자료가 충분합니다"}
+            </p>
+            <p className="mt-1 text-sm text-[#5f5750]">
+              승인 자료 {approvedKnowledge.length}개 · 예상 활용 여유 {remainingKnowledgeUses}회
+              {knowledgeLevel !== "enough" && " · 새 인터뷰나 사례를 추가해 주세요."}
+            </p>
+          </div>
+        </div>
+        <Link href="/admin/columns/knowledge" className="shrink-0 rounded-sm border border-current bg-white px-4 py-2 text-center text-sm font-bold">
+          원천자료 추가하기
+        </Link>
       </div>
 
       <div className="mt-10 overflow-x-auto rounded-sm border border-[var(--line)] bg-white">

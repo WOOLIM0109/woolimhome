@@ -9,12 +9,13 @@ async function adminUser() {
   return user && isAdmin(user.email) ? user : null;
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   const user = await adminUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const summaryOnly = new URL(request.url).searchParams.get("summary") === "1";
   const { data, error } = await createAdminClient()
     .from("column_expert_knowledge")
-    .select("*")
+    .select(summaryOnly ? "id, topic, approved, use_count, last_used_at, created_at" : "*")
     .order("created_at", { ascending: false });
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json(data, { headers: { "Cache-Control": "private, no-store" } });

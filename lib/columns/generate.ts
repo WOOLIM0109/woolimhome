@@ -25,6 +25,7 @@ type Generated = {
   bodyHtml: string;
   faqs: ColumnFaq[];
   usedSourceUrls: string[];
+  usedKnowledgeIds?: string[];
   expertQuestions?: string[];
 };
 
@@ -175,6 +176,7 @@ JSON만 반환:
  "bodyHtml":"<h2>...</h2>...",
  "faqs":[{"question":"","answer":""}],
  "usedSourceUrls":["위 출처 URL만"],
+ "usedKnowledgeIds":["실제로 활용한 승인 원천자료 id만"],
  "expertQuestions":["hybrid/authority인데 원천자료가 부족할 때 대표에게 물을 질문 2~3개"]
 }`;
 
@@ -217,6 +219,9 @@ ${JSON.stringify(generated)}
     const usedSources = generated.usedSourceUrls
       .map((url) => candidates.find((source) => source.url === url))
       .filter((source): source is Candidate => Boolean(source));
+    const approvedKnowledgeIds = new Set((knowledge || []).map((item) => item.id));
+    const usedKnowledgeIds = [...new Set(generated.usedKnowledgeIds || [])]
+      .filter((id) => approvedKnowledgeIds.has(id));
     const issues: string[] = [];
     const charCount = initialCharCount;
     const h2Count = (generated.bodyHtml.match(/<h2[\s>]/gi) || []).length;
@@ -266,11 +271,23 @@ ${JSON.stringify(generated)}
         run_id: run.data.id,
         sources: sourceRecords,
         faqs: generated.faqs,
+        knowledge_ids: usedKnowledgeIds,
         validation: { charCount, h2Count, sourceCount: sourceRecords.length },
       },
       author_email: input.createdBy,
     }).select().single();
     if (postError) throw new Error(postError.message);
+
+    if (usedKnowledgeIds.length > 0) {
+      await Promise.all(usedKnowledgeIds.map(async (id) => {
+        const source = (knowledge || []).find((item) => item.id === id);
+        if (!source) return;
+        await admin.from("column_expert_knowledge").update({
+          use_count: Number(source.use_count || 0) + 1,
+          last_used_at: new Date().toISOString(),
+        }).eq("id", id);
+      }));
+    }
 
     await admin.from("column_generation_runs").update({
       post_id: post.id,
