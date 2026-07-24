@@ -478,6 +478,21 @@ export const projectDocCategories = [
 
 export const portfolioProjects = [
   {
+    id: "onnuri-store",
+    company: "온누리스토어",
+    title: "판토모나 건강기능식품 브랜드·제품 소개서",
+    type: "브랜드 소개서",
+    industry: "건강기능식품",
+    category: "intro",
+    cover: "/images/projects/onnuri-store/cover.webp",
+    images: [
+      "/images/projects/onnuri-store/cover.webp",
+      "/images/projects/onnuri-store/slide-01.webp",
+      "/images/projects/onnuri-store/slide-02.webp",
+      "/images/projects/onnuri-store/slide-03.webp",
+    ],
+  },
+  {
     id: "keepu",
     company: "㈜킵유",
     title: "유기농 블루베리즙 제품소개서",
