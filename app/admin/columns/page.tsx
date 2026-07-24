@@ -193,5 +193,17 @@ export default function AdminColumnsPage() {
 }
 
 function AdminShell({ children }: { children: React.ReactNode }) {
-  return <section className="min-h-[70vh] bg-[#fffaf7]"><div className="mx-auto max-w-6xl px-5 py-16 lg:px-8">{children}</div></section>;
+  return (
+    <section className="min-h-[70vh] bg-[#fffaf7]">
+      <div className="mx-auto max-w-6xl px-5 py-10 lg:px-8">
+        <Link
+          href="/admin"
+          className="mb-8 inline-flex items-center gap-2 rounded-full border border-[var(--line)] bg-white px-4 py-2 text-sm font-bold"
+        >
+          ← 통합 관리로 돌아가기
+        </Link>
+        {children}
+      </div>
+    </section>
+  );
 }

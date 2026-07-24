@@ -24,7 +24,7 @@ export function useAuth() {
   const signInWithGoogle = () =>
     createClient().auth.signInWithOAuth({
       provider: "google",
-      options: { redirectTo: `${window.location.origin}/auth/callback?next=/admin/columns` },
+      options: { redirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(window.location.pathname.startsWith("/admin") ? window.location.pathname : "/admin")}` },
     });
 
   const signOut = () => createClient().auth.signOut();
