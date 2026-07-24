@@ -5,11 +5,13 @@ import { useEffect, useState } from "react";
 import { AlertTriangle, BookOpen, Bot, CheckCircle2, Edit, Eye, EyeOff, LogOut, Trash2 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import type { ColumnPost } from "@/lib/columns/types";
+import { EXPERTISE_AREAS } from "@/lib/columns/interview-requests";
 
 const ADMIN_EMAIL = "miseong0928@gmail.com";
 type KnowledgeSummary = {
   id: string;
   topic: string;
+  expertise_area: string;
   approved: boolean;
   use_count: number;
   last_used_at: string | null;
@@ -81,6 +83,14 @@ export default function AdminColumnsPage() {
   const knowledgeLevel = remainingKnowledgeUses === 0
     ? "empty"
     : remainingKnowledgeUses <= 3 ? "low" : "enough";
+  const areaShortages = EXPERTISE_AREAS
+    .filter((area) => area.value !== "general")
+    .map((area) => {
+      const areaItems = approvedKnowledge.filter((item) => (item.expertise_area || "general") === area.value);
+      const remaining = areaItems.reduce((total, item) => total + Math.max(0, 3 - Number(item.use_count || 0)), 0);
+      return { ...area, count: areaItems.length, remaining };
+    })
+    .filter((area) => area.remaining <= 3);
 
   return (
     <AdminShell>
@@ -101,6 +111,24 @@ export default function AdminColumnsPage() {
           </button>
         </div>
       </div>
+
+      {areaShortages.length > 0 && (
+        <div className="mt-4 flex flex-col gap-4 rounded-sm border border-amber-200 bg-amber-50 p-5 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex gap-3">
+            <AlertTriangle className="mt-0.5 shrink-0 text-amber-700" />
+            <div>
+              <p className="font-bold">특정 전문 분야의 원천자료가 부족합니다</p>
+              <p className="mt-1 text-sm text-[#5f5750]">
+                {areaShortages.map((area) => `${area.label} ${area.remaining}회`).join(" · ")}
+                {" · "}자료실에서 맞춤 인터뷰 요청서를 확인해 주세요.
+              </p>
+            </div>
+          </div>
+          <Link href="/admin/columns/knowledge" className="shrink-0 rounded-sm border border-current bg-white px-4 py-2 text-center text-sm font-bold">
+            인터뷰 요청서 보기
+          </Link>
+        </div>
+      )}
 
       <div className={`mt-8 flex flex-col gap-4 rounded-sm border p-5 sm:flex-row sm:items-center sm:justify-between ${
         knowledgeLevel === "empty"

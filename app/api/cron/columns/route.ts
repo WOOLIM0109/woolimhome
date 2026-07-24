@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { generateColumn } from "@/lib/columns/generate";
+import { ensureInterviewRequest } from "@/lib/columns/interview-requests";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 export const maxDuration = 300;
@@ -40,7 +41,12 @@ export async function GET(request: Request) {
     .eq("approved", true)
     .lt("use_count", 3);
   const hasKnowledge = Boolean(knowledge?.length);
-  if (day === 6 && !hasKnowledge) return NextResponse.json({ skipped: true, reason: "Expert knowledge depleted" });
+  if (day === 6 && !hasKnowledge) {
+    const interviewRequest = await ensureInterviewRequest({
+      createdBy: "automation@woolimcompany.kr",
+    });
+    return NextResponse.json({ skipped: true, reason: "Expert knowledge depleted", interviewRequest });
+  }
 
   const topicHint = day === 2
     ? "최신 공식자료를 근거로 기업이 지금 알아야 할 정보형 주제를 선택한다. 울림의 경험을 창작하지 않는다."
@@ -60,12 +66,15 @@ export async function GET(request: Request) {
 
   try {
     const result = await generateColumn({ topicHint, createdBy: "automation@woolimcompany.kr" });
+    const interviewRequest = await ensureInterviewRequest({
+      createdBy: "automation@woolimcompany.kr",
+    });
     await admin.from("column_generation_runs").update({
       status: "generated",
       response_payload: { result },
       completed_at: new Date().toISOString(),
     }).eq("id", runMarker.data.id);
-    return NextResponse.json({ success: true, draftOnly: true, result });
+    return NextResponse.json({ success: true, draftOnly: true, result, interviewRequest });
   } catch (error) {
     await admin.from("column_generation_runs").update({
       status: "failed",

@@ -15,7 +15,7 @@ export async function GET(request: Request) {
   const summaryOnly = new URL(request.url).searchParams.get("summary") === "1";
   const { data, error } = await createAdminClient()
     .from("column_expert_knowledge")
-    .select(summaryOnly ? "id, topic, approved, use_count, last_used_at, created_at" : "*")
+    .select(summaryOnly ? "id, topic, expertise_area, approved, use_count, last_used_at, created_at" : "*")
     .order("created_at", { ascending: false });
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json(data, { headers: { "Cache-Control": "private, no-store" } });
@@ -33,6 +33,7 @@ export async function POST(request: Request) {
     .insert({
       topic: body.topic,
       source_type: body.source_type || "interview",
+      expertise_area: body.expertise_area || "general",
       raw_text: body.raw_text,
       perspective: body.perspective || null,
       case_evidence: body.case_evidence || null,

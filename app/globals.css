@@ -317,3 +317,20 @@
   background: var(--surface-strong);
   padding: 1rem 1.25rem;
 }
+
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  .interview-request,
+  .interview-request * {
+    visibility: visible;
+  }
+  .interview-request {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    border: 0;
+    background: white;
+  }
+}

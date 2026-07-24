@@ -1,5 +1,13 @@
 export type ColumnKind = "informational" | "hybrid" | "authority";
 export type ColumnStatus = "draft" | "generated" | "needs_expert_input" | "reviewed";
+export type ExpertiseArea =
+  | "planning"
+  | "design"
+  | "government_support"
+  | "business_plan"
+  | "ir_ppt"
+  | "management"
+  | "general";
 
 export interface ColumnSource {
   title: string;
@@ -42,9 +50,29 @@ export interface ExpertKnowledge {
   perspective: string | null;
   case_evidence: string | null;
   differentiator: string | null;
+  expertise_area: ExpertiseArea;
   approved: boolean;
   use_count: number;
   last_used_at: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface InterviewQuestion {
+  question: string;
+  followUps: string[];
+}
+
+export interface InterviewRequest {
+  id: string;
+  expertise_area: ExpertiseArea;
+  title: string;
+  rationale: string;
+  recommended_minutes: number;
+  questions: InterviewQuestion[];
+  status: "pending" | "completed";
+  generation_metadata: Record<string, unknown>;
+  created_by: string | null;
+  created_at: string;
+  completed_at: string | null;
 }
