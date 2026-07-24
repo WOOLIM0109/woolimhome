@@ -5,13 +5,15 @@ import { useEffect, useState } from "react";
 import { BookOpen, Check, Trash2, Upload } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import type { ExpertKnowledge } from "@/lib/columns/types";
+import { EXPERTISE_AREAS } from "@/lib/columns/interview-requests";
+import InterviewRequests from "./InterviewRequests";
 
 export default function KnowledgePage() {
   const { user, loading } = useAuth();
   const isAdmin = user?.email?.toLowerCase() === "miseong0928@gmail.com";
   const [items, setItems] = useState<ExpertKnowledge[]>([]);
   const [form, setForm] = useState({
-    topic: "", source_type: "interview", raw_text: "", perspective: "",
+    topic: "", source_type: "interview", expertise_area: "planning", raw_text: "", perspective: "",
     case_evidence: "", differentiator: "", approved: true,
   });
   const [saving, setSaving] = useState(false);
@@ -38,7 +40,7 @@ export default function KnowledgePage() {
     });
     setSaving(false);
     if (response.ok) {
-      setForm({ topic: "", source_type: "interview", raw_text: "", perspective: "", case_evidence: "", differentiator: "", approved: true });
+      setForm({ topic: "", source_type: "interview", expertise_area: "planning", raw_text: "", perspective: "", case_evidence: "", differentiator: "", approved: true });
       await load();
     } else window.alert((await response.json()).error);
   };
@@ -80,7 +82,8 @@ export default function KnowledgePage() {
         </p>
         <p className="mt-2 text-xs text-[var(--muted)]">한 자료는 내용 반복을 막기 위해 기본 3회까지만 활용 여유로 계산합니다.</p>
       </div>
-      <div className="mt-6 rounded-sm border border-[var(--line)] bg-white p-6">
+      <InterviewRequests />
+      <div id="upload-source" className="mt-6 scroll-mt-24 rounded-sm border border-[var(--line)] bg-white p-6">
         <div className="flex items-start gap-3">
           <Upload className="mt-0.5 text-[var(--primary)]" />
           <div>
@@ -103,6 +106,12 @@ export default function KnowledgePage() {
       <form onSubmit={save} className="mt-8 space-y-5 rounded-sm border border-[var(--line)] bg-white p-6">
         <label className="block"><span className="mb-2 block font-bold">주제</span><input required className="input" value={form.topic} onChange={(e) => setForm({ ...form, topic: e.target.value })} placeholder="예: 사업계획서에서 심사위원이 실제로 확인하는 것" /></label>
         <label className="block"><span className="mb-2 block font-bold">자료 종류</span><select className="input" value={form.source_type} onChange={(e) => setForm({ ...form, source_type: e.target.value })}><option value="interview">인터뷰</option><option value="case">사례</option><option value="note">업무 노트</option></select></label>
+        <label className="block">
+          <span className="mb-2 block font-bold">전문 분야</span>
+          <select className="input" value={form.expertise_area} onChange={(e) => setForm({ ...form, expertise_area: e.target.value })}>
+            {EXPERTISE_AREAS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+          </select>
+        </label>
         <label className="block"><span className="mb-2 block font-bold">원천 내용</span><textarea required rows={12} className="input" value={form.raw_text} onChange={(e) => setForm({ ...form, raw_text: e.target.value })} placeholder="녹취록이나 메모를 그대로 붙여 넣어도 됩니다." /></label>
         <label className="block"><span className="mb-2 block font-bold">통념을 뒤집는 관점 (선택)</span><textarea rows={3} className="input" value={form.perspective} onChange={(e) => setForm({ ...form, perspective: e.target.value })} /></label>
         <label className="block"><span className="mb-2 block font-bold">사례·숫자·전후 변화 (선택)</span><textarea rows={3} className="input" value={form.case_evidence} onChange={(e) => setForm({ ...form, case_evidence: e.target.value })} /></label>
@@ -116,7 +125,7 @@ export default function KnowledgePage() {
             <div className="flex justify-between gap-4">
               <div>
                 <p className="text-xs font-bold uppercase text-[var(--primary)]">
-                  {item.source_type} · {item.approved ? "승인됨" : "미승인"} · 사용 {Number(item.use_count || 0)}회
+                  {EXPERTISE_AREAS.find((area) => area.value === (item.expertise_area || "general"))?.label} · {item.source_type} · {item.approved ? "승인됨" : "미승인"} · 사용 {Number(item.use_count || 0)}회
                   {Number(item.use_count || 0) >= 3 && " · 새 자료 권장"}
                 </p>
                 <h2 className="mt-2 font-bold">{item.topic}</h2>
