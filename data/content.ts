@@ -1083,7 +1083,7 @@ export const portfolioProjects = [
     title: "고층건축물 추락사고 연구 발표",
     type: "발표 PT",
     industry: "공공기관·안전",
-    category: "presentation",
+    category: "report",
     cover: "/images/projects/gwangju-fire/cover.webp",
     images: [
       "/images/projects/gwangju-fire/cover.webp",
@@ -1098,7 +1098,7 @@ export const portfolioProjects = [
     title: "Spatial AI 사업 발표자료",
     type: "발표 PT",
     industry: "IT·AI",
-    category: "presentation",
+    category: "report",
     cover: "/images/projects/pamity-presentation/cover.webp",
     images: [
       "/images/projects/pamity-presentation/cover.webp",
@@ -1113,7 +1113,7 @@ export const portfolioProjects = [
     title: "데이터 산업 지원사업 중간보고",
     type: "발표 PT",
     industry: "IT·데이터",
-    category: "presentation",
+    category: "report",
     cover: "/images/projects/wposition-data/cover.webp",
     images: [
       "/images/projects/wposition-data/cover.webp",
@@ -1128,7 +1128,7 @@ export const portfolioProjects = [
     title: "부유층 자동차보험 마케팅 분석",
     type: "발표 PT",
     industry: "보험",
-    category: "presentation",
+    category: "report",
     cover: "/images/projects/samsung-fire/cover.webp",
     images: [
       "/images/projects/samsung-fire/cover.webp",
@@ -1143,7 +1143,7 @@ export const portfolioProjects = [
     title: "수인성 노로바이러스 국제표준화 발표",
     type: "발표 PT",
     industry: "공공기관·환경",
-    category: "presentation",
+    category: "report",
     cover: "/images/projects/korea-water/cover.webp",
     images: [
       "/images/projects/korea-water/cover.webp",
@@ -1158,7 +1158,7 @@ export const portfolioProjects = [
     title: "AI 기반 작업위험성평가 보고서",
     type: "보고서",
     industry: "화학·제조",
-    category: "presentation",
+    category: "report",
     cover: "/images/projects/sk-chemical-report/cover.webp",
     images: [
       "/images/projects/sk-chemical-report/cover.webp",
@@ -1173,7 +1173,7 @@ export const portfolioProjects = [
     title: "프리랜서 마케터 운영 성과보고",
     type: "보고서",
     industry: "환경·자원재활용",
-    category: "presentation",
+    category: "report",
     cover: "/images/projects/cheongmyeong-report/cover.webp",
     images: [
       "/images/projects/cheongmyeong-report/cover.webp",
@@ -1188,7 +1188,7 @@ export const portfolioProjects = [
     title: "AI 에듀스포츠 입주기업 발표",
     type: "발표 PT",
     industry: "AI·스포츠",
-    category: "presentation",
+    category: "report",
     cover: "/images/projects/sunrang-jdc/cover.webp",
     images: [
       "/images/projects/sunrang-jdc/cover.webp",
@@ -1203,7 +1203,7 @@ export const portfolioProjects = [
     title: "AI 안전 모니터링 사업 발표자료",
     type: "발표 PT",
     industry: "IT·AI",
-    category: "presentation",
+    category: "report",
     cover: "/images/projects/pamity-bit-presentation/cover.webp",
     images: [
       "/images/projects/pamity-bit-presentation/cover.webp",
