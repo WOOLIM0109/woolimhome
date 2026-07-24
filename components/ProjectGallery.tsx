@@ -113,7 +113,7 @@ export default function ProjectGallery() {
                   alt={`${project.company} ${project.type} 표지`}
                   fill
                   sizes="(max-width: 768px) 100vw, 50vw"
-                  className="object-cover transition duration-300 group-hover:scale-[1.025]"
+                  className="object-contain transition duration-300 group-hover:scale-[1.025]"
                 />
                 <span className="absolute bottom-3 right-3 inline-flex items-center gap-1.5 rounded-full bg-black/65 px-3 py-1.5 text-xs font-bold text-white backdrop-blur">
                   <Images size={14} />
