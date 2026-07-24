@@ -6,6 +6,7 @@ import { AlertTriangle, BookOpen, Bot, CheckCircle2, Edit, Eye, EyeOff, LogOut, 
 import { useAuth } from "@/hooks/useAuth";
 import type { ColumnPost } from "@/lib/columns/types";
 import { EXPERTISE_AREAS } from "@/lib/columns/interview-requests";
+import EditorialSchedule from "./EditorialSchedule";
 
 const ADMIN_EMAIL = "miseong0928@gmail.com";
 type KnowledgeSummary = {
@@ -155,6 +156,8 @@ export default function AdminColumnsPage() {
           원천자료 추가하기
         </Link>
       </div>
+
+      <EditorialSchedule hasKnowledge={remainingKnowledgeUses > 0} />
 
       <div className="mt-10 overflow-x-auto rounded-sm border border-[var(--line)] bg-white">
         {loadingPosts ? <p className="p-8">칼럼을 불러오는 중입니다.</p> : posts.length === 0 ? (
