@@ -46,6 +46,21 @@ export async function POST(request: Request) {
   return NextResponse.json(data, { status: 201 });
 }
 
+export async function PATCH(request: Request) {
+  const user = await adminUser();
+  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const body = await request.json();
+  if (!body.id) return NextResponse.json({ error: "ID가 필요합니다." }, { status: 400 });
+  const { data, error } = await createAdminClient()
+    .from("column_expert_knowledge")
+    .update({ approved: Boolean(body.approved), updated_at: new Date().toISOString() })
+    .eq("id", body.id)
+    .select()
+    .single();
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  return NextResponse.json(data);
+}
+
 export async function DELETE(request: Request) {
   const user = await adminUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });

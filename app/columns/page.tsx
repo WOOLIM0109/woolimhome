@@ -2,7 +2,6 @@ import type { Metadata } from "next";
 import ContactBand from "@/components/ContactBand";
 import JsonLd from "@/components/JsonLd";
 import PageHero from "@/components/PageHero";
-import { columns } from "@/data/content";
 import Link from "next/link";
 import { getPublishedColumns } from "@/lib/columns/data";
 import { buildCanonical } from "@/lib/site-config";
@@ -23,10 +22,11 @@ export default async function ColumnsPage() {
       <JsonLd
         data={[
           breadcrumbSchema([{ name: "홈", href: "/" }, { name: "알림마당", href: "/news" }, { name: "칼럼", href: "/columns" }]),
-          itemListSchema("울림컴퍼니 칼럼", [
-            ...publishedColumns.map((item) => ({ title: item.title, description: item.excerpt || "", href: `/columns/${item.slug}` })),
-            ...columns.map((item) => ({ title: item.title, description: item.summary, href: "/columns" })),
-          ]),
+          itemListSchema("울림컴퍼니 칼럼", publishedColumns.map((item) => ({
+            title: item.title,
+            description: item.excerpt || "",
+            href: `/columns/${item.slug}`,
+          }))),
         ]}
       />
       <PageHero eyebrow="칼럼" title="칼럼" description="사업계획서, IR, 입찰제안서, 정부지원사업 준비에 필요한 실무 관점을 정리합니다." />
@@ -42,13 +42,9 @@ export default async function ColumnsPage() {
               </p>
             </Link>
           ))}
-          {columns.map((item) => (
-            <article key={item.title} className="card card-hover h-full p-7">
-              <p className="eyebrow">Column</p>
-              <h2 className="mt-4 text-xl font-bold leading-7 text-[#14100c]">{item.title}</h2>
-              <p className="prose-muted mt-4 flex-1 text-sm">{item.summary}</p>
-            </article>
-          ))}
+          {publishedColumns.length === 0 && (
+            <p className="col-span-full py-12 text-center text-[var(--muted)]">첫 번째 칼럼을 준비하고 있습니다.</p>
+          )}
         </div>
       </section>
       <ContactBand />
