@@ -109,7 +109,7 @@ export default function ProjectGallery() {
             >
               <div className="relative aspect-video w-full overflow-hidden bg-[var(--surface-strong)]">
                 <Image
-                  src={project.cover}
+                  src={`/images/projects/${project.id}/thumbnail.webp`}
                   alt={`${project.company} ${project.type} 표지`}
                   fill
                   sizes="(max-width: 768px) 100vw, 50vw"
