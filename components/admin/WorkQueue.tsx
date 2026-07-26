@@ -14,7 +14,7 @@ type WorkItem = {
   scheduled_at: string | null;
   review_note: string | null;
   metadata?: { generated?: { bodyHtml?: string; faq?: { question: string; answer: string }[]; tags?: string[] } };
-  content_review_assets?: { id: string; public_url: string }[];
+  content_review_assets?: { id: string; asset_type: "thumbnail" | "body_image" | "article_preview"; public_url: string }[];
 };
 
 export default function WorkQueue({ channel, reviewMode = false }: { channel?: ContentChannel; reviewMode?: boolean }) {
@@ -76,9 +76,9 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
             </div>
             <StatusBadge status={item.status} />
           </div>
-          {item.content_review_assets?.length ? (
+          {item.content_review_assets?.some((asset) => asset.asset_type === "thumbnail") ? (
             <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              {item.content_review_assets.map((asset) => (
+              {item.content_review_assets.filter((asset) => asset.asset_type === "thumbnail").map((asset) => (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img key={asset.id} src={asset.public_url} alt={`${item.title} 검토 이미지`} className="w-full rounded-xl border border-[var(--line)]" />
               ))}

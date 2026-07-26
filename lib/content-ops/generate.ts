@@ -1,4 +1,5 @@
 import { createAdminClient } from "@/lib/supabase/admin";
+import { PORTFOLIO_WRITING_RULES } from "./portfolio-rules";
 import type { EditorialSlot } from "./types";
 
 type Source = {
@@ -43,6 +44,7 @@ function promptFor(slot: EditorialSlot, sources: unknown[]) {
 채널: ${slot.channel}
 형식: ${slot.format}
 ${designRules}
+${slot.format === "portfolio" ? PORTFOLIO_WRITING_RULES : ""}
 
 아래 공식 출처만 근거로 한국 기업 담당자가 이해하기 쉬운 초안을 작성하세요. 출처에 없는 숫자·요건·사례를 만들지 마세요. 전문 용어는 처음 나올 때 쉬운 설명을 붙이세요.
 
