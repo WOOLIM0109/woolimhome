@@ -13,6 +13,7 @@ type WorkItem = {
   source_label: string | null;
   scheduled_at: string | null;
   review_note: string | null;
+  metadata?: { generated?: { bodyHtml?: string; faq?: { question: string; answer: string }[]; tags?: string[] } };
   content_review_assets?: { id: string; public_url: string }[];
 };
 
@@ -83,6 +84,13 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
               ))}
             </div>
           ) : null}
+          {item.metadata?.generated?.bodyHtml && (
+            <details className="mt-5 rounded-xl border border-[var(--line)] bg-white p-5">
+              <summary className="cursor-pointer font-bold">글 전체 미리보기</summary>
+              <div className="column-body mt-5" dangerouslySetInnerHTML={{ __html: item.metadata.generated.bodyHtml }} />
+              {item.metadata.generated.faq?.length ? <section className="mt-7 border-t border-[var(--line)] pt-5"><h3 className="text-lg font-bold">FAQ</h3>{item.metadata.generated.faq.map((faq) => <div key={faq.question} className="mt-4"><p className="font-bold">{faq.question}</p><p className="mt-1 text-sm leading-6 text-[var(--muted)]">{faq.answer}</p></div>)}</section> : null}
+            </details>
+          )}
           {reviewMode && (
             <div className="mt-5 border-t border-[var(--line)] pt-5">
               <textarea className="input" rows={3} value={notes[item.id] || ""} onChange={(event) => setNotes((current) => ({ ...current, [item.id]: event.target.value }))} placeholder="수정 요청이나 가려야 할 내용을 적어주세요." />

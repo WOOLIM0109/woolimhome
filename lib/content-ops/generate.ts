@@ -8,6 +8,12 @@ function clean(value: string) {
     .replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
 }
 
+function safeHtml(value: string) {
+  return value.replace(/<(script|style|iframe|object|embed)[\s\S]*?<\/\1>/gi, "")
+    .replace(/\son\w+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, "")
+    .replace(/javascript:/gi, "");
+}
+
 async function sourceSnapshot(source: Source) {
   try {
     const response = await fetch(source.base_url, { cache: "no-store", signal: AbortSignal.timeout(12_000) });
@@ -41,6 +47,7 @@ export async function generateContentWorkItem(slot: EditorialSlot, scheduleKey: 
   const raw = payload.candidates?.[0]?.content?.parts?.map((part: { text?: string }) => part.text || "").join("")?.trim();
   if (!raw) throw new Error("AI 응답이 비어 있습니다.");
   const generated = JSON.parse(raw.replace(/^```json\s*/i, "").replace(/\s*```$/, "")) as { title: string; summary: string; bodyHtml: string; faq: unknown[]; tags: string[]; sourceUrls: string[] };
+  generated.bodyHtml = safeHtml(generated.bodyHtml || "");
   const plainLength = clean(generated.bodyHtml || "").replace(/\s/g, "").length;
   const h2Count = (generated.bodyHtml?.match(/<h2[\s>]/gi) || []).length;
   const status = plainLength >= 2000 && h2Count >= 3 && generated.faq?.length >= 3 ? "review_required" : "on_hold";
