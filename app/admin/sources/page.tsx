@@ -1,5 +1,6 @@
 import { AlertTriangle, Database, Radar, RefreshCw } from "lucide-react";
 import AdminPortal from "@/components/admin/AdminPortal";
+import NaverWorksDrivePanel from "@/components/admin/NaverWorksDrivePanel";
 import { CONSULTING_TOPIC_FAMILIES } from "@/lib/content-ops/config";
 
 const SOURCES = [
@@ -17,6 +18,7 @@ export default function SourcesPage() {
       title="주제·자료 수집"
       description="공식 API와 공식기관 자료를 우선 수집해 종합 경영컨설팅 주제 지도를 계속 확장합니다."
     >
+      <NaverWorksDrivePanel />
       <section className="mt-8 grid gap-5 lg:grid-cols-[1.1fr_0.9fr]">
         <div className="card p-6">
           <div className="flex items-center gap-3"><Database className="text-[var(--primary)]" /><h2 className="text-xl font-bold">공식 데이터원</h2></div>
