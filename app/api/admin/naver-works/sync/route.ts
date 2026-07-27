@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { authenticatedAdmin, contentAdmin } from "@/lib/content-ops/data";
 import {
-  approvedPortfolioSource,
   driveFileFingerprint,
   listDriveChildren,
   listDriveRoot,
@@ -113,7 +112,11 @@ async function saveFiles(rootId: string, files: WorksDriveFile[]) {
     .map((file) => file.id);
   if (excludedFileIds.length) {
     const { error: cleanupError } = await admin.from("portfolio_candidates")
-      .delete()
+      .update({
+        status: "excluded",
+        exclusion_reasons: ["완성본_외부공유금지/PPT 폴더 밖의 자료"],
+        updated_at: now,
+      })
       .in("drive_file_id", excludedFileIds);
     if (cleanupError) throw new Error(cleanupError.message);
   }
@@ -228,9 +231,8 @@ async function removeIneligibleCandidates() {
       filePath: file.file_path,
     }))
     .map((file) => file.id);
-  let removedCandidates = 0;
-  let removedWorkItems = 0;
-  const removedWorkItemIds = new Set<string>();
+  let excludedCandidates = 0;
+  const preservedWorkItemIds = new Set<string>();
   for (let index = 0; index < ids.length; index += 100) {
     const chunk = ids.slice(index, index + 100);
     const { data: invalidCandidates, error: candidateReadError } = await admin
@@ -242,57 +244,24 @@ async function removeIneligibleCandidates() {
       .map((candidate) => candidate.metadata?.workItemId)
       .filter((value): value is string => typeof value === "string");
     const { error: cleanupError } = await admin.from("portfolio_candidates")
-      .delete()
+      .update({
+        status: "excluded",
+        exclusion_reasons: ["완성본_외부공유금지/PPT 폴더 밖의 자료"],
+        updated_at: new Date().toISOString(),
+      })
       .in("drive_file_id", chunk);
     if (cleanupError) throw new Error(cleanupError.message);
-    removedCandidates += invalidCandidates?.length || 0;
-    if (workItemIds.length) {
-      const { data: deletedItems, error: workItemError } = await admin
-        .from("content_work_items")
-        .delete()
-        .in("id", workItemIds)
-        .neq("status", "published")
-        .select("id");
-      if (workItemError) throw new Error(workItemError.message);
-      removedWorkItems += deletedItems?.length || 0;
-      deletedItems?.forEach((item) => removedWorkItemIds.add(item.id));
-    }
+    excludedCandidates += invalidCandidates?.length || 0;
+    workItemIds.forEach((id) => preservedWorkItemIds.add(id));
     const { error: fileError } = await admin.from("naver_works_drive_files")
       .update({ supported: false, updated_at: new Date().toISOString() })
       .in("id", chunk);
     if (fileError) throw new Error(fileError.message);
   }
-  const { data: portfolioItems, error: portfolioItemsError } = await admin
-    .from("content_work_items")
-    .select("id,source_reference,metadata")
-    .eq("channel", "naver_design")
-    .eq("format", "portfolio")
-    .neq("status", "published")
-    .limit(1000);
-  if (portfolioItemsError) throw new Error(portfolioItemsError.message);
-  const invalidWorkItemIds = (portfolioItems || [])
-    .filter((item) => {
-      const sourcePath = typeof item.metadata?.sourcePath === "string"
-        ? item.metadata.sourcePath
-        : item.source_reference;
-      return typeof sourcePath === "string"
-        && sourcePath.length > 0
-        && !approvedPortfolioSource({ filePath: sourcePath });
-    })
-    .map((item) => item.id)
-    .filter((id) => !removedWorkItemIds.has(id));
-  for (let index = 0; index < invalidWorkItemIds.length; index += 100) {
-    const chunk = invalidWorkItemIds.slice(index, index + 100);
-    const { data: deletedItems, error: workItemError } = await admin
-      .from("content_work_items")
-      .delete()
-      .in("id", chunk)
-      .neq("status", "published")
-      .select("id");
-    if (workItemError) throw new Error(workItemError.message);
-    removedWorkItems += deletedItems?.length || 0;
-  }
-  return { removedCandidates, removedWorkItems };
+  return {
+    excludedCandidates,
+    preservedWorkItems: preservedWorkItemIds.size,
+  };
 }
 
 export async function POST() {

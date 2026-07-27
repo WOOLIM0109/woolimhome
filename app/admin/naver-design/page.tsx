@@ -6,6 +6,7 @@ import WorkQueue from "@/components/admin/WorkQueue";
 import TwoWeekSchedule from "@/components/admin/TwoWeekSchedule";
 import PcWorkerStatus from "@/components/admin/PcWorkerStatus";
 import PortfolioGenerateButton from "@/components/admin/PortfolioGenerateButton";
+import RecoverTourismPortfolioButton from "@/components/admin/RecoverTourismPortfolioButton";
 
 export default function NaverDesignAdminPage() {
   return (
@@ -15,6 +16,7 @@ export default function NaverDesignAdminPage() {
       actions={(
         <>
           <PortfolioGenerateButton />
+          <RecoverTourismPortfolioButton />
           <ManualGenerateButton />
           <a href="https://blog.naver.com/wl_0109" target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 rounded-xl border border-[var(--line)] bg-white px-4 py-3 font-bold">
             블로그 열기 <ExternalLink size={17} />
