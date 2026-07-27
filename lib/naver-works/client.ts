@@ -158,6 +158,29 @@ export async function worksApi<T>(path: string) {
   return response.json() as Promise<T>;
 }
 
+export async function downloadSharedDriveFile(sharedriveId: string, fileId: string) {
+  const response = await fetch(
+    `${API_BASE}/sharedrives/${encodeURIComponent(sharedriveId)}/files/${encodeURIComponent(fileId)}/download`,
+    {
+      headers: { Authorization: `Bearer ${await accessToken()}` },
+      redirect: "manual",
+      cache: "no-store",
+    },
+  );
+  if (response.status !== 302) {
+    throw new Error(`NAVER WORKS 파일 다운로드 URL 요청 실패: ${response.status} ${await response.text()}`);
+  }
+  const location = response.headers.get("location");
+  if (!location) throw new Error("NAVER WORKS 파일 다운로드 URL이 비어 있습니다.");
+  const fileResponse = await fetch(location, {
+    redirect: "follow",
+    cache: "no-store",
+    signal: AbortSignal.timeout(45_000),
+  });
+  if (!fileResponse.ok) throw new Error(`NAVER WORKS 파일 다운로드 실패: ${fileResponse.status}`);
+  return fileResponse;
+}
+
 export async function listDriveRoot(cursor?: string) {
   const query = new URLSearchParams({ count: "200", orderBy: "modifiedTime desc" });
   if (cursor) query.set("cursor", cursor);
