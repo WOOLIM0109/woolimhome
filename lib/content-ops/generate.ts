@@ -1,6 +1,10 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { PORTFOLIO_WRITING_RULES } from "./portfolio-rules";
 import type { EditorialSlot } from "./types";
+import {
+  generationCancellationRequested,
+  removeCancelledGeneration,
+} from "./cancellation";
 
 type Source = {
   name: string;
@@ -113,6 +117,10 @@ export async function generateContentWorkItem(slot: EditorialSlot, scheduleKey: 
     ...(designForbidden ? ["디자인 채널에서 금지된 컨설팅 주제"] : []),
     ...(internalLabel ? ["제목에 내부 채널 표기"] : []),
   ];
+  if (await generationCancellationRequested(scheduleKey)) {
+    await removeCancelledGeneration(scheduleKey);
+    throw new Error("GENERATION_CANCELLED");
+  }
   const status = issues.length ? "on_hold" : "review_required";
   const { data, error } = await admin.from("content_work_items").update({
     title: generated.title,

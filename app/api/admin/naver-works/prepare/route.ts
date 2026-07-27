@@ -4,15 +4,57 @@ import { prepareNextPortfolioCandidate } from "@/lib/naver-works/portfolio-pipel
 import { processNextPortfolioDownload } from "@/lib/naver-works/job-runner";
 import { processNextPortfolioConversion } from "@/lib/cloudconvert/job-runner";
 import { processNextPortfolioMockup } from "@/lib/portfolio/job-runner";
+import { contentAdmin } from "@/lib/content-ops/data";
+import {
+  generationCancellationRequested,
+  removeCancelledGeneration,
+} from "@/lib/content-ops/cancellation";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
 
-export async function POST() {
+export async function POST(request: Request) {
   const user = await authenticatedAdmin();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   try {
-    const completedDraft = await processNextPortfolioMockup();
+    const body = await request.json().catch(() => ({}));
+    const requestId = typeof body.requestId === "string" && /^[a-zA-Z0-9-]{8,80}$/.test(body.requestId)
+      ? body.requestId
+      : null;
+    const scheduleKey = requestId ? `manual-portfolio-${requestId}` : null;
+
+    if (scheduleKey && await generationCancellationRequested(scheduleKey)) {
+      await removeCancelledGeneration(scheduleKey);
+      return NextResponse.json({
+        cancelled: true,
+        stage: "cancelled",
+        shouldContinue: false,
+        message: "포트폴리오 초안 생성을 취소했습니다.",
+      });
+    }
+
+    let candidateId: string | undefined;
+    if (scheduleKey) {
+      const { data: active } = await contentAdmin()
+        .from("content_work_items")
+        .select("metadata")
+        .eq("schedule_key", scheduleKey)
+        .maybeSingle();
+      candidateId = typeof active?.metadata?.candidateId === "string"
+        ? active.metadata.candidateId
+        : undefined;
+    }
+
+    const completedDraft = scheduleKey && !candidateId
+      ? null
+      : await processNextPortfolioMockup(candidateId);
+    if (scheduleKey && await generationCancellationRequested(scheduleKey)) {
+      await removeCancelledGeneration(scheduleKey);
+      return NextResponse.json({
+        cancelled: true, stage: "cancelled", shouldContinue: false,
+        message: "포트폴리오 초안 생성을 취소했습니다.",
+      });
+    }
     if (completedDraft) {
       return NextResponse.json({
         prepared: null,
@@ -24,7 +66,16 @@ export async function POST() {
           : `${completedDraft.title} 비공개 초안을 완성했습니다. 관리자 화면에서 이미지와 본문을 검수할 수 있습니다.`,
       });
     }
-    const resumedDownload = await processNextPortfolioDownload();
+    const resumedDownload = scheduleKey && !candidateId
+      ? null
+      : await processNextPortfolioDownload(candidateId);
+    if (scheduleKey && await generationCancellationRequested(scheduleKey)) {
+      await removeCancelledGeneration(scheduleKey);
+      return NextResponse.json({
+        cancelled: true, stage: "cancelled", shouldContinue: false,
+        message: "포트폴리오 초안 생성을 취소했습니다.",
+      });
+    }
     if (resumedDownload) {
       return NextResponse.json({
         prepared: null,
@@ -34,7 +85,16 @@ export async function POST() {
         message: `${resumedDownload.originalFileName} 원본을 안전하게 내려받아 변환 대기열로 이동했습니다.`,
       });
     }
-    const conversion = await processNextPortfolioConversion();
+    const conversion = scheduleKey && !candidateId
+      ? null
+      : await processNextPortfolioConversion(candidateId);
+    if (scheduleKey && await generationCancellationRequested(scheduleKey)) {
+      await removeCancelledGeneration(scheduleKey);
+      return NextResponse.json({
+        cancelled: true, stage: "cancelled", shouldContinue: false,
+        message: "포트폴리오 초안 생성을 취소했습니다.",
+      });
+    }
     if (conversion) {
       return NextResponse.json({
         prepared: null,
@@ -46,7 +106,16 @@ export async function POST() {
           : "원본의 글꼴과 레이아웃을 보존하는 변환을 진행하고 있습니다.",
       });
     }
-    const prepared = await prepareNextPortfolioCandidate();
+    const prepared = await prepareNextPortfolioCandidate({
+      scheduleKey: scheduleKey || undefined,
+    });
+    if (scheduleKey && await generationCancellationRequested(scheduleKey)) {
+      await removeCancelledGeneration(scheduleKey);
+      return NextResponse.json({
+        cancelled: true, stage: "cancelled", shouldContinue: false,
+        message: "포트폴리오 초안 생성을 취소했습니다.",
+      });
+    }
     if (!prepared) {
       return NextResponse.json({
         prepared: null,
@@ -56,6 +125,13 @@ export async function POST() {
       });
     }
     const downloaded = await processNextPortfolioDownload(prepared.candidateId);
+    if (scheduleKey && await generationCancellationRequested(scheduleKey)) {
+      await removeCancelledGeneration(scheduleKey);
+      return NextResponse.json({
+        cancelled: true, stage: "cancelled", shouldContinue: false,
+        message: "포트폴리오 초안 생성을 취소했습니다.",
+      });
+    }
     return NextResponse.json({
       prepared,
       downloaded,

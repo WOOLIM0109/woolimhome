@@ -42,7 +42,12 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
     const data = await response.json();
     if (!response.ok) setError(data.error || "작업 목록을 불러오지 못했습니다.");
     else {
-      const next = reviewMode ? data.filter((item: WorkItem) => item.status === "review_required") : data;
+      const activeItems = data.filter(
+        (item: WorkItem) => !item.review_note?.startsWith("generation-cancelled:"),
+      );
+      const next = reviewMode
+        ? activeItems.filter((item: WorkItem) => item.status === "review_required")
+        : activeItems;
       setItems(next);
       setNotes(Object.fromEntries(next.map((item: WorkItem) => [item.id, item.review_note || ""])));
       setError("");
