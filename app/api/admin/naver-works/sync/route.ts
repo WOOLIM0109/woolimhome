@@ -14,6 +14,7 @@ import {
   supportedPortfolioFile,
   type WorksDriveFile,
 } from "@/lib/naver-works/client";
+import { prepareNextPortfolioCandidate } from "@/lib/naver-works/portfolio-pipeline";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -230,9 +231,11 @@ export async function POST() {
       supported += sharedDriveResult.supported;
       if (sharedDriveResult.driveCount) {
         await removeSensitiveCandidates();
+        const prepared = await prepareNextPortfolioCandidate();
         return NextResponse.json({
           indexed,
           supported,
+          prepared,
           note: "공용 폴더에서 최대 1,000개까지 확인했습니다.",
         });
       }
@@ -268,9 +271,11 @@ export async function POST() {
     }
 
     await removeSensitiveCandidates();
+    const prepared = await prepareNextPortfolioCandidate();
     return NextResponse.json({
       indexed,
       supported,
+      prepared,
       note: `${source}에서 최대 1,000개까지 확인했습니다.`,
     });
   } catch (error) {
