@@ -20,9 +20,10 @@ function safeStorageName(fileName: string) {
 export async function processNextPortfolioDownload(candidateId?: string) {
   const admin = contentAdmin();
   let query = admin.from("content_jobs")
-    .select("id,candidate_id,work_item_id,payload")
+    .select("id,candidate_id,work_item_id,payload,attempts")
     .eq("job_type", "download")
-    .eq("status", "queued")
+    .in("status", ["queued", "failed"])
+    .lt("attempts", 3)
     .order("created_at", { ascending: true })
     .limit(1);
   if (candidateId) query = query.eq("candidate_id", candidateId);
@@ -33,7 +34,7 @@ export async function processNextPortfolioDownload(candidateId?: string) {
 
   await admin.from("content_jobs").update({
     status: "running",
-    attempts: 1,
+    attempts: Number(job.attempts || 0) + 1,
     started_at: new Date().toISOString(),
   }).eq("id", job.id);
 
@@ -96,6 +97,11 @@ export async function processNextPortfolioDownload(candidateId?: string) {
       },
     }).eq("id", job.id);
     if (completeError) throw new Error(completeError.message);
+    await admin.from("content_work_items").update({
+      status: "researching",
+      review_note: null,
+      updated_at: completedAt,
+    }).eq("id", job.work_item_id);
     const { error: unlockError } = await admin.from("content_jobs").update({
       status: "queued",
       payload: {
