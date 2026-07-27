@@ -17,7 +17,6 @@ import {
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
-const ONE_TIME_TRIAL_KEY = "pf-trial-75f3e4f7-cc69-46fd-bf2d-1e3d3ad2b80d";
 
 type PageResult = {
   files: WorksDriveFile[];
@@ -210,10 +209,9 @@ async function removeSensitiveCandidates() {
   }
 }
 
-export async function POST(request: Request) {
+export async function POST() {
   const user = await authenticatedAdmin();
-  const oneTimeAuthorized = request.headers.get("x-portfolio-trial-key") === ONE_TIME_TRIAL_KEY;
-  if (!user && !oneTimeAuthorized) {
+  if (!user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   try {
