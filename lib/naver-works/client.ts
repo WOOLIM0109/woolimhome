@@ -167,7 +167,7 @@ export async function listDriveChildren(fileId: string, cursor?: string) {
 }
 
 export async function listSharedFolders(cursor?: string) {
-  const query = new URLSearchParams({ count: "200", orderBy: "modifiedTime desc" });
+  const query = new URLSearchParams({ count: "100", orderBy: "modifiedTime desc" });
   if (cursor) query.set("cursor", cursor);
   return worksApi<{ sharedFolders: WorksSharedFolder[]; responseMetaData?: { nextCursor?: string } }>(
     `/users/me/drive/sharedfolders?${query}`,
