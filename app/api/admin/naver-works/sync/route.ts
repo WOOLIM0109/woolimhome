@@ -4,6 +4,9 @@ import {
   driveFileFingerprint,
   listDriveChildren,
   listDriveRoot,
+  listSharedDriveChildren,
+  listSharedDriveRoot,
+  listSharedDrives,
   listSharedFolderChildren,
   listSharedFolderRoot,
   listSharedFolders,
@@ -23,7 +26,7 @@ type FileLister = (cursor?: string) => Promise<PageResult>;
 type ChildLister = (fileId: string, cursor?: string) => Promise<PageResult>;
 
 async function ensureRoot(
-  driveType: "my_drive" | "shared_folder",
+  driveType: "my_drive" | "shared_drive" | "shared_folder",
   displayName: string,
   externalDriveId?: string,
   rootFileId?: string,
@@ -138,6 +141,30 @@ async function crawlRoot(rootId: string, rootLister: FileLister, childLister: Ch
   return { indexed, supported };
 }
 
+async function crawlSharedDrives(limit = 1000) {
+  let indexed = 0;
+  let supported = 0;
+  const page = await listSharedDrives();
+  const drives = [...(page.sharedrives || [])].sort((a, b) => {
+    const aPriority = /ppt|포트폴리오|디자인/i.test(a.name) ? 1 : 0;
+    const bPriority = /ppt|포트폴리오|디자인/i.test(b.name) ? 1 : 0;
+    return bPriority - aPriority;
+  });
+  for (const drive of drives) {
+    const rootId = await ensureRoot("shared_drive", drive.name, drive.sharedriveId);
+    const result = await crawlRoot(
+      rootId,
+      (cursor) => listSharedDriveRoot(drive.sharedriveId, cursor),
+      (fileId, cursor) => listSharedDriveChildren(drive.sharedriveId, fileId, cursor),
+      Math.max(1, limit - indexed),
+    );
+    indexed += result.indexed;
+    supported += result.supported;
+    if (indexed >= limit) break;
+  }
+  return { indexed, supported, driveCount: drives.length };
+}
+
 export async function POST() {
   const user = await authenticatedAdmin();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -154,6 +181,16 @@ export async function POST() {
     } catch (error) {
       const message = error instanceof Error ? error.message : "";
       if (!message.includes("My Drive is not available")) throw error;
+      const sharedDriveResult = await crawlSharedDrives();
+      indexed += sharedDriveResult.indexed;
+      supported += sharedDriveResult.supported;
+      if (sharedDriveResult.driveCount) {
+        return NextResponse.json({
+          indexed,
+          supported,
+          note: "공용 폴더에서 최대 1,000개까지 확인했습니다.",
+        });
+      }
       source = "초대받은 공유 폴더";
       let cursor: string | undefined;
       let folderCount = 0;
