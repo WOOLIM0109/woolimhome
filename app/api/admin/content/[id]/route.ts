@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { authenticatedAdmin, contentAdmin } from "@/lib/content-ops/data";
 import { validatePortfolioBodyHtml } from "@/lib/content-ops/portfolio-rules";
 import type { WorkflowStatus } from "@/lib/content-ops/types";
+import { parseStoredAssetUrl } from "@/lib/partner-portal";
 
 const STATUSES: WorkflowStatus[] = [
   "topic_candidate", "researching", "creating", "review_required", "approved",
@@ -41,4 +42,79 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     .from("content_work_items").update(patch).eq("id", id).select().single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json(data);
+}
+
+export async function DELETE(_request: Request, context: { params: Promise<{ id: string }> }) {
+  const user = await authenticatedAdmin();
+  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  const { id } = await context.params;
+  const admin = contentAdmin();
+  const { data: item, error: itemError } = await admin
+    .from("content_work_items")
+    .select("id, title, status, content_review_assets(public_url)")
+    .eq("id", id)
+    .maybeSingle();
+
+  if (itemError) return NextResponse.json({ error: itemError.message }, { status: 500 });
+  if (!item) return NextResponse.json({ error: "삭제할 작업을 찾을 수 없습니다." }, { status: 404 });
+  if (item.status === "published") {
+    return NextResponse.json(
+      { error: "이미 발행한 글은 기록 보호를 위해 관리자 화면에서 삭제할 수 없습니다." },
+      { status: 409 },
+    );
+  }
+
+  const { data: jobs, error: jobsReadError } = await admin
+    .from("content_jobs")
+    .select("candidate_id")
+    .eq("work_item_id", id);
+  if (jobsReadError) return NextResponse.json({ error: jobsReadError.message }, { status: 500 });
+
+  const candidateIds = [...new Set(
+    (jobs || []).map((job) => job.candidate_id).filter((value): value is string => Boolean(value)),
+  )];
+  if (candidateIds.length) {
+    const { error: candidateError } = await admin
+      .from("portfolio_candidates")
+      .update({
+        status: "excluded",
+        exclusion_reasons: ["관리자가 자동화 작업 목록에서 삭제함"],
+        updated_at: new Date().toISOString(),
+      })
+      .in("id", candidateIds);
+    if (candidateError) return NextResponse.json({ error: candidateError.message }, { status: 500 });
+  }
+
+  const { error: jobsDeleteError } = await admin
+    .from("content_jobs")
+    .delete()
+    .eq("work_item_id", id);
+  if (jobsDeleteError) return NextResponse.json({ error: jobsDeleteError.message }, { status: 500 });
+
+  const { error: deleteError } = await admin
+    .from("content_work_items")
+    .delete()
+    .eq("id", id);
+  if (deleteError) return NextResponse.json({ error: deleteError.message }, { status: 500 });
+
+  const storedAssets = (item.content_review_assets || [])
+    .map((asset) => parseStoredAssetUrl(asset.public_url))
+    .filter((asset): asset is { bucket: string; path: string } => Boolean(asset));
+  const storageWarnings: string[] = [];
+  for (const bucket of [...new Set(storedAssets.map((asset) => asset.bucket))]) {
+    const paths = storedAssets
+      .filter((asset) => asset.bucket === bucket)
+      .map((asset) => asset.path);
+    if (!paths.length) continue;
+    const { error: storageError } = await admin.storage.from(bucket).remove(paths);
+    if (storageError) storageWarnings.push(storageError.message);
+  }
+
+  return NextResponse.json({
+    id,
+    title: item.title,
+    deleted: true,
+    storageWarnings,
+  });
 }

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { Trash2 } from "lucide-react";
 import StatusBadge from "./StatusBadge";
 import type { ContentChannel, WorkflowStatus } from "@/lib/content-ops/types";
 
@@ -68,6 +69,17 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
     await load();
   }
 
+  async function remove(item: WorkItem) {
+    if (!window.confirm(`"${item.title}" 작업을 삭제할까요?\n연결된 자동화 작업과 검토 이미지도 함께 정리됩니다.`)) return;
+    const response = await fetch(`/api/admin/content/${item.id}`, { method: "DELETE" });
+    if (!response.ok) {
+      const data = await response.json();
+      setError(data.error || "작업을 삭제하지 못했습니다.");
+      return;
+    }
+    await load();
+  }
+
   if (loading) return <p className="mt-6 text-sm text-[var(--muted)]">작업 목록을 불러오고 있습니다.</p>;
   if (error) return <p className="mt-6 rounded-xl bg-red-50 p-4 text-sm font-bold text-red-700">{error}</p>;
   if (!items.length) return <p className="mt-6 rounded-xl border border-dashed border-[var(--line)] bg-white p-7 text-center text-sm text-[var(--muted)]">현재 대기 중인 작업이 없습니다.</p>;
@@ -114,6 +126,17 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
               </p>
             </section>
           )}
+          {item.status === "on_hold" && (item.review_note || item.metadata?.validation?.issues?.length) ? (
+            <section className="mt-5 rounded-xl border border-red-200 bg-red-50 p-4 text-sm leading-6 text-red-800">
+              <p className="font-bold">보류 사유</p>
+              {item.review_note && <p className="mt-1">{item.review_note}</p>}
+              {item.metadata?.validation?.issues?.length ? (
+                <ul className="mt-2 list-disc space-y-1 pl-5">
+                  {item.metadata.validation.issues.map((issue) => <li key={issue}>{issue}</li>)}
+                </ul>
+              ) : null}
+            </section>
+          ) : null}
           {item.content_review_assets?.some((asset) =>
             reviewMode || asset.asset_type === "thumbnail") ? (
             <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -146,6 +169,16 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
                 <button onClick={() => void update(item.id, { status: "approved", review_note: notes[item.id] || "" })} className="btn-gradient rounded-xl px-4 py-2 text-sm font-bold text-white">완성본 승인</button>
                 <button onClick={() => void update(item.id, { status: "on_hold", review_note: notes[item.id] || "" })} className="rounded-xl bg-stone-100 px-4 py-2 text-sm font-bold">보류</button>
               </div>
+            </div>
+          )}
+          {!reviewMode && item.status !== "published" && (
+            <div className="mt-5 flex justify-end border-t border-[var(--line)] pt-4">
+              <button
+                onClick={() => void remove(item)}
+                className="inline-flex items-center gap-2 rounded-xl px-3 py-2 text-xs font-bold text-red-700 hover:bg-red-50"
+              >
+                <Trash2 size={15} /> 작업 삭제
+              </button>
             </div>
           )}
         </article>
