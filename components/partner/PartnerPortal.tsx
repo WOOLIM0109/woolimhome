@@ -1,11 +1,17 @@
 "use client";
 
-import { CalendarDays, LogIn, LogOut, ShieldCheck } from "lucide-react";
+import {
+  CalendarDays,
+  ChevronDown,
+  FileText,
+  LogIn,
+  LogOut,
+  Palette,
+  ShieldCheck,
+} from "lucide-react";
 import TwoWeekSchedule from "@/components/admin/TwoWeekSchedule";
 import { useAuth } from "@/hooks/useAuth";
 import PartnerQueue from "./PartnerQueue";
-
-const PARTNER_CHANNELS = ["naver_consulting", "naver_design"] as const;
 
 export default function PartnerPortal() {
   const { user, loading, signInWithGoogle, signOut } = useAuth();
@@ -68,7 +74,9 @@ export default function PartnerPortal() {
           </div>
         </header>
 
-        <section className="mt-6">
+        <PartnerQueue onUnauthorized={() => void signOut()} />
+
+        <section className="mt-10">
           <div className="mb-4 flex items-start gap-3">
             <span className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-orange-50 text-[var(--primary)]">
               <CalendarDays size={20} />
@@ -76,18 +84,65 @@ export default function PartnerPortal() {
             <div>
               <h2 className="text-2xl font-bold">향후 2주 블로그 초안 일정</h2>
               <p className="mt-1 text-sm leading-6 text-[var(--muted)]">
-                컨설팅·디자인 블로그의 자동 생성 일정을 함께 보여드립니다. 대표님 승인까지 끝난 원고만 아래 작업 목록에 표시됩니다.
+                필요한 블로그 일정만 펼쳐서 확인해 주세요. 대표님 승인이 끝난 원고만 위 작업 목록에 표시됩니다.
               </p>
             </div>
           </div>
-          <TwoWeekSchedule
-            channels={PARTNER_CHANNELS}
-            statusHeading="작업실 표시"
-            statusText="대표 승인 후 작업 목록에 표시"
-          />
-        </section>
 
-        <PartnerQueue onUnauthorized={() => void signOut()} />
+          <div className="space-y-3">
+            <details className="group overflow-hidden rounded-2xl border border-[var(--line)] bg-white">
+              <summary className="flex cursor-pointer list-none items-center justify-between gap-4 px-5 py-5 marker:content-none sm:px-6">
+                <span className="flex min-w-0 items-center gap-3">
+                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-orange-50 text-[var(--primary)]">
+                    <FileText size={19} />
+                  </span>
+                  <span className="min-w-0">
+                    <strong className="block">컨설팅 블로그 일정</strong>
+                    <small className="mt-0.5 block text-[var(--muted)]">정보형·울림 콘텐츠형 초안</small>
+                  </span>
+                </span>
+                <span className="flex shrink-0 items-center gap-2 text-sm font-bold text-[var(--muted)]">
+                  <span className="group-open:hidden">일정 보기</span>
+                  <span className="hidden group-open:inline">일정 접기</span>
+                  <ChevronDown className="transition-transform group-open:rotate-180" size={18} />
+                </span>
+              </summary>
+              <div className="border-t border-[var(--line)] p-3 sm:p-5">
+                <TwoWeekSchedule
+                  channel="naver_consulting"
+                  statusHeading="작업실 표시"
+                  statusText="대표 승인 후 작업 목록에 표시"
+                />
+              </div>
+            </details>
+
+            <details className="group overflow-hidden rounded-2xl border border-[var(--line)] bg-white">
+              <summary className="flex cursor-pointer list-none items-center justify-between gap-4 px-5 py-5 marker:content-none sm:px-6">
+                <span className="flex min-w-0 items-center gap-3">
+                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-stone-100 text-stone-600">
+                    <Palette size={19} />
+                  </span>
+                  <span className="min-w-0">
+                    <strong className="block">디자인 블로그 일정</strong>
+                    <small className="mt-0.5 block text-[var(--muted)]">포트폴리오·기획·디자인 콘텐츠 초안</small>
+                  </span>
+                </span>
+                <span className="flex shrink-0 items-center gap-2 text-sm font-bold text-[var(--muted)]">
+                  <span className="group-open:hidden">일정 보기</span>
+                  <span className="hidden group-open:inline">일정 접기</span>
+                  <ChevronDown className="transition-transform group-open:rotate-180" size={18} />
+                </span>
+              </summary>
+              <div className="border-t border-[var(--line)] p-3 sm:p-5">
+                <TwoWeekSchedule
+                  channel="naver_design"
+                  statusHeading="작업실 표시"
+                  statusText="대표 승인 후 작업 목록에 표시"
+                />
+              </div>
+            </details>
+          </div>
+        </section>
       </div>
     </section>
   );
