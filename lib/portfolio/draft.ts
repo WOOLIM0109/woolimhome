@@ -145,23 +145,23 @@ export async function createPortfolioDraft(input: {
     ...blogTitles,
   ])];
 
-  let generated = await generateGeminiJson<PortfolioDraft>([
-    { text: writingPrompt({ sourceFileName: input.sourceFileName, review: input.review, existingTitles }) },
-  ], { maxOutputTokens: 14000, timeoutMs: 150_000 });
-  let validation = draftIssues(generated);
-  if (validation.issues.length) {
+  let generated: PortfolioDraft | null = null;
+  let validation: ReturnType<typeof draftIssues> | null = null;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
     generated = await generateGeminiJson<PortfolioDraft>([
       {
         text: writingPrompt({
           sourceFileName: input.sourceFileName,
           review: input.review,
           existingTitles,
-          previousIssues: validation.issues,
+          previousIssues: validation?.issues,
         }),
       },
-    ], { maxOutputTokens: 16000, timeoutMs: 150_000 });
+    ], { maxOutputTokens: attempt ? 16000 : 14000, timeoutMs: 150_000 });
     validation = draftIssues(generated);
+    if (!validation.issues.length) break;
   }
+  if (!generated || !validation) throw new Error("포트폴리오 본문 생성 결과가 비어 있습니다.");
 
   const bodyAssets = input.assets.filter((asset) => asset.kind === "body_image");
   const bodyHtml = interleaveFigures(

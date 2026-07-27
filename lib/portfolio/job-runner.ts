@@ -1,7 +1,9 @@
 import { contentAdmin } from "@/lib/content-ops/data";
 import { createPortfolioDraft } from "./draft";
 import { createPortfolioMockups } from "./mockup";
+import type { GeneratedPortfolioAsset } from "./mockup";
 import { reviewPortfolioSlides } from "./visual-review";
+import type { PortfolioVisualReview } from "./visual-review";
 
 type JobResult = {
   bucket?: string;
@@ -267,4 +269,64 @@ export async function processNextPortfolioMockup(candidateId?: string) {
     }).eq("id", job.work_item_id);
     throw error;
   }
+}
+
+export async function retryPortfolioDraft(workItemId: string) {
+  const admin = contentAdmin();
+  const { data: workItem, error } = await admin.from("content_work_items")
+    .select("id,metadata")
+    .eq("id", workItemId)
+    .single();
+  if (error) throw new Error(error.message);
+  const metadata = (workItem.metadata || {}) as Record<string, unknown> & {
+    candidateId?: string;
+    sourceFileName?: string;
+    portfolioReview?: PortfolioVisualReview;
+    portfolioAssets?: GeneratedPortfolioAsset[];
+  };
+  const review = metadata.portfolioReview;
+  const assets = metadata.portfolioAssets;
+  const candidateId = metadata.candidateId;
+  if (!review?.suitable || !Array.isArray(assets) || !assets.length || !candidateId) {
+    return null;
+  }
+  const { draft, validation } = await createPortfolioDraft({
+    sourceFileName: String(metadata.sourceFileName || "디자인 프로젝트"),
+    review,
+    assets,
+  });
+  const hasBlockingIssue = validation.issues.some((issue) =>
+    /짧음|김|H2|FAQ|미만|연속|설명 문단/.test(issue));
+  const now = new Date().toISOString();
+  await admin.from("content_jobs").update({
+    status: "completed",
+    completed_at: now,
+    error_message: null,
+    result: { generated: draft, validation, retriedAt: now },
+    updated_at: now,
+  }).eq("candidate_id", candidateId).eq("job_type", "draft");
+  await admin.from("content_work_items").update({
+    title: draft.title,
+    summary: draft.summary,
+    status: hasBlockingIssue ? "on_hold" : "review_required",
+    review_note: hasBlockingIssue
+      ? `자동 검증 보류: ${validation.issues.join(" · ")}`
+      : "대표 이미지 1장과 서로 다른 본문 목업 4장을 배치한 비공개 초안입니다. 사실관계·가림 처리·문체를 검수해주세요.",
+    metadata: {
+      ...metadata,
+      generated: draft,
+      validation,
+      generatedAt: now,
+      draftRetryCompletedAt: now,
+    },
+    updated_at: now,
+  }).eq("id", workItemId);
+  return {
+    workItemId,
+    candidateId,
+    status: hasBlockingIssue ? "on_hold" : "review_required",
+    title: draft.title,
+    assetCount: assets.length,
+    validation,
+  };
 }

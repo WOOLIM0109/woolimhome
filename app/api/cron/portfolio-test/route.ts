@@ -3,7 +3,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { prepareNextPortfolioCandidate } from "@/lib/naver-works/portfolio-pipeline";
 import { processNextPortfolioDownload } from "@/lib/naver-works/job-runner";
 import { processNextPortfolioConversion } from "@/lib/cloudconvert/job-runner";
-import { processNextPortfolioMockup } from "@/lib/portfolio/job-runner";
+import { processNextPortfolioMockup, retryPortfolioDraft } from "@/lib/portfolio/job-runner";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -50,6 +50,20 @@ export async function GET(request: Request) {
       workItemId: existing.id,
       message: "검수용 포트폴리오 초안이 이미 완성되었습니다.",
     });
+  }
+  if (
+    existing?.status === "on_hold"
+    && existing.metadata?.portfolioReview?.suitable
+    && existing.metadata?.portfolioAssets?.length
+  ) {
+    const retried = await retryPortfolioDraft(existing.id);
+    if (retried) {
+      return NextResponse.json({
+        success: true,
+        completed: retried.status === "review_required",
+        progress: [retried],
+      });
+    }
   }
 
   let candidateId = existing?.metadata?.candidateId as string | undefined;
