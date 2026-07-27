@@ -67,6 +67,84 @@ function Upload-SignedFile {
     -UseBasicParsing | Out-Null
 }
 
+function Get-SourceFile {
+  param(
+    [string]$SourceUrl,
+    [string]$SourcePath
+  )
+  if (Test-Path -LiteralPath $SourcePath) {
+    try {
+      if ((Get-Item -LiteralPath $SourcePath).Length -lt 1024) {
+        throw "Cached source file is unexpectedly small."
+      }
+      $cachedExtension = [System.IO.Path]::GetExtension($SourcePath).ToLowerInvariant()
+      if ($cachedExtension -in @(".pptx", ".pptm")) {
+        Add-Type -AssemblyName System.IO.Compression.FileSystem
+        $cachedArchive = [System.IO.Compression.ZipFile]::OpenRead($SourcePath)
+        try {
+          if ($cachedArchive.Entries.Count -eq 0) {
+            throw "Cached presentation archive is empty."
+          }
+        } finally {
+          $cachedArchive.Dispose()
+        }
+      }
+      Unblock-File -LiteralPath $SourcePath
+      Write-WorkerLog "Using verified cached source file."
+      return
+    } catch {
+      Write-WorkerLog "Cached source file is invalid and will be downloaded again."
+    }
+  }
+  for ($attempt = 1; $attempt -le 3; $attempt++) {
+    try {
+      Write-WorkerLog "Downloading source file (attempt $attempt/3)."
+      if (Test-Path -LiteralPath $SourcePath) {
+        Remove-Item -LiteralPath $SourcePath -Force
+      }
+      & curl.exe `
+        --fail `
+        --location `
+        --silent `
+        --show-error `
+        --retry 2 `
+        --retry-delay 2 `
+        --connect-timeout 30 `
+        --max-time 600 `
+        --output $SourcePath `
+        $SourceUrl
+      if ($LASTEXITCODE -ne 0) {
+        throw "curl exited with code $LASTEXITCODE."
+      }
+      if ((Get-Item -LiteralPath $SourcePath).Length -lt 1024) {
+        throw "Downloaded source file is unexpectedly small."
+      }
+
+      $extension = [System.IO.Path]::GetExtension($SourcePath).ToLowerInvariant()
+      if ($extension -in @(".pptx", ".pptm")) {
+        Add-Type -AssemblyName System.IO.Compression.FileSystem
+        $archive = [System.IO.Compression.ZipFile]::OpenRead($SourcePath)
+        try {
+          if ($archive.Entries.Count -eq 0) {
+            throw "Downloaded presentation archive is empty."
+          }
+        } finally {
+          $archive.Dispose()
+        }
+      }
+      Unblock-File -LiteralPath $SourcePath
+      Write-WorkerLog "Source download verified."
+      return
+    } catch {
+      Write-WorkerLog "Source download attempt $attempt failed: $($_.Exception.Message)"
+      if ($attempt -eq 3) {
+        throw
+      }
+      Start-Sleep -Seconds (2 * $attempt)
+    }
+  }
+}
+
 function Convert-Presentation {
   param(
     [string]$JobId,
@@ -79,17 +157,20 @@ function Convert-Presentation {
   $extension = [System.IO.Path]::GetExtension($FileName)
   $SourcePath = Join-Path $JobRoot ("source" + $extension)
   $PdfPath = Join-Path $JobRoot "presentation.pdf"
-  Invoke-WebRequest -Uri $SourceUrl -OutFile $SourcePath -UseBasicParsing
+  Get-SourceFile -SourceUrl $SourceUrl -SourcePath $SourcePath
 
   $powerPoint = $null
   $presentation = $null
+  $pdfPresentation = $null
   try {
-    $powerPoint = New-Object -ComObject PowerPoint.Application
+    Write-WorkerLog "Starting PowerPoint conversion."
+    Add-Type -AssemblyName Microsoft.Office.Interop.PowerPoint
+    $powerPoint = New-Object Microsoft.Office.Interop.PowerPoint.ApplicationClass
     $powerPointVersion = [string]$powerPoint.Version
     Send-Heartbeat -Status "busy" -CurrentJobId $JobId -PowerPointVersion $powerPointVersion
-    $presentation = $powerPoint.Presentations.Open($SourcePath, $true, $false, $false)
-    $presentation.SaveAs($PdfPath, 32)
-
+    # The local copy must be opened writable; PowerPoint blocks PDF export from a read-only deck.
+    $presentation = $powerPoint.Presentations.Open($SourcePath, 0, 0, 0)
+    Write-WorkerLog "PowerPoint opened local copy (readOnly=$($presentation.ReadOnly))."
     $slideWidth = [double]$presentation.PageSetup.SlideWidth
     $slideHeight = [double]$presentation.PageSetup.SlideHeight
     $exportWidth = 2000
@@ -100,16 +181,48 @@ function Convert-Presentation {
       $slide.Export($path, "PNG", $exportWidth, $exportHeight)
       $slidePaths.Add($path)
     }
+
+    if (Test-Path -LiteralPath $PdfPath) {
+      Remove-Item -LiteralPath $PdfPath -Force
+    }
+    try {
+      $presentation.SaveAs($PdfPath, 32)
+    } catch {
+      Write-WorkerLog "Direct PDF export failed; creating a rasterized review PDF."
+      $pdfPresentation = $powerPoint.Presentations.Add()
+      $pdfPresentation.PageSetup.SlideWidth = $slideWidth
+      $pdfPresentation.PageSetup.SlideHeight = $slideHeight
+      foreach ($slidePath in $slidePaths) {
+        $pdfSlide = $pdfPresentation.Slides.Add($pdfPresentation.Slides.Count + 1, 12)
+        $pdfSlide.Shapes.AddPicture(
+          $slidePath,
+          0,
+          -1,
+          0,
+          0,
+          $slideWidth,
+          $slideHeight
+        ) | Out-Null
+      }
+      $pdfPresentation.SaveAs($PdfPath, 32)
+      $pdfPresentation.Close()
+      [System.Runtime.InteropServices.Marshal]::FinalReleaseComObject($pdfPresentation) | Out-Null
+      $pdfPresentation = $null
+    }
     $presentation.Close()
+    [System.Runtime.InteropServices.Marshal]::FinalReleaseComObject($presentation) | Out-Null
     $presentation = $null
     $powerPoint.Quit()
+    [System.Runtime.InteropServices.Marshal]::FinalReleaseComObject($powerPoint) | Out-Null
     $powerPoint = $null
 
+    Write-WorkerLog "Requesting upload destinations."
     $uploadPlan = Invoke-WorkerApi -Path "/api/worker/jobs/uploads" -Body @{
       jobId = $JobId
       slideCount = $slidePaths.Count
     }
     $pdfUpload = $uploadPlan.uploads | Where-Object { $_.kind -eq "pdf" } | Select-Object -First 1
+    Write-WorkerLog "Uploading converted PDF and $($slidePaths.Count) slide images."
     Upload-SignedFile -SignedUrl $pdfUpload.signedUrl -FilePath $PdfPath -ContentType "application/pdf"
     $uploadedSlides = New-Object System.Collections.Generic.List[string]
     foreach ($upload in ($uploadPlan.uploads | Where-Object { $_.kind -eq "slide" } | Sort-Object index)) {
@@ -126,6 +239,9 @@ function Convert-Presentation {
     } | Out-Null
     Write-WorkerLog "Completed job $JobId with $($slidePaths.Count) slides."
   } finally {
+    if ($pdfPresentation) {
+      try { $pdfPresentation.Close() } catch {}
+    }
     if ($presentation) {
       try { $presentation.Close() } catch {}
     }

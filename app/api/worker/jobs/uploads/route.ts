@@ -22,7 +22,7 @@ export async function POST(request: Request) {
   const bucket = "portfolio-rendered";
   const { error: bucketError } = await admin.storage.createBucket(bucket, {
     public: false,
-    fileSizeLimit: 100 * 1024 * 1024,
+    fileSizeLimit: 50 * 1024 * 1024,
     allowedMimeTypes: ["application/pdf", "image/png", "image/jpeg"],
   });
   if (bucketError && !/already exists|duplicate/i.test(bucketError.message)) {
@@ -30,7 +30,7 @@ export async function POST(request: Request) {
   }
   await admin.storage.updateBucket(bucket, {
     public: false,
-    fileSizeLimit: 100 * 1024 * 1024,
+    fileSizeLimit: 50 * 1024 * 1024,
     allowedMimeTypes: ["application/pdf", "image/png", "image/jpeg"],
   });
 
