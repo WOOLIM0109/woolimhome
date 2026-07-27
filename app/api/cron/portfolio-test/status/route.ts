@@ -16,7 +16,7 @@ export async function GET() {
       headers: { "Cache-Control": "private, no-store" },
     });
   }
-  const [{ data: jobs }, { count: assetCount }] = await Promise.all([
+  const [{ data: jobs }, { count: assetCount }, { data: candidates }] = await Promise.all([
     admin.from("content_jobs")
       .select("job_type,status")
       .eq("work_item_id", workItem.id)
@@ -24,7 +24,12 @@ export async function GET() {
     admin.from("content_review_assets")
       .select("id", { count: "exact", head: true })
       .eq("work_item_id", workItem.id),
+    admin.from("portfolio_candidates").select("status").limit(5000),
   ]);
+  const candidateStatusCounts = (candidates || []).reduce<Record<string, number>>((counts, candidate) => {
+    counts[candidate.status] = (counts[candidate.status] || 0) + 1;
+    return counts;
+  }, {});
   return NextResponse.json({
     exists: true,
     status: workItem.status,
@@ -33,6 +38,7 @@ export async function GET() {
     validation: workItem.metadata?.validation || null,
     assetCount: assetCount || 0,
     jobs: jobs || [],
+    candidateStatusCounts,
   }, {
     headers: { "Cache-Control": "private, no-store" },
   });

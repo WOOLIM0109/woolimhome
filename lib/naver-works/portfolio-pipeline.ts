@@ -167,6 +167,22 @@ export async function prepareNextPortfolioCandidate(options: {
         reasons: ["파일명·경로·형식을 기준으로 실제 디자인 프로젝트 가능성이 높음"],
       }));
   }
+  if (!shortlist.length) {
+    shortlist = candidates
+      .sort((a, b) => {
+        const scoreDifference = sourcePreference(b) - sourcePreference(a);
+        return scoreDifference || Number(b.quality_score || 0) - Number(a.quality_score || 0);
+      })
+      .slice(0, 10)
+      .map((candidate, index) => ({
+        id: candidate.id,
+        confidence: Math.max(0.56, 0.65 - index * 0.01),
+        reasons: [
+          "파일명만으로 확정하지 않고 실제 페이지를 열어 판정할 탐색 후보",
+          "명백한 신청서·양식·세로형 홍보물 제외 기준 통과",
+        ],
+      }));
+  }
 
   const first = shortlist[0];
   const originallySelected = first
