@@ -4,12 +4,21 @@ param(
 
 $ErrorActionPreference = "Stop"
 $WorkerVersion = "1.0.0"
-$ServerUrl = if ($env:WOOLIM_WORKER_SERVER_URL) {
-  $env:WOOLIM_WORKER_SERVER_URL.TrimEnd("/")
+$ConfiguredServerUrl = if ($env:WOOLIM_WORKER_SERVER_URL) {
+  $env:WOOLIM_WORKER_SERVER_URL
+} else {
+  [Environment]::GetEnvironmentVariable("WOOLIM_WORKER_SERVER_URL", "User")
+}
+$ServerUrl = if ($ConfiguredServerUrl) {
+  $ConfiguredServerUrl.TrimEnd("/")
 } else {
   "https://woolim-site.vercel.app"
 }
-$WorkerSecret = $env:WOOLIM_PC_WORKER_SECRET
+$WorkerSecret = if ($env:WOOLIM_PC_WORKER_SECRET) {
+  $env:WOOLIM_PC_WORKER_SECRET
+} else {
+  [Environment]::GetEnvironmentVariable("WOOLIM_PC_WORKER_SECRET", "User")
+}
 $WorkerRoot = Join-Path $env:LOCALAPPDATA "WoolimWorker"
 $LogPath = Join-Path $WorkerRoot "worker.log"
 
