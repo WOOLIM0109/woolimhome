@@ -173,6 +173,7 @@ export async function processNextPortfolioDownload(candidateId?: string) {
     if (completeError) throw new Error(completeError.message);
     await admin.from("content_work_items").update({
       status: "researching",
+      summary: "NAVER WORKS 원본을 비공개 저장소에 안전하게 보관했습니다. 원본 폰트를 유지하는 슬라이드 이미지 변환을 기다리고 있습니다.",
       review_note: null,
       updated_at: completedAt,
     }).eq("id", job.work_item_id);
