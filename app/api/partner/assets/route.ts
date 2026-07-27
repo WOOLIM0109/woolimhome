@@ -21,6 +21,47 @@ type AssetRow = {
     | null;
 };
 
+const FALLBACK_SITE_URL = "https://woolim-site.vercel.app";
+
+function parsePortfolioAssetUrl(publicUrl: string, requestUrl: string) {
+  const requestOrigin = new URL(requestUrl).origin;
+  const configuredSiteUrl = process.env.NEXT_PUBLIC_SITE_URL || FALLBACK_SITE_URL;
+  const configuredOrigin = new URL(configuredSiteUrl).origin;
+  const parsed = new URL(publicUrl, configuredSiteUrl);
+  const decodedPath = decodeURIComponent(parsed.pathname);
+  const allowedOrigins = new Set([requestOrigin, configuredOrigin, new URL(FALLBACK_SITE_URL).origin]);
+
+  if (
+    !allowedOrigins.has(parsed.origin)
+    || !decodedPath.startsWith("/portfolio-drafts/")
+    || decodedPath.includes("..")
+    || !/\.(?:png|jpe?g|webp)$/i.test(decodedPath)
+  ) {
+    return null;
+  }
+
+  return parsed;
+}
+
+function assetFileName(asset: AssetRow, sourcePath: string) {
+  const originalName = decodeURIComponent(sourcePath.split("/").pop() || "");
+  if (/^[\p{L}\p{N}._-]+\.(?:png|jpe?g|webp)$/iu.test(originalName)) {
+    return originalName;
+  }
+
+  const extension = sourcePath.split(".").pop()?.toLowerCase() || "png";
+  return `${asset.asset_type}-${asset.id.slice(0, 8)}.${extension}`;
+}
+
+function assetHeaders(contentType: string, fileName: string, download: boolean) {
+  return {
+    "Content-Type": contentType,
+    "Cache-Control": "private, max-age=300",
+    "Content-Disposition": `${download ? "attachment" : "inline"}; filename*=UTF-8''${encodeURIComponent(fileName)}`,
+    Vary: "Cookie",
+  };
+}
+
 export async function GET(request: Request) {
   const user = await authenticatedPartner();
   if (!user) return NextResponse.json({ error: "접근 권한이 없습니다." }, { status: 401 });
@@ -52,7 +93,32 @@ export async function GET(request: Request) {
   }
 
   const stored = parseStoredAssetUrl(asset.public_url);
-  if (!stored) return NextResponse.json({ error: "지원하지 않는 이미지입니다." }, { status: 400 });
+  const download = url.searchParams.get("download") === "1";
+
+  if (!stored) {
+    const portfolioAsset = parsePortfolioAssetUrl(asset.public_url, request.url);
+    if (!portfolioAsset) {
+      return NextResponse.json({ error: "지원하지 않는 이미지입니다." }, { status: 400 });
+    }
+
+    try {
+      const response = await fetch(portfolioAsset, {
+        cache: "force-cache",
+        redirect: "error",
+      });
+      const contentType = response.headers.get("content-type") || "";
+      if (!response.ok || !contentType.startsWith("image/")) {
+        return NextResponse.json({ error: "이미지를 찾을 수 없습니다." }, { status: 404 });
+      }
+
+      const fileName = assetFileName(asset, portfolioAsset.pathname);
+      return new NextResponse(response.body, {
+        headers: assetHeaders(contentType, fileName, download),
+      });
+    } catch {
+      return NextResponse.json({ error: "이미지를 찾을 수 없습니다." }, { status: 404 });
+    }
+  }
 
   const { data: image, error: downloadError } = await admin.storage
     .from(stored.bucket)
@@ -65,16 +131,13 @@ export async function GET(request: Request) {
   }
 
   const extension = stored.path.split(".").pop()?.toLowerCase() || "png";
-  const fileName = `${asset.asset_type}-${asset.id.slice(0, 8)}.${extension}`;
-  const download = url.searchParams.get("download") === "1";
+  const fileName = assetFileName(asset, stored.path);
 
   return new NextResponse(image, {
-    headers: {
-      "Content-Type": image.type || (extension === "jpg" || extension === "jpeg" ? "image/jpeg" : "image/png"),
-      "Cache-Control": "private, max-age=300",
-      "Content-Disposition": `${download ? "attachment" : "inline"}; filename="${fileName}"`,
-      Vary: "Cookie",
-    },
+    headers: assetHeaders(
+      image.type || (extension === "jpg" || extension === "jpeg" ? "image/jpeg" : "image/png"),
+      fileName,
+      download,
+    ),
   });
 }
-
