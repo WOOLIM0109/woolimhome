@@ -32,6 +32,7 @@ export default function NaverWorksDrivePanel() {
   const [data, setData] = useState<StatusPayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
+  const [preparing, setPreparing] = useState(false);
   const [message, setMessage] = useState("");
 
   const loadStatus = useCallback(async () => {
@@ -68,6 +69,22 @@ export default function NaverWorksDrivePanel() {
     }
   }
 
+  async function prepareNext() {
+    setPreparing(true);
+    setMessage("");
+    try {
+      const response = await fetch("/api/admin/naver-works/prepare", { method: "POST" });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || "포트폴리오 준비에 실패했습니다.");
+      setMessage(payload.message);
+      await loadStatus();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "포트폴리오 준비에 실패했습니다.");
+    } finally {
+      setPreparing(false);
+    }
+  }
+
   const connected = data?.connection?.status === "connected";
 
   return (
@@ -98,6 +115,15 @@ export default function NaverWorksDrivePanel() {
             >
               {syncing ? <Loader2 size={16} className="animate-spin" /> : <RefreshCw size={16} />}
               지금 동기화
+            </button>
+            <button
+              type="button"
+              disabled={!connected || preparing}
+              onClick={prepareNext}
+              className="inline-flex items-center gap-2 rounded-xl border border-[var(--primary)] bg-white px-4 py-3 text-sm font-bold text-[var(--primary)] disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {preparing ? <Loader2 size={16} className="animate-spin" /> : <FileSearch size={16} />}
+              다음 포트폴리오 준비
             </button>
           </div>
         </div>
