@@ -56,12 +56,17 @@ function Upload-SignedFile {
   param(
     [string]$SignedUrl,
     [string]$FilePath,
-    [string]$ContentType
+    [string]$ContentType,
+    [string]$Authorization
   )
   Invoke-WebRequest `
     -Uri $SignedUrl `
     -Method Post `
-    -Headers @{ "x-upsert" = "true"; "cache-control" = "max-age=3600" } `
+    -Headers @{
+      "Authorization" = $Authorization
+      "x-upsert" = "true"
+      "cache-control" = "max-age=3600"
+    } `
     -ContentType $ContentType `
     -InFile $FilePath `
     -UseBasicParsing | Out-Null
@@ -223,11 +228,19 @@ function Convert-Presentation {
     }
     $pdfUpload = $uploadPlan.uploads | Where-Object { $_.kind -eq "pdf" } | Select-Object -First 1
     Write-WorkerLog "Uploading converted PDF and $($slidePaths.Count) slide images."
-    Upload-SignedFile -SignedUrl $pdfUpload.signedUrl -FilePath $PdfPath -ContentType "application/pdf"
+    Upload-SignedFile `
+      -SignedUrl $pdfUpload.signedUrl `
+      -FilePath $PdfPath `
+      -ContentType "application/pdf" `
+      -Authorization ([string]$uploadPlan.uploadAuthorization)
     $uploadedSlides = New-Object System.Collections.Generic.List[string]
     foreach ($upload in ($uploadPlan.uploads | Where-Object { $_.kind -eq "slide" } | Sort-Object index)) {
       $localSlide = $slidePaths[[int]$upload.index - 1]
-      Upload-SignedFile -SignedUrl $upload.signedUrl -FilePath $localSlide -ContentType "image/png"
+      Upload-SignedFile `
+        -SignedUrl $upload.signedUrl `
+        -FilePath $localSlide `
+        -ContentType "image/png" `
+        -Authorization ([string]$uploadPlan.uploadAuthorization)
       $uploadedSlides.Add([string]$upload.path)
     }
     Invoke-WorkerApi -Path "/api/worker/jobs/complete" -Body @{

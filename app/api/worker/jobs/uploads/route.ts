@@ -13,6 +13,10 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Invalid upload request." }, { status: 400 });
   }
   const admin = contentAdmin();
+  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  if (!anonKey) {
+    return NextResponse.json({ error: "Supabase upload authorization is missing." }, { status: 500 });
+  }
   const { data: job, error: jobError } = await admin.from("content_jobs")
     .select("id,candidate_id")
     .eq("id", body.jobId)
@@ -51,5 +55,9 @@ export async function POST(request: Request) {
     if (error || !data) return NextResponse.json({ error: error?.message || "Upload URL failed." }, { status: 500 });
     uploads.push({ ...spec, signedUrl: data.signedUrl });
   }
-  return NextResponse.json({ bucket, uploads });
+  return NextResponse.json({
+    bucket,
+    uploadAuthorization: `Bearer ${anonKey}`,
+    uploads,
+  });
 }
