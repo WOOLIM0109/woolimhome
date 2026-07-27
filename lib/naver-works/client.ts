@@ -25,6 +25,16 @@ export type WorksDriveFile = {
   fileExtension?: string;
 };
 
+export type WorksSharedFolder = {
+  sharedFolderId: string;
+  sharedFolderName: string;
+  rootFileId: string;
+  ownerId?: string;
+  ownerName?: string;
+  modifiedTime?: string;
+  permissionType?: "READ" | "WRITE";
+};
+
 function credentials() {
   const clientId = process.env.NAVER_WORKS_CLIENT_ID;
   const clientSecret = process.env.NAVER_WORKS_CLIENT_SECRET;
@@ -153,6 +163,30 @@ export async function listDriveChildren(fileId: string, cursor?: string) {
   if (cursor) query.set("cursor", cursor);
   return worksApi<{ files: WorksDriveFile[]; responseMetaData?: { nextCursor?: string } }>(
     `/users/me/drive/files/${encodeURIComponent(fileId)}/children?${query}`,
+  );
+}
+
+export async function listSharedFolders(cursor?: string) {
+  const query = new URLSearchParams({ count: "200", orderBy: "modifiedTime desc" });
+  if (cursor) query.set("cursor", cursor);
+  return worksApi<{ sharedFolders: WorksSharedFolder[]; responseMetaData?: { nextCursor?: string } }>(
+    `/users/me/drive/sharedfolders?${query}`,
+  );
+}
+
+export async function listSharedFolderRoot(sharedFolderId: string, cursor?: string) {
+  const query = new URLSearchParams({ count: "200", orderBy: "modifiedTime desc" });
+  if (cursor) query.set("cursor", cursor);
+  return worksApi<{ files: WorksDriveFile[]; responseMetaData?: { nextCursor?: string } }>(
+    `/users/me/drive/sharedfolders/${encodeURIComponent(sharedFolderId)}/files?${query}`,
+  );
+}
+
+export async function listSharedFolderChildren(sharedFolderId: string, fileId: string, cursor?: string) {
+  const query = new URLSearchParams({ count: "200", orderBy: "modifiedTime desc" });
+  if (cursor) query.set("cursor", cursor);
+  return worksApi<{ files: WorksDriveFile[]; responseMetaData?: { nextCursor?: string } }>(
+    `/users/me/drive/sharedfolders/${encodeURIComponent(sharedFolderId)}/files/${encodeURIComponent(fileId)}/children?${query}`,
   );
 }
 
