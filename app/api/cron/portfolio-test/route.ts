@@ -25,7 +25,57 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   const admin = createAdminClient();
-  if (oneTimeAuthorized && new URL(request.url).searchParams.get("inspect") === "1") {
+  const searchParams = new URL(request.url).searchParams;
+  if (oneTimeAuthorized && searchParams.get("preview") === "1") {
+    const { data: previewItem, error: previewError } = await admin.from("content_work_items")
+      .select("id,title,summary,status,metadata")
+      .eq("schedule_key", TEST_SCHEDULE_KEY)
+      .single();
+    if (previewError) {
+      return NextResponse.json({ error: previewError.message }, { status: 500 });
+    }
+    const assetIndex = searchParams.get("asset");
+    if (assetIndex !== null) {
+      const { data: assets, error: assetError } = await admin.from("content_review_assets")
+        .select("public_url")
+        .eq("work_item_id", previewItem.id)
+        .order("sort_order", { ascending: true });
+      if (assetError) {
+        return NextResponse.json({ error: assetError.message }, { status: 500 });
+      }
+      const asset = assets?.[Number(assetIndex)];
+      if (!asset?.public_url) {
+        return NextResponse.json({ error: "Asset not found" }, { status: 404 });
+      }
+      const assetUrl = new URL(asset.public_url, request.url);
+      const bucket = assetUrl.searchParams.get("bucket");
+      const path = assetUrl.searchParams.get("path");
+      if (!bucket || !path) {
+        return NextResponse.json({ error: "Invalid asset reference" }, { status: 500 });
+      }
+      const { data, error } = await admin.storage.from(bucket).download(path);
+      if (error || !data) {
+        return NextResponse.json({ error: error?.message || "Asset download failed" }, { status: 500 });
+      }
+      return new Response(data, {
+        headers: {
+          "Content-Type": data.type || "image/jpeg",
+          "Cache-Control": "private, no-store",
+        },
+      });
+    }
+    return NextResponse.json({
+      title: previewItem.title,
+      summary: previewItem.summary,
+      status: previewItem.status,
+      generated: previewItem.metadata?.generated || null,
+      portfolioReview: previewItem.metadata?.portfolioReview || null,
+      validation: previewItem.metadata?.validation || null,
+    }, {
+      headers: { "Cache-Control": "private, no-store" },
+    });
+  }
+  if (oneTimeAuthorized && searchParams.get("inspect") === "1") {
     const { data, error } = await admin.from("portfolio_candidates")
       .select("id,project_name,quality_score,status,naver_works_drive_files(file_name,file_path,file_extension,file_size)")
       .eq("status", "candidate")
