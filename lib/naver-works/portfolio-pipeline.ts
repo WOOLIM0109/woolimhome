@@ -29,6 +29,8 @@ const STRONG_PROJECT_SIGNAL =
   /크몽|포트폴리오|ppt\s*디자인|회사\s*소개서|기업\s*소개서|제품\s*소개서|사업\s*제안서|입찰\s*제안서|투자\s*제안서|ir|브랜딩|리플렛|카탈로그/i;
 const NON_PROJECT_SIGNAL =
   /양식|공고|신청서|모집|제출서류|별첨|붙임|증빙|매뉴얼|가이드|보고서\s*양식/i;
+const NON_PRESENTATION_FORMAT_SIGNAL =
+  /세로|상세\s*페이지|웹\s*홍보|카드\s*뉴스|인스타|sns|배너|스마트\s*스토어/i;
 
 function driveFile(candidate: CandidateRow) {
   return Array.isArray(candidate.naver_works_drive_files)
@@ -44,6 +46,7 @@ function projectScore(candidate: CandidateRow) {
   if (STRONG_PROJECT_SIGNAL.test(label)) score += 35;
   if (/\.(ppt|pptx)$/i.test(file.file_name)) score += 15;
   if (NON_PROJECT_SIGNAL.test(label)) score -= 60;
+  if (NON_PRESENTATION_FORMAT_SIGNAL.test(label)) score -= 1000;
   if (sensitivePortfolioDocument({ fileName: file.file_name, filePath: file.file_path })) score -= 1000;
   return score;
 }

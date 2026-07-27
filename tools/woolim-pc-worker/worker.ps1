@@ -189,6 +189,53 @@ function Convert-Presentation {
     Write-WorkerLog "PowerPoint opened local copy (readOnly=$($presentation.ReadOnly))."
     $slideWidth = [double]$presentation.PageSetup.SlideWidth
     $slideHeight = [double]$presentation.PageSetup.SlideHeight
+    $aspectRatio = $slideWidth / $slideHeight
+    if ($aspectRatio -lt 1.2 -or $aspectRatio -gt 2.2) {
+      throw "NON_PRESENTATION_LAYOUT: Slide ratio $([Math]::Round($aspectRatio, 3)) is not a supported landscape presentation."
+    }
+    if ([int]$presentation.Slides.Count -lt 5) {
+      throw "NON_PRESENTATION_LAYOUT: A portfolio presentation must contain at least 5 slides."
+    }
+
+    Add-Type -AssemblyName System.Drawing
+    $installedFonts = [System.Drawing.Text.InstalledFontCollection]::new().Families.Name
+    $installedNormalized = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
+    foreach ($installedFont in $installedFonts) {
+      $normalizedInstalled = ([string]$installedFont -replace '\s+(Thin|ExtraLight|Light|Regular|Medium|SemiBold|DemiBold|Bold|ExtraBold|Black|Italic)$', '').Trim()
+      [void]$installedNormalized.Add($normalizedInstalled)
+    }
+    $declaredFonts = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
+    foreach ($slide in $presentation.Slides) {
+      foreach ($shape in $slide.Shapes) {
+        try {
+          if ($shape.HasTextFrame -and $shape.TextFrame.HasText) {
+            $fontName = [string]$shape.TextFrame.TextRange.Font.Name
+            if ($fontName) { [void]$declaredFonts.Add($fontName) }
+          }
+          if ([int]$shape.Type -eq 6) {
+            foreach ($child in $shape.GroupItems) {
+              try {
+                if ($child.HasTextFrame -and $child.TextFrame.HasText) {
+                  $childFontName = [string]$child.TextFrame.TextRange.Font.Name
+                  if ($childFontName) { [void]$declaredFonts.Add($childFontName) }
+                }
+              } catch {}
+            }
+          }
+        } catch {}
+      }
+    }
+    $missingFonts = New-Object System.Collections.Generic.List[string]
+    foreach ($declaredFont in $declaredFonts) {
+      $normalizedDeclared = ([string]$declaredFont -replace '\s+(Thin|ExtraLight|Light|Regular|Medium|SemiBold|DemiBold|Bold|ExtraBold|Black|Italic)$', '').Trim()
+      if (-not $installedNormalized.Contains($normalizedDeclared)) {
+        $missingFonts.Add([string]$declaredFont)
+      }
+    }
+    if ($missingFonts.Count -gt 0) {
+      throw "MISSING_FONTS: PowerPoint cannot find these source fonts: $($missingFonts -join ', ')."
+    }
+    Write-WorkerLog "Presentation layout and $($declaredFonts.Count) declared fonts verified."
     $exportWidth = 2000
     $exportHeight = [Math]::Max(1, [int][Math]::Round($exportWidth * $slideHeight / $slideWidth))
     $slidePaths = New-Object System.Collections.Generic.List[string]
@@ -296,10 +343,15 @@ do {
       } catch {
         $message = $_.Exception.Message
         Write-WorkerLog "Failed job $($claim.job.id): $message"
+        $retryable = -not (
+          $message.StartsWith("NON_PRESENTATION_LAYOUT:") -or
+          $message.StartsWith("MISSING_FONTS:")
+        )
         try {
           Invoke-WorkerApi -Path "/api/worker/jobs/fail" -Body @{
             jobId = [string]$claim.job.id
             error = $message
+            retryable = $retryable
           } | Out-Null
         } catch {
           Write-WorkerLog "Could not report failure: $($_.Exception.Message)"
