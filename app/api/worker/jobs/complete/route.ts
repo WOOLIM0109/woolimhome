@@ -20,9 +20,6 @@ export async function POST(request: Request) {
   if (jobError) return NextResponse.json({ error: jobError.message }, { status: 404 });
   const now = new Date().toISOString();
   const slidePaths = body.slidePaths.slice(0, 100) as string[];
-  const reviewUrls = slidePaths.map((path) =>
-    `/api/admin/assets?bucket=${encodeURIComponent(body.bucket)}&path=${encodeURIComponent(path)}`);
-
   await admin.from("content_jobs").update({
     status: "completed",
     completed_at: now,
@@ -61,20 +58,10 @@ export async function POST(request: Request) {
     .in("status", ["on_hold", "failed"]);
 
   await admin.from("content_review_assets").delete().eq("work_item_id", job.work_item_id);
-  if (reviewUrls.length) {
-    await admin.from("content_review_assets").insert(reviewUrls.slice(0, 12).map((url, index) => ({
-      work_item_id: job.work_item_id,
-      asset_type: index === 0 ? "thumbnail" : "body_image",
-      public_url: url,
-      sort_order: index,
-      approved: false,
-      review_note: "PowerPoint 원본 렌더링 결과",
-    })));
-  }
   await admin.from("content_work_items").update({
-    status: "review_required",
-    summary: `PowerPoint 원본 글꼴을 유지해 ${slidePaths.length}장의 슬라이드 이미지를 만들었습니다. 개인정보와 사용할 장면을 검토해주세요.`,
-    review_note: "PC PowerPoint 변환 완료. 목업 합성 전 원본 렌더링 검토 단계입니다.",
+    status: "creating",
+    summary: `PowerPoint 원본 글꼴을 유지해 ${slidePaths.length}장의 슬라이드를 정확히 변환했습니다. 실제 페이지 적합성 판정과 목업 제작을 이어서 진행합니다.`,
+    review_note: null,
     updated_at: now,
   }).eq("id", job.work_item_id);
   await admin.from("content_workers").update({

@@ -186,21 +186,11 @@ async function completePdfImageJob(
     .eq("job_type", "mockup")
     .in("status", ["on_hold", "failed"]);
 
-  const reviewUrls = slidePaths.map((path) =>
-    `/api/admin/assets?bucket=${encodeURIComponent(bucket)}&path=${encodeURIComponent(path)}`);
   await admin.from("content_review_assets").delete().eq("work_item_id", job.work_item_id);
-  await admin.from("content_review_assets").insert(reviewUrls.slice(0, 12).map((url, index) => ({
-    work_item_id: job.work_item_id,
-    asset_type: index === 0 ? "thumbnail" : "body_image",
-    public_url: url,
-    sort_order: index,
-    approved: false,
-    review_note: "PDF 원본 페이지 렌더링 결과",
-  })));
   await admin.from("content_work_items").update({
-    status: "review_required",
-    summary: `함께 제공된 PDF 원본을 우선 사용해 ${slidePaths.length}장의 페이지 이미지를 만들었습니다. 프로젝트 적합성과 사용할 장면을 검토해주세요.`,
-    review_note: "PDF 우선 변환 완료. 목업 합성 전 원본 페이지 검토 단계입니다.",
+    status: "creating",
+    summary: `PDF 원본에서 ${slidePaths.length}장의 페이지를 정확히 변환했습니다. 실제 페이지 적합성 판정과 목업 제작을 이어서 진행합니다.`,
+    review_note: null,
     updated_at: completedAt,
   }).eq("id", job.work_item_id);
 

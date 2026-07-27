@@ -13,8 +13,20 @@ type WorkItem = {
   source_label: string | null;
   scheduled_at: string | null;
   review_note: string | null;
-  metadata?: { generated?: { bodyHtml?: string; faq?: { question: string; answer: string }[]; tags?: string[] } };
-  content_review_assets?: { id: string; asset_type: "thumbnail" | "body_image" | "article_preview"; public_url: string }[];
+  metadata?: {
+    generated?: { bodyHtml?: string; faq?: { question: string; answer: string }[]; tags?: string[] };
+    portfolioReview?: {
+      suitable?: boolean;
+      confidence?: number;
+      documentType?: string;
+      industry?: string;
+      reasons?: string[];
+      rejectionReasons?: string[];
+      sensitiveRegions?: unknown[];
+    };
+    validation?: { plainLength?: number; h2Count?: number; faqCount?: number; figureCount?: number; issues?: string[] };
+  };
+  content_review_assets?: { id: string; asset_type: "thumbnail" | "body_image" | "article_preview"; public_url: string; sort_order?: number; review_note?: string }[];
 };
 
 export default function WorkQueue({ channel, reviewMode = false }: { channel?: ContentChannel; reviewMode?: boolean }) {
@@ -76,10 +88,37 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
             </div>
             <StatusBadge status={item.status} />
           </div>
+          {item.metadata?.portfolioReview && (
+            <section className="mt-5 rounded-xl border border-violet-200 bg-violet-50/60 p-4 text-sm">
+              <div className="flex flex-wrap items-center gap-2 font-bold">
+                <span>실제 페이지 판정</span>
+                <span className="rounded-full bg-white px-3 py-1 text-xs">
+                  신뢰도 {Math.round(Number(item.metadata.portfolioReview.confidence || 0) * 100)}%
+                </span>
+                {item.metadata.portfolioReview.documentType && (
+                  <span className="rounded-full bg-white px-3 py-1 text-xs">{item.metadata.portfolioReview.documentType}</span>
+                )}
+                {item.metadata.portfolioReview.industry && (
+                  <span className="rounded-full bg-white px-3 py-1 text-xs">{item.metadata.portfolioReview.industry}</span>
+                )}
+              </div>
+              {(item.metadata.portfolioReview.reasons || []).length > 0 && (
+                <ul className="mt-3 list-disc space-y-1 pl-5 text-[var(--muted)]">
+                  {item.metadata.portfolioReview.reasons?.map((reason) => <li key={reason}>{reason}</li>)}
+                </ul>
+              )}
+              <p className="mt-3 text-xs text-[var(--muted)]">
+                자동 가림 후보 {item.metadata.portfolioReview.sensitiveRegions?.length || 0}곳
+                {item.metadata.validation?.plainLength ? ` · 본문 ${item.metadata.validation.plainLength.toLocaleString()}자` : ""}
+                {item.metadata.validation?.figureCount ? ` · 완성 이미지 ${item.metadata.validation.figureCount + 1}장` : ""}
+              </p>
+            </section>
+          )}
           {item.content_review_assets?.some((asset) =>
             reviewMode || asset.asset_type === "thumbnail") ? (
             <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              {item.content_review_assets
+              {[...item.content_review_assets]
+                .sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0))
                 .filter((asset) => reviewMode || asset.asset_type === "thumbnail")
                 .map((asset, index) => (
                 // eslint-disable-next-line @next/next/no-img-element
@@ -94,7 +133,7 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
           ) : null}
           {item.metadata?.generated?.bodyHtml && (
             <details className="mt-5 rounded-xl border border-[var(--line)] bg-white p-5">
-              <summary className="cursor-pointer font-bold">글 전체 미리보기</summary>
+              <summary className="cursor-pointer font-bold">이미지가 배치된 글 전체 미리보기</summary>
               <div className="column-body mt-5" dangerouslySetInnerHTML={{ __html: item.metadata.generated.bodyHtml }} />
               {item.metadata.generated.faq?.length ? <section className="mt-7 border-t border-[var(--line)] pt-5"><h3 className="text-lg font-bold">FAQ</h3>{item.metadata.generated.faq.map((faq) => <div key={faq.question} className="mt-4"><p className="font-bold">{faq.question}</p><p className="mt-1 text-sm leading-6 text-[var(--muted)]">{faq.answer}</p></div>)}</section> : null}
             </details>

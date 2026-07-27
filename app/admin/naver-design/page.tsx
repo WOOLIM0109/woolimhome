@@ -5,6 +5,7 @@ import ManualGenerateButton from "@/components/admin/ManualGenerateButton";
 import WorkQueue from "@/components/admin/WorkQueue";
 import TwoWeekSchedule from "@/components/admin/TwoWeekSchedule";
 import PcWorkerStatus from "@/components/admin/PcWorkerStatus";
+import PortfolioGenerateButton from "@/components/admin/PortfolioGenerateButton";
 
 export default function NaverDesignAdminPage() {
   return (
@@ -13,6 +14,7 @@ export default function NaverDesignAdminPage() {
       description="포트폴리오 선정과 이미지 제작 과정은 내부에서 처리하고, 대표님에게는 완성된 JPG·PNG와 본문만 검토 요청합니다."
       actions={(
         <>
+          <PortfolioGenerateButton />
           <ManualGenerateButton />
           <a href="https://blog.naver.com/wl_0109" target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 rounded-xl border border-[var(--line)] bg-white px-4 py-3 font-bold">
             블로그 열기 <ExternalLink size={17} />

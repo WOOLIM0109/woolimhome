@@ -50,7 +50,8 @@ export default function NaverWorksDrivePanel() {
   }, []);
 
   useEffect(() => {
-    void loadStatus();
+    const timer = window.setTimeout(() => void loadStatus(), 0);
+    return () => window.clearTimeout(timer);
   }, [loadStatus]);
 
   async function syncNow() {
@@ -73,10 +74,17 @@ export default function NaverWorksDrivePanel() {
     setPreparing(true);
     setMessage("");
     try {
-      const response = await fetch("/api/admin/naver-works/prepare", { method: "POST" });
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error || "포트폴리오 준비에 실패했습니다.");
-      setMessage(payload.message);
+      let finalMessage = "";
+      for (let attempt = 0; attempt < 12; attempt += 1) {
+        const response = await fetch("/api/admin/naver-works/prepare", { method: "POST" });
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload.error || "포트폴리오 준비에 실패했습니다.");
+        finalMessage = payload.message;
+        setMessage(`${payload.message}${payload.shouldContinue ? ` · ${attempt + 1}단계 처리 중` : ""}`);
+        if (!payload.shouldContinue || payload.stage === "review") break;
+        await new Promise((resolve) => window.setTimeout(resolve, payload.stage === "converting" ? 5000 : 900));
+      }
+      setMessage(finalMessage);
       await loadStatus();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "포트폴리오 준비에 실패했습니다.");
