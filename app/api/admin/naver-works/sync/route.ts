@@ -113,6 +113,7 @@ async function crawlRoot(rootId: string, rootLister: FileLister, childLister: Ch
   let indexed = 0;
   let supported = 0;
   const folders: string[] = [];
+  const deadline = Date.now() + 40_000;
 
   async function consume(lister: FileLister) {
     let cursor: string | undefined;
@@ -123,13 +124,21 @@ async function crawlRoot(rootId: string, rootLister: FileLister, childLister: Ch
       const saved = await saveFiles(rootId, files);
       indexed += saved.indexed;
       supported += saved.supported;
-      folders.push(...files.filter((file) => file.fileType === "FOLDER").map((file) => file.fileId));
+      const discoveredFolders = files
+        .filter((file) => file.fileType === "FOLDER")
+        .sort((a, b) => {
+          const aPriority = /ppt|포트폴리오|디자인|제안서|사업계획서|ir/i.test(a.fileName) ? 1 : 0;
+          const bPriority = /ppt|포트폴리오|디자인|제안서|사업계획서|ir/i.test(b.fileName) ? 1 : 0;
+          return bPriority - aPriority;
+        })
+        .map((file) => file.fileId);
+      folders.push(...discoveredFolders);
       cursor = page.responseMetaData?.nextCursor;
-    } while (cursor && indexed < limit);
+    } while (cursor && indexed < limit && Date.now() < deadline);
   }
 
   await consume(rootLister);
-  while (folders.length && indexed < limit) {
+  while (folders.length && indexed < limit && Date.now() < deadline) {
     const folderId = folders.shift()!;
     await consume((cursor) => childLister(folderId, cursor));
   }
