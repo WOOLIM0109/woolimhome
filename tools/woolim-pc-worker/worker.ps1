@@ -59,11 +59,13 @@ function Upload-SignedFile {
     [string]$ContentType,
     [string]$Authorization
   )
+  $apiKey = $Authorization -replace "^Bearer\s+", ""
   Invoke-WebRequest `
     -Uri $SignedUrl `
-    -Method Post `
+    -Method Put `
     -Headers @{
       "Authorization" = $Authorization
+      "apikey" = $apiKey
       "x-upsert" = "true"
       "cache-control" = "max-age=3600"
     } `
