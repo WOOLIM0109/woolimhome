@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { authenticatedAdmin, contentAdmin } from "@/lib/content-ops/data";
-import { sensitivePortfolioDocument } from "@/lib/naver-works/client";
+import { supportedPortfolioFile } from "@/lib/naver-works/client";
 
 export const dynamic = "force-dynamic";
 
@@ -23,7 +23,7 @@ export async function GET() {
     const driveFile = Array.isArray(candidate.naver_works_drive_files)
       ? candidate.naver_works_drive_files[0]
       : candidate.naver_works_drive_files;
-    return !driveFile || !sensitivePortfolioDocument({
+    return Boolean(driveFile) && supportedPortfolioFile({
       fileName: driveFile.file_name,
       filePath: driveFile.file_path,
     });

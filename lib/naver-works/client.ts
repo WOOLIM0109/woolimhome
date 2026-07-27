@@ -255,7 +255,20 @@ export function sensitivePortfolioDocument(file: Pick<WorksDriveFile, "fileName"
   return sensitiveDocumentPattern.test(`${file.filePath || ""}/${file.fileName}`);
 }
 
-export function supportedPortfolioFile(file: WorksDriveFile) {
+export function approvedPortfolioSource(file: Pick<WorksDriveFile, "filePath">) {
+  const segments = (file.filePath || "")
+    .split(/[\\/>]+/)
+    .map((segment) => segment.trim())
+    .filter(Boolean);
+  const completedRoot = segments.findIndex((segment) => segment === "완성본_외부공유금지");
+  if (completedRoot < 0) return false;
+  if (segments.some((segment) => segment === "레퍼런스")) return false;
+  return segments[completedRoot + 1]?.toLowerCase() === "ppt";
+}
+
+export function supportedPortfolioFile(
+  file: Pick<WorksDriveFile, "fileName" | "filePath">,
+) {
   if (!/\.(ppt|pptx|pdf)$/i.test(file.fileName)) return false;
-  return !sensitivePortfolioDocument(file);
+  return approvedPortfolioSource(file) && !sensitivePortfolioDocument(file);
 }

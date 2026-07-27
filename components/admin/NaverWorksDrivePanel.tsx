@@ -61,7 +61,10 @@ export default function NaverWorksDrivePanel() {
       const response = await fetch("/api/admin/naver-works/sync", { method: "POST" });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error || "동기화에 실패했습니다.");
-      setMessage(`파일 ${payload.indexed}개를 확인했고 포트폴리오 가능 파일 ${payload.supported}개를 찾았습니다.`);
+      const cleanupText = payload.cleanup?.removedCandidates || payload.cleanup?.removedWorkItems
+        ? ` 잘못 수집된 후보 ${payload.cleanup.removedCandidates || 0}개와 작업 ${payload.cleanup.removedWorkItems || 0}개를 제외했습니다.`
+        : "";
+      setMessage(`파일 ${payload.indexed}개를 확인했고 지정된 PPT 폴더에서 포트폴리오 가능 파일 ${payload.supported}개를 찾았습니다.${cleanupText}`);
       await loadStatus();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "동기화에 실패했습니다.");
@@ -104,7 +107,7 @@ export default function NaverWorksDrivePanel() {
             <div>
               <h2 className="text-xl font-bold">NAVER WORKS 프로젝트 자료 자동 수집</h2>
               <p className="mt-1 text-sm leading-6 text-[var(--muted)]">
-                Drive의 PPT·PPTX·PDF를 읽기 전용으로 확인하고, 디자인 블로그 포트폴리오 후보를 자동 선별합니다.
+                Drive의 완성본_외부공유금지/PPT 폴더만 읽기 전용으로 확인합니다. 레퍼런스와 다른 폴더의 자료는 후보에서 제외합니다.
               </p>
             </div>
           </div>

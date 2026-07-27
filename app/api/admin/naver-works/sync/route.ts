@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { authenticatedAdmin, contentAdmin } from "@/lib/content-ops/data";
 import {
+  approvedPortfolioSource,
   driveFileFingerprint,
   listDriveChildren,
   listDriveRoot,
@@ -10,7 +11,6 @@ import {
   listSharedFolderChildren,
   listSharedFolderRoot,
   listSharedFolders,
-  sensitivePortfolioDocument,
   supportedPortfolioFile,
   type WorksDriveFile,
 } from "@/lib/naver-works/client";
@@ -137,8 +137,14 @@ async function crawlRoot(rootId: string, rootLister: FileLister, childLister: Ch
       const discoveredFolders = files
         .filter((file) => file.fileType === "FOLDER")
         .sort((a, b) => {
-          const aPriority = /ppt|포트폴리오|디자인|제안서|사업계획서|ir/i.test(a.fileName) ? 1 : 0;
-          const bPriority = /ppt|포트폴리오|디자인|제안서|사업계획서|ir/i.test(b.fileName) ? 1 : 0;
+          const priority = (name: string) => {
+            if (name === "완성본_외부공유금지") return 3;
+            if (name.toLowerCase() === "ppt") return 2;
+            if (name === "레퍼런스") return -1;
+            return /포트폴리오|디자인|제안서|사업계획서|ir/i.test(name) ? 1 : 0;
+          };
+          const aPriority = priority(a.fileName);
+          const bPriority = priority(b.fileName);
           return bPriority - aPriority;
         })
         .map((file) => file.fileId);
@@ -184,29 +190,83 @@ async function crawlSharedDrives(limit = 1000) {
   return { indexed, supported, driveCount: drives.length };
 }
 
-async function removeSensitiveCandidates() {
+async function removeIneligibleCandidates() {
   const admin = contentAdmin();
   const { data, error } = await admin.from("naver_works_drive_files")
     .select("id,file_name,file_path")
     .limit(5000);
   if (error) throw new Error(error.message);
   const ids = (data || [])
-    .filter((file) => sensitivePortfolioDocument({
+    .filter((file) => !supportedPortfolioFile({
       fileName: file.file_name,
       filePath: file.file_path,
     }))
     .map((file) => file.id);
+  let removedCandidates = 0;
+  let removedWorkItems = 0;
+  const removedWorkItemIds = new Set<string>();
   for (let index = 0; index < ids.length; index += 100) {
     const chunk = ids.slice(index, index + 100);
+    const { data: invalidCandidates, error: candidateReadError } = await admin
+      .from("portfolio_candidates")
+      .select("id,metadata")
+      .in("drive_file_id", chunk);
+    if (candidateReadError) throw new Error(candidateReadError.message);
+    const workItemIds = (invalidCandidates || [])
+      .map((candidate) => candidate.metadata?.workItemId)
+      .filter((value): value is string => typeof value === "string");
     const { error: cleanupError } = await admin.from("portfolio_candidates")
       .delete()
       .in("drive_file_id", chunk);
     if (cleanupError) throw new Error(cleanupError.message);
+    removedCandidates += invalidCandidates?.length || 0;
+    if (workItemIds.length) {
+      const { data: deletedItems, error: workItemError } = await admin
+        .from("content_work_items")
+        .delete()
+        .in("id", workItemIds)
+        .neq("status", "published")
+        .select("id");
+      if (workItemError) throw new Error(workItemError.message);
+      removedWorkItems += deletedItems?.length || 0;
+      deletedItems?.forEach((item) => removedWorkItemIds.add(item.id));
+    }
     const { error: fileError } = await admin.from("naver_works_drive_files")
       .update({ supported: false, updated_at: new Date().toISOString() })
       .in("id", chunk);
     if (fileError) throw new Error(fileError.message);
   }
+  const { data: portfolioItems, error: portfolioItemsError } = await admin
+    .from("content_work_items")
+    .select("id,source_reference,metadata")
+    .eq("channel", "naver_design")
+    .eq("format", "portfolio")
+    .neq("status", "published")
+    .limit(1000);
+  if (portfolioItemsError) throw new Error(portfolioItemsError.message);
+  const invalidWorkItemIds = (portfolioItems || [])
+    .filter((item) => {
+      const sourcePath = typeof item.metadata?.sourcePath === "string"
+        ? item.metadata.sourcePath
+        : item.source_reference;
+      return typeof sourcePath === "string"
+        && sourcePath.length > 0
+        && !approvedPortfolioSource({ filePath: sourcePath });
+    })
+    .map((item) => item.id)
+    .filter((id) => !removedWorkItemIds.has(id));
+  for (let index = 0; index < invalidWorkItemIds.length; index += 100) {
+    const chunk = invalidWorkItemIds.slice(index, index + 100);
+    const { data: deletedItems, error: workItemError } = await admin
+      .from("content_work_items")
+      .delete()
+      .in("id", chunk)
+      .neq("status", "published")
+      .select("id");
+    if (workItemError) throw new Error(workItemError.message);
+    removedWorkItems += deletedItems?.length || 0;
+  }
+  return { removedCandidates, removedWorkItems };
 }
 
 export async function POST() {
@@ -268,11 +328,12 @@ export async function POST() {
       }
     }
 
-    await removeSensitiveCandidates();
+    const cleanup = await removeIneligibleCandidates();
     return NextResponse.json({
       indexed,
       supported,
-      note: `${source}에서 최대 1,000개까지 확인했습니다.`,
+      cleanup,
+      note: `${source}의 '완성본_외부공유금지/PPT' 폴더에서 최대 1,000개까지 확인했습니다.`,
     });
   } catch (error) {
     return NextResponse.json({

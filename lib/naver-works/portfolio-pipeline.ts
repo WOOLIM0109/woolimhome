@@ -1,7 +1,7 @@
 import { contentAdmin } from "@/lib/content-ops/data";
 import { generateGeminiJson } from "@/lib/portfolio/gemini";
 import { fetchExistingDesignBlogTitles } from "@/lib/portfolio/naver-blog";
-import { sensitivePortfolioDocument } from "./client";
+import { sensitivePortfolioDocument, supportedPortfolioFile } from "./client";
 
 type CandidateRow = {
   id: string;
@@ -62,7 +62,7 @@ function projectScore(candidate: CandidateRow) {
   if (/\.(ppt|pptx)$/i.test(file.file_name)) score += 15;
   if (NON_PROJECT_SIGNAL.test(label)) score -= 60;
   if (NON_PRESENTATION_FORMAT_SIGNAL.test(label)) score -= 1000;
-  if (sensitivePortfolioDocument({ fileName: file.file_name, filePath: file.file_path })) score -= 1000;
+  if (!supportedPortfolioFile({ fileName: file.file_name, filePath: file.file_path })) score -= 1000;
   return score;
 }
 
@@ -70,7 +70,8 @@ function metadataEligible(candidate: CandidateRow) {
   const file = driveFile(candidate);
   if (!file) return false;
   const label = `${file.file_path || ""}/${file.file_name}`;
-  return !NON_PROJECT_SIGNAL.test(label)
+  return supportedPortfolioFile({ fileName: file.file_name, filePath: file.file_path })
+    && !NON_PROJECT_SIGNAL.test(label)
     && !NON_PRESENTATION_FORMAT_SIGNAL.test(label)
     && !sensitivePortfolioDocument({ fileName: file.file_name, filePath: file.file_path });
 }
@@ -116,6 +117,7 @@ async function aiShortlist(candidates: CandidateRow[]) {
     {
       text: `당신은 디자인 에이전시의 프로젝트 자료 선별자입니다.
 다음 목록은 NAVER WORKS Drive에서 찾은 PPT·PPTX·PDF입니다. 파일을 열기 전에 이름·경로·용량만 보고, 실제로 완성된 비즈니스 문서 디자인 프로젝트일 가능성이 높은 항목 5~10개를 순서대로 고르세요.
+입력 목록은 반드시 '완성본_외부공유금지/PPT' 폴더 안의 울림 작업물만 사용하며, 레퍼런스 폴더 자료는 어떤 경우에도 선택하지 않습니다.
 
 우선순위:
 - 회사소개서, 제품소개서, 제안서, IR, 사업계획서, 발표자료처럼 디자인과 기획 구조를 보여줄 수 있는 완성 문서
