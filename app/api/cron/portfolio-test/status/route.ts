@@ -18,7 +18,7 @@ export async function GET() {
   }
   const [{ data: jobs }, { count: assetCount }, { data: candidates }] = await Promise.all([
     admin.from("content_jobs")
-      .select("job_type,status")
+      .select("job_type,status,error_message")
       .eq("work_item_id", workItem.id)
       .order("created_at", { ascending: true }),
     admin.from("content_review_assets")
@@ -37,7 +37,11 @@ export async function GET() {
     hasDraft: Boolean(workItem.metadata?.generated?.bodyHtml),
     validation: workItem.metadata?.validation || null,
     assetCount: assetCount || 0,
-    jobs: jobs || [],
+    jobs: (jobs || []).map((job) => ({
+      job_type: job.job_type,
+      status: job.status,
+      error: job.status === "failed" ? job.error_message : null,
+    })),
     candidateStatusCounts,
   }, {
     headers: { "Cache-Control": "private, no-store" },
