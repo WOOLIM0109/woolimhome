@@ -2,6 +2,8 @@ import { contentAdmin } from "@/lib/content-ops/data";
 import { downloadSharedDriveFile } from "./client";
 
 const MAX_SOURCE_BYTES = 75 * 1024 * 1024;
+const RESUMABLE_THRESHOLD_BYTES = 6 * 1024 * 1024;
+const TUS_CHUNK_BYTES = 6 * 1024 * 1024;
 
 function contentType(fileName: string) {
   if (/\.pptx$/i.test(fileName)) {
@@ -15,6 +17,63 @@ function contentType(fileName: string) {
 function safeStorageName(fileName: string) {
   const extension = fileName.match(/\.[a-z0-9]+$/i)?.[0] || "";
   return `${crypto.randomUUID()}${extension.toLowerCase()}`;
+}
+
+function metadataValue(value: string) {
+  return Buffer.from(value, "utf8").toString("base64");
+}
+
+async function resumableUpload(
+  bucket: string,
+  storagePath: string,
+  bytes: Uint8Array,
+  mimeType: string,
+) {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!supabaseUrl || !serviceKey) throw new Error("Supabase 저장소 환경변수가 설정되지 않았습니다.");
+  const projectRef = new URL(supabaseUrl).hostname.split(".")[0];
+  const endpoint = `https://${projectRef}.storage.supabase.co/storage/v1/upload/resumable`;
+  const createResponse = await fetch(endpoint, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${serviceKey}`,
+      "tus-resumable": "1.0.0",
+      "upload-length": String(bytes.byteLength),
+      "upload-metadata": [
+        `bucketName ${metadataValue(bucket)}`,
+        `objectName ${metadataValue(storagePath)}`,
+        `contentType ${metadataValue(mimeType)}`,
+        `cacheControl ${metadataValue("3600")}`,
+      ].join(","),
+      "x-upsert": "false",
+    },
+  });
+  if (createResponse.status !== 201) {
+    throw new Error(`분할 업로드 생성 실패: ${createResponse.status} ${await createResponse.text()}`);
+  }
+  const uploadUrl = createResponse.headers.get("location");
+  if (!uploadUrl) throw new Error("분할 업로드 URL이 비어 있습니다.");
+  const resolvedUploadUrl = new URL(uploadUrl, endpoint).toString();
+  let offset = 0;
+  while (offset < bytes.byteLength) {
+    const chunk = bytes.slice(offset, Math.min(offset + TUS_CHUNK_BYTES, bytes.byteLength));
+    const patchResponse = await fetch(resolvedUploadUrl, {
+      method: "PATCH",
+      headers: {
+        authorization: `Bearer ${serviceKey}`,
+        "tus-resumable": "1.0.0",
+        "upload-offset": String(offset),
+        "content-type": "application/offset+octet-stream",
+      },
+      body: chunk,
+      signal: AbortSignal.timeout(30_000),
+    });
+    if (patchResponse.status !== 204) {
+      throw new Error(`분할 업로드 실패: ${patchResponse.status} ${await patchResponse.text()}`);
+    }
+    offset = Number(patchResponse.headers.get("upload-offset") || offset + chunk.byteLength);
+  }
 }
 
 export async function processNextPortfolioDownload(candidateId?: string) {
@@ -79,11 +138,16 @@ export async function processNextPortfolioDownload(candidateId?: string) {
       throw new Error(bucketError.message);
     }
     const storagePath = `${job.candidate_id}/${safeStorageName(file.file_name)}`;
-    const { error: uploadError } = await admin.storage.from(bucket).upload(storagePath, bytes, {
-      contentType: contentType(file.file_name),
-      upsert: false,
-    });
-    if (uploadError) throw new Error(uploadError.message);
+    const mimeType = contentType(file.file_name);
+    if (bytes.byteLength > RESUMABLE_THRESHOLD_BYTES) {
+      await resumableUpload(bucket, storagePath, bytes, mimeType);
+    } else {
+      const { error: uploadError } = await admin.storage.from(bucket).upload(storagePath, bytes, {
+        contentType: mimeType,
+        upsert: false,
+      });
+      if (uploadError) throw new Error(uploadError.message);
+    }
 
     const completedAt = new Date().toISOString();
     const { error: completeError } = await admin.from("content_jobs").update({
