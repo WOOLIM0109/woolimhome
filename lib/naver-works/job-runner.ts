@@ -1,7 +1,7 @@
 import { contentAdmin } from "@/lib/content-ops/data";
 import { downloadSharedDriveFile } from "./client";
 
-const MAX_SOURCE_BYTES = 75 * 1024 * 1024;
+const MAX_SOURCE_BYTES = 50 * 1024 * 1024;
 const RESUMABLE_THRESHOLD_BYTES = 6 * 1024 * 1024;
 const TUS_CHUNK_BYTES = 6 * 1024 * 1024;
 
@@ -82,7 +82,7 @@ export async function processNextPortfolioDownload(candidateId?: string) {
     .select("id,candidate_id,work_item_id,payload,attempts")
     .eq("job_type", "download")
     .in("status", ["queued", "failed"])
-    .lt("attempts", 3)
+    .lt("attempts", 5)
     .order("created_at", { ascending: true })
     .limit(1);
   if (candidateId) query = query.eq("candidate_id", candidateId);
@@ -137,6 +137,16 @@ export async function processNextPortfolioDownload(candidateId?: string) {
     if (bucketError && !/already exists|duplicate/i.test(bucketError.message)) {
       throw new Error(bucketError.message);
     }
+    const { error: bucketUpdateError } = await admin.storage.updateBucket(bucket, {
+      public: false,
+      fileSizeLimit: MAX_SOURCE_BYTES,
+      allowedMimeTypes: [
+        "application/pdf",
+        "application/vnd.ms-powerpoint",
+        "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+      ],
+    });
+    if (bucketUpdateError) throw new Error(bucketUpdateError.message);
     const storagePath = `${job.candidate_id}/${safeStorageName(file.file_name)}`;
     const mimeType = contentType(file.file_name);
     if (bytes.byteLength > RESUMABLE_THRESHOLD_BYTES) {
