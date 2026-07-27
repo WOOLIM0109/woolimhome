@@ -72,18 +72,35 @@ async function resumableUpload(
   }
 }
 
-async function failJob(job: { id: string; work_item_id: string }, error: unknown) {
+async function failJob(
+  job: { id: string; candidate_id: string; work_item_id: string },
+  error: unknown,
+) {
   const admin = contentAdmin();
   const message = error instanceof Error ? error.message : "문서 변환 실패";
+  const permanentFontFailure = /READ_ONLY_FONTS|read-only fonts/i.test(message);
   const now = new Date().toISOString();
   await admin.from("content_jobs").update({
     status: "failed",
+    ...(permanentFontFailure ? { attempts: 5 } : {}),
     error_message: message,
     completed_at: now,
   }).eq("id", job.id);
+  if (permanentFontFailure) {
+    await admin.from("portfolio_candidates").update({
+      status: "rejected",
+      updated_at: now,
+      metadata: {
+        rejectedAt: now,
+        rejectedReason: "read_only_fonts",
+      },
+    }).eq("id", job.candidate_id);
+  }
   await admin.from("content_work_items").update({
     status: "on_hold",
-    review_note: `문서 변환 보류: ${message}`,
+    review_note: permanentFontFailure
+      ? "원본에 변환이 금지된 읽기 전용 글꼴이 포함되어 자동 제작에서 제외했습니다. 원본 디자인을 훼손하지 않기 위해 대체 글꼴 변환은 하지 않습니다."
+      : `문서 변환 보류: ${message}`,
     updated_at: now,
   }).eq("id", job.work_item_id);
 }

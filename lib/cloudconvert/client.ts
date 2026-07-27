@@ -12,6 +12,7 @@ type CloudConvertTask = {
       size?: number;
     }>;
   };
+  code?: string;
   message?: string;
 };
 
@@ -94,5 +95,6 @@ export function exportedFile(job: CloudConvertJob) {
 
 export function cloudConvertFailure(job: CloudConvertJob) {
   const failedTask = job.tasks.find((task) => task.status === "error");
-  return failedTask?.message || job.message || "문서 변환에 실패했습니다.";
+  const message = failedTask?.message || job.message || "문서 변환에 실패했습니다.";
+  return failedTask?.code ? `${failedTask.code}: ${message}` : message;
 }
