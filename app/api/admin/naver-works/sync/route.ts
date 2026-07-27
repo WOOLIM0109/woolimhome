@@ -25,6 +25,7 @@ type PageResult = {
 
 type FileLister = (cursor?: string) => Promise<PageResult>;
 type ChildLister = (fileId: string, cursor?: string) => Promise<PageResult>;
+type FolderTarget = { fileId: string; filePath: string };
 
 async function ensureRoot(
   driveType: "my_drive" | "shared_drive" | "shared_folder",
@@ -119,23 +120,44 @@ async function saveFiles(rootId: string, files: WorksDriveFile[]) {
   return { indexed: rows.length, supported: candidates.length };
 }
 
-async function crawlRoot(rootId: string, rootLister: FileLister, childLister: ChildLister, limit = 1000) {
+function portfolioFolderPath(filePath: string) {
+  const segments = filePath
+    .split(/[\\/>]+/)
+    .map((segment) => segment.trim())
+    .filter(Boolean);
+  const completedRoot = segments.findIndex((segment) => segment === "완성본_외부공유금지");
+  if (completedRoot < 0) return false;
+  const nextFolder = segments[completedRoot + 1];
+  return !nextFolder || nextFolder.toLowerCase() === "ppt";
+}
+
+async function crawlRoot(
+  rootId: string,
+  rootPath: string,
+  rootLister: FileLister,
+  childLister: ChildLister,
+  limit = 1000,
+) {
   let indexed = 0;
   let supported = 0;
-  const folders: string[] = [];
+  const folders: FolderTarget[] = [];
   const deadline = Date.now() + 40_000;
 
-  async function consume(lister: FileLister) {
+  async function consume(lister: FileLister, parentPath: string) {
     let cursor: string | undefined;
     do {
       const page = await lister(cursor);
       const remaining = Math.max(0, limit - indexed);
-      const files = page.files.slice(0, remaining);
+      const files = page.files.slice(0, remaining).map((file) => ({
+        ...file,
+        filePath: `${parentPath}/${file.fileName}`,
+      }));
       const saved = await saveFiles(rootId, files);
       indexed += saved.indexed;
       supported += saved.supported;
       const discoveredFolders = files
         .filter((file) => file.fileType === "FOLDER")
+        .filter((file) => portfolioFolderPath(file.filePath || ""))
         .sort((a, b) => {
           const priority = (name: string) => {
             if (name === "완성본_외부공유금지") return 3;
@@ -147,16 +169,19 @@ async function crawlRoot(rootId: string, rootLister: FileLister, childLister: Ch
           const bPriority = priority(b.fileName);
           return bPriority - aPriority;
         })
-        .map((file) => file.fileId);
+        .map((file) => ({
+          fileId: file.fileId,
+          filePath: file.filePath || `${parentPath}/${file.fileName}`,
+        }));
       folders.push(...discoveredFolders);
       cursor = page.responseMetaData?.nextCursor;
     } while (cursor && indexed < limit && Date.now() < deadline);
   }
 
-  await consume(rootLister);
+  await consume(rootLister, rootPath);
   while (folders.length && indexed < limit && Date.now() < deadline) {
-    const folderId = folders.shift()!;
-    await consume((cursor) => childLister(folderId, cursor));
+    const folder = folders.shift()!;
+    await consume((cursor) => childLister(folder.fileId, cursor), folder.filePath);
   }
   await contentAdmin().from("naver_works_drive_roots").update({
     last_synced_at: new Date().toISOString(),
@@ -179,6 +204,7 @@ async function crawlSharedDrives(limit = 1000) {
     const rootId = await ensureRoot("shared_drive", drive.name, drive.sharedriveId);
     const result = await crawlRoot(
       rootId,
+      drive.name,
       (cursor) => listSharedDriveRoot(drive.sharedriveId, cursor),
       (fileId, cursor) => listSharedDriveChildren(drive.sharedriveId, fileId, cursor),
       Math.max(1, limit - indexed),
@@ -281,7 +307,12 @@ export async function POST() {
 
     try {
       const myRootId = await ensureRoot("my_drive", "NAVER WORKS 내 드라이브");
-      const result = await crawlRoot(myRootId, listDriveRoot, listDriveChildren);
+      const result = await crawlRoot(
+        myRootId,
+        "NAVER WORKS 내 드라이브",
+        listDriveRoot,
+        listDriveChildren,
+      );
       indexed += result.indexed;
       supported += result.supported;
     } catch (error) {
@@ -307,6 +338,7 @@ export async function POST() {
           const remaining = Math.max(1, 1000 - indexed);
           const result = await crawlRoot(
             rootId,
+            folder.sharedFolderName,
             (pageCursor) => listSharedFolderRoot(folder.sharedFolderId, pageCursor),
             (fileId, pageCursor) => listSharedFolderChildren(folder.sharedFolderId, fileId, pageCursor),
             remaining,
