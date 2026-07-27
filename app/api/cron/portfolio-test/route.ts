@@ -8,7 +8,7 @@ import { processNextPortfolioMockup, retryPortfolioDraft } from "@/lib/portfolio
 export const runtime = "nodejs";
 export const maxDuration = 300;
 
-const TEST_SCHEDULE_KEY = "portfolio-pipeline-review-20260728";
+const TEST_SCHEDULE_KEY = "portfolio-pipeline-review-20260728-v2";
 const ONE_TIME_TRIAL_KEY = "pf-trial-75f3e4f7-cc69-46fd-bf2d-1e3d3ad2b80d";
 
 export async function GET(request: Request) {

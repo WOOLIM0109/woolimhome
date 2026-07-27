@@ -7,10 +7,6 @@
     {
       "path": "/api/cron/content-operations",
       "schedule": "0 * * * *"
-    },
-    {
-      "path": "/api/cron/portfolio-test",
-      "schedule": "* * * * *"
     }
   ]
 }

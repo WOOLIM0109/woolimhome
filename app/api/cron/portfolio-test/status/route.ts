@@ -3,7 +3,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 
 export const dynamic = "force-dynamic";
 
-const TEST_SCHEDULE_KEY = "portfolio-pipeline-review-20260728";
+const TEST_SCHEDULE_KEY = "portfolio-pipeline-review-20260728-v2";
 
 export async function GET() {
   const admin = createAdminClient();
