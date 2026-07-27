@@ -21,6 +21,24 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   const admin = createAdminClient();
+  if (oneTimeAuthorized && new URL(request.url).searchParams.get("inspect") === "1") {
+    const { data, error } = await admin.from("portfolio_candidates")
+      .select("id,project_name,quality_score,status,naver_works_drive_files(file_name,file_path,file_extension,file_size)")
+      .eq("status", "candidate")
+      .order("quality_score", { ascending: false })
+      .limit(200);
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({
+      candidates: (data || []).map((candidate) => ({
+        id: candidate.id,
+        projectName: candidate.project_name,
+        qualityScore: candidate.quality_score,
+        file: Array.isArray(candidate.naver_works_drive_files)
+          ? candidate.naver_works_drive_files[0]
+          : candidate.naver_works_drive_files,
+      })),
+    });
+  }
   const { data: existing } = await admin.from("content_work_items")
     .select("id,status,metadata")
     .eq("schedule_key", TEST_SCHEDULE_KEY)
