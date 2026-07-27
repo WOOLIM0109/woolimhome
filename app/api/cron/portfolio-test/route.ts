@@ -3,7 +3,11 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { prepareNextPortfolioCandidate } from "@/lib/naver-works/portfolio-pipeline";
 import { processNextPortfolioDownload } from "@/lib/naver-works/job-runner";
 import { processNextPortfolioConversion } from "@/lib/cloudconvert/job-runner";
-import { processNextPortfolioMockup, retryPortfolioDraft } from "@/lib/portfolio/job-runner";
+import {
+  processNextPortfolioMockup,
+  recoverLatestCompletedPortfolioDraft,
+  retryPortfolioDraft,
+} from "@/lib/portfolio/job-runner";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -63,6 +67,25 @@ export async function GET(request: Request) {
         completed: retried.status === "review_required",
         progress: [retried],
       });
+    }
+  }
+  if (existing?.status === "on_hold") {
+    const { data: failedConversion } = await admin.from("content_jobs")
+      .select("error_message")
+      .eq("work_item_id", existing.id)
+      .eq("job_type", "convert")
+      .eq("status", "failed")
+      .maybeSingle();
+    if (failedConversion?.error_message?.includes("conversion credits")) {
+      const recovered = await recoverLatestCompletedPortfolioDraft(existing.id);
+      if (recovered) {
+        return NextResponse.json({
+          success: true,
+          completed: recovered.status === "review_required",
+          recovered: true,
+          progress: [recovered],
+        });
+      }
     }
   }
 

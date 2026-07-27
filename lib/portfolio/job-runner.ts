@@ -330,3 +330,81 @@ export async function retryPortfolioDraft(workItemId: string) {
     validation,
   };
 }
+
+export async function recoverLatestCompletedPortfolioDraft(targetWorkItemId: string) {
+  const admin = contentAdmin();
+  const { data: completedMockups, error: mockupError } = await admin.from("content_jobs")
+    .select("candidate_id,result,updated_at")
+    .eq("job_type", "mockup")
+    .eq("status", "completed")
+    .order("updated_at", { ascending: false })
+    .limit(30);
+  if (mockupError) throw new Error(mockupError.message);
+
+  const reusable = (completedMockups || []).find((job) => {
+    const result = (job.result || {}) as {
+      visualReview?: PortfolioVisualReview;
+      assets?: GeneratedPortfolioAsset[];
+      rejected?: boolean;
+    };
+    return !result.rejected
+      && result.visualReview?.suitable
+      && Array.isArray(result.assets)
+      && result.assets.length >= 5;
+  });
+  if (!reusable) return null;
+
+  const result = (reusable.result || {}) as {
+    visualReview: PortfolioVisualReview;
+    assets: GeneratedPortfolioAsset[];
+  };
+  const { data: candidate, error: candidateError } = await admin.from("portfolio_candidates")
+    .select("naver_works_drive_files(file_name)")
+    .eq("id", reusable.candidate_id)
+    .single();
+  if (candidateError) throw new Error(candidateError.message);
+  const driveFile = Array.isArray(candidate.naver_works_drive_files)
+    ? candidate.naver_works_drive_files[0]
+    : candidate.naver_works_drive_files;
+  const sourceFileName = String(driveFile?.file_name || "디자인 프로젝트");
+
+  const { data: workItem, error: workItemError } = await admin.from("content_work_items")
+    .select("metadata")
+    .eq("id", targetWorkItemId)
+    .single();
+  if (workItemError) throw new Error(workItemError.message);
+  const metadata = {
+    ...(workItem.metadata || {}),
+    candidateId: reusable.candidate_id,
+    sourceFileName,
+    portfolioReview: result.visualReview,
+    portfolioAssets: result.assets,
+    recoveredFromCompletedMockup: true,
+  };
+
+  await admin.from("content_review_assets").delete().eq("work_item_id", targetWorkItemId);
+  const { error: assetsError } = await admin.from("content_review_assets").insert(
+    result.assets.map((asset, index) => ({
+      work_item_id: targetWorkItemId,
+      asset_type: asset.kind,
+      public_url: asset.url,
+      sort_order: index,
+      approved: false,
+      review_note: `${asset.caption} · 원본 슬라이드 ${asset.slideIndexes.map((value) => value + 1).join(", ")}`,
+    })),
+  );
+  if (assetsError) throw new Error(assetsError.message);
+
+  const { error: updateError } = await admin.from("content_work_items").update({
+    status: "on_hold",
+    title: result.visualReview.projectTitle || "디자인 프로젝트",
+    summary: "실제 페이지 판정과 목업 제작을 통과한 프로젝트의 검수용 본문을 다시 생성합니다.",
+    source_label: "NAVER WORKS 실제 프로젝트 · AI 시각 판정",
+    review_note: "완성된 변환본과 목업을 재사용해 본문을 다시 생성하는 중입니다.",
+    metadata,
+    updated_at: new Date().toISOString(),
+  }).eq("id", targetWorkItemId);
+  if (updateError) throw new Error(updateError.message);
+
+  return retryPortfolioDraft(targetWorkItemId);
+}
