@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { authenticatedAdmin } from "@/lib/content-ops/data";
 import { prepareNextPortfolioCandidate } from "@/lib/naver-works/portfolio-pipeline";
 import { processNextPortfolioDownload } from "@/lib/naver-works/job-runner";
+import { processNextPortfolioConversion } from "@/lib/cloudconvert/job-runner";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -16,6 +17,16 @@ export async function POST() {
         prepared: null,
         downloaded: resumedDownload,
         message: `${resumedDownload.originalFileName} 원본을 안전하게 내려받아 변환 대기열로 이동했습니다.`,
+      });
+    }
+    const conversion = await processNextPortfolioConversion();
+    if (conversion) {
+      return NextResponse.json({
+        prepared: null,
+        converted: conversion,
+        message: conversion.status === "completed"
+          ? "PPT를 PDF로 변환해 비공개 저장소에 보관했습니다."
+          : "PPT의 글꼴과 레이아웃을 보존하는 변환을 진행하고 있습니다.",
       });
     }
     const prepared = await prepareNextPortfolioCandidate();
