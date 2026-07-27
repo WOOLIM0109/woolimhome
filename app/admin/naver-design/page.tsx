@@ -4,6 +4,7 @@ import AdminPortal from "@/components/admin/AdminPortal";
 import ManualGenerateButton from "@/components/admin/ManualGenerateButton";
 import WorkQueue from "@/components/admin/WorkQueue";
 import TwoWeekSchedule from "@/components/admin/TwoWeekSchedule";
+import PcWorkerStatus from "@/components/admin/PcWorkerStatus";
 
 export default function NaverDesignAdminPage() {
   return (
@@ -36,6 +37,8 @@ export default function NaverDesignAdminPage() {
           </article>
         ))}
       </section>
+
+      <PcWorkerStatus />
 
       <section className="mt-10">
         <h2 className="mb-4 text-2xl font-bold">향후 2주 일정</h2>

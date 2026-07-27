@@ -81,28 +81,28 @@ async function failJob(
   const permanentFontFailure = /READ_ONLY_FONTS|read-only fonts/i.test(message);
   const now = new Date().toISOString();
   await admin.from("content_jobs").update({
-    status: "failed",
-    ...(permanentFontFailure ? { attempts: 5 } : {}),
+    status: permanentFontFailure ? "pc_waiting" : "failed",
     error_message: message,
-    completed_at: now,
+    completed_at: permanentFontFailure ? null : now,
+    updated_at: now,
   }).eq("id", job.id);
   if (permanentFontFailure) {
     await admin.from("portfolio_candidates").update({
-      status: "rejected",
+      status: "on_hold",
       updated_at: now,
       metadata: {
-        rejectedAt: now,
-        rejectedReason: "read_only_fonts",
+        pcWorkerRequiredAt: now,
+        pcWorkerReason: "read_only_fonts",
       },
     }).eq("id", job.candidate_id);
   }
   await admin.from("content_work_items").update({
-    status: "on_hold",
+    status: permanentFontFailure ? "researching" : "on_hold",
     summary: permanentFontFailure
-      ? "원본에 변환이 제한된 글꼴이 포함되어 자동 제작에서 제외했습니다."
+      ? "제한 글꼴을 원본 그대로 유지하기 위해 회사 PC의 PowerPoint 변환을 기다리고 있습니다."
       : "원본 변환 과정에서 오류가 발생해 자동 제작을 보류했습니다.",
     review_note: permanentFontFailure
-      ? "원본에 변환이 금지된 읽기 전용 글꼴이 포함되어 자동 제작에서 제외했습니다. 원본 디자인을 훼손하지 않기 위해 대체 글꼴 변환은 하지 않습니다."
+      ? null
       : `문서 변환 보류: ${message}`,
     updated_at: now,
   }).eq("id", job.work_item_id);
