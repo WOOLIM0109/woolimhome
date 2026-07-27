@@ -124,7 +124,7 @@ export async function processNextPortfolioConversion(candidateId?: string) {
     const previousResult = (job.result || {}) as JobResult;
     let cloudJobId = previousResult.cloudConvertJobId;
 
-    if (!cloudJobId || job.status !== "running") {
+    if (!cloudJobId) {
       const { data: downloads, error: downloadError } = await admin.from("content_jobs")
         .select("result")
         .eq("candidate_id", job.candidate_id)
