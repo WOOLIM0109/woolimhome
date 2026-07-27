@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   Bell,
+  BriefcaseBusiness,
   CalendarDays,
   FileCheck2,
   Home,
@@ -24,6 +25,7 @@ const NAV_ITEMS = [
   { href: "/admin/reviews", label: "검토 요청", icon: FileCheck2 },
   { href: "/admin/schedule", label: "발행 일정", icon: CalendarDays },
   { href: "/admin/sources", label: "주제·자료 수집", icon: Bell },
+  { href: "/partner", label: "외주 포스팅 작업실", icon: BriefcaseBusiness },
 ];
 
 function isActive(pathname: string, href: string) {

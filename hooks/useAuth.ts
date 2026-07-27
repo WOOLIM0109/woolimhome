@@ -21,10 +21,14 @@ export function useAuth() {
     return () => data.subscription.unsubscribe();
   }, []);
 
-  const signInWithGoogle = () =>
+  const signInWithGoogle = (nextPath?: string) =>
     createClient().auth.signInWithOAuth({
       provider: "google",
-      options: { redirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(window.location.pathname.startsWith("/admin") ? window.location.pathname : "/admin")}` },
+      options: {
+        redirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(
+          nextPath || (window.location.pathname.startsWith("/admin") ? window.location.pathname : "/admin"),
+        )}`,
+      },
     });
 
   const signOut = () => createClient().auth.signOut();

@@ -1,0 +1,114 @@
+import { NextResponse } from "next/server";
+import { authenticatedPartner, contentAdmin } from "@/lib/content-ops/data";
+import {
+  PARTNER_CHANNELS,
+  PARTNER_VISIBLE_STATUSES,
+  isPartnerChannel,
+  partnerAssetUrl,
+  replaceAdminAssetUrls,
+  replaceFiguresWithMarkers,
+  sanitizeGeneratedHtml,
+} from "@/lib/partner-portal";
+
+export const dynamic = "force-dynamic";
+
+type GeneratedContent = {
+  bodyHtml?: string;
+  faq?: { question: string; answer: string }[];
+  tags?: string[];
+};
+
+type ReviewAsset = {
+  id: string;
+  asset_type: "thumbnail" | "body_image" | "article_preview";
+  public_url: string;
+  sort_order: number | null;
+};
+
+type WorkItemRow = {
+  id: string;
+  channel: "naver_consulting" | "naver_design";
+  format: string;
+  title: string;
+  summary: string;
+  status: string;
+  scheduled_at: string | null;
+  published_at: string | null;
+  metadata: {
+    generated?: GeneratedContent;
+    partnerHandoff?: {
+      publishedUrl?: string;
+      completedAt?: string;
+    };
+  } | null;
+  content_review_assets: ReviewAsset[] | null;
+};
+
+export async function GET(request: Request) {
+  const user = await authenticatedPartner();
+  if (!user) return NextResponse.json({ error: "접근 권한이 없습니다." }, { status: 401 });
+
+  const url = new URL(request.url);
+  const requestedChannel = url.searchParams.get("channel");
+  if (requestedChannel && !isPartnerChannel(requestedChannel)) {
+    return NextResponse.json({ error: "허용되지 않은 채널입니다." }, { status: 400 });
+  }
+
+  let query = contentAdmin()
+    .from("content_work_items")
+    .select(
+      "id, channel, format, title, summary, status, scheduled_at, published_at, metadata, content_review_assets(id, asset_type, public_url, sort_order)",
+    )
+    .in("channel", PARTNER_CHANNELS)
+    .in("status", PARTNER_VISIBLE_STATUSES)
+    .order("published_at", { ascending: false, nullsFirst: false })
+    .order("scheduled_at", { ascending: true, nullsFirst: false });
+
+  if (requestedChannel) query = query.eq("channel", requestedChannel);
+
+  const { data, error } = await query;
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  const items = ((data || []) as WorkItemRow[]).map((item) => {
+    const storedAssets = [...(item.content_review_assets || [])]
+      .sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0));
+    const uploadableAssets = storedAssets.filter((asset) => asset.asset_type !== "article_preview");
+    const generated = item.metadata?.generated || {};
+    const originalBodyHtml = sanitizeGeneratedHtml(generated.bodyHtml || "");
+    let thumbnailNumber = 0;
+    let bodyImageNumber = 0;
+
+    return {
+      id: item.id,
+      channel: item.channel,
+      format: item.format,
+      title: item.title,
+      summary: item.summary,
+      status: item.status,
+      scheduledAt: item.scheduled_at,
+      publishedAt: item.published_at,
+      publishedUrl: item.metadata?.partnerHandoff?.publishedUrl || null,
+      completedAt: item.metadata?.partnerHandoff?.completedAt || null,
+      previewHtml: replaceAdminAssetUrls(originalBodyHtml, storedAssets),
+      copyHtml: replaceFiguresWithMarkers(originalBodyHtml),
+      faq: Array.isArray(generated.faq) ? generated.faq : [],
+      tags: Array.isArray(generated.tags) ? generated.tags : [],
+      assets: uploadableAssets.map((asset) => {
+        const order = asset.asset_type === "thumbnail"
+          ? ++thumbnailNumber
+          : ++bodyImageNumber;
+        return {
+          id: asset.id,
+          type: asset.asset_type,
+          order,
+          previewUrl: partnerAssetUrl(asset.id),
+          downloadUrl: partnerAssetUrl(asset.id, true),
+        };
+      }),
+    };
+  });
+
+  return NextResponse.json(items, {
+    headers: { "Cache-Control": "private, no-store", Vary: "Cookie" },
+  });
+}
