@@ -10,6 +10,7 @@ import {
   listSharedFolderChildren,
   listSharedFolderRoot,
   listSharedFolders,
+  sensitivePortfolioDocument,
   supportedPortfolioFile,
   type WorksDriveFile,
 } from "@/lib/naver-works/client";
@@ -183,6 +184,31 @@ async function crawlSharedDrives(limit = 1000) {
   return { indexed, supported, driveCount: drives.length };
 }
 
+async function removeSensitiveCandidates() {
+  const admin = contentAdmin();
+  const { data, error } = await admin.from("naver_works_drive_files")
+    .select("id,file_name,file_path")
+    .limit(5000);
+  if (error) throw new Error(error.message);
+  const ids = (data || [])
+    .filter((file) => sensitivePortfolioDocument({
+      fileName: file.file_name,
+      filePath: file.file_path,
+    }))
+    .map((file) => file.id);
+  for (let index = 0; index < ids.length; index += 100) {
+    const chunk = ids.slice(index, index + 100);
+    const { error: cleanupError } = await admin.from("portfolio_candidates")
+      .delete()
+      .in("drive_file_id", chunk);
+    if (cleanupError) throw new Error(cleanupError.message);
+    const { error: fileError } = await admin.from("naver_works_drive_files")
+      .update({ supported: false, updated_at: new Date().toISOString() })
+      .in("id", chunk);
+    if (fileError) throw new Error(fileError.message);
+  }
+}
+
 export async function POST() {
   const user = await authenticatedAdmin();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -203,6 +229,7 @@ export async function POST() {
       indexed += sharedDriveResult.indexed;
       supported += sharedDriveResult.supported;
       if (sharedDriveResult.driveCount) {
+        await removeSensitiveCandidates();
         return NextResponse.json({
           indexed,
           supported,
@@ -240,6 +267,7 @@ export async function POST() {
       }
     }
 
+    await removeSensitiveCandidates();
     return NextResponse.json({
       indexed,
       supported,

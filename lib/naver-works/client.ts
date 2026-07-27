@@ -224,9 +224,13 @@ export function driveFileFingerprint(file: WorksDriveFile) {
     .digest("hex");
 }
 
-export function supportedPortfolioFile(file: WorksDriveFile) {
-  if (!/\.(ppt|pptx|pdf)$/i.test(file.fileName)) return false;
+export function sensitivePortfolioDocument(file: Pick<WorksDriveFile, "fileName" | "filePath">) {
   const sensitiveDocumentPattern =
     /주민등록|등본|초본|가족관계|사대보험|4대보험|보험가입|홈택스|부가가치세|원천징수|소득금액|납세|통장|계좌|임대차|근로계약|사업자등록증|법인등기|인감증명|신분증/i;
-  return !sensitiveDocumentPattern.test(`${file.filePath || ""}/${file.fileName}`);
+  return sensitiveDocumentPattern.test(`${file.filePath || ""}/${file.fileName}`);
+}
+
+export function supportedPortfolioFile(file: WorksDriveFile) {
+  if (!/\.(ppt|pptx|pdf)$/i.test(file.fileName)) return false;
+  return !sensitivePortfolioDocument(file);
 }
