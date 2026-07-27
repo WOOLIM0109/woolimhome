@@ -1,8 +1,11 @@
 "use client";
 
-import { LogIn, LogOut, ShieldCheck } from "lucide-react";
+import { CalendarDays, LogIn, LogOut, ShieldCheck } from "lucide-react";
+import TwoWeekSchedule from "@/components/admin/TwoWeekSchedule";
 import { useAuth } from "@/hooks/useAuth";
 import PartnerQueue from "./PartnerQueue";
+
+const PARTNER_CHANNELS = ["naver_consulting", "naver_design"] as const;
 
 export default function PartnerPortal() {
   const { user, loading, signInWithGoogle, signOut } = useAuth();
@@ -65,9 +68,27 @@ export default function PartnerPortal() {
           </div>
         </header>
 
+        <section className="mt-6">
+          <div className="mb-4 flex items-start gap-3">
+            <span className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-orange-50 text-[var(--primary)]">
+              <CalendarDays size={20} />
+            </span>
+            <div>
+              <h2 className="text-2xl font-bold">향후 2주 블로그 초안 일정</h2>
+              <p className="mt-1 text-sm leading-6 text-[var(--muted)]">
+                컨설팅·디자인 블로그의 자동 생성 일정을 함께 보여드립니다. 대표님 승인까지 끝난 원고만 아래 작업 목록에 표시됩니다.
+              </p>
+            </div>
+          </div>
+          <TwoWeekSchedule
+            channels={PARTNER_CHANNELS}
+            statusHeading="작업실 표시"
+            statusText="대표 승인 후 작업 목록에 표시"
+          />
+        </section>
+
         <PartnerQueue onUnauthorized={() => void signOut()} />
       </div>
     </section>
   );
 }
-
