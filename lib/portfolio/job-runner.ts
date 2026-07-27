@@ -101,8 +101,35 @@ export async function processNextPortfolioMockup(candidateId?: string) {
     const payload = (job.payload || {}) as JobResult;
     const bucket = String(conversionResult.bucket || payload.bucket || "");
     const slidePaths = (conversionResult.slidePaths || payload.slidePaths || []) as string[];
-    if (!bucket || slidePaths.length < 5) {
-      throw new Error("시각 판정에 필요한 렌더링 슬라이드가 5장 미만입니다.");
+    if (!bucket) {
+      throw new Error("시각 판정에 필요한 렌더링 저장 위치가 없습니다.");
+    }
+    if (slidePaths.length < 5) {
+      const review = {
+        suitable: false,
+        confidence: 1,
+        documentType: "페이지 수 부족",
+        industry: "",
+        projectTitle: "",
+        designSummary: `${slidePaths.length}페이지 문서로 포트폴리오 장면이 충분하지 않습니다.`,
+        reasons: [],
+        rejectionReasons: ["서로 다른 디자인 장면을 보여주기 위한 최소 5페이지 기준에 미달합니다."],
+        slideAssessments: [],
+        recommendedSlideIndexes: [],
+        sensitiveRegions: [],
+      };
+      await rejectCandidate({
+        jobId: job.id,
+        candidateId: job.candidate_id,
+        workItemId: job.work_item_id,
+        review,
+      });
+      return {
+        candidateId: job.candidate_id,
+        workItemId: job.work_item_id,
+        status: "rejected",
+        review,
+      };
     }
 
     const { data: candidate, error: candidateError } = await admin.from("portfolio_candidates")
