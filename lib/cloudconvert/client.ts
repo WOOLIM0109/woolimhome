@@ -84,13 +84,53 @@ export async function createPresentationPdfJob(params: {
   });
 }
 
+export async function createPdfImagesJob(params: {
+  sourceUrl: string;
+  fileName: string;
+  candidateId: string;
+}) {
+  if (!/\.pdf$/i.test(params.fileName)) {
+    throw new Error("PDF 페이지 이미지 변환에는 PDF 원본이 필요합니다.");
+  }
+
+  return cloudConvertRequest<CloudConvertJob>("/jobs", {
+    method: "POST",
+    body: JSON.stringify({
+      tag: `woolim-portfolio-pdf:${params.candidateId}`,
+      tasks: {
+        "import-source": {
+          operation: "import/url",
+          url: params.sourceUrl,
+          filename: params.fileName,
+        },
+        "convert-images": {
+          operation: "convert",
+          input: "import-source",
+          input_format: "pdf",
+          output_format: "png",
+        },
+        "export-images": {
+          operation: "export/url",
+          input: "convert-images",
+          inline: false,
+          archive_multiple_files: false,
+        },
+      },
+    }),
+  });
+}
+
 export function getCloudConvertJob(jobId: string) {
   return cloudConvertRequest<CloudConvertJob>(`/jobs/${encodeURIComponent(jobId)}`);
 }
 
+export function exportedFiles(job: CloudConvertJob, taskName: string) {
+  const task = job.tasks.find((item) => item.name === taskName);
+  return task?.result?.files || [];
+}
+
 export function exportedFile(job: CloudConvertJob) {
-  const task = job.tasks.find((item) => item.name === "export-pdf");
-  return task?.result?.files?.[0] || null;
+  return exportedFiles(job, "export-pdf")[0] || null;
 }
 
 export function cloudConvertFailure(job: CloudConvertJob) {

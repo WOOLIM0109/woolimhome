@@ -44,6 +44,7 @@ function projectScore(candidate: CandidateRow) {
   const label = `${file.file_path || ""}/${file.file_name}`;
   let score = Number(candidate.quality_score || 0);
   if (STRONG_PROJECT_SIGNAL.test(label)) score += 35;
+  if (/\.pdf$/i.test(file.file_name)) score += 30;
   if (/\.(ppt|pptx)$/i.test(file.file_name)) score += 15;
   if (NON_PROJECT_SIGNAL.test(label)) score -= 60;
   if (NON_PRESENTATION_FORMAT_SIGNAL.test(label)) score -= 1000;
