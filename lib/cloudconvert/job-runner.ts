@@ -98,6 +98,9 @@ async function failJob(
   }
   await admin.from("content_work_items").update({
     status: "on_hold",
+    summary: permanentFontFailure
+      ? "원본에 변환이 제한된 글꼴이 포함되어 자동 제작에서 제외했습니다."
+      : "원본 변환 과정에서 오류가 발생해 자동 제작을 보류했습니다.",
     review_note: permanentFontFailure
       ? "원본에 변환이 금지된 읽기 전용 글꼴이 포함되어 자동 제작에서 제외했습니다. 원본 디자인을 훼손하지 않기 위해 대체 글꼴 변환은 하지 않습니다."
       : `문서 변환 보류: ${message}`,
