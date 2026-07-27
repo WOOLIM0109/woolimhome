@@ -40,7 +40,7 @@ type AiRankedCandidate = {
 const STRONG_PROJECT_SIGNAL =
   /크몽|포트폴리오|ppt\s*디자인|회사\s*소개서|기업\s*소개서|제품\s*소개서|사업\s*제안서|입찰\s*제안서|투자\s*제안서|ir|브랜딩|리플렛|카탈로그|발표자료/i;
 const NON_PROJECT_SIGNAL =
-  /양식|공고|신청서|모집|제출\s*서류|추가\s*서류|별첨|붙임|증빙|매뉴얼|가이드|보고서\s*양식|통합\s*파일|압축/i;
+  /양식|공고|신청서|모집|제출\s*서류|추가\s*서류|필요\s*서류|보유\s*시|서류\s*pdf|별첨|붙임|증빙|등록증|결정서|특허|신분증|도장|통장|매뉴얼|가이드|보고서\s*양식|통합\s*파일|압축/i;
 const NON_PRESENTATION_FORMAT_SIGNAL =
   /세로|상세\s*페이지|웹\s*홍보|카드\s*뉴스|인스타|sns|배너|스마트\s*스토어/i;
 
@@ -83,6 +83,20 @@ function sourcePreference(candidate: CandidateRow) {
   return format + Math.min(20, Number(file.file_size || 0) / 1024 / 1024);
 }
 
+function explorationScore(candidate: CandidateRow) {
+  const file = driveFile(candidate);
+  if (!file) return -1000;
+  const label = `${file.file_path || ""}/${file.file_name}`;
+  const extension = file.file_name.split(".").pop()?.toLowerCase();
+  let score = Number(candidate.quality_score || 0);
+  if (extension === "pptx") score += 35;
+  else if (extension === "ppt") score += 20;
+  score += Math.min(20, Number(file.file_size || 0) / 1024 / 1024);
+  if (/발표|제안|소개|사업\s*계획|ir|브랜딩|전략|pitch|proposal/i.test(label)) score += 30;
+  if (/초안|draft|참고|백업|old|사본/i.test(label)) score -= 25;
+  return score;
+}
+
 async function aiShortlist(candidates: CandidateRow[]) {
   if (!candidates.length) return [] as AiRankedCandidate[];
   const existingBlogTitles = await fetchExistingDesignBlogTitles();
@@ -118,6 +132,7 @@ async function aiShortlist(candidates: CandidateRow[]) {
 ${JSON.stringify(existingBlogTitles)}
 
 여기서는 최종 승인하지 않습니다. 선택된 파일은 다음 단계에서 실제 페이지를 보고 다시 엄격히 판정합니다.
+목록이 비어 있지 않다면 확신이 낮더라도 상대적으로 가능성이 높은 탐색 후보를 최소 5개는 반환하세요. 빈 배열을 반환하지 마세요.
 반드시 JSON만 반환하세요:
 {"candidates":[{"id":"목록의 id","confidence":0.0,"reasons":["선정 이유"]}]}
 
@@ -169,10 +184,7 @@ export async function prepareNextPortfolioCandidate(options: {
   }
   if (!shortlist.length) {
     shortlist = candidates
-      .sort((a, b) => {
-        const scoreDifference = sourcePreference(b) - sourcePreference(a);
-        return scoreDifference || Number(b.quality_score || 0) - Number(a.quality_score || 0);
-      })
+      .sort((a, b) => explorationScore(b) - explorationScore(a))
       .slice(0, 10)
       .map((candidate, index) => ({
         id: candidate.id,
