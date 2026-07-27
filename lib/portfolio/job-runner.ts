@@ -179,7 +179,7 @@ export async function processNextPortfolioMockup(candidateId?: string) {
     });
     const completedAt = new Date().toISOString();
     const hasBlockingIssue = validation.issues.some((issue) =>
-      /짧음|김|H2|FAQ|미만|연속|설명 문단/.test(issue));
+      /짧음|김|H2|FAQ|미만|연속|설명 문단|내부 슬라이드/.test(issue));
 
     await admin.from("content_review_assets").delete().eq("work_item_id", job.work_item_id);
     const { error: assetsError } = await admin.from("content_review_assets").insert(
@@ -296,7 +296,7 @@ export async function retryPortfolioDraft(workItemId: string) {
     assets,
   });
   const hasBlockingIssue = validation.issues.some((issue) =>
-    /짧음|김|H2|FAQ|미만|연속|설명 문단/.test(issue));
+    /짧음|김|H2|FAQ|미만|연속|설명 문단|내부 슬라이드/.test(issue));
   const now = new Date().toISOString();
   await admin.from("content_jobs").update({
     status: "completed",

@@ -97,6 +97,20 @@ export async function GET(request: Request) {
     .select("id,status,metadata")
     .eq("schedule_key", TEST_SCHEDULE_KEY)
     .maybeSingle();
+  if (
+    oneTimeAuthorized
+    && searchParams.get("regenerate") === "1"
+    && existing?.metadata?.portfolioReview?.suitable
+    && existing.metadata?.portfolioAssets?.length
+  ) {
+    const regenerated = await retryPortfolioDraft(existing.id);
+    return NextResponse.json({
+      success: Boolean(regenerated),
+      completed: regenerated?.status === "review_required",
+      regenerated: true,
+      progress: regenerated ? [regenerated] : [],
+    });
+  }
   if (existing?.status === "review_required" && existing.metadata?.generated?.bodyHtml) {
     return NextResponse.json({
       success: true,

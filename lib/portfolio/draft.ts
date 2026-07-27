@@ -89,6 +89,9 @@ ${JSON.stringify(input.existingTitles.slice(0, 30))}
 - 단순히 "예쁘게 디자인했다"가 아니라 정보의 우선순위, 독자의 읽는 순서, 페이지 간 일관성, 설득 구조를 구체적으로 해설합니다.
 - 화면에서 확인할 수 없는 매출·성과·고객 반응·제작 기간·의뢰인의 요구를 만들지 않습니다.
 - 공개하기 곤란한 고객명이나 개인정보를 본문에서 반복하지 않습니다.
+- 원본 파일명, 내부 페이지·슬라이드 번호, 검수용 인덱스, 자동 판정 과정은 절대 노출하지 않습니다.
+- 완성작을 깎아내리는 비평, 보완점, 아쉬운 점을 별도 문단으로 만들지 않습니다. 확인된 강점과 울림의 기획 의도를 중심으로 설명합니다.
+- "모범적", "완벽한", "압도적", "훌륭한" 같은 근거 없는 자화자찬을 줄이고, 화면에서 확인되는 구체적인 구성으로 전문성을 보여줍니다.
 - 본문은 공백 제외 2,000~3,500자, H2 4개 이상, 필요한 곳에 H3·목록을 사용합니다.
 - 이미지 태그는 넣지 않습니다. 시스템이 문단 사이에 완성 목업을 자동 배치합니다.
 - FAQ는 실제 의뢰 고객이 물을 법한 질문과 현실적인 답변 4개로 작성합니다.
@@ -111,6 +114,9 @@ function draftIssues(draft: PortfolioDraft) {
   const plainLength = clean(bodyHtml).replace(/\s/g, "").length;
   const h2Count = (bodyHtml.match(/<h2[\s>]/gi) || []).length;
   const faqCount = Array.isArray(draft.faq) ? draft.faq.length : 0;
+  const internalReferenceCount = (
+    clean(bodyHtml).match(/(?:slide|슬라이드|page|페이지)\s*(?:no\.?\s*)?\d+/gi) || []
+  ).length;
   return {
     bodyHtml,
     plainLength,
@@ -121,6 +127,7 @@ function draftIssues(draft: PortfolioDraft) {
       ...(plainLength > 3500 ? [`본문이 ${plainLength}자로 김`] : []),
       ...(h2Count < 4 ? [`H2가 ${h2Count}개뿐임`] : []),
       ...(faqCount < 4 ? [`FAQ가 ${faqCount}개뿐임`] : []),
+      ...(internalReferenceCount ? [`내부 슬라이드·페이지 번호가 ${internalReferenceCount}곳 노출됨`] : []),
       ...(!draft.title?.trim() ? ["제목 누락"] : []),
       ...(!draft.summary?.trim() ? ["요약 누락"] : []),
     ],
