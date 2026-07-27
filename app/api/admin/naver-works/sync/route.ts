@@ -106,6 +106,15 @@ async function saveFiles(rootId: string, files: WorksDriveFile[]) {
       .upsert(candidates, { onConflict: "drive_file_id", ignoreDuplicates: true });
     if (candidateError) throw new Error(candidateError.message);
   }
+  const excludedFileIds = (indexedFiles || [])
+    .filter((file) => !file.supported)
+    .map((file) => file.id);
+  if (excludedFileIds.length) {
+    const { error: cleanupError } = await admin.from("portfolio_candidates")
+      .delete()
+      .in("drive_file_id", excludedFileIds);
+    if (cleanupError) throw new Error(cleanupError.message);
+  }
   return { indexed: rows.length, supported: candidates.length };
 }
 
