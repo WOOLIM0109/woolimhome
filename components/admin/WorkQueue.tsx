@@ -76,11 +76,19 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
             </div>
             <StatusBadge status={item.status} />
           </div>
-          {item.content_review_assets?.some((asset) => asset.asset_type === "thumbnail") ? (
+          {item.content_review_assets?.some((asset) =>
+            reviewMode || asset.asset_type === "thumbnail") ? (
             <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              {item.content_review_assets.filter((asset) => asset.asset_type === "thumbnail").map((asset) => (
+              {item.content_review_assets
+                .filter((asset) => reviewMode || asset.asset_type === "thumbnail")
+                .map((asset, index) => (
                 // eslint-disable-next-line @next/next/no-img-element
-                <img key={asset.id} src={asset.public_url} alt={`${item.title} 검토 이미지`} className="w-full rounded-xl border border-[var(--line)]" />
+                <img
+                  key={asset.id}
+                  src={asset.public_url}
+                  alt={`${item.title} 검토 이미지 ${index + 1}`}
+                  className="w-full rounded-xl border border-[var(--line)]"
+                />
               ))}
             </div>
           ) : null}
