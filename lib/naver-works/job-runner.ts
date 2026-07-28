@@ -92,11 +92,12 @@ async function excludeOversizedSource(options: {
     file_size: number | null;
   };
   actualSize?: number;
+  message?: string;
 }) {
   const admin = contentAdmin();
   const now = new Date().toISOString();
   const fileSize = Number(options.actualSize || options.file.file_size || 0);
-  const message = "원본 파일이 자동 처리 상한인 75MB를 초과합니다.";
+  const message = options.message || "원본 파일이 자동 처리 상한인 75MB를 초과합니다.";
   const { data: candidate } = await admin.from("portfolio_candidates")
     .select("metadata,exclusion_reasons")
     .eq("id", options.job.candidate_id)
@@ -290,6 +291,25 @@ export async function processNextPortfolioDownload(candidateId?: string) {
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : "원본 다운로드 실패";
+    if (/exceeded the maximum allowed size|maximum allowed size|payload too large|http 413/i.test(message)) {
+      const { data: candidate } = await admin.from("portfolio_candidates")
+        .select("drive_file_id")
+        .eq("id", job.candidate_id)
+        .maybeSingle();
+      if (candidate?.drive_file_id) {
+        const { data: file } = await admin.from("naver_works_drive_files")
+          .select("id,file_name,file_size")
+          .eq("id", candidate.drive_file_id)
+          .maybeSingle();
+        if (file) {
+          return await excludeOversizedSource({
+            job,
+            file,
+            message: "원본 파일이 저장소의 자동 처리 허용 용량을 초과합니다.",
+          });
+        }
+      }
+    }
     await admin.from("content_jobs").update({
       status: "failed",
       error_message: message,
