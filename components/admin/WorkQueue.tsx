@@ -87,9 +87,6 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
   }
 
   async function rebuild(item: WorkItem) {
-    if (!window.confirm(
-      `"${item.title}"의 기존 목업과 본문을 새 기준으로 다시 만들까요?\n현재 이미지는 새 결과가 완성된 뒤 교체됩니다.`,
-    )) return;
     setRebuildingId(item.id);
     setError("");
     try {
