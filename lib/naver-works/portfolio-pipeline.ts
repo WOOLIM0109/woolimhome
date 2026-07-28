@@ -2,6 +2,7 @@ import { contentAdmin } from "@/lib/content-ops/data";
 import { generateGeminiJson } from "@/lib/portfolio/gemini";
 import { fetchExistingDesignBlogTitles } from "@/lib/portfolio/naver-blog";
 import { sensitivePortfolioDocument, supportedPortfolioFile } from "./client";
+import { exceedsAutomatedSourceLimit } from "./source-policy";
 
 type CandidateRow = {
   id: string;
@@ -71,6 +72,7 @@ function metadataEligible(candidate: CandidateRow) {
   if (!file) return false;
   const label = `${file.file_path || ""}/${file.file_name}`;
   return supportedPortfolioFile({ fileName: file.file_name, filePath: file.file_path })
+    && !exceedsAutomatedSourceLimit(file.file_size)
     && !NON_PROJECT_SIGNAL.test(label)
     && !NON_PRESENTATION_FORMAT_SIGNAL.test(label)
     && !sensitivePortfolioDocument({ fileName: file.file_name, filePath: file.file_path });

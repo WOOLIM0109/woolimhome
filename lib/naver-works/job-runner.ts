@@ -1,7 +1,11 @@
 import { contentAdmin } from "@/lib/content-ops/data";
 import { downloadSharedDriveFile } from "./client";
+import {
+  exceedsAutomatedSourceLimit,
+  MAX_AUTOMATED_SOURCE_BYTES,
+} from "./source-policy";
 
-const MAX_SOURCE_BYTES = 50 * 1024 * 1024;
+const MAX_DOWNLOAD_ATTEMPTS = 5;
 const RESUMABLE_THRESHOLD_BYTES = 6 * 1024 * 1024;
 const TUS_CHUNK_BYTES = 6 * 1024 * 1024;
 
@@ -76,13 +80,100 @@ async function resumableUpload(
   }
 }
 
+async function excludeOversizedSource(options: {
+  job: {
+    id: string;
+    candidate_id: string;
+    work_item_id: string;
+  };
+  file: {
+    id: string;
+    file_name: string;
+    file_size: number | null;
+  };
+  actualSize?: number;
+}) {
+  const admin = contentAdmin();
+  const now = new Date().toISOString();
+  const fileSize = Number(options.actualSize || options.file.file_size || 0);
+  const message = "원본 파일이 자동 처리 상한인 75MB를 초과합니다.";
+  const { data: candidate } = await admin.from("portfolio_candidates")
+    .select("metadata,exclusion_reasons")
+    .eq("id", options.job.candidate_id)
+    .maybeSingle();
+  const existingReasons = Array.isArray(candidate?.exclusion_reasons)
+    ? candidate.exclusion_reasons.map(String)
+    : [];
+  const exclusionReasons = existingReasons.includes(message)
+    ? existingReasons
+    : [...existingReasons, message];
+
+  const updates = await Promise.all([
+    admin.from("content_jobs").update({
+      status: "failed",
+      attempts: MAX_DOWNLOAD_ATTEMPTS,
+      error_message: message,
+      completed_at: now,
+      result: {
+        excluded: true,
+        exclusionCode: "source_too_large",
+        fileName: options.file.file_name,
+        fileSize,
+        fileSizeLimit: MAX_AUTOMATED_SOURCE_BYTES,
+      },
+      updated_at: now,
+    }).eq("id", options.job.id),
+    admin.from("content_jobs").update({
+      status: "on_hold",
+      error_message: "용량 초과 원본이 제외되어 후속 작업을 실행하지 않습니다.",
+      updated_at: now,
+    }).eq("candidate_id", options.job.candidate_id)
+      .neq("job_type", "download")
+      .neq("status", "completed"),
+    admin.from("portfolio_candidates").update({
+      status: "excluded",
+      exclusion_reasons: exclusionReasons,
+      metadata: {
+        ...((candidate?.metadata || {}) as Record<string, unknown>),
+        excludedAt: now,
+        exclusionCode: "source_too_large",
+        sourceFileName: options.file.file_name,
+        sourceFileSize: fileSize,
+        sourceFileSizeLimit: MAX_AUTOMATED_SOURCE_BYTES,
+      },
+      updated_at: now,
+    }).eq("id", options.job.candidate_id),
+    admin.from("naver_works_drive_files").update({
+      sync_status: "ignored",
+      updated_at: now,
+    }).eq("id", options.file.id),
+    admin.from("content_work_items").update({
+      status: "on_hold",
+      summary: "자동 처리 용량을 초과한 원본을 제외했습니다. 다음 포트폴리오 후보로 자동 전환합니다.",
+      review_note: `원본 다운로드 제외: ${message}`,
+      updated_at: now,
+    }).eq("id", options.job.work_item_id),
+  ]);
+  const failedUpdate = updates.find((result) => result.error);
+  if (failedUpdate?.error) throw new Error(failedUpdate.error.message);
+
+  return {
+    candidateId: options.job.candidate_id,
+    workItemId: options.job.work_item_id,
+    status: "excluded" as const,
+    reason: "source_too_large" as const,
+    originalFileName: options.file.file_name,
+    byteLength: fileSize,
+  };
+}
+
 export async function processNextPortfolioDownload(candidateId?: string) {
   const admin = contentAdmin();
   let query = admin.from("content_jobs")
     .select("id,candidate_id,work_item_id,payload,attempts")
     .eq("job_type", "download")
     .in("status", ["queued", "failed"])
-    .lt("attempts", 5)
+    .lt("attempts", MAX_DOWNLOAD_ATTEMPTS)
     .order("created_at", { ascending: true })
     .limit(1);
   if (candidateId) query = query.eq("candidate_id", candidateId);
@@ -108,8 +199,8 @@ export async function processNextPortfolioDownload(candidateId?: string) {
       .eq("id", candidate.drive_file_id)
       .single();
     if (fileError) throw new Error(fileError.message);
-    if (Number(file.file_size || 0) > MAX_SOURCE_BYTES) {
-      throw new Error("원본 파일이 자동 처리 상한인 75MB를 초과합니다.");
+    if (exceedsAutomatedSourceLimit(file.file_size)) {
+      return await excludeOversizedSource({ job, file });
     }
     const { data: root, error: rootError } = await admin.from("naver_works_drive_roots")
       .select("drive_type,external_drive_id")
@@ -122,12 +213,14 @@ export async function processNextPortfolioDownload(candidateId?: string) {
 
     const response = await downloadSharedDriveFile(root.external_drive_id, file.external_file_id);
     const bytes = new Uint8Array(await response.arrayBuffer());
-    if (bytes.byteLength > MAX_SOURCE_BYTES) throw new Error("다운로드된 원본이 75MB를 초과합니다.");
+    if (exceedsAutomatedSourceLimit(bytes.byteLength)) {
+      return await excludeOversizedSource({ job, file, actualSize: bytes.byteLength });
+    }
 
     const bucket = "portfolio-source";
     const { error: bucketError } = await admin.storage.createBucket(bucket, {
       public: false,
-      fileSizeLimit: MAX_SOURCE_BYTES,
+      fileSizeLimit: MAX_AUTOMATED_SOURCE_BYTES,
       allowedMimeTypes: [
         "application/pdf",
         "application/vnd.ms-powerpoint",
@@ -139,7 +232,7 @@ export async function processNextPortfolioDownload(candidateId?: string) {
     }
     const { error: bucketUpdateError } = await admin.storage.updateBucket(bucket, {
       public: false,
-      fileSizeLimit: MAX_SOURCE_BYTES,
+      fileSizeLimit: MAX_AUTOMATED_SOURCE_BYTES,
       allowedMimeTypes: [
         "application/pdf",
         "application/vnd.ms-powerpoint",
@@ -190,6 +283,7 @@ export async function processNextPortfolioDownload(candidateId?: string) {
     return {
       candidateId: job.candidate_id,
       workItemId: job.work_item_id,
+      status: "downloaded" as const,
       originalFileName: file.file_name,
       byteLength: bytes.byteLength,
       storagePath,

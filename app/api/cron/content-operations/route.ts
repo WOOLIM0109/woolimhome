@@ -8,6 +8,7 @@ import { processNextPortfolioConversion } from "@/lib/cloudconvert/job-runner";
 import { processNextPortfolioMockup } from "@/lib/portfolio/job-runner";
 
 export const maxDuration = 300;
+const MAX_PORTFOLIO_SELECTION_ATTEMPTS = 5;
 
 function kstParts(date: Date) {
   const formatter = new Intl.DateTimeFormat("en-CA", {
@@ -29,17 +30,27 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   const portfolioProgress: unknown[] = [];
-  const completedDraft = await processNextPortfolioMockup();
-  if (completedDraft) portfolioProgress.push(completedDraft);
-  if (!completedDraft || completedDraft.status === "rejected") {
-    const downloaded = await processNextPortfolioDownload();
-    if (downloaded) portfolioProgress.push(downloaded);
-    const converted = await processNextPortfolioConversion(downloaded?.candidateId);
-    if (converted) portfolioProgress.push(converted);
-    if (converted?.status === "completed") {
-      const finished = await processNextPortfolioMockup(converted.candidateId);
-      if (finished) portfolioProgress.push(finished);
+  try {
+    const completedDraft = await processNextPortfolioMockup();
+    if (completedDraft) portfolioProgress.push(completedDraft);
+    if (!completedDraft || completedDraft.status === "rejected") {
+      const downloaded = await processNextPortfolioDownload();
+      if (downloaded) portfolioProgress.push(downloaded);
+      if (downloaded && downloaded.status !== "excluded") {
+        const converted = await processNextPortfolioConversion(downloaded.candidateId);
+        if (converted) portfolioProgress.push(converted);
+        if (converted?.status === "completed") {
+          const finished = await processNextPortfolioMockup(converted.candidateId);
+          if (finished) portfolioProgress.push(finished);
+        }
+      }
     }
+  } catch (portfolioError) {
+    portfolioProgress.push({
+      stage: "background_portfolio",
+      status: "failed",
+      error: portfolioError instanceof Error ? portfolioError.message : "포트폴리오 자동 처리 실패",
+    });
   }
   const now = new Date();
   const kst = kstParts(now);
@@ -63,20 +74,41 @@ export async function GET(request: Request) {
         .eq("schedule_key", scheduleKey)
         .maybeSingle();
       if (existingPortfolio && existingPortfolio.metadata?.candidateId) {
-        created.push(existingPortfolio);
-        continue;
+        const { data: existingCandidate } = await admin.from("portfolio_candidates")
+          .select("status")
+          .eq("id", String(existingPortfolio.metadata.candidateId))
+          .maybeSingle();
+        if (existingCandidate?.status !== "excluded") {
+          created.push(existingPortfolio);
+          continue;
+        }
       }
-      const prepared = await prepareNextPortfolioCandidate({
-        scheduleKey,
-        scheduledAt,
-      });
-      if (prepared) {
-        const downloaded = await processNextPortfolioDownload(prepared.candidateId);
-        const converted = downloaded
-          ? await processNextPortfolioConversion(prepared.candidateId)
-          : null;
-        portfolioProgress.push(prepared, ...(downloaded ? [downloaded] : []), ...(converted ? [converted] : []));
-        created.push(prepared);
+      for (let attempt = 0; attempt < MAX_PORTFOLIO_SELECTION_ATTEMPTS; attempt += 1) {
+        try {
+          const prepared = await prepareNextPortfolioCandidate({
+            scheduleKey,
+            scheduledAt,
+          });
+          if (!prepared) break;
+          portfolioProgress.push(prepared);
+          const downloaded = await processNextPortfolioDownload(prepared.candidateId);
+          if (downloaded) portfolioProgress.push(downloaded);
+          if (downloaded?.status === "excluded") continue;
+          const converted = downloaded
+            ? await processNextPortfolioConversion(prepared.candidateId)
+            : null;
+          if (converted) portfolioProgress.push(converted);
+          created.push(prepared);
+          break;
+        } catch (portfolioError) {
+          portfolioProgress.push({
+            stage: "scheduled_portfolio",
+            status: "failed",
+            attempt: attempt + 1,
+            error: portfolioError instanceof Error ? portfolioError.message : "포트폴리오 자동 처리 실패",
+          });
+          break;
+        }
       }
       continue;
     }
