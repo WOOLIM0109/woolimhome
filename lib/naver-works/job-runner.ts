@@ -8,6 +8,8 @@ import {
 const MAX_DOWNLOAD_ATTEMPTS = 5;
 const RESUMABLE_THRESHOLD_BYTES = 6 * 1024 * 1024;
 const TUS_CHUNK_BYTES = 6 * 1024 * 1024;
+const PERMANENT_SIZE_ERROR =
+  /exceeded the maximum allowed size|maximum allowed size|payload too large|http 413/i;
 
 function contentType(fileName: string) {
   if (/\.pptx$/i.test(fileName)) {
@@ -168,6 +170,41 @@ async function excludeOversizedSource(options: {
   };
 }
 
+export async function excludeKnownOversizedPortfolioSource(candidateId: string) {
+  const admin = contentAdmin();
+  const { data: job, error: jobError } = await admin.from("content_jobs")
+    .select("id,candidate_id,work_item_id,error_message")
+    .eq("candidate_id", candidateId)
+    .eq("job_type", "download")
+    .maybeSingle();
+  if (jobError) throw new Error(jobError.message);
+  if (!job) return null;
+
+  const { data: candidate, error: candidateError } = await admin.from("portfolio_candidates")
+    .select("drive_file_id")
+    .eq("id", candidateId)
+    .maybeSingle();
+  if (candidateError) throw new Error(candidateError.message);
+  if (!candidate?.drive_file_id) return null;
+
+  const { data: file, error: fileError } = await admin.from("naver_works_drive_files")
+    .select("id,file_name,file_size")
+    .eq("id", candidate.drive_file_id)
+    .maybeSingle();
+  if (fileError) throw new Error(fileError.message);
+  if (!file) return null;
+
+  const knownSizeError = PERMANENT_SIZE_ERROR.test(String(job.error_message || ""));
+  if (!knownSizeError && !exceedsAutomatedSourceLimit(file.file_size)) return null;
+  return await excludeOversizedSource({
+    job,
+    file,
+    message: knownSizeError
+      ? "원본 파일이 저장소의 자동 처리 허용 용량을 초과합니다."
+      : undefined,
+  });
+}
+
 export async function processNextPortfolioDownload(candidateId?: string) {
   const admin = contentAdmin();
   let query = admin.from("content_jobs")
@@ -291,7 +328,7 @@ export async function processNextPortfolioDownload(candidateId?: string) {
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : "원본 다운로드 실패";
-    if (/exceeded the maximum allowed size|maximum allowed size|payload too large|http 413/i.test(message)) {
+    if (PERMANENT_SIZE_ERROR.test(message)) {
       const { data: candidate } = await admin.from("portfolio_candidates")
         .select("drive_file_id")
         .eq("id", job.candidate_id)
