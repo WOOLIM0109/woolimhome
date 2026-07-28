@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Trash2 } from "lucide-react";
+import { RotateCcw, Trash2 } from "lucide-react";
 import StatusBadge from "./StatusBadge";
 import type { ContentChannel, WorkflowStatus } from "@/lib/content-ops/types";
 
@@ -35,6 +35,7 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [notes, setNotes] = useState<Record<string, string>>({});
+  const [rebuildingId, setRebuildingId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -83,6 +84,29 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
       return;
     }
     await load();
+  }
+
+  async function rebuild(item: WorkItem) {
+    if (!window.confirm(
+      `"${item.title}"의 기존 목업과 본문을 새 기준으로 다시 만들까요?\n현재 이미지는 새 결과가 완성된 뒤 교체됩니다.`,
+    )) return;
+    setRebuildingId(item.id);
+    setError("");
+    try {
+      const response = await fetch(`/api/admin/content/${item.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "rebuild_portfolio" }),
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        setError(data.error || "목업과 본문을 다시 만들지 못했습니다.");
+        return;
+      }
+      await load();
+    } finally {
+      setRebuildingId(null);
+    }
   }
 
   if (loading) return <p className="mt-6 text-sm text-[var(--muted)]">작업 목록을 불러오고 있습니다.</p>;
@@ -177,7 +201,17 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
             </div>
           )}
           {!reviewMode && item.status !== "published" && (
-            <div className="mt-5 flex justify-end border-t border-[var(--line)] pt-4">
+            <div className="mt-5 flex flex-wrap justify-end gap-2 border-t border-[var(--line)] pt-4">
+              {item.format === "portfolio" && (
+                <button
+                  onClick={() => void rebuild(item)}
+                  disabled={rebuildingId === item.id}
+                  className="inline-flex items-center gap-2 rounded-xl border border-[var(--line)] bg-white px-3 py-2 text-xs font-bold hover:bg-stone-50 disabled:cursor-wait disabled:opacity-60"
+                >
+                  <RotateCcw size={15} className={rebuildingId === item.id ? "animate-spin" : ""} />
+                  {rebuildingId === item.id ? "목업·본문 다시 만드는 중" : "목업·본문 다시 만들기"}
+                </button>
+              )}
               <button
                 onClick={() => void remove(item)}
                 className="inline-flex items-center gap-2 rounded-xl px-3 py-2 text-xs font-bold text-red-700 hover:bg-red-50"

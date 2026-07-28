@@ -3,6 +3,10 @@ import { authenticatedAdmin, contentAdmin } from "@/lib/content-ops/data";
 import { validatePortfolioBodyHtml } from "@/lib/content-ops/portfolio-rules";
 import type { WorkflowStatus } from "@/lib/content-ops/types";
 import { parseStoredAssetUrl } from "@/lib/partner-portal";
+import { rebuildPortfolioDraft } from "@/lib/portfolio/job-runner";
+
+export const runtime = "nodejs";
+export const maxDuration = 300;
 
 const STATUSES: WorkflowStatus[] = [
   "topic_candidate", "researching", "creating", "review_required", "approved",
@@ -14,6 +18,15 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const { id } = await context.params;
   const body = await request.json();
+  if (body.action === "rebuild_portfolio") {
+    try {
+      return NextResponse.json(await rebuildPortfolioDraft(id));
+    } catch (error) {
+      return NextResponse.json({
+        error: error instanceof Error ? error.message : "포트폴리오를 다시 만들지 못했습니다.",
+      }, { status: 500 });
+    }
+  }
   if (body.status === "approved") {
     const { data: current, error: currentError } = await contentAdmin()
       .from("content_work_items")
