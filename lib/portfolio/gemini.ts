@@ -12,6 +12,38 @@ function stripFence(value: string) {
   return value.replace(/^```json\s*/i, "").replace(/\s*```$/, "").trim();
 }
 
+function firstJsonObject(value: string) {
+  const cleaned = stripFence(value);
+  const start = cleaned.indexOf("{");
+  if (start < 0) throw new Error("AI 응답에서 JSON 객체를 찾지 못했습니다.");
+
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let index = start; index < cleaned.length; index += 1) {
+    const character = cleaned[index];
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (character === "\\") {
+        escaped = true;
+      } else if (character === "\"") {
+        inString = false;
+      }
+      continue;
+    }
+    if (character === "\"") {
+      inString = true;
+    } else if (character === "{") {
+      depth += 1;
+    } else if (character === "}") {
+      depth -= 1;
+      if (depth === 0) return cleaned.slice(start, index + 1);
+    }
+  }
+  throw new Error("AI 응답의 JSON 객체가 닫히지 않았습니다.");
+}
+
 export async function generateGeminiJson<T>(
   parts: GeminiPart[],
   options: { maxOutputTokens?: number; timeoutMs?: number } = {},
@@ -51,7 +83,7 @@ export async function generateGeminiJson<T>(
       continue;
     }
     try {
-      return JSON.parse(stripFence(raw)) as T;
+      return JSON.parse(firstJsonObject(raw)) as T;
     } catch (error) {
       lastError = error;
     }

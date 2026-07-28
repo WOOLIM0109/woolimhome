@@ -215,6 +215,23 @@ function Assert-LandscapeImage {
   }
 }
 
+function Get-RepresentativeIndexes {
+  param(
+    [int]$Count,
+    [int]$Maximum = 24
+  )
+
+  if ($Count -le $Maximum) {
+    return @(0..($Count - 1))
+  }
+  $indexes = New-Object 'System.Collections.Generic.HashSet[int]'
+  for ($position = 0; $position -lt $Maximum; $position++) {
+    $index = [int][Math]::Round($position * ($Count - 1) / ($Maximum - 1))
+    [void]$indexes.Add($index)
+  }
+  return @($indexes | Sort-Object)
+}
+
 function Convert-Document {
   param(
     [string]$JobId,
@@ -254,10 +271,10 @@ function Convert-Document {
         throw "NON_PRESENTATION_LAYOUT: A portfolio PDF must contain at least 5 pages."
       }
       Assert-LandscapeImage -ImagePath $renderedPages[0].FullName
-      foreach ($page in $renderedPages) {
-        $slidePaths.Add($page.FullName)
+      foreach ($pageIndex in (Get-RepresentativeIndexes -Count $renderedPages.Count)) {
+        $slidePaths.Add($renderedPages[$pageIndex].FullName)
       }
-      Write-WorkerLog "Rendered and verified $($slidePaths.Count) PDF pages."
+      Write-WorkerLog "Rendered $($renderedPages.Count) PDF pages and selected $($slidePaths.Count) representative pages."
     } elseif ($extension -in @(".ppt", ".pptx", ".pptm")) {
       Write-WorkerLog "Starting local PowerPoint rendering."
       Add-Type -AssemblyName Microsoft.Office.Interop.PowerPoint
@@ -317,11 +334,14 @@ function Convert-Document {
       Write-WorkerLog "Presentation layout and $($declaredFonts.Count) declared fonts verified."
       $exportWidth = 2000
       $exportHeight = [Math]::Max(1, [int][Math]::Round($exportWidth * $slideHeight / $slideWidth))
-      foreach ($slide in $presentation.Slides) {
-        $path = Join-Path $SlidesRoot ("slide-{0:D3}.png" -f [int]$slide.SlideIndex)
+      $representativeIndexes = Get-RepresentativeIndexes -Count ([int]$presentation.Slides.Count)
+      foreach ($zeroBasedIndex in $representativeIndexes) {
+        $slide = $presentation.Slides.Item($zeroBasedIndex + 1)
+        $path = Join-Path $SlidesRoot ("slide-{0:D3}.png" -f ($zeroBasedIndex + 1))
         $slide.Export($path, "PNG", $exportWidth, $exportHeight)
         $slidePaths.Add($path)
       }
+      Write-WorkerLog "Selected $($slidePaths.Count) representative slides from $($presentation.Slides.Count) total slides."
     } else {
       throw "UNSUPPORTED_DOCUMENT: Only PPT, PPTX, PPTM, and PDF sources are supported."
     }
@@ -390,17 +410,16 @@ do {
     if ($claim.job) {
       try {
         Write-WorkerLog "Claimed job $($claim.job.id): $($claim.job.fileName)"
+        $sourceAuthorizationHeader = if ($claim.job.sourceAuthorization) {
+          "Authorization: $([string]$claim.job.sourceAuthorization)"
+        } else {
+          ""
+        }
         Convert-Document `
           -JobId ([string]$claim.job.id) `
           -SourceUrl ([string]$claim.job.sourceUrl) `
           -FileName ([string]$claim.job.fileName) `
-          -SourceAuthorization (
-            if ($claim.job.sourceAuthorization) {
-              "Authorization: $([string]$claim.job.sourceAuthorization)"
-            } else {
-              ""
-            }
-          )
+          -SourceAuthorization $sourceAuthorizationHeader
       } catch {
         $message = $_.Exception.Message
         Write-WorkerLog "Failed job $($claim.job.id): $message"
