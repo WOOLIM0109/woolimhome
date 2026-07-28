@@ -4,10 +4,9 @@ import { generateContentWorkItem } from "@/lib/content-ops/generate";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { prepareNextPortfolioCandidate } from "@/lib/naver-works/portfolio-pipeline";
 import {
-  excludeKnownOversizedPortfolioSource,
   processNextPortfolioDownload,
+  restorePcEligibleOversizedCandidates,
 } from "@/lib/naver-works/job-runner";
-import { processNextPortfolioConversion } from "@/lib/cloudconvert/job-runner";
 import { processNextPortfolioMockup } from "@/lib/portfolio/job-runner";
 
 export const maxDuration = 300;
@@ -34,19 +33,19 @@ export async function GET(request: Request) {
   }
   const portfolioProgress: unknown[] = [];
   try {
+    const restoredCandidates = await restorePcEligibleOversizedCandidates();
+    if (restoredCandidates) {
+      portfolioProgress.push({
+        stage: "pc_direct_restore",
+        status: "completed",
+        restoredCandidates,
+      });
+    }
     const completedDraft = await processNextPortfolioMockup();
     if (completedDraft) portfolioProgress.push(completedDraft);
     if (!completedDraft || completedDraft.status === "rejected") {
       const downloaded = await processNextPortfolioDownload();
       if (downloaded) portfolioProgress.push(downloaded);
-      if (downloaded && downloaded.status !== "excluded") {
-        const converted = await processNextPortfolioConversion(downloaded.candidateId);
-        if (converted) portfolioProgress.push(converted);
-        if (converted?.status === "completed") {
-          const finished = await processNextPortfolioMockup(converted.candidateId);
-          if (finished) portfolioProgress.push(finished);
-        }
-      }
     }
   } catch (portfolioError) {
     portfolioProgress.push({
@@ -88,17 +87,10 @@ export async function GET(request: Request) {
             continue;
           }
           try {
-            const knownOversized = await excludeKnownOversizedPortfolioSource(existingCandidateId);
-            if (knownOversized) {
-              portfolioProgress.push(knownOversized);
-            } else {
-              const retriedDownload = await processNextPortfolioDownload(existingCandidateId);
-              if (retriedDownload) portfolioProgress.push(retriedDownload);
-              if (retriedDownload?.status !== "excluded") {
-                created.push(existingPortfolio);
-                continue;
-              }
-            }
+            const pcHandoff = await processNextPortfolioDownload(existingCandidateId);
+            if (pcHandoff) portfolioProgress.push(pcHandoff);
+            created.push(existingPortfolio);
+            continue;
           } catch (portfolioError) {
             portfolioProgress.push({
               stage: "held_portfolio_retry",
@@ -120,11 +112,6 @@ export async function GET(request: Request) {
           portfolioProgress.push(prepared);
           const downloaded = await processNextPortfolioDownload(prepared.candidateId);
           if (downloaded) portfolioProgress.push(downloaded);
-          if (downloaded?.status === "excluded") continue;
-          const converted = downloaded
-            ? await processNextPortfolioConversion(prepared.candidateId)
-            : null;
-          if (converted) portfolioProgress.push(converted);
           created.push(prepared);
           break;
         } catch (portfolioError) {

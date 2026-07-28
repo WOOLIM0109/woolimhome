@@ -33,9 +33,12 @@ export default function PcWorkerStatus() {
   }
 
   useEffect(() => {
-    void load();
+    const firstLoad = window.setTimeout(() => void load(), 0);
     const timer = window.setInterval(() => void load(), 60_000);
-    return () => window.clearInterval(timer);
+    return () => {
+      window.clearTimeout(firstLoad);
+      window.clearInterval(timer);
+    };
   }, []);
 
   return (
@@ -44,7 +47,7 @@ export default function PcWorkerStatus() {
         <div className="flex items-start gap-3">
           <Computer className="mt-1 text-[var(--primary)]" />
           <div>
-            <h2 className="text-xl font-bold">사무실 PC PowerPoint 변환기</h2>
+            <h2 className="text-xl font-bold">사무실 PC 문서 변환기</h2>
             <p className="mt-1 text-sm text-[var(--muted)]">{data?.nextRunHint || "상태 확인 중"}</p>
           </div>
         </div>
