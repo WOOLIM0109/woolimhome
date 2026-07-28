@@ -9,7 +9,7 @@ export async function POST(request: Request) {
   if (!body.jobId) return NextResponse.json({ error: "Missing job id." }, { status: 400 });
   const admin = contentAdmin();
   const now = new Date().toISOString();
-  const message = String(body.error || "PowerPoint conversion failed.").slice(0, 1000);
+  const message = String(body.error || "PC document conversion failed.").slice(0, 1000);
   const retryable = body.retryable !== false;
   const { data: job } = await admin.from("content_jobs")
     .select("work_item_id,candidate_id")
@@ -25,7 +25,7 @@ export async function POST(request: Request) {
     await admin.from("content_work_items").update({
       status: "on_hold",
       summary: retryable
-        ? "회사 PC의 PowerPoint 변환에서 오류가 발생해 다시 시도할 예정입니다."
+        ? "회사 PC의 문서 변환에서 오류가 발생해 다시 시도할 예정입니다."
         : "발표자료 적합성 또는 원본 글꼴 검증을 통과하지 못해 자동 제작 대상에서 제외했습니다.",
       review_note: message,
       updated_at: now,

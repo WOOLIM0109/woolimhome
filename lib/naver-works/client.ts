@@ -158,7 +158,7 @@ export async function worksApi<T>(path: string) {
   return response.json() as Promise<T>;
 }
 
-export async function downloadSharedDriveFile(sharedriveId: string, fileId: string) {
+export async function sharedDriveDownloadAuthorization(sharedriveId: string, fileId: string) {
   const token = await accessToken();
   const response = await fetch(
     `${API_BASE}/sharedrives/${encodeURIComponent(sharedriveId)}/files/${encodeURIComponent(fileId)}/download`,
@@ -173,8 +173,16 @@ export async function downloadSharedDriveFile(sharedriveId: string, fileId: stri
   }
   const location = response.headers.get("location");
   if (!location) throw new Error("NAVER WORKS 파일 다운로드 URL이 비어 있습니다.");
-  const fileResponse = await fetch(location, {
-    headers: { Authorization: `Bearer ${token}` },
+  return {
+    url: location,
+    authorization: `Bearer ${token}`,
+  };
+}
+
+export async function downloadSharedDriveFile(sharedriveId: string, fileId: string) {
+  const download = await sharedDriveDownloadAuthorization(sharedriveId, fileId);
+  const fileResponse = await fetch(download.url, {
+    headers: { Authorization: download.authorization },
     redirect: "follow",
     cache: "no-store",
     signal: AbortSignal.timeout(45_000),

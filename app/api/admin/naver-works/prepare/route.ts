@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server";
 import { authenticatedAdmin } from "@/lib/content-ops/data";
 import { prepareNextPortfolioCandidate } from "@/lib/naver-works/portfolio-pipeline";
-import { processNextPortfolioDownload } from "@/lib/naver-works/job-runner";
-import { processNextPortfolioConversion } from "@/lib/cloudconvert/job-runner";
+import {
+  processNextPortfolioDownload,
+  restorePcEligibleOversizedCandidates,
+} from "@/lib/naver-works/job-runner";
 import { processNextPortfolioMockup } from "@/lib/portfolio/job-runner";
 import { contentAdmin } from "@/lib/content-ops/data";
 import {
@@ -18,6 +20,7 @@ export async function POST(request: Request) {
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   try {
     const body = await request.json().catch(() => ({}));
+    await restorePcEligibleOversizedCandidates();
     const requestId = typeof body.requestId === "string" && /^[a-zA-Z0-9-]{8,80}$/.test(body.requestId)
       ? body.requestId
       : null;
@@ -80,31 +83,27 @@ export async function POST(request: Request) {
       return NextResponse.json({
         prepared: null,
         downloaded: resumedDownload,
-        stage: "downloaded",
+        stage: "pc_waiting",
         shouldContinue: true,
-        message: `${resumedDownload.originalFileName} 원본을 안전하게 내려받아 변환 대기열로 이동했습니다.`,
+        message: `${resumedDownload.originalFileName} 원본을 회사 PC 직접 처리 대기열로 이동했습니다.`,
       });
     }
-    const conversion = scheduleKey && !candidateId
-      ? null
-      : await processNextPortfolioConversion(candidateId);
-    if (scheduleKey && await generationCancellationRequested(scheduleKey)) {
-      await removeCancelledGeneration(scheduleKey);
-      return NextResponse.json({
-        cancelled: true, stage: "cancelled", shouldContinue: false,
-        message: "포트폴리오 초안 생성을 취소했습니다.",
-      });
-    }
-    if (conversion) {
-      return NextResponse.json({
-        prepared: null,
-        converted: conversion,
-        stage: conversion.status === "completed" ? "converted" : "converting",
-        shouldContinue: true,
-        message: conversion.status === "completed"
-          ? "원본 페이지 변환을 마쳤습니다. 이제 실제 화면 적합성과 민감정보를 판정합니다."
-          : "원본의 글꼴과 레이아웃을 보존하는 변환을 진행하고 있습니다.",
-      });
+    if (candidateId) {
+      const { data: pcJob } = await contentAdmin().from("content_jobs")
+        .select("status")
+        .eq("candidate_id", candidateId)
+        .eq("job_type", "convert")
+        .maybeSingle();
+      if (pcJob?.status === "pc_waiting" || pcJob?.status === "pc_running") {
+        return NextResponse.json({
+          prepared: null,
+          stage: pcJob.status,
+          shouldContinue: true,
+          message: pcJob.status === "pc_running"
+            ? "회사 PC가 원본을 직접 내려받아 변환하고 있습니다."
+            : "회사 PC가 원본을 직접 처리할 차례를 기다리고 있습니다.",
+        });
+      }
     }
     const prepared = await prepareNextPortfolioCandidate({
       scheduleKey: scheduleKey || undefined,
@@ -137,7 +136,7 @@ export async function POST(request: Request) {
       downloaded,
       stage: "selected",
       shouldContinue: true,
-      message: `${prepared.projectName} 프로젝트를 비공개 제작 작업으로 등록하고 원본을 안전하게 내려받았습니다.`,
+      message: `${prepared.projectName} 프로젝트를 비공개 제작 작업으로 등록하고 회사 PC 직접 처리 대기열로 이동했습니다.`,
     });
   } catch (error) {
     return NextResponse.json({
