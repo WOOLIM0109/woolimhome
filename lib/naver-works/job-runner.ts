@@ -51,7 +51,7 @@ export async function restorePcEligibleOversizedCandidates() {
         started_at: null,
         completed_at: null,
         error_message: null,
-        result: null,
+        result: {},
         updated_at: now,
       }).eq("candidate_id", candidate.id).eq("job_type", "download"),
       admin.from("content_jobs").update({
@@ -60,7 +60,7 @@ export async function restorePcEligibleOversizedCandidates() {
         started_at: null,
         completed_at: null,
         error_message: null,
-        result: null,
+        result: {},
         updated_at: now,
       }).eq("candidate_id", candidate.id)
         .neq("job_type", "download")
@@ -150,7 +150,7 @@ export async function processNextPortfolioDownload(candidateId?: string) {
         started_at: null,
         completed_at: null,
         error_message: null,
-        result: null,
+        result: {},
         payload: {
           waitsFor: "download",
           sourceDelivery: "naver_works_proxy",
