@@ -3,7 +3,10 @@ import { EDITORIAL_SLOTS } from "@/lib/content-ops/config";
 import { generateContentWorkItem } from "@/lib/content-ops/generate";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { prepareNextPortfolioCandidate } from "@/lib/naver-works/portfolio-pipeline";
-import { processNextPortfolioDownload } from "@/lib/naver-works/job-runner";
+import {
+  excludeKnownOversizedPortfolioSource,
+  processNextPortfolioDownload,
+} from "@/lib/naver-works/job-runner";
 import { processNextPortfolioConversion } from "@/lib/cloudconvert/job-runner";
 import { processNextPortfolioMockup } from "@/lib/portfolio/job-runner";
 
@@ -85,11 +88,16 @@ export async function GET(request: Request) {
             continue;
           }
           try {
-            const retriedDownload = await processNextPortfolioDownload(existingCandidateId);
-            if (retriedDownload) portfolioProgress.push(retriedDownload);
-            if (retriedDownload?.status !== "excluded") {
-              created.push(existingPortfolio);
-              continue;
+            const knownOversized = await excludeKnownOversizedPortfolioSource(existingCandidateId);
+            if (knownOversized) {
+              portfolioProgress.push(knownOversized);
+            } else {
+              const retriedDownload = await processNextPortfolioDownload(existingCandidateId);
+              if (retriedDownload) portfolioProgress.push(retriedDownload);
+              if (retriedDownload?.status !== "excluded") {
+                created.push(existingPortfolio);
+                continue;
+              }
             }
           } catch (portfolioError) {
             portfolioProgress.push({
