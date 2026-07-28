@@ -48,14 +48,12 @@ function interleaveFigures(
   }
   const insertionPoints = new Map<number, string[]>();
   assets.forEach((asset, index) => {
-    const point = Math.max(1, Math.min(
-      paragraphCount,
-      Math.round(((index + 1) * paragraphCount) / (assets.length + 1)),
-    ));
-    insertionPoints.set(point, [
-      ...(insertionPoints.get(point) || []),
-      figureHtml(asset, captions[index] || asset.caption),
-    ]);
+    const remainingAssets = assets.length - index - 1;
+    const idealPoint = Math.round(((index + 1) * paragraphCount) / (assets.length + 1));
+    const previousPoint = [...insertionPoints.keys()].at(-1) || 0;
+    const latestAllowedPoint = Math.max(1, paragraphCount - remainingAssets);
+    const point = Math.max(previousPoint + 1, Math.min(idealPoint, latestAllowedPoint));
+    insertionPoints.set(point, [figureHtml(asset, captions[index] || asset.caption)]);
   });
   let seen = 0;
   return bodyHtml.replace(/<\/p>/gi, (close) => {
@@ -92,11 +90,14 @@ ${JSON.stringify(input.existingTitles.slice(0, 30))}
 - 원본 파일명, 내부 페이지·슬라이드 번호, 검수용 인덱스, 자동 판정 과정은 절대 노출하지 않습니다.
 - 완성작을 깎아내리는 비평, 보완점, 아쉬운 점을 별도 문단으로 만들지 않습니다. 확인된 강점과 울림의 기획 의도를 중심으로 설명합니다.
 - "모범적", "완벽한", "압도적", "훌륭한" 같은 근거 없는 자화자찬을 줄이고, 화면에서 확인되는 구체적인 구성으로 전문성을 보여줍니다.
-- 본문은 공백 제외 2,000~3,500자, H2 4개 이상, 필요한 곳에 H3·목록을 사용합니다.
+- 본문은 공백 제외 2,800~3,500자를 목표로 하며, 절대 2,500자 아래로 쓰지 않습니다.
+- H2는 5개 이상 사용하고, 각 H2 아래에 서로 다른 관점의 설명 문단을 최소 2개씩 작성해 전체 문단을 12개 이상으로 구성합니다.
+- 다량 문서의 강점은 한 장의 화려함보다 수십 페이지에 걸친 정보 구조, 반복 원칙, 구간별 변주와 읽는 흐름에 있습니다. 이 점을 구체적으로 해설합니다.
 - 이미지 태그는 넣지 않습니다. 시스템이 문단 사이에 완성 목업을 자동 배치합니다.
 - FAQ는 실제 의뢰 고객이 물을 법한 질문과 현실적인 답변 4개로 작성합니다.
 - 제목에 "포트폴리오", 내부 채널명, 파일명을 기계적으로 붙이지 말고 프로젝트의 기획적 차별점을 드러냅니다.
-${input.previousIssues?.length ? `이전 결과의 문제를 반드시 고치세요: ${input.previousIssues.join(", ")}` : ""}
+${input.previousIssues?.length ? `이전 결과의 문제를 반드시 고치세요: ${input.previousIssues.join(", ")}
+이번에는 같은 내용을 반복하지 말고 각 구간의 정보 우선순위·그리드·색상·도표·페이지 흐름을 더 구체적으로 설명하여 공백 제외 2,800자 이상인지 확인한 뒤 반환하세요.` : ""}
 
 반드시 JSON만 반환하세요:
 {
@@ -105,7 +106,7 @@ ${input.previousIssues?.length ? `이전 결과의 문제를 반드시 고치세
   "bodyHtml": "<h2>...</h2><p>...</p>",
   "faq": [{"question": "", "answer": ""}],
   "tags": [""],
-  "imageCaptions": ["메인 콜라주 설명", "목업 2 설명", "목업 3 설명", "목업 4 설명"]
+  "imageCaptions": ["도입부 다중 페이지 설명", "초반부 다중 페이지 설명", "중반부 다중 페이지 설명", "전략 구간 다중 페이지 설명", "후반부 다중 페이지 설명"]
 }`;
 }
 
@@ -113,6 +114,7 @@ function draftIssues(draft: PortfolioDraft) {
   const bodyHtml = safeDraftHtml(draft.bodyHtml || "");
   const plainLength = clean(bodyHtml).replace(/\s/g, "").length;
   const h2Count = (bodyHtml.match(/<h2[\s>]/gi) || []).length;
+  const paragraphCount = (bodyHtml.match(/<p[\s>]/gi) || []).length;
   const faqCount = Array.isArray(draft.faq) ? draft.faq.length : 0;
   const internalReferenceCount = (
     clean(bodyHtml).match(/(?:slide|슬라이드|page|페이지)\s*(?:no\.?\s*)?\d+/gi) || []
@@ -121,11 +123,13 @@ function draftIssues(draft: PortfolioDraft) {
     bodyHtml,
     plainLength,
     h2Count,
+    paragraphCount,
     faqCount,
     issues: [
-      ...(plainLength < 2000 ? [`본문이 ${plainLength}자로 짧음`] : []),
+      ...(plainLength < 2500 ? [`본문이 ${plainLength}자로 짧음`] : []),
       ...(plainLength > 3500 ? [`본문이 ${plainLength}자로 김`] : []),
-      ...(h2Count < 4 ? [`H2가 ${h2Count}개뿐임`] : []),
+      ...(h2Count < 5 ? [`H2가 ${h2Count}개뿐임`] : []),
+      ...(paragraphCount < 12 ? [`설명 문단이 ${paragraphCount}개뿐임`] : []),
       ...(faqCount < 4 ? [`FAQ가 ${faqCount}개뿐임`] : []),
       ...(internalReferenceCount ? [`내부 슬라이드·페이지 번호가 ${internalReferenceCount}곳 노출됨`] : []),
       ...(!draft.title?.trim() ? ["제목 누락"] : []),
@@ -164,7 +168,7 @@ export async function createPortfolioDraft(input: {
           previousIssues: validation?.issues,
         }),
       },
-    ], { maxOutputTokens: attempt ? 16000 : 14000, timeoutMs: 150_000 });
+    ], { maxOutputTokens: attempt ? 20000 : 18000, timeoutMs: 150_000 });
     validation = draftIssues(generated);
     if (!validation.issues.length) break;
   }

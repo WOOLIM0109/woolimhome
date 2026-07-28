@@ -112,93 +112,102 @@ async function frame(
     : composed;
 }
 
-function backgroundSvg(width: number, height: number, variant: number) {
+function galleryBackgroundSvg(width: number, height: number, variant: number) {
   const palettes = [
-    ["#24183a", "#74358f", "#f14d88"],
-    ["#f5f0ec", "#d9d1e7", "#784392"],
-    ["#eef1f7", "#cad6ee", "#264fa1"],
-    ["#f4eef7", "#f8dce8", "#8b3c91"],
+    ["#edf1ee", "#dce5df"],
+    ["#edf0f4", "#d9e0e8"],
+    ["#f1edeb", "#e4dcda"],
+    ["#f0edf3", "#dfd9e8"],
+    ["#eceeef", "#d9dddf"],
   ];
-  const [a, b, c] = palettes[variant % palettes.length];
+  const [start, end] = palettes[variant % palettes.length];
   return Buffer.from(`<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
     <defs>
-      <linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop stop-color="${a}"/><stop offset=".58" stop-color="${b}"/><stop offset="1" stop-color="${c}"/></linearGradient>
-      <radialGradient id="r"><stop stop-color="#ffffff" stop-opacity=".38"/><stop offset="1" stop-color="#ffffff" stop-opacity="0"/></radialGradient>
+      <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+        <stop stop-color="${start}"/>
+        <stop offset="1" stop-color="${end}"/>
+      </linearGradient>
+      <radialGradient id="r">
+        <stop stop-color="#ffffff" stop-opacity=".72"/>
+        <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+      </radialGradient>
     </defs>
     <rect width="100%" height="100%" fill="url(#g)"/>
-    <circle cx="${Math.round(width * 0.78)}" cy="${Math.round(height * 0.18)}" r="${Math.round(width * 0.28)}" fill="url(#r)"/>
-    <circle cx="${Math.round(width * 0.12)}" cy="${Math.round(height * 0.9)}" r="${Math.round(width * 0.2)}" fill="#ffffff" opacity=".1"/>
+    <ellipse cx="${Math.round(width * 0.5)}" cy="${Math.round(height * 0.45)}" rx="${Math.round(width * 0.55)}" ry="${Math.round(height * 0.6)}" fill="url(#r)"/>
   </svg>`);
 }
 
 async function thumbnail(slides: LoadedSlide[]) {
   const width = 1080;
   const height = 1080;
-  const main = await frame(slides[0].buffer, 820, 462, { angle: -4 });
-  const supporting = slides[1]
-    ? await frame(slides[1].buffer, 610, 343, { angle: 5 })
-    : null;
+  const selected = slides.slice(0, 6);
+  const frames = await Promise.all(selected.map((slide) => frame(slide.buffer, 250, 141, { radius: 8 })));
+  const columns = selected.length <= 4 ? 2 : 3;
+  const rowCounts = Array.from({ length: Math.ceil(selected.length / columns) }, (_, row) =>
+    Math.min(columns, selected.length - row * columns));
+  const placements: sharp.OverlayOptions[] = [];
+  let index = 0;
+  rowCounts.forEach((rowCount, row) => {
+    const rowWidth = rowCount * 340;
+    const startX = Math.round((width - rowWidth) / 2);
+    for (let column = 0; column < rowCount; column += 1) {
+      placements.push({ input: frames[index], left: startX + column * 340, top: 250 + row * 275 });
+      index += 1;
+    }
+  });
   return sharp({ create: { width, height, channels: 3, background: "#24183a" } })
     .composite([
-      { input: backgroundSvg(width, height, 0), left: 0, top: 0 },
-      ...(supporting ? [{ input: supporting, left: 430, top: 95 }] : []),
-      { input: main, left: 65, top: 345 },
+      { input: galleryBackgroundSvg(width, height, 0), left: 0, top: 0 },
+      ...placements,
     ])
     .jpeg({ quality: 94, chromaSubsampling: "4:4:4" })
     .toBuffer();
 }
 
-async function heroCollage(slides: LoadedSlide[]) {
-  const main = await frame(slides[0].buffer, 1080, 608);
-  const left = await frame((slides[1] || slides[0]).buffer, 700, 394, { angle: -5 });
-  const right = await frame((slides[2] || slides[0]).buffer, 700, 394, { angle: 5 });
-  return sharp({ create: { ...CANVAS, channels: 3, background: "#ede8f1" } })
-    .composite([
-      { input: backgroundSvg(CANVAS.width, CANVAS.height, 1), left: 0, top: 0 },
-      { input: left, left: -250, top: 310 },
-      { input: right, left: 1040, top: 275 },
-      { input: main, left: 215, top: 150 },
-    ])
-    .jpeg({ quality: 93, chromaSubsampling: "4:4:4" })
-    .toBuffer();
-}
-
-async function singleStage(slide: LoadedSlide) {
-  const main = await frame(slide.buffer, 1260, 709);
-  return sharp({ create: { ...CANVAS, channels: 3, background: "#f4f0ec" } })
-    .composite([
-      { input: backgroundSvg(CANVAS.width, CANVAS.height, 2), left: 0, top: 0 },
-      { input: main, left: 125, top: 120 },
-    ])
-    .jpeg({ quality: 93, chromaSubsampling: "4:4:4" })
-    .toBuffer();
-}
-
-async function offsetPair(slides: LoadedSlide[]) {
-  const back = await frame((slides[1] || slides[0]).buffer, 950, 534, { angle: -4 });
-  const front = await frame(slides[0].buffer, 980, 551, { angle: 3 });
-  return sharp({ create: { ...CANVAS, channels: 3, background: "#f5eef4" } })
-    .composite([
-      { input: backgroundSvg(CANVAS.width, CANVAS.height, 3), left: 0, top: 0 },
-      { input: back, left: 80, top: 85 },
-      { input: front, left: 520, top: 330 },
-    ])
-    .jpeg({ quality: 93, chromaSubsampling: "4:4:4" })
-    .toBuffer();
-}
-
-async function triptych(slides: LoadedSlide[]) {
-  const selected = [slides[0], slides[1] || slides[0], slides[2] || slides[0]];
-  const frames = await Promise.all(selected.map((slide) => frame(slide.buffer, 660, 371)));
+async function multiPageBoard(slides: LoadedSlide[], variant: number) {
+  const selected = slides.slice(0, 6);
+  const columns = selected.length <= 4 ? 2 : 3;
+  const cardWidth = columns === 3 ? 430 : 620;
+  const cardHeight = Math.round(cardWidth * 9 / 16);
+  const frames = await Promise.all(selected.map((slide) =>
+    frame(slide.buffer, cardWidth, cardHeight, { radius: 10 })));
+  const frameWidth = cardWidth + 90;
+  const frameHeight = cardHeight + 90;
+  const rowCounts = Array.from({ length: Math.ceil(selected.length / columns) }, (_, row) =>
+    Math.min(columns, selected.length - row * columns));
+  const placements: sharp.OverlayOptions[] = [];
+  let index = 0;
+  rowCounts.forEach((rowCount, row) => {
+    const rowWidth = rowCount * frameWidth;
+    const startX = Math.round((CANVAS.width - rowWidth) / 2);
+    const startY = columns === 3 ? 165 : 55;
+    for (let column = 0; column < rowCount; column += 1) {
+      placements.push({
+        input: frames[index],
+        left: startX + column * frameWidth,
+        top: startY + row * frameHeight,
+      });
+      index += 1;
+    }
+  });
   return sharp({ create: { ...CANVAS, channels: 3, background: "#26173d" } })
     .composite([
-      { input: backgroundSvg(CANVAS.width, CANVAS.height, 0), left: 0, top: 0 },
-      { input: frames[0], left: 40, top: 115 },
-      { input: frames[1], left: 900, top: 80 },
-      { input: frames[2], left: 470, top: 505 },
+      { input: galleryBackgroundSvg(CANVAS.width, CANVAS.height, variant), left: 0, top: 0 },
+      ...placements,
     ])
     .jpeg({ quality: 93, chromaSubsampling: "4:4:4" })
     .toBuffer();
+}
+
+function sectionGroups(length: number, groupCount = 5, groupSize = 6) {
+  const size = Math.min(groupSize, length);
+  const maxStart = Math.max(0, length - size);
+  return Array.from({ length: groupCount }, (_, groupIndex) => {
+    const start = groupCount === 1
+      ? 0
+      : Math.round((groupIndex * maxStart) / (groupCount - 1));
+    return Array.from({ length: size }, (__, offset) => start + offset);
+  });
 }
 
 async function uploadAsset(bucket: string, path: string, bytes: Buffer) {
@@ -216,57 +225,55 @@ export async function createPortfolioMockups(input: {
   slidePaths: string[];
   review: PortfolioVisualReview;
 }) {
-  const reviewedIndexes = input.review.slideAssessments
+  const reviewedIndexes = [...input.review.slideAssessments]
     .sort((a, b) => Number(b.quality || 0) - Number(a.quality || 0))
     .map((slide) => slide.slideIndex);
-  const indexes = [...new Set([
+  const groups = sectionGroups(input.slidePaths.length);
+  const thumbnailIndexes = [...new Set([
     ...input.review.recommendedSlideIndexes,
     ...reviewedIndexes,
-  ])].slice(0, 6);
+    ...groups[0],
+  ])].filter((index) => index >= 0 && index < input.slidePaths.length).slice(0, 6);
+  const indexes = [...new Set([...thumbnailIndexes, ...groups.flat()])];
   const slides = await loadSlides({
     bucket: input.bucket,
     slidePaths: input.slidePaths,
     indexes,
     sensitiveRegions: input.review.sensitiveRegions,
   });
-  if (slides.length < 3) throw new Error("서로 다른 목업을 만들 슬라이드가 3장 미만입니다.");
+  if (slides.length < 4) throw new Error("다중 페이지 목업을 만들 슬라이드가 4장 미만입니다.");
+  const slideMap = new Map(slides.map((slide) => [slide.index, slide]));
+  const thumbnailSlides = thumbnailIndexes
+    .map((index) => slideMap.get(index))
+    .filter((slide): slide is LoadedSlide => Boolean(slide));
+  const groupSlides = groups.map((group) => group
+    .map((index) => slideMap.get(index))
+    .filter((slide): slide is LoadedSlide => Boolean(slide)));
+  const captions = [
+    "문서 도입부의 구성과 첫인상을 한눈에 보여주는 다중 페이지 목업",
+    "초반부 정보 구조와 레이아웃의 반복 원칙을 비교하는 다중 페이지 목업",
+    "문서 중반부의 콘텐츠 전개와 시각적 변주를 보여주는 다중 페이지 목업",
+    "핵심 전략과 실행 내용을 여러 페이지 흐름으로 보여주는 다중 페이지 목업",
+    "문서 후반부까지 이어지는 디자인 일관성을 확인하는 다중 페이지 목업",
+  ];
 
+  const bodyOutputs = await Promise.all(groupSlides.map(async (group, index) => ({
+    kind: "body_image" as const,
+    name: `multi-page-${index + 1}.jpg`,
+    bytes: await multiPageBoard(group, index),
+    caption: captions[index],
+    slideIndexes: group.map((slide) => slide.index),
+  })));
   const outputs = [
     {
       kind: "thumbnail" as const,
       name: "thumbnail.jpg",
-      bytes: await thumbnail(slides),
-      caption: "프로젝트의 핵심 디자인 장면을 조합한 포트폴리오 대표 이미지",
-      slideIndexes: slides.slice(0, 2).map((slide) => slide.index),
+      bytes: await thumbnail(thumbnailSlides.length >= 4 ? thumbnailSlides : groupSlides[0]),
+      caption: "문서의 여러 구간을 한 화면에 보여주는 포트폴리오 대표 이미지",
+      slideIndexes: (thumbnailSlides.length >= 4 ? thumbnailSlides : groupSlides[0])
+        .map((slide) => slide.index),
     },
-    {
-      kind: "body_image" as const,
-      name: "main-collage.jpg",
-      bytes: await heroCollage(slides),
-      caption: "표지와 핵심 페이지를 한 화면에 구성한 메인 콜라주",
-      slideIndexes: slides.slice(0, 3).map((slide) => slide.index),
-    },
-    {
-      kind: "body_image" as const,
-      name: "mockup-detail.jpg",
-      bytes: await singleStage(slides[2] || slides[0]),
-      caption: "핵심 정보 구조와 시각화 방식을 집중해서 보여주는 페이지",
-      slideIndexes: [(slides[2] || slides[0]).index],
-    },
-    {
-      kind: "body_image" as const,
-      name: "mockup-pair.jpg",
-      bytes: await offsetPair([slides[3] || slides[0], slides[4] || slides[1]]),
-      caption: "서로 다른 목적의 페이지를 대비해 보여주는 이중 목업",
-      slideIndexes: [slides[3] || slides[0], slides[4] || slides[1]].map((slide) => slide.index),
-    },
-    {
-      kind: "body_image" as const,
-      name: "mockup-triptych.jpg",
-      bytes: await triptych([slides[1], slides[4] || slides[2], slides[5] || slides[3] || slides[0]]),
-      caption: "문서 전체의 디자인 일관성과 페이지 변주를 보여주는 구성",
-      slideIndexes: [slides[1], slides[4] || slides[2], slides[5] || slides[3] || slides[0]].map((slide) => slide.index),
-    },
+    ...bodyOutputs,
   ];
 
   const base = `${input.candidateId}/mockups/${crypto.randomUUID()}`;

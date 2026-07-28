@@ -345,3 +345,93 @@ export async function retryPortfolioDraft(workItemId: string) {
     validation,
   };
 }
+
+export async function rebuildPortfolioDraft(workItemId: string) {
+  const admin = contentAdmin();
+  const { data: workItem, error: workItemError } = await admin
+    .from("content_work_items")
+    .select("id,format,status,metadata")
+    .eq("id", workItemId)
+    .single();
+  if (workItemError) throw new Error(workItemError.message);
+  if (workItem.format !== "portfolio") {
+    throw new Error("포트폴리오 작업만 목업과 본문을 다시 만들 수 있습니다.");
+  }
+  if (workItem.status === "published") {
+    throw new Error("이미 발행된 작업은 자동으로 다시 만들 수 없습니다.");
+  }
+
+  const metadata = (workItem.metadata || {}) as Record<string, unknown> & {
+    candidateId?: string;
+  };
+  let candidateId = metadata.candidateId;
+  if (!candidateId) {
+    const { data: linkedJob, error: linkedJobError } = await admin
+      .from("content_jobs")
+      .select("candidate_id")
+      .eq("work_item_id", workItemId)
+      .not("candidate_id", "is", null)
+      .limit(1)
+      .maybeSingle();
+    if (linkedJobError) throw new Error(linkedJobError.message);
+    candidateId = linkedJob?.candidate_id || undefined;
+  }
+  if (!candidateId) {
+    throw new Error("연결된 포트폴리오 원본을 찾지 못했습니다.");
+  }
+
+  const { data: conversion, error: conversionError } = await admin
+    .from("content_jobs")
+    .select("status,result")
+    .eq("candidate_id", candidateId)
+    .eq("job_type", "convert")
+    .maybeSingle();
+  if (conversionError) throw new Error(conversionError.message);
+  const conversionResult = (conversion?.result || {}) as JobResult;
+  if (conversion?.status !== "completed" || !conversionResult.bucket || !conversionResult.slidePaths?.length) {
+    throw new Error("변환이 끝난 슬라이드 원본이 없어 목업을 다시 만들 수 없습니다.");
+  }
+
+  const now = new Date().toISOString();
+  const { error: mockupResetError } = await admin.from("content_jobs").update({
+    status: "queued",
+    attempts: 0,
+    started_at: null,
+    completed_at: null,
+    error_message: null,
+    result: { rebuildRequestedAt: now },
+    updated_at: now,
+  }).eq("candidate_id", candidateId).eq("job_type", "mockup");
+  if (mockupResetError) throw new Error(mockupResetError.message);
+
+  const { error: draftResetError } = await admin.from("content_jobs").update({
+    status: "on_hold",
+    attempts: 0,
+    started_at: null,
+    completed_at: null,
+    error_message: null,
+    result: {},
+    updated_at: now,
+  }).eq("candidate_id", candidateId).eq("job_type", "draft");
+  if (draftResetError) throw new Error(draftResetError.message);
+
+  await admin.from("portfolio_candidates").update({
+    status: "selected",
+    updated_at: now,
+  }).eq("id", candidateId);
+  await admin.from("content_work_items").update({
+    status: "creating",
+    summary: "다량 문서 기준에 맞춰 4~6페이지 다중 목업 5장과 긴 본문을 다시 만들고 있습니다.",
+    review_note: null,
+    metadata: {
+      ...metadata,
+      candidateId,
+      rebuildRequestedAt: now,
+    },
+    updated_at: now,
+  }).eq("id", workItemId);
+
+  const result = await processNextPortfolioMockup(candidateId);
+  if (!result) throw new Error("다시 만들기 작업을 시작하지 못했습니다.");
+  return result;
+}
