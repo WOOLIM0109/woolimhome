@@ -68,7 +68,7 @@ async function rejectCandidate(input: {
 export async function processNextPortfolioMockup(candidateId?: string) {
   const admin = contentAdmin();
   let query = admin.from("content_jobs")
-    .select("id,candidate_id,work_item_id,status,result,payload,attempts,max_attempts")
+    .select("id,candidate_id,work_item_id,status,result,payload,attempts,max_attempts,error_message")
     .eq("job_type", "mockup")
     .in("status", ["queued", "failed"])
     .order("created_at", { ascending: true })
@@ -78,12 +78,27 @@ export async function processNextPortfolioMockup(candidateId?: string) {
   if (jobError) throw new Error(jobError.message);
   const job = jobs?.[0];
   if (!job) return null;
-  if (Number(job.attempts || 0) >= Number(job.max_attempts || 3)) return null;
+  let attempts = Number(job.attempts || 0);
+  const result = (job.result || {}) as Record<string, unknown>;
+  const recoverableJsonFailure = /Unexpected non-whitespace|AI JSON|JSON 객체/i
+    .test(String(job.error_message || ""));
+  if (attempts >= Number(job.max_attempts || 3)) {
+    if (!recoverableJsonFailure || result.jsonFormatRecoveryAttemptedAt) return null;
+    const recoveryAt = new Date().toISOString();
+    const { error: recoveryError } = await admin.from("content_jobs").update({
+      attempts: 0,
+      result: { ...result, jsonFormatRecoveryAttemptedAt: recoveryAt },
+      error_message: null,
+      updated_at: recoveryAt,
+    }).eq("id", job.id);
+    if (recoveryError) throw new Error(recoveryError.message);
+    attempts = 0;
+  }
 
   const now = new Date().toISOString();
   await admin.from("content_jobs").update({
     status: "running",
-    attempts: Number(job.attempts || 0) + 1,
+    attempts: attempts + 1,
     started_at: now,
     completed_at: null,
     error_message: null,
