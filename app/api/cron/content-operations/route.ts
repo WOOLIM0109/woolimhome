@@ -74,13 +74,32 @@ export async function GET(request: Request) {
         .eq("schedule_key", scheduleKey)
         .maybeSingle();
       if (existingPortfolio && existingPortfolio.metadata?.candidateId) {
+        const existingCandidateId = String(existingPortfolio.metadata.candidateId);
         const { data: existingCandidate } = await admin.from("portfolio_candidates")
           .select("status")
-          .eq("id", String(existingPortfolio.metadata.candidateId))
+          .eq("id", existingCandidateId)
           .maybeSingle();
         if (existingCandidate?.status !== "excluded") {
-          created.push(existingPortfolio);
-          continue;
+          if (existingPortfolio.status !== "on_hold") {
+            created.push(existingPortfolio);
+            continue;
+          }
+          try {
+            const retriedDownload = await processNextPortfolioDownload(existingCandidateId);
+            if (retriedDownload) portfolioProgress.push(retriedDownload);
+            if (retriedDownload?.status !== "excluded") {
+              created.push(existingPortfolio);
+              continue;
+            }
+          } catch (portfolioError) {
+            portfolioProgress.push({
+              stage: "held_portfolio_retry",
+              status: "failed",
+              error: portfolioError instanceof Error ? portfolioError.message : "보류 포트폴리오 재처리 실패",
+            });
+            created.push(existingPortfolio);
+            continue;
+          }
         }
       }
       for (let attempt = 0; attempt < MAX_PORTFOLIO_SELECTION_ATTEMPTS; attempt += 1) {
