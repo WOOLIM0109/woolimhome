@@ -203,7 +203,7 @@ export default function KnowledgePage() {
           <Upload className="mt-0.5 text-[var(--primary)]" />
           <div>
             <h2 className="font-bold">인터뷰·강의 자료 파일로 가져오기</h2>
-            <p className="mt-1 text-sm text-[var(--muted)]">TXT 또는 DOCX 파일을 올리면 AI가 주제별 노하우 카드로 나눕니다. 분류된 카드는 검토 전까지 미승인 상태입니다.</p>
+            <p className="mt-1 text-sm text-[var(--muted)]">TXT 또는 DOCX 파일을 올리면 대표님의 실제 표현과 맥락을 유지해 주제별 노하우 카드로 나눕니다. 외부 자료조사는 칼럼 작성 단계에서 별도로 붙이며, 분류된 카드는 검토 전까지 미승인 상태입니다.</p>
           </div>
         </div>
         <div className="mt-5 flex flex-col gap-3 sm:flex-row">
@@ -355,7 +355,7 @@ export default function KnowledgePage() {
 function KnowledgeDetails({ item }: { item: ExpertKnowledge }) {
   return (
     <div className="space-y-5">
-      <Detail label="원천 내용" value={item.raw_text} />
+      <Detail label="대표 표현을 보존한 원천 내용" value={item.raw_text} />
       <div className="grid gap-5 md:grid-cols-3">
         <Detail label="통념을 뒤집는 관점" value={item.perspective} />
         <Detail label="사례·숫자·전후 변화" value={item.case_evidence} />
@@ -382,7 +382,7 @@ function EditForm({ value, onChange }: { value: EditableKnowledge; onChange: (va
         <label className="block"><span className="mb-2 block text-sm font-bold">자료 종류</span><select className="input" value={value.source_type} onChange={(e) => onChange({ ...value, source_type: e.target.value as ExpertKnowledge["source_type"] })}><option value="interview">인터뷰</option><option value="case">사례</option><option value="note">업무 노트</option></select></label>
         <label className="block"><span className="mb-2 block text-sm font-bold">전문 분야</span><select className="input" value={value.expertise_area} onChange={(e) => onChange({ ...value, expertise_area: e.target.value as ExpertKnowledge["expertise_area"] })}>{EXPERTISE_AREAS.map((area) => <option key={area.value} value={area.value}>{area.label}</option>)}</select></label>
       </div>
-      <label className="block"><span className="mb-2 block text-sm font-bold">원천 내용</span><textarea rows={12} className="input" value={value.raw_text} onChange={(e) => onChange({ ...value, raw_text: e.target.value })} /></label>
+      <label className="block"><span className="mb-2 block text-sm font-bold">대표 표현을 보존한 원천 내용</span><textarea rows={12} className="input" value={value.raw_text} onChange={(e) => onChange({ ...value, raw_text: e.target.value })} /></label>
       <label className="block"><span className="mb-2 block text-sm font-bold">통념을 뒤집는 관점</span><textarea rows={4} className="input" value={value.perspective || ""} onChange={(e) => onChange({ ...value, perspective: e.target.value })} /></label>
       <label className="block"><span className="mb-2 block text-sm font-bold">사례·숫자·전후 변화</span><textarea rows={4} className="input" value={value.case_evidence || ""} onChange={(e) => onChange({ ...value, case_evidence: e.target.value })} /></label>
       <label className="block"><span className="mb-2 block text-sm font-bold">울림만의 방식·절대 하지 않는 것</span><textarea rows={4} className="input" value={value.differentiator || ""} onChange={(e) => onChange({ ...value, differentiator: e.target.value })} /></label>
