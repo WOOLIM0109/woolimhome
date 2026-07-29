@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   Bell,
+  Bot,
   BriefcaseBusiness,
   CalendarDays,
   FileCheck2,
@@ -20,6 +21,7 @@ const ADMIN_EMAIL = "miseong0928@gmail.com";
 const NAV_ITEMS = [
   { href: "/admin", label: "전체 현황", icon: LayoutDashboard },
   { href: "/admin/columns", label: "홈페이지 칼럼", icon: Newspaper },
+  { href: "/admin/bot-traffic", label: "봇 트래픽", icon: Bot },
   { href: "/admin/naver-consulting", label: "컨설팅 블로그", icon: Home },
   { href: "/admin/naver-design", label: "디자인 블로그", icon: Palette },
   { href: "/admin/reviews", label: "검토 요청", icon: FileCheck2 },
