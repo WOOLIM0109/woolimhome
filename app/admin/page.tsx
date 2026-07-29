@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Bell, CalendarDays, FileCheck2 } from "lucide-react";
+import { Bell, Bot, CalendarDays, FileCheck2 } from "lucide-react";
 import AdminPortal from "@/components/admin/AdminPortal";
 import ChannelCard from "@/components/admin/ChannelCard";
 import TwoWeekSchedule from "@/components/admin/TwoWeekSchedule";
@@ -44,7 +44,7 @@ export default function AdminDashboardPage() {
         />
       </section>
 
-      <section className="mt-8 grid gap-5 lg:grid-cols-3">
+      <section className="mt-8 grid gap-5 md:grid-cols-2 xl:grid-cols-4">
         <Link href="/admin/reviews" className="card card-hover flex-row items-center gap-4 p-5">
           <span className="rounded-xl bg-amber-50 p-3 text-amber-800"><FileCheck2 /></span>
           <span><strong className="block">검토 요청</strong><small className="text-[var(--muted)]">완성된 글과 이미지만 확인</small></span>
@@ -52,6 +52,10 @@ export default function AdminDashboardPage() {
         <Link href="/admin/sources" className="card card-hover flex-row items-center gap-4 p-5">
           <span className="rounded-xl bg-blue-50 p-3 text-blue-800"><Bell /></span>
           <span><strong className="block">주제·자료 수집</strong><small className="text-[var(--muted)]">새 주제와 변경사항 확인</small></span>
+        </Link>
+        <Link href="/admin/bot-traffic" className="card card-hover flex-row items-center gap-4 p-5">
+          <span className="rounded-xl bg-violet-50 p-3 text-violet-800"><Bot /></span>
+          <span><strong className="block">봇 트래픽</strong><small className="text-[var(--muted)]">AI·검색엔진 방문 확인</small></span>
         </Link>
         <Link href="/admin/schedule" className="card card-hover flex-row items-center gap-4 p-5">
           <span className="rounded-xl bg-emerald-50 p-3 text-emerald-800"><CalendarDays /></span>
