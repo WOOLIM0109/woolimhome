@@ -37,7 +37,7 @@ export async function POST(request: Request) {
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const body = await request.json();
   if (!body.topic || !body.raw_text) {
-    return NextResponse.json({ error: "二쇱젣? ?먯쿇 ?댁슜? ?꾩닔?낅땲??" }, { status: 400 });
+    return NextResponse.json({ error: "주제와 원천 내용은 필수입니다." }, { status: 400 });
   }
   const { data, error } = await createAdminClient()
     .from("column_expert_knowledge")
@@ -62,7 +62,7 @@ export async function PATCH(request: Request) {
   const user = await adminUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const body = await request.json();
-  if (!body.id) return NextResponse.json({ error: "ID媛 ?꾩슂?⑸땲??" }, { status: 400 });
+  if (!body.id) return NextResponse.json({ error: "ID가 필요합니다." }, { status: 400 });
 
   const changes: Record<string, string | boolean | null> = {
     updated_at: new Date().toISOString(),
@@ -71,20 +71,20 @@ export async function PATCH(request: Request) {
   if ("approved" in body) changes.approved = Boolean(body.approved);
   if ("topic" in body) {
     const topic = typeof body.topic === "string" ? body.topic.trim() : "";
-    if (!topic) return NextResponse.json({ error: "二쇱젣???꾩닔?낅땲??" }, { status: 400 });
+    if (!topic) return NextResponse.json({ error: "주제는 필수입니다." }, { status: 400 });
     changes.topic = topic;
   }
   if ("raw_text" in body) {
     const rawText = typeof body.raw_text === "string" ? body.raw_text.trim() : "";
-    if (!rawText) return NextResponse.json({ error: "?먯쿇 ?댁슜? ?꾩닔?낅땲??" }, { status: 400 });
+    if (!rawText) return NextResponse.json({ error: "원천 내용은 필수입니다." }, { status: 400 });
     changes.raw_text = rawText;
   }
   if ("source_type" in body) {
-    if (!SOURCE_TYPES.has(body.source_type)) return NextResponse.json({ error: "吏?먰븯吏 ?딅뒗 ?먮즺 醫낅쪟?낅땲??" }, { status: 400 });
+    if (!SOURCE_TYPES.has(body.source_type)) return NextResponse.json({ error: "지원하지 않는 자료 종류입니다." }, { status: 400 });
     changes.source_type = body.source_type;
   }
   if ("expertise_area" in body) {
-    if (!EXPERTISE_AREAS.has(body.expertise_area)) return NextResponse.json({ error: "吏?먰븯吏 ?딅뒗 ?꾨Ц 遺꾩빞?낅땲??" }, { status: 400 });
+    if (!EXPERTISE_AREAS.has(body.expertise_area)) return NextResponse.json({ error: "지원하지 않는 전문 분야입니다." }, { status: 400 });
     changes.expertise_area = body.expertise_area;
   }
   for (const field of ["perspective", "case_evidence", "differentiator"] as const) {
@@ -105,7 +105,7 @@ export async function DELETE(request: Request) {
   const user = await adminUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const id = new URL(request.url).searchParams.get("id");
-  if (!id) return NextResponse.json({ error: "ID媛 ?꾩슂?⑸땲??" }, { status: 400 });
+  if (!id) return NextResponse.json({ error: "ID가 필요합니다." }, { status: 400 });
   const { error } = await createAdminClient().from("column_expert_knowledge").delete().eq("id", id);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ success: true });
