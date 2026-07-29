@@ -428,4 +428,3 @@ function ApprovalDialog({ item, updating, onClose, onApprove }: { item: ExpertKn
 function Shell({ children }: { children: React.ReactNode }) {
   return <section className="min-h-[70vh] bg-[#fffaf7]"><div className="mx-auto max-w-5xl px-5 py-16 lg:px-8">{children}</div></section>;
 }
-
