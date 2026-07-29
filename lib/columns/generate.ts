@@ -161,6 +161,14 @@ export async function generateColumn(input: {
 - 노하우 자료에 없는 경험·성과·사례는 절대 창작하지 않는다.
 - hybrid와 authority도 노하우 원문을 요약하는 글이 아니다. 최소 2개의 공식 외부 출처로 사실과 검색 수요를 보강하고,
   원천자료는 울림만의 판단 기준·해석·실무 사례를 만드는 차별화 근거로 사용한다.
+- hybrid와 authority는 '대표 목소리 보존 + 전문성 증폭' 방식으로 작성한다.
+  대표가 실제로 말한 주장·판단 순서·사례·특징적인 어휘가 글의 중심이어야 하며, 이를 흔한 컨설팅 문구나 과장된 전문가 문체로 치환하지 않는다.
+- 글의 핵심 주장 중 60% 이상은 usedKnowledgeIds의 원천자료에서 의미를 직접 추적할 수 있어야 한다.
+  공식 자료와 연구는 대표의 말을 대신하지 않고 사실 확인·배경 설명·검색 수요를 보강하는 중립적인 근거로만 사용한다.
+- 원천자료에 있는 대표의 특징적인 문장이나 표현을 1~3개 골라 blockquote로 인용한다. 문법상 필요한 최소한의 정리만 하고 의미와 어휘를 바꾸지 않는다.
+- 대표가 말하지 않은 경험·성과·의견을 대표의 말처럼 쓰지 않는다. 공식 출처의 내용과 대표의 관점을 한 문장 안에서 섞어 새로운 주장을 만들지 않는다.
+- 전문성은 어려운 용어가 아니라 '무엇을 먼저 보는지 → 무엇을 버리는지 → 왜 그렇게 판단하는지 → 실제로 어떻게 적용하는지'가 드러나게 한다.
+- 가능하면 각 핵심 구간에 대표의 판단 → 그 이유 → 실제 사례 → 공식 근거 → 독자가 적용할 기준이 이어지게 한다.
 - 제목과 H2/H3는 실제 고객이 검색할 쉬운 말로 쓰고, 객관적 근거 → 울림의 해석 → 실행 방법이 이어지게 한다.
 
 [주제 힌트]
@@ -213,6 +221,8 @@ JSON만 반환:
 군더더기, 반복, 출처에 없는 사실을 추가하지 말고 한국어 가시 문자 3,500~4,000자로 다시 작성하세요.
 JSON 구조, contentKind, usedSourceUrls, FAQ 3~4개는 유지하세요.
 실무 설명, 판단 기준, 예시, 실행 단계를 자연스러운 H2/H3 구조로 보강하세요.
+hybrid 또는 authority라면 원천자료의 대표 표현과 판단 맥락을 유지하고, 일반적인 전문가 문체로 다시 쓰지 마세요.
+대표가 실제로 말한 특징적인 표현을 blockquote로 1~3개 보존하고, 공식 자료는 별도의 근거로만 보강하세요.
 JSON만 반환하세요.
 
 ${JSON.stringify(generated)}
@@ -229,12 +239,19 @@ ${JSON.stringify(generated)}
     const issues: string[] = [];
     const charCount = initialCharCount;
     const h2Count = (generated.bodyHtml.match(/<h2[\s>]/gi) || []).length;
+    const blockquoteCount = (generated.bodyHtml.match(/<blockquote[\s>]/gi) || []).length;
     if (charCount < 3000) issues.push(`본문이 짧습니다(${charCount}자).`);
     if (h2Count < 3) issues.push("H2가 3개 미만입니다.");
     if (generated.faqs.length < 3 || generated.faqs.length > 4) issues.push("FAQ는 3~4개여야 합니다.");
     if (usedSources.length < 2) issues.push("독립된 공식 출처가 2개 미만입니다.");
     if (generated.contentKind !== "informational" && !knowledge?.length) {
       issues.push("하이브리드·권위형에 필요한 승인된 원천자료가 없습니다.");
+    }
+    if (generated.contentKind !== "informational" && usedKnowledgeIds.length === 0) {
+      issues.push("대표님의 승인 원천자료를 실제로 사용하지 않았습니다.");
+    }
+    if (generated.contentKind !== "informational" && blockquoteCount < 1) {
+      issues.push("대표님의 실제 표현을 보존한 인용문이 없습니다.");
     }
     if (/<script|<iframe|on\w+=|javascript:/i.test(generated.bodyHtml)) issues.push("허용되지 않은 HTML이 있습니다.");
 
@@ -243,7 +260,7 @@ ${JSON.stringify(generated)}
       await admin.from("column_generation_runs").update({
         status: "blocked",
         response_payload: generated,
-        validation_result: { issues, charCount, h2Count },
+        validation_result: { issues, charCount, h2Count, blockquoteCount },
         completed_at: new Date().toISOString(),
       }).eq("id", run.data.id);
       return { blocked: true, issues, expertQuestions: generated.expertQuestions || [] };
@@ -276,7 +293,7 @@ ${JSON.stringify(generated)}
         sources: sourceRecords,
         faqs: generated.faqs,
         knowledge_ids: usedKnowledgeIds,
-        validation: { charCount, h2Count, sourceCount: sourceRecords.length },
+        validation: { charCount, h2Count, blockquoteCount, sourceCount: sourceRecords.length },
       },
       author_email: input.createdBy,
     }).select().single();
@@ -297,10 +314,10 @@ ${JSON.stringify(generated)}
       post_id: post.id,
       status: "generated",
       response_payload: generated,
-      validation_result: { issues: [], charCount, h2Count, sourceCount: sourceRecords.length },
+      validation_result: { issues: [], charCount, h2Count, blockquoteCount, sourceCount: sourceRecords.length },
       completed_at: new Date().toISOString(),
     }).eq("id", run.data.id);
-    return { blocked: false, post, validation: { charCount, h2Count, faqCount: generated.faqs.length, sourceCount: sourceRecords.length } };
+    return { blocked: false, post, validation: { charCount, h2Count, blockquoteCount, faqCount: generated.faqs.length, sourceCount: sourceRecords.length } };
   } catch (error) {
     await admin.from("column_generation_runs").update({
       status: "failed",
