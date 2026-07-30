@@ -309,7 +309,7 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
                   {regeneratingId === item.id ? "초안 다시 만드는 중" : "멈춘 초안 다시 만들기"}
                 </button>
               )}
-              {item.format !== "portfolio" && item.status === "review_required" && (
+              {item.format !== "portfolio" && (item.status === "review_required" || item.status === "on_hold") && (
                 <button
                   onClick={() => void replaceTopic(item)}
                   disabled={regeneratingId === item.id}
