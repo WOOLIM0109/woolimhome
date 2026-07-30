@@ -46,6 +46,7 @@ function slotFor(item: RegeneratableItem): EditorialSlot {
 async function regenerateContentItem(
   item: RegeneratableItem,
   requestedNote: unknown,
+  forceNewTopic = false,
 ) {
   if (!item.schedule_key) throw new Error("재생성에 필요한 작업 키가 없습니다.");
   if (item.status === "published") throw new Error("이미 발행된 글은 자동으로 다시 만들 수 없습니다.");
@@ -75,6 +76,7 @@ async function regenerateContentItem(
   try {
     return await generateContentWorkItem(slotFor(item), item.schedule_key, {
       revisionNote: note,
+      forceNewTopic,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "자동 재생성 실패";
@@ -94,7 +96,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const { id } = await context.params;
   const body = await request.json();
-  if (body.action === "regenerate" || body.status === "creating") {
+  if (body.action === "regenerate" || body.action === "replace_topic" || body.status === "creating") {
     const { data: current, error: currentError } = await contentAdmin()
       .from("content_work_items")
       .select("id,channel,format,status,schedule_key,scheduled_at,review_note,metadata")
@@ -105,6 +107,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
       return NextResponse.json(await regenerateContentItem(
         current as RegeneratableItem,
         body.review_note,
+        body.action === "replace_topic",
       ));
     } catch (error) {
       return NextResponse.json({
