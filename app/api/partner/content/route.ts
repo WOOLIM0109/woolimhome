@@ -4,6 +4,7 @@ import {
   PARTNER_CHANNELS,
   PARTNER_VISIBLE_STATUSES,
   isPartnerChannel,
+  isPartnerReleaseReady,
   partnerAssetUrl,
   replaceAdminAssetUrls,
   replaceFiguresWithMarkers,
@@ -36,6 +37,12 @@ type WorkItemRow = {
   published_at: string | null;
   metadata: {
     generated?: GeneratedContent;
+    novelty?: {
+      duplicate?: boolean;
+    };
+    validation?: {
+      issues?: string[];
+    };
     partnerHandoff?: {
       publishedUrl?: string;
       completedAt?: string;
@@ -69,44 +76,46 @@ export async function GET(request: Request) {
   const { data, error } = await query;
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  const items = ((data || []) as WorkItemRow[]).map((item) => {
-    const storedAssets = [...(item.content_review_assets || [])]
-      .sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0));
-    const uploadableAssets = storedAssets.filter((asset) => asset.asset_type !== "article_preview");
-    const generated = item.metadata?.generated || {};
-    const originalBodyHtml = sanitizeGeneratedHtml(generated.bodyHtml || "");
-    let thumbnailNumber = 0;
-    let bodyImageNumber = 0;
+  const items = ((data || []) as WorkItemRow[])
+    .filter(isPartnerReleaseReady)
+    .map((item) => {
+      const storedAssets = [...(item.content_review_assets || [])]
+        .sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0));
+      const uploadableAssets = storedAssets.filter((asset) => asset.asset_type !== "article_preview");
+      const generated = item.metadata?.generated || {};
+      const originalBodyHtml = sanitizeGeneratedHtml(generated.bodyHtml || "");
+      let thumbnailNumber = 0;
+      let bodyImageNumber = 0;
 
-    return {
-      id: item.id,
-      channel: item.channel,
-      format: item.format,
-      title: item.title,
-      summary: item.summary,
-      status: item.status,
-      scheduledAt: item.scheduled_at,
-      publishedAt: item.published_at,
-      publishedUrl: item.metadata?.partnerHandoff?.publishedUrl || null,
-      completedAt: item.metadata?.partnerHandoff?.completedAt || null,
-      previewHtml: replaceAdminAssetUrls(originalBodyHtml, storedAssets),
-      copyHtml: replaceFiguresWithMarkers(originalBodyHtml),
-      faq: Array.isArray(generated.faq) ? generated.faq : [],
-      tags: Array.isArray(generated.tags) ? generated.tags : [],
-      assets: uploadableAssets.map((asset) => {
-        const order = asset.asset_type === "thumbnail"
-          ? ++thumbnailNumber
-          : ++bodyImageNumber;
-        return {
-          id: asset.id,
-          type: asset.asset_type,
-          order,
-          previewUrl: partnerAssetUrl(asset.id),
-          downloadUrl: partnerAssetUrl(asset.id, true),
-        };
-      }),
-    };
-  });
+      return {
+        id: item.id,
+        channel: item.channel,
+        format: item.format,
+        title: item.title,
+        summary: item.summary,
+        status: item.status,
+        scheduledAt: item.scheduled_at,
+        publishedAt: item.published_at,
+        publishedUrl: item.metadata?.partnerHandoff?.publishedUrl || null,
+        completedAt: item.metadata?.partnerHandoff?.completedAt || null,
+        previewHtml: replaceAdminAssetUrls(originalBodyHtml, storedAssets),
+        copyHtml: replaceFiguresWithMarkers(originalBodyHtml),
+        faq: Array.isArray(generated.faq) ? generated.faq : [],
+        tags: Array.isArray(generated.tags) ? generated.tags : [],
+        assets: uploadableAssets.map((asset) => {
+          const order = asset.asset_type === "thumbnail"
+            ? ++thumbnailNumber
+            : ++bodyImageNumber;
+          return {
+            id: asset.id,
+            type: asset.asset_type,
+            order,
+            previewUrl: partnerAssetUrl(asset.id),
+            downloadUrl: partnerAssetUrl(asset.id, true),
+          };
+        }),
+      };
+    });
 
   return NextResponse.json(items, {
     headers: { "Cache-Control": "private, no-store", Vary: "Cookie" },
