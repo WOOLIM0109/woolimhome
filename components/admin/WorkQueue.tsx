@@ -47,6 +47,10 @@ type WorkItem = {
       note?: string;
       requestedAt?: string;
     };
+    lastRevision?: {
+      note?: string;
+      appliedAt?: string;
+    };
   };
   content_review_assets?: { id: string; asset_type: "thumbnail" | "body_image" | "article_preview"; public_url: string; sort_order?: number; review_note?: string }[];
 };
@@ -217,7 +221,11 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
               {item.metadata.novelty.plan && (
                 <p className="mt-3 leading-6">
                   <strong>{item.metadata.novelty.plan.topicFamily || "선정 주제"}</strong>
-                  {item.metadata.novelty.plan.angle ? ` · ${item.metadata.novelty.plan.angle}` : ""}
+                  {item.metadata.lastRevision
+                    ? " · 사용자의 최신 수정 요청에 따라 기존 글 보완"
+                    : item.metadata.novelty.plan.angle
+                      ? ` · ${item.metadata.novelty.plan.angle}`
+                      : ""}
                 </p>
               )}
               {item.metadata.novelty.rationale && (
