@@ -11,6 +11,14 @@ export type ContentPlan = {
   knowledgeIds: string[];
 };
 
+export function contentPlanForRevision(plan: ContentPlan, revisionNote: string): ContentPlan {
+  return {
+    ...plan,
+    angle: revisionNote,
+    rationale: "기존 글의 주제와 승인 원천자료를 유지하면서 사용자의 최신 수정 요청을 반영합니다.",
+  };
+}
+
 export type ContentFingerprint = {
   title: string;
   summary: string;
