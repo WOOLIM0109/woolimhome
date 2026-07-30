@@ -32,6 +32,23 @@ export function isPartnerReleaseReady(item: {
     && item.metadata.validation.issues.length === 0;
 }
 
+export function shouldGenerateScheduledItem(item: {
+  format: string;
+  status: string;
+  metadata?: {
+    pendingRevision?: { note?: unknown };
+    novelty?: { duplicate?: boolean };
+    validation?: { issues?: string[] };
+  } | null;
+}) {
+  if (item.status === "topic_candidate") return true;
+  if (item.status !== "approved" || item.format === "portfolio") return false;
+
+  const hasPendingRevision = typeof item.metadata?.pendingRevision?.note === "string"
+    && Boolean(item.metadata.pendingRevision.note.trim());
+  return hasPendingRevision || !isPartnerReleaseReady(item);
+}
+
 export function partnerAssetUrl(id: string, download = false) {
   return `/api/partner/assets?id=${encodeURIComponent(id)}${download ? "&download=1" : ""}`;
 }
