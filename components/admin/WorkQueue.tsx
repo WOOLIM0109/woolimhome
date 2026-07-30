@@ -28,6 +28,7 @@ type WorkItem = {
     validation?: { plainLength?: number; h2Count?: number; faqCount?: number; figureCount?: number; issues?: string[] };
     novelty?: {
       duplicate?: boolean;
+      blockedReason?: "missing_knowledge" | "duplicate";
       riskScore?: number;
       threshold?: number;
       rationale?: string;
@@ -41,6 +42,10 @@ type WorkItem = {
         audience?: string;
         keyEntities?: string[];
       };
+    };
+    pendingRevision?: {
+      note?: string;
+      requestedAt?: string;
     };
   };
   content_review_assets?: { id: string; asset_type: "thumbnail" | "body_image" | "article_preview"; public_url: string; sort_order?: number; review_note?: string }[];
@@ -192,6 +197,8 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
             <section className={`mt-5 rounded-xl border p-4 text-sm ${
               item.metadata.novelty.duplicate
                 ? "border-red-200 bg-red-50 text-red-900"
+                : item.metadata.novelty.blockedReason === "missing_knowledge"
+                  ? "border-amber-300 bg-amber-50 text-amber-950"
                 : "border-emerald-200 bg-emerald-50/70 text-emerald-950"
             }`}>
               <div className="flex flex-wrap items-center gap-2 font-bold">
@@ -200,7 +207,11 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
                   중복 위험 {item.metadata.novelty.riskScore || 0}점
                 </span>
                 <span className="rounded-full bg-white px-3 py-1 text-xs">
-                  {item.metadata.novelty.duplicate ? "자동 차단" : "통과"}
+                  {item.metadata.novelty.duplicate
+                    ? "자동 차단"
+                    : item.metadata.novelty.blockedReason === "missing_knowledge"
+                      ? "원천자료 확인 필요"
+                      : "통과"}
                 </span>
               </div>
               {item.metadata.novelty.plan && (
@@ -225,6 +236,15 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
                   </ul>
                 </div>
               ) : null}
+            </section>
+          )}
+          {item.metadata?.pendingRevision?.note && (
+            <section className="mt-5 rounded-xl border border-sky-200 bg-sky-50 p-4 text-sm leading-6 text-sky-950">
+              <p className="font-bold">보존된 수정 요청</p>
+              <p className="mt-1 whitespace-pre-wrap">{item.metadata.pendingRevision.note}</p>
+              <p className="mt-2 text-xs opacity-70">
+                생성에 실패해도 이 요청은 사라지지 않으며, 아래 재시도 버튼이 같은 요청을 다시 반영합니다.
+              </p>
             </section>
           )}
           {item.status === "approved"
@@ -321,7 +341,11 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
                   className="inline-flex items-center gap-2 rounded-xl border border-[var(--line)] bg-white px-3 py-2 text-xs font-bold hover:bg-stone-50 disabled:cursor-wait disabled:opacity-60"
                 >
                   <RotateCcw size={15} className={regeneratingId === item.id ? "animate-spin" : ""} />
-                  {regeneratingId === item.id ? "초안 다시 만드는 중" : "멈춘 초안 다시 만들기"}
+                  {regeneratingId === item.id
+                    ? "초안 다시 만드는 중"
+                    : item.metadata?.pendingRevision?.note
+                      ? "보존된 수정 요청 다시 반영"
+                      : "멈춘 초안 다시 만들기"}
                 </button>
               )}
               {item.format !== "portfolio"

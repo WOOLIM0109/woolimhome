@@ -5,8 +5,8 @@ import type { WorkflowStatus } from "@/lib/content-ops/types";
 import { parseStoredAssetUrl } from "@/lib/partner-portal";
 import { rebuildPortfolioDraft } from "@/lib/portfolio/job-runner";
 import { EDITORIAL_SLOTS } from "@/lib/content-ops/config";
-import { editorialRevisionNote } from "@/lib/content-ops/generated-content";
 import { generateContentWorkItem } from "@/lib/content-ops/generate";
+import { resolveRevisionNote } from "@/lib/content-ops/generated-content";
 import type { ContentChannel, ContentFormat, EditorialSlot } from "@/lib/content-ops/types";
 
 export const runtime = "nodejs";
@@ -55,9 +55,7 @@ async function regenerateContentItem(
     throw new Error("포트폴리오는 ‘목업·본문 다시 만들기’를 이용해 주세요.");
   }
 
-  const note = editorialRevisionNote(
-    requestedNote === undefined ? item.review_note : requestedNote,
-  );
+  const note = resolveRevisionNote(requestedNote, item.review_note, item.metadata);
   const metadata = {
     ...(item.metadata || {}),
     ...(note ? { pendingRevision: { note, requestedAt: new Date().toISOString() } } : {}),
