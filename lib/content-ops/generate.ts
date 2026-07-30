@@ -56,6 +56,7 @@ type StoredWorkItem = {
 
 const MAX_ARTICLE_ATTEMPTS = 3;
 const NOVELTY_LOOKBACK_DAYS = 90;
+const AI_RESPONSE_TIMEOUT_MS = 90_000;
 
 function clean(value: string) {
   return value.replace(/<script[\s\S]*?<\/script>/gi, " ").replace(/<style[\s\S]*?<\/style>/gi, " ")
@@ -229,7 +230,7 @@ JSON 객체만 반환한다.`;
             maxOutputTokens: 6000,
           },
         }),
-        signal: AbortSignal.timeout(55_000),
+        signal: AbortSignal.timeout(AI_RESPONSE_TIMEOUT_MS),
       },
     );
     if (!response.ok) throw new Error(`주제 기획 요청 실패: ${response.status}`);
@@ -282,7 +283,7 @@ async function requestGeneratedContent({
             maxOutputTokens: 12000,
           },
         }),
-        signal: AbortSignal.timeout(55_000),
+          signal: AbortSignal.timeout(AI_RESPONSE_TIMEOUT_MS),
       },
     );
     if (!response.ok) throw new Error(`AI 생성 요청 실패: ${response.status}`);
