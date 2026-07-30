@@ -207,30 +207,48 @@ ${JSON.stringify(sources.map((source) => ({
 
 후보마다 대주제, 구체 주제, 기존 글과 다른 관점, 한 명의 독자, 핵심 제도·사업·개념, 가제, 차별화 이유를 적는다.
 JSON 객체만 반환한다.`;
-  const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${apiKey}`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [{ role: "user", parts: [{ text: prompt }] }],
-        generationConfig: {
-          responseMimeType: "application/json",
-          responseSchema: TOPIC_PLAN_SCHEMA,
-          maxOutputTokens: 6000,
-        },
-      }),
-      signal: AbortSignal.timeout(55_000),
-    },
-  );
-  if (!response.ok) throw new Error(`주제 기획 요청 실패: ${response.status}`);
-  const payload = await response.json();
-  const raw = payload.candidates?.[0]?.content?.parts
-    ?.map((part: { text?: string }) => part.text || "").join("")?.trim();
-  if (!raw) throw new Error("주제 기획 응답이 비어 있습니다.");
-  const plans = parseTopicPlans(raw);
-  if (!plans.length) throw new Error("사용할 수 있는 주제 후보를 만들지 못했습니다.");
-  return plans;
+  let lastFormatError: unknown;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    if (await generationCancellationRequested(scheduleKey)) {
+      await removeCancelledGeneration(scheduleKey);
+      throw new Error("GENERATION_CANCELLED");
+    }
+    const retryInstruction = attempt
+      ? "\n\n이전 주제 후보 응답은 JSON 문법 오류로 읽지 못했습니다. 후보를 처음부터 다시 만들고 JSON 객체 외에는 아무 글자도 반환하지 마세요."
+      : "";
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${apiKey}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [{ role: "user", parts: [{ text: `${prompt}${retryInstruction}` }] }],
+          generationConfig: {
+            responseMimeType: "application/json",
+            responseSchema: TOPIC_PLAN_SCHEMA,
+            maxOutputTokens: 6000,
+          },
+        }),
+        signal: AbortSignal.timeout(55_000),
+      },
+    );
+    if (!response.ok) throw new Error(`주제 기획 요청 실패: ${response.status}`);
+    const payload = await response.json();
+    const raw = payload.candidates?.[0]?.content?.parts
+      ?.map((part: { text?: string }) => part.text || "").join("")?.trim();
+    try {
+      if (!raw) throw new Error("주제 기획 응답이 비어 있습니다.");
+      const plans = parseTopicPlans(raw);
+      if (!plans.length) throw new Error("사용할 수 있는 주제 후보를 만들지 못했습니다.");
+      return plans;
+    } catch (error) {
+      lastFormatError = error;
+    }
+  }
+  const detail = lastFormatError instanceof Error
+    ? lastFormatError.message
+    : "알 수 없는 JSON 형식 오류";
+  throw new Error(`주제 기획 응답 형식을 두 번 복구하지 못했습니다: ${detail}`);
 }
 
 async function requestGeneratedContent({
