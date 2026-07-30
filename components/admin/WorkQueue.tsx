@@ -26,6 +26,22 @@ type WorkItem = {
       sensitiveRegions?: unknown[];
     };
     validation?: { plainLength?: number; h2Count?: number; faqCount?: number; figureCount?: number; issues?: string[] };
+    novelty?: {
+      duplicate?: boolean;
+      riskScore?: number;
+      threshold?: number;
+      rationale?: string;
+      lookbackDays?: number;
+      matches?: { id: string; title: string; format: string; score: number; reasons: string[] }[];
+      attempts?: { title: string; riskScore: number; duplicate: boolean; issues: string[] }[];
+      plan?: {
+        topicFamily?: string;
+        primaryTopic?: string;
+        angle?: string;
+        audience?: string;
+        keyEntities?: string[];
+      };
+    };
   };
   content_review_assets?: { id: string; asset_type: "thumbnail" | "body_image" | "article_preview"; public_url: string; sort_order?: number; review_note?: string }[];
 };
@@ -64,9 +80,11 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
 
   async function update(
     id: string,
-    patch: { action?: "regenerate"; status?: WorkflowStatus; review_note?: string },
+    patch: { action?: "regenerate" | "replace_topic"; status?: WorkflowStatus; review_note?: string },
   ) {
-    const regenerating = patch.action === "regenerate" || patch.status === "creating";
+    const regenerating = patch.action === "regenerate"
+      || patch.action === "replace_topic"
+      || patch.status === "creating";
     if (regenerating) setRegeneratingId(id);
     setError("");
     try {
@@ -84,6 +102,13 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
     } finally {
       if (regenerating) setRegeneratingId(null);
     }
+  }
+
+  async function replaceTopic(item: WorkItem) {
+    if (!window.confirm(
+      `"${item.title}" 초안을 최근 글과 겹치지 않는 완전히 다른 주제로 교체할까요?\n현재 초안은 새 초안으로 대체됩니다.`,
+    )) return;
+    await update(item.id, { action: "replace_topic" });
   }
 
   async function remove(item: WorkItem) {
@@ -163,6 +188,45 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
               </p>
             </section>
           )}
+          {item.metadata?.novelty && item.format !== "portfolio" && (
+            <section className={`mt-5 rounded-xl border p-4 text-sm ${
+              item.metadata.novelty.duplicate
+                ? "border-red-200 bg-red-50 text-red-900"
+                : "border-emerald-200 bg-emerald-50/70 text-emerald-950"
+            }`}>
+              <div className="flex flex-wrap items-center gap-2 font-bold">
+                <span>최근 {item.metadata.novelty.lookbackDays || 90}일 중복 검사</span>
+                <span className="rounded-full bg-white px-3 py-1 text-xs">
+                  중복 위험 {item.metadata.novelty.riskScore || 0}점
+                </span>
+                <span className="rounded-full bg-white px-3 py-1 text-xs">
+                  {item.metadata.novelty.duplicate ? "자동 차단" : "통과"}
+                </span>
+              </div>
+              {item.metadata.novelty.plan && (
+                <p className="mt-3 leading-6">
+                  <strong>{item.metadata.novelty.plan.topicFamily || "선정 주제"}</strong>
+                  {item.metadata.novelty.plan.angle ? ` · ${item.metadata.novelty.plan.angle}` : ""}
+                </p>
+              )}
+              {item.metadata.novelty.rationale && (
+                <p className="mt-1 leading-6 opacity-80">차별점: {item.metadata.novelty.rationale}</p>
+              )}
+              {item.metadata.novelty.matches?.length ? (
+                <div className="mt-3">
+                  <p className="font-bold">가장 유사한 기존 글</p>
+                  <ul className="mt-1 list-disc space-y-1 pl-5 opacity-80">
+                    {item.metadata.novelty.matches.map((match) => (
+                      <li key={match.id}>
+                        {match.title} · {match.score}점
+                        {match.reasons.length ? ` · ${match.reasons.join(", ")}` : ""}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+            </section>
+          )}
           {item.status === "on_hold" && (item.review_note || item.metadata?.validation?.issues?.length) ? (
             <section className="mt-5 rounded-xl border border-red-200 bg-red-50 p-4 text-sm leading-6 text-red-800">
               <p className="font-bold">보류 사유</p>
@@ -209,6 +273,15 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
                 >
                   {regeneratingId === item.id ? "수정 반영 중" : "수정 요청"}
                 </button>
+                {item.format !== "portfolio" && (
+                  <button
+                    onClick={() => void replaceTopic(item)}
+                    disabled={regeneratingId === item.id}
+                    className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-2 text-sm font-bold text-amber-950 disabled:cursor-wait disabled:opacity-60"
+                  >
+                    {regeneratingId === item.id ? "새 주제 선정 중" : "다른 주제로 교체"}
+                  </button>
+                )}
                 <button onClick={() => void update(item.id, { status: "approved", review_note: notes[item.id] || "" })} className="btn-gradient rounded-xl px-4 py-2 text-sm font-bold text-white">완성본 승인</button>
                 <button onClick={() => void update(item.id, { status: "on_hold", review_note: notes[item.id] || "" })} className="rounded-xl bg-stone-100 px-4 py-2 text-sm font-bold">보류</button>
               </div>
@@ -234,6 +307,16 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
                 >
                   <RotateCcw size={15} className={regeneratingId === item.id ? "animate-spin" : ""} />
                   {regeneratingId === item.id ? "초안 다시 만드는 중" : "멈춘 초안 다시 만들기"}
+                </button>
+              )}
+              {item.format !== "portfolio" && item.status === "review_required" && (
+                <button
+                  onClick={() => void replaceTopic(item)}
+                  disabled={regeneratingId === item.id}
+                  className="inline-flex items-center gap-2 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-950 hover:bg-amber-100 disabled:cursor-wait disabled:opacity-60"
+                >
+                  <RotateCcw size={15} className={regeneratingId === item.id ? "animate-spin" : ""} />
+                  {regeneratingId === item.id ? "새 주제 선정 중" : "중복 검사 후 다른 주제로 교체"}
                 </button>
               )}
               <button

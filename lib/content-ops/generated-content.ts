@@ -5,6 +5,7 @@ export type GeneratedContent = {
   faq: { question: string; answer: string }[];
   tags: string[];
   sourceUrls: string[];
+  usedKnowledgeIds: string[];
 };
 
 export const GENERATED_CONTENT_SCHEMA = {
@@ -32,8 +33,12 @@ export const GENERATED_CONTENT_SCHEMA = {
       type: "ARRAY",
       items: { type: "STRING" },
     },
+    usedKnowledgeIds: {
+      type: "ARRAY",
+      items: { type: "STRING" },
+    },
   },
-  required: ["title", "summary", "bodyHtml", "faq", "tags", "sourceUrls"],
+  required: ["title", "summary", "bodyHtml", "faq", "tags", "sourceUrls", "usedKnowledgeIds"],
 } as const;
 
 function extractJsonObject(value: string) {
@@ -68,6 +73,7 @@ export function parseGeneratedContent(raw: string): GeneratedContent {
       && typeof item.answer === "string")
     || !stringArray(parsed.tags)
     || !stringArray(parsed.sourceUrls)
+    || !stringArray(parsed.usedKnowledgeIds)
   ) {
     throw new Error("필수 콘텐츠 필드가 누락되었습니다.");
   }
