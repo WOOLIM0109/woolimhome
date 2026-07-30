@@ -36,6 +36,7 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
   const [error, setError] = useState("");
   const [notes, setNotes] = useState<Record<string, string>>({});
   const [rebuildingId, setRebuildingId] = useState<string | null>(null);
+  const [regeneratingId, setRegeneratingId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -61,18 +62,28 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
     return () => window.clearTimeout(timer);
   }, [load]);
 
-  async function update(id: string, patch: { status?: WorkflowStatus; review_note?: string }) {
-    const response = await fetch(`/api/admin/content/${id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(patch),
-    });
-    if (!response.ok) {
-      const data = await response.json();
-      setError(data.error || "저장하지 못했습니다.");
-      return;
+  async function update(
+    id: string,
+    patch: { action?: "regenerate"; status?: WorkflowStatus; review_note?: string },
+  ) {
+    const regenerating = patch.action === "regenerate" || patch.status === "creating";
+    if (regenerating) setRegeneratingId(id);
+    setError("");
+    try {
+      const response = await fetch(`/api/admin/content/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(patch),
+      });
+      if (!response.ok) {
+        const data = await response.json();
+        setError(data.error || "저장하지 못했습니다.");
+        return;
+      }
+      await load();
+    } finally {
+      if (regenerating) setRegeneratingId(null);
     }
-    await load();
   }
 
   async function remove(item: WorkItem) {
@@ -191,7 +202,13 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
             <div className="mt-5 border-t border-[var(--line)] pt-5">
               <textarea className="input" rows={3} value={notes[item.id] || ""} onChange={(event) => setNotes((current) => ({ ...current, [item.id]: event.target.value }))} placeholder="수정 요청이나 가려야 할 내용을 적어주세요." />
               <div className="mt-3 flex flex-wrap gap-2">
-                <button onClick={() => void update(item.id, { status: "creating", review_note: notes[item.id] || "" })} className="rounded-xl border border-[var(--line)] bg-white px-4 py-2 text-sm font-bold">수정 요청</button>
+                <button
+                  onClick={() => void update(item.id, { status: "creating", review_note: notes[item.id] || "" })}
+                  disabled={regeneratingId === item.id}
+                  className="rounded-xl border border-[var(--line)] bg-white px-4 py-2 text-sm font-bold disabled:cursor-wait disabled:opacity-60"
+                >
+                  {regeneratingId === item.id ? "수정 반영 중" : "수정 요청"}
+                </button>
                 <button onClick={() => void update(item.id, { status: "approved", review_note: notes[item.id] || "" })} className="btn-gradient rounded-xl px-4 py-2 text-sm font-bold text-white">완성본 승인</button>
                 <button onClick={() => void update(item.id, { status: "on_hold", review_note: notes[item.id] || "" })} className="rounded-xl bg-stone-100 px-4 py-2 text-sm font-bold">보류</button>
               </div>
@@ -207,6 +224,16 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
                 >
                   <RotateCcw size={15} className={rebuildingId === item.id ? "animate-spin" : ""} />
                   {rebuildingId === item.id ? "목업·본문 다시 만드는 중" : "목업·본문 다시 만들기"}
+                </button>
+              )}
+              {item.format !== "portfolio" && (item.status === "creating" || item.status === "on_hold") && (
+                <button
+                  onClick={() => void update(item.id, { action: "regenerate" })}
+                  disabled={regeneratingId === item.id}
+                  className="inline-flex items-center gap-2 rounded-xl border border-[var(--line)] bg-white px-3 py-2 text-xs font-bold hover:bg-stone-50 disabled:cursor-wait disabled:opacity-60"
+                >
+                  <RotateCcw size={15} className={regeneratingId === item.id ? "animate-spin" : ""} />
+                  {regeneratingId === item.id ? "초안 다시 만드는 중" : "멈춘 초안 다시 만들기"}
                 </button>
               )}
               <button
