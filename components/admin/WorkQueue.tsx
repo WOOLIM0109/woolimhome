@@ -227,6 +227,21 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
               ) : null}
             </section>
           )}
+          {item.status === "approved"
+            && item.format !== "portfolio"
+            && (
+              item.metadata?.novelty?.duplicate !== false
+              || !Array.isArray(item.metadata?.validation?.issues)
+              || item.metadata.validation.issues.length > 0
+            ) && (
+            <section className="mt-5 rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm leading-6 text-amber-950">
+              <p className="font-bold">외주 전달 보류</p>
+              <p className="mt-1">
+                새 중복·구조 검사를 통과한 기록이 없는 과거 승인 원고입니다.
+                아래 버튼으로 다른 주제를 생성하고 다시 승인하면 외주 작업실에 전달됩니다.
+              </p>
+            </section>
+          )}
           {item.status === "on_hold" && (item.review_note || item.metadata?.validation?.issues?.length) ? (
             <section className="mt-5 rounded-xl border border-red-200 bg-red-50 p-4 text-sm leading-6 text-red-800">
               <p className="font-bold">보류 사유</p>
@@ -309,7 +324,8 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
                   {regeneratingId === item.id ? "초안 다시 만드는 중" : "멈춘 초안 다시 만들기"}
                 </button>
               )}
-              {item.format !== "portfolio" && (item.status === "review_required" || item.status === "on_hold") && (
+              {item.format !== "portfolio"
+                && (item.status === "review_required" || item.status === "on_hold" || item.status === "approved") && (
                 <button
                   onClick={() => void replaceTopic(item)}
                   disabled={regeneratingId === item.id}

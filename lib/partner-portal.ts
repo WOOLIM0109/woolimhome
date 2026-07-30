@@ -16,6 +16,22 @@ export function isPartnerVisibleStatus(value: unknown): value is WorkflowStatus 
   return typeof value === "string" && PARTNER_VISIBLE_STATUSES.includes(value as WorkflowStatus);
 }
 
+export function isPartnerReleaseReady(item: {
+  format: string;
+  status: string;
+  metadata?: {
+    novelty?: { duplicate?: boolean };
+    validation?: { issues?: string[] };
+  } | null;
+}) {
+  if (!isPartnerVisibleStatus(item.status)) return false;
+  if (item.status === "published" || item.format === "portfolio") return true;
+
+  return item.metadata?.novelty?.duplicate === false
+    && Array.isArray(item.metadata?.validation?.issues)
+    && item.metadata.validation.issues.length === 0;
+}
+
 export function partnerAssetUrl(id: string, download = false) {
   return `/api/partner/assets?id=${encodeURIComponent(id)}${download ? "&download=1" : ""}`;
 }
