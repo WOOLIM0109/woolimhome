@@ -16,6 +16,7 @@ import {
 import {
   assessNovelty,
   comparableFromStoredItem,
+  contentPlanForRevision,
   fingerprintFromGenerated,
   fingerprintFromPlan,
   type ComparableContent,
@@ -409,8 +410,9 @@ export async function generateContentWorkItem(
     rationale: "기존 초안의 수정 요청을 반영합니다.",
     knowledgeIds: storedMetadata.generated.usedKnowledgeIds || [],
   } : null;
-  const requestedPlans = revisionNote && !options.forceNewTopic && (previousPlan || fallbackPlan)
-    ? [previousPlan || fallbackPlan as ContentPlan]
+  const priorRevisionPlan = previousPlan || fallbackPlan;
+  const requestedPlans = revisionNote && !options.forceNewTopic && priorRevisionPlan
+    ? [contentPlanForRevision(priorRevisionPlan, revisionNote)]
     : await requestTopicPlans({
       apiKey,
       slot,
