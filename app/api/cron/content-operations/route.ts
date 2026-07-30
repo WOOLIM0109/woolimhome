@@ -8,6 +8,7 @@ import {
   restorePcEligibleOversizedCandidates,
 } from "@/lib/naver-works/job-runner";
 import { processNextPortfolioMockup } from "@/lib/portfolio/job-runner";
+import { shouldGenerateScheduledItem } from "@/lib/partner-portal";
 
 export const maxDuration = 300;
 const MAX_PORTFOLIO_SELECTION_ATTEMPTS = 5;
@@ -142,7 +143,7 @@ export async function GET(request: Request) {
     }, { onConflict: "schedule_key", ignoreDuplicates: true }).select().maybeSingle();
     if (error) return NextResponse.json({ error: error.message, scheduleKey }, { status: 500 });
     const workItem = data || (await admin.from("content_work_items").select("*").eq("schedule_key", scheduleKey).single()).data;
-    if (workItem && slot.channel !== "homepage" && workItem.status === "topic_candidate") {
+    if (workItem && slot.channel !== "homepage" && shouldGenerateScheduledItem(workItem)) {
       try {
         const generated = await generateContentWorkItem(slot, scheduleKey);
         created.push(generated);

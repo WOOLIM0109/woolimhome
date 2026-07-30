@@ -342,7 +342,12 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
                   {rebuildingId === item.id ? "목업·본문 다시 만드는 중" : "목업·본문 다시 만들기"}
                 </button>
               )}
-              {item.format !== "portfolio" && (item.status === "creating" || item.status === "on_hold") && (
+              {item.format !== "portfolio"
+                && (
+                  item.status === "creating"
+                  || item.status === "on_hold"
+                  || Boolean(item.metadata?.pendingRevision?.note)
+                ) && (
                 <button
                   onClick={() => void update(item.id, { action: "regenerate" })}
                   disabled={regeneratingId === item.id}
