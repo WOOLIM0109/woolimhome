@@ -11,10 +11,10 @@ export type ContentPlan = {
   knowledgeIds: string[];
 };
 
-export function contentPlanForRevision(plan: ContentPlan, revisionNote: string): ContentPlan {
+export function contentPlanForRevision(plan: ContentPlan): ContentPlan {
   return {
     ...plan,
-    angle: revisionNote,
+    angle: "사용자의 최신 수정 요청에 따라 기존 글 보완",
     rationale: "기존 글의 주제와 승인 원천자료를 유지하면서 사용자의 최신 수정 요청을 반영합니다.",
   };
 }

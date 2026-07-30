@@ -412,7 +412,7 @@ export async function generateContentWorkItem(
   } : null;
   const priorRevisionPlan = previousPlan || fallbackPlan;
   const requestedPlans = revisionNote && !options.forceNewTopic && priorRevisionPlan
-    ? [contentPlanForRevision(priorRevisionPlan, revisionNote)]
+    ? [contentPlanForRevision(priorRevisionPlan)]
     : await requestTopicPlans({
       apiKey,
       slot,
