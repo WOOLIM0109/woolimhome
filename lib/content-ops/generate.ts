@@ -123,7 +123,7 @@ ${JSON.stringify(plan)}
 반드시 JSON만 반환하세요:
 {"title":"","summary":"","bodyHtml":"<h2>...</h2><p>...</p>","faq":[{"question":"","answer":""}],"tags":[""],"sourceUrls":[""],"usedKnowledgeIds":[""]}
 
-조건: 본문 2,000~3,500자, H2 3개 이상, FAQ 3개. HTML은 h2,h3,p,ul,ol,li,strong,blockquote,a만 사용하세요. FAQ 질문은 실제 고객의 말투로 작성하세요.
+조건: 본문은 공백 제외 약 3,500자를 목표로 충분히 설명하고, 어떤 경우에도 2,000자 미만으로 줄이지 마세요. H2 3개 이상, FAQ 3개. HTML은 h2,h3,p,ul,ol,li,strong,blockquote,a만 사용하세요. FAQ 질문은 실제 고객의 말투로 작성하세요.
 
 승인된 울림 원천자료:
 ${knowledge.length ? JSON.stringify(knowledge) : "없음"}
@@ -456,65 +456,96 @@ export async function generateContentWorkItem(
     duplicate: boolean;
     issues: string[];
   }[] = [];
+  articlePlans:
   for (const { plan } of eligiblePlans.slice(0, MAX_ARTICLE_ATTEMPTS)) {
-    const generated = await requestGeneratedContent({
-      apiKey,
-      prompt: promptFor(
-        slot,
-        sources,
-        plan,
-        knowledge.filter((item) => plan.knowledgeIds.includes(item.id)),
-        revisionNote && !options.forceNewTopic
-          ? { note: revisionNote, previous: storedMetadata.generated }
-          : undefined,
-      ),
-      scheduleKey,
-    });
-    generated.bodyHtml = safeHtml(generated.bodyHtml || "");
-    generated.usedKnowledgeIds = [...new Set(generated.usedKnowledgeIds || [])]
-      .filter((id) => approvedKnowledgeIds.has(id) && plan.knowledgeIds.includes(id));
-    const plainLength = clean(generated.bodyHtml).replace(/\s/g, "").length;
-    const h2Count = (generated.bodyHtml.match(/<h2[\s>]/gi) || []).length;
-    const faqCount = generated.faq?.length || 0;
-    const designForbidden = slot.channel === "naver_design"
-      && /정부지원사업|정책자금|지원금|융자|기업인증/.test(`${generated.title} ${generated.summary}`);
-    const internalLabel = /\[naver_design\]|naver_design/i.test(generated.title || "");
-    const authorityMissingKnowledge = slot.format === "authority" && !generated.usedKnowledgeIds.length;
-    const novelty = assessNovelty({
-      candidate: fingerprintFromGenerated({ generated, plan }),
-      existing,
-      stage: "article",
-    });
-    const issues = [
-      ...(plainLength < 2000 ? [`본문 ${plainLength}자`] : []),
-      ...(h2Count < 3 ? [`H2 ${h2Count}개`] : []),
-      ...(faqCount < 3 ? [`FAQ ${faqCount}개`] : []),
-      ...(designForbidden ? ["디자인 채널에서 금지된 컨설팅 주제"] : []),
-      ...(internalLabel ? ["제목에 내부 채널 표기"] : []),
-      ...(authorityMissingKnowledge ? ["울림 콘텐츠형에 승인된 원천자료가 사용되지 않음"] : []),
-      ...(novelty.duplicate
-        ? [`기존 글과 중복 위험 ${novelty.riskScore}점${novelty.matches[0] ? `: ${novelty.matches[0].title}` : ""}`]
-        : []),
-    ];
-    attempts.push({
-      title: generated.title,
-      riskScore: novelty.riskScore,
-      duplicate: novelty.duplicate,
-      issues,
-    });
-    const candidate = {
-      generated,
+    const basePrompt = promptFor(
+      slot,
+      sources,
       plan,
-      novelty,
-      issues,
-      plainLength,
-      h2Count,
-      faqCount,
-      usedKnowledgeIds: generated.usedKnowledgeIds,
-    };
-    if (!selected || candidate.novelty.riskScore < selected.novelty.riskScore) selected = candidate;
-    if (!issues.length) {
-      selected = candidate;
+      knowledge.filter((item) => plan.knowledgeIds.includes(item.id)),
+      revisionNote && !options.forceNewTopic
+        ? { note: revisionNote, previous: storedMetadata.generated }
+        : undefined,
+    );
+    let repairInstruction = "";
+    for (let repairAttempt = 0; repairAttempt < 2; repairAttempt += 1) {
+      const generated = await requestGeneratedContent({
+        apiKey,
+        prompt: `${basePrompt}${repairInstruction}`,
+        scheduleKey,
+      });
+      generated.bodyHtml = safeHtml(generated.bodyHtml || "");
+      generated.usedKnowledgeIds = [...new Set(generated.usedKnowledgeIds || [])]
+        .filter((id) => approvedKnowledgeIds.has(id) && plan.knowledgeIds.includes(id));
+      const plainLength = clean(generated.bodyHtml).replace(/\s/g, "").length;
+      const h2Count = (generated.bodyHtml.match(/<h2[\s>]/gi) || []).length;
+      const faqCount = generated.faq?.length || 0;
+      const designForbidden = slot.channel === "naver_design"
+        && /정부지원사업|정책자금|지원금|융자|기업인증/.test(`${generated.title} ${generated.summary}`);
+      const internalLabel = /\[naver_design\]|naver_design/i.test(generated.title || "");
+      const authorityMissingKnowledge = slot.format === "authority" && !generated.usedKnowledgeIds.length;
+      const novelty = assessNovelty({
+        candidate: fingerprintFromGenerated({ generated, plan }),
+        existing,
+        stage: "article",
+      });
+      const structuralIssues = [
+        ...(plainLength < 2000 ? [`본문 ${plainLength}자 — 최소 2,000자, 목표 3,500자로 확장`] : []),
+        ...(h2Count < 3 ? [`H2 ${h2Count}개 — 최소 3개로 보완`] : []),
+        ...(faqCount < 3 ? [`FAQ ${faqCount}개 — 정확히 3개 이상으로 보완`] : []),
+        ...(designForbidden ? ["디자인 채널에서 금지된 컨설팅 주제"] : []),
+        ...(internalLabel ? ["제목에 내부 채널 표기"] : []),
+        ...(authorityMissingKnowledge ? ["울림 콘텐츠형에 승인된 원천자료가 사용되지 않음"] : []),
+      ];
+      const issues = [
+        ...structuralIssues,
+        ...(novelty.duplicate
+          ? [`기존 글과 중복 위험 ${novelty.riskScore}점${novelty.matches[0] ? `: ${novelty.matches[0].title}` : ""}`]
+          : []),
+      ];
+      attempts.push({
+        title: generated.title,
+        riskScore: novelty.riskScore,
+        duplicate: novelty.duplicate,
+        issues,
+      });
+      const candidate = {
+        generated,
+        plan,
+        novelty,
+        issues,
+        plainLength,
+        h2Count,
+        faqCount,
+        usedKnowledgeIds: generated.usedKnowledgeIds,
+      };
+      const candidateIsBetter = !selected
+        || candidate.issues.length < selected.issues.length
+        || (
+          candidate.issues.length === selected.issues.length
+          && candidate.novelty.riskScore < selected.novelty.riskScore
+        )
+        || (
+          candidate.issues.length === selected.issues.length
+          && candidate.novelty.riskScore === selected.novelty.riskScore
+          && candidate.plainLength > selected.plainLength
+        );
+      if (candidateIsBetter) selected = candidate;
+      if (!issues.length) {
+        selected = candidate;
+        break articlePlans;
+      }
+      if (repairAttempt === 0 && !novelty.duplicate && structuralIssues.length) {
+        repairInstruction = `
+
+직전 초안은 자동 검증을 통과하지 못했습니다.
+검증 실패 항목: ${structuralIssues.join(", ")}
+같은 주제와 근거를 유지하되 내용을 처음부터 다시 작성하세요. 반복 문장이나 근거 없는 부연으로 분량을 채우지 말고, 판단 기준·적용 순서·예시·주의점을 보강해 공백 제외 약 3,500자로 완성하세요.
+직전 초안:
+${JSON.stringify(generated)}
+반드시 모든 검증 실패 항목을 고친 완전한 JSON 객체만 반환하세요.`;
+        continue;
+      }
       break;
     }
   }
