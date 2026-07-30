@@ -6,7 +6,9 @@ import {
   removeCancelledGeneration,
 } from "./cancellation";
 import {
-  editorialRevisionNote,
+  metadataAfterSuccessfulRevision,
+  resolveRevisionNote,
+  revisionKnowledgeIds,
   GENERATED_CONTENT_SCHEMA,
   parseGeneratedContent,
   type GeneratedContent,
@@ -322,9 +324,14 @@ export async function generateContentWorkItem(
   const storedMetadata = (currentWorkItem?.metadata || {}) as Record<string, unknown> & {
     generated?: GeneratedContent;
   };
-  const revisionNote = editorialRevisionNote(
-    options.revisionNote === undefined ? currentWorkItem?.review_note : options.revisionNote,
+  const revisionNote = resolveRevisionNote(
+    options.revisionNote,
+    currentWorkItem?.review_note,
+    storedMetadata,
   );
+  const pinnedKnowledgeIds = revisionNote && !options.forceNewTopic
+    ? revisionKnowledgeIds(storedMetadata)
+    : [];
   const lookbackAt = new Date(Date.now() - (NOVELTY_LOOKBACK_DAYS * 24 * 60 * 60 * 1000)).toISOString();
   const [
     { data: registered, error: sourceError },
@@ -353,7 +360,20 @@ export async function generateContentWorkItem(
   if (sourceError) throw new Error(sourceError.message);
   if (recentError) throw new Error(recentError.message);
   if (knowledgeResult.error) throw new Error(knowledgeResult.error.message);
-  const knowledge = (knowledgeResult.data || []) as ExpertKnowledge[];
+  let knowledge = (knowledgeResult.data || []) as ExpertKnowledge[];
+  if (slot.format === "authority" && pinnedKnowledgeIds.length) {
+    const { data: pinnedKnowledge, error: pinnedKnowledgeError } = await admin
+      .from("column_expert_knowledge")
+      .select("id,topic,raw_text,perspective,case_evidence,differentiator,expertise_area,use_count")
+      .eq("approved", true)
+      .in("id", pinnedKnowledgeIds);
+    if (pinnedKnowledgeError) throw new Error(pinnedKnowledgeError.message);
+    const byId = new Map<string, ExpertKnowledge>();
+    for (const item of [...(pinnedKnowledge || []), ...knowledge] as ExpertKnowledge[]) {
+      byId.set(item.id, item);
+    }
+    knowledge = [...byId.values()];
+  }
   if (slot.format === "authority" && !knowledge.length) {
     throw new Error("울림 콘텐츠형에 필요한 승인된 인터뷰·노하우 원천자료가 없습니다.");
   }
@@ -418,17 +438,20 @@ export async function generateContentWorkItem(
     const strongest = planned
       .flatMap(({ assessment }) => assessment.matches)
       .sort((left, right) => right.score - left.score)[0];
-    const message = slot.format === "authority" && planned.every(({ plan }) => !plan.knowledgeIds.length)
+    const missingKnowledge = slot.format === "authority"
+      && planned.every(({ plan }) => !plan.knowledgeIds.length);
+    const message = missingKnowledge
       ? "울림 원천자료를 중심으로 한 차별화 주제 후보가 없습니다."
       : `최근 글과 겹치지 않는 주제 후보가 없습니다.${strongest ? ` 가장 유사한 글: ${strongest.title}` : ""}`;
     const { data, error } = await admin.from("content_work_items").update({
       status: "on_hold",
-      review_note: `중복 검사 보류: ${message}`,
+      review_note: `${missingKnowledge ? "원천자료 확인" : "중복 검사"} 보류: ${message}`,
       metadata: {
         ...storedMetadata,
         novelty: {
           stage: "planning",
-          duplicate: true,
+          duplicate: !missingKnowledge,
+          blockedReason: missingKnowledge ? "missing_knowledge" : "duplicate",
           riskScore: strongest?.score || 0,
           threshold: 48,
           matches: strongest ? [strongest] : [],
@@ -567,6 +590,7 @@ ${JSON.stringify(generated)}
       }
     }))
     .map((source) => source.name);
+  const successfulMetadata = metadataAfterSuccessfulRevision(storedMetadata);
   const { data, error } = await admin.from("content_work_items").update({
     title: generated.title,
     summary: generated.summary || "",
@@ -577,7 +601,7 @@ ${JSON.stringify(generated)}
     source_label: (usedSourceNames.length ? usedSourceNames : sources.map((source) => source.name)).join(", "),
     source_reference: JSON.stringify(generated.sourceUrls || []),
     metadata: {
-      ...storedMetadata,
+      ...successfulMetadata,
       generated,
       sourceChannel: slot.channel,
       validation: { plainLength, h2Count, faqCount, issues },

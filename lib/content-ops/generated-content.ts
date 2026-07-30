@@ -96,3 +96,52 @@ export function editorialRevisionNote(value: unknown) {
   if (!note || TECHNICAL_HOLD_PATTERNS.some((pattern) => pattern.test(note))) return null;
   return note.slice(0, 4000);
 }
+
+type RevisionMetadata = Record<string, unknown> & {
+  generated?: Partial<GeneratedContent>;
+  novelty?: {
+    plan?: {
+      knowledgeIds?: unknown;
+    };
+  };
+  pendingRevision?: {
+    note?: unknown;
+    requestedAt?: unknown;
+  };
+};
+
+export function pendingRevisionNote(metadata: unknown) {
+  if (!metadata || typeof metadata !== "object") return null;
+  return editorialRevisionNote((metadata as RevisionMetadata).pendingRevision?.note);
+}
+
+export function resolveRevisionNote(
+  requestedNote: unknown,
+  currentReviewNote: unknown,
+  metadata: unknown,
+) {
+  if (requestedNote !== undefined) return editorialRevisionNote(requestedNote);
+  return editorialRevisionNote(currentReviewNote) || pendingRevisionNote(metadata);
+}
+
+export function revisionKnowledgeIds(metadata: unknown) {
+  if (!metadata || typeof metadata !== "object") return [];
+  const stored = metadata as RevisionMetadata;
+  const generatedIds = Array.isArray(stored.generated?.usedKnowledgeIds)
+    ? stored.generated.usedKnowledgeIds
+    : [];
+  const planIds = Array.isArray(stored.novelty?.plan?.knowledgeIds)
+    ? stored.novelty.plan.knowledgeIds
+    : [];
+  return [...new Set([...generatedIds, ...planIds].filter(
+    (value): value is string => typeof value === "string" && Boolean(value.trim()),
+  ))];
+}
+
+export function metadataAfterSuccessfulRevision(metadata: unknown) {
+  const next = metadata && typeof metadata === "object"
+    ? { ...(metadata as Record<string, unknown>) }
+    : {};
+  delete next.pendingRevision;
+  return next;
+}
