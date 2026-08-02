@@ -61,6 +61,7 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
   const [error, setError] = useState("");
   const [notes, setNotes] = useState<Record<string, string>>({});
   const [rebuildingId, setRebuildingId] = useState<string | null>(null);
+  const [rebuildingImagesId, setRebuildingImagesId] = useState<string | null>(null);
   const [regeneratingId, setRegeneratingId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -148,6 +149,26 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
       await load();
     } finally {
       setRebuildingId(null);
+    }
+  }
+
+  async function rebuildImages(item: WorkItem) {
+    setRebuildingImagesId(item.id);
+    setError("");
+    try {
+      const response = await fetch(`/api/admin/content/${item.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "rebuild_portfolio_mockups" }),
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        setError(data.error || "목업 이미지를 다시 만들지 못했습니다.");
+        return;
+      }
+      await load();
+    } finally {
+      setRebuildingImagesId(null);
     }
   }
 
@@ -333,14 +354,24 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
           {!reviewMode && item.status !== "published" && (
             <div className="mt-5 flex flex-wrap justify-end gap-2 border-t border-[var(--line)] pt-4">
               {item.format === "portfolio" && (
-                <button
-                  onClick={() => void rebuild(item)}
-                  disabled={rebuildingId === item.id}
-                  className="inline-flex items-center gap-2 rounded-xl border border-[var(--line)] bg-white px-3 py-2 text-xs font-bold hover:bg-stone-50 disabled:cursor-wait disabled:opacity-60"
-                >
-                  <RotateCcw size={15} className={rebuildingId === item.id ? "animate-spin" : ""} />
-                  {rebuildingId === item.id ? "목업·본문 다시 만드는 중" : "목업·본문 다시 만들기"}
-                </button>
+                <>
+                  <button
+                    onClick={() => void rebuildImages(item)}
+                    disabled={rebuildingImagesId === item.id || rebuildingId === item.id}
+                    className="inline-flex items-center gap-2 rounded-xl border border-violet-200 bg-violet-50 px-3 py-2 text-xs font-bold text-violet-900 hover:bg-violet-100 disabled:cursor-wait disabled:opacity-60"
+                  >
+                    <RotateCcw size={15} className={rebuildingImagesId === item.id ? "animate-spin" : ""} />
+                    {rebuildingImagesId === item.id ? "목업 이미지 다시 만드는 중" : "목업 이미지만 다시 만들기"}
+                  </button>
+                  <button
+                    onClick={() => void rebuild(item)}
+                    disabled={rebuildingId === item.id || rebuildingImagesId === item.id}
+                    className="inline-flex items-center gap-2 rounded-xl border border-[var(--line)] bg-white px-3 py-2 text-xs font-bold hover:bg-stone-50 disabled:cursor-wait disabled:opacity-60"
+                  >
+                    <RotateCcw size={15} className={rebuildingId === item.id ? "animate-spin" : ""} />
+                    {rebuildingId === item.id ? "목업·본문 다시 만드는 중" : "목업·본문 다시 만들기"}
+                  </button>
+                </>
               )}
               {item.format !== "portfolio"
                 && (
