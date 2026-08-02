@@ -51,6 +51,10 @@ type WorkItem = {
       note?: string;
       appliedAt?: string;
     };
+    partnerReleaseOverride?: {
+      approvedAt?: string;
+      approvedBy?: string;
+    };
     redactionMode?: "standard" | "confidential";
     confidentialRegions?: unknown[];
   };
@@ -92,7 +96,7 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
 
   async function update(
     id: string,
-    patch: { action?: "regenerate" | "replace_topic"; status?: WorkflowStatus; review_note?: string },
+    patch: { action?: "regenerate" | "replace_topic" | "release_to_partner"; status?: WorkflowStatus; review_note?: string },
   ) {
     const regenerating = patch.action === "regenerate"
       || patch.action === "replace_topic"
@@ -291,13 +295,19 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
               item.metadata?.novelty?.duplicate !== false
               || !Array.isArray(item.metadata?.validation?.issues)
               || item.metadata.validation.issues.length > 0
-            ) && (
+            ) && !item.metadata?.partnerReleaseOverride?.approvedAt && (
             <section className="mt-5 rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm leading-6 text-amber-950">
               <p className="font-bold">외주 전달 보류</p>
               <p className="mt-1">
                 새 중복·구조 검사를 통과한 기록이 없는 과거 승인 원고입니다.
-                아래 버튼으로 다른 주제를 생성하고 다시 승인하면 외주 작업실에 전달됩니다.
+                다른 주제로 교체하거나, 현재 원고를 그대로 외주 작업실에 전달할 수 있습니다.
               </p>
+              <button
+                onClick={() => void update(item.id, { action: "release_to_partner" })}
+                className="mt-3 rounded-xl bg-amber-950 px-4 py-2 text-xs font-bold text-white hover:bg-amber-900"
+              >
+                이 원고 그대로 승인·외주 전달
+              </button>
             </section>
           )}
           {item.status === "on_hold" && (item.review_note || item.metadata?.validation?.issues?.length) ? (
