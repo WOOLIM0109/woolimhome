@@ -4,7 +4,8 @@ import { generateGeminiJson } from "./gemini";
 
 export type SensitiveRegion = {
   slideIndex: number;
-  type: "contact" | "address" | "registration_number" | "person_name" | "personal_information";
+  type: "contact" | "address" | "registration_number" | "person_name" | "personal_information"
+    | "body_text" | "embedded_photo";
   label: string;
   x: number;
   y: number;
@@ -52,6 +53,99 @@ async function imagePart(bucket: string, path: string) {
   return { inlineData: { mimeType: "image/jpeg", data: normalized.toString("base64") } } as const;
 }
 
+function normalizedRegion(region: SensitiveRegion, slideCount: number) {
+  const slideIndex = Number(region.slideIndex);
+  const x = Math.max(0, Math.min(1, Number(region.x || 0)));
+  const y = Math.max(0, Math.min(1, Number(region.y || 0)));
+  const width = Math.max(0, Math.min(1 - x, Number(region.width || 0)));
+  const height = Math.max(0, Math.min(1 - y, Number(region.height || 0)));
+  if (!Number.isInteger(slideIndex) || slideIndex < 0 || slideIndex >= slideCount) return null;
+  if (width < 0.008 || height < 0.006) return null;
+  return {
+    ...region,
+    slideIndex,
+    x,
+    y,
+    width,
+    height,
+  };
+}
+
+function uniqueRegions(regions: SensitiveRegion[]) {
+  const seen = new Set<string>();
+  return regions.filter((region) => {
+    const key = [
+      region.slideIndex,
+      region.type,
+      Math.round(region.x * 500),
+      Math.round(region.y * 500),
+      Math.round(region.width * 500),
+      Math.round(region.height * 500),
+    ].join(":");
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+export async function detectConfidentialRegions(input: {
+  bucket: string;
+  slidePaths: string[];
+  indexes: number[];
+}) {
+  const indexes = [...new Set(input.indexes)]
+    .filter((index) => Number.isInteger(index) && index >= 0 && index < input.slidePaths.length);
+  const regions: SensitiveRegion[] = [];
+  const batchSize = 4;
+  for (let offset = 0; offset < indexes.length; offset += batchSize) {
+    const batch = indexes.slice(offset, offset + batchSize);
+    const parts = await Promise.all(batch.map(async (index) => [
+      { text: `분석 대상 슬라이드: 실제 인덱스 ${index}` },
+      await imagePart(input.bucket, input.slidePaths[index]),
+    ]));
+    const result = await generateGeminiJson<{ regions: SensitiveRegion[] }>([
+      {
+        text: `당신은 기밀 비즈니스 문서의 정밀 비식별화 편집자입니다.
+제공된 슬라이드에서 디자인 레이아웃은 최대한 보존하고, 공개하면 안 되는 세부 내용과 삽입 사진만 블러 처리할 직사각형 좌표를 찾으세요.
+
+반드시 블러할 대상:
+- 소제목 아래에 이어지는 작은 본문, 설명문, 각주, 상세 조건, 수치 설명, 표 안의 작은 셀 내용
+- 실제 인물·제품·장소·시설·행사 사진, 화면 캡처, 영상 캡처 등 삽입된 사진 이미지
+- 전화번호, 이메일, 주소, 등록번호, 개인 이름 등 개인 식별정보
+
+반드시 남겨 둘 대상:
+- 표지 제목, 페이지 제목, 장·절 제목, 큰 소제목
+- 타이포그래피 크기 차이로 디자인 효과를 준 큰 숫자·핵심어·짧은 강조 문구
+- 로고, 아이콘, 일러스트, 도형, 선, 화살표, 컬러 블록, 표의 선과 그리드, 다이어그램 구조
+
+좌표 규칙:
+- 슬라이드 전체를 한 번에 가리지 마세요.
+- 한 열이나 한 카드 전체가 아니라 실제 작은 글줄 또는 사진의 경계에 최대한 밀착한 사각형을 각각 기록하세요.
+- 큰 제목 위에 사진이 겹쳐 있으면 사진 영역을 여러 사각형으로 나누어 제목 글자는 피하세요.
+- 서로 떨어진 글이나 사진은 반드시 별도 영역으로 나누세요.
+- 좌표는 각 이미지 전체를 기준으로 0~1 사이 x,y,width,height입니다.
+- 작은 본문은 type="body_text", 삽입 사진은 type="embedded_photo"로 기록하세요.
+- 개인 식별정보는 contact, address, registration_number, person_name, personal_information 중 맞는 type을 사용하세요.
+- 큰 제목과 디자인 효과용 타이포그래피를 가리는 영역은 반환하지 마세요.
+
+반드시 아래 JSON 모양만 반환하세요.
+{
+  "regions": [
+    {"slideIndex": 0, "type": "body_text", "label": "작은 설명문", "x": 0.1, "y": 0.2, "width": 0.3, "height": 0.08}
+  ]
+}`,
+      },
+      ...parts.flat(),
+    ], { maxOutputTokens: 12000, timeoutMs: 150_000 });
+    regions.push(...(result.regions || []));
+  }
+  const allowed = new Set(indexes);
+  return uniqueRegions(regions
+    .map((region) => normalizedRegion(region, input.slidePaths.length))
+    .filter((region): region is SensitiveRegion => Boolean(region))
+    .filter((region) => allowed.has(region.slideIndex)));
+}
+
 function normalizeReview(review: PortfolioVisualReview, slideCount: number) {
   const indexes = [...new Set((review.recommendedSlideIndexes || [])
     .map(Number)
@@ -68,14 +162,8 @@ function normalizeReview(review: PortfolioVisualReview, slideCount: number) {
     Number.isInteger(Number(region.slideIndex))
     && Number(region.slideIndex) >= 0
     && Number(region.slideIndex) < slideCount)
-    .map((region) => ({
-      ...region,
-      slideIndex: Number(region.slideIndex),
-      x: Math.max(0, Math.min(1, Number(region.x || 0))),
-      y: Math.max(0, Math.min(1, Number(region.y || 0))),
-      width: Math.max(0, Math.min(1, Number(region.width || 0))),
-      height: Math.max(0, Math.min(1, Number(region.height || 0))),
-    }));
+    .map((region) => normalizedRegion(region, slideCount))
+    .filter((region): region is SensitiveRegion => Boolean(region));
   return review;
 }
 

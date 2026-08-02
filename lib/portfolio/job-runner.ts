@@ -1,9 +1,9 @@
 import { contentAdmin } from "@/lib/content-ops/data";
 import { createPortfolioDraft } from "./draft";
-import { createPortfolioMockups } from "./mockup";
+import { createPortfolioMockups, portfolioMockupIndexes } from "./mockup";
 import type { GeneratedPortfolioAsset } from "./mockup";
-import { reviewPortfolioSlides } from "./visual-review";
-import type { PortfolioVisualReview } from "./visual-review";
+import { detectConfidentialRegions, reviewPortfolioSlides } from "./visual-review";
+import type { PortfolioVisualReview, SensitiveRegion } from "./visual-review";
 
 type JobResult = {
   bucket?: string;
@@ -186,6 +186,7 @@ export async function processNextPortfolioMockup(candidateId?: string) {
       bucket,
       slidePaths,
       review,
+      thumbnailTitle: review.projectTitle || sourceFileName,
     });
     const { draft, validation } = await createPortfolioDraft({
       sourceFileName,
@@ -364,11 +365,14 @@ function replacePortfolioAssetUrls(
   }, html);
 }
 
-export async function rebuildPortfolioMockupsOnly(workItemId: string) {
+export async function rebuildPortfolioMockupsOnly(
+  workItemId: string,
+  options: { redactionMode?: "standard" | "confidential" } = {},
+) {
   const admin = contentAdmin();
   const { data: workItem, error: workItemError } = await admin
     .from("content_work_items")
-    .select("id,format,status,metadata")
+    .select("id,title,format,status,metadata")
     .eq("id", workItemId)
     .single();
   if (workItemError) throw new Error(workItemError.message);
@@ -384,6 +388,8 @@ export async function rebuildPortfolioMockupsOnly(workItemId: string) {
     portfolioReview?: PortfolioVisualReview;
     portfolioAssets?: GeneratedPortfolioAsset[];
     generated?: Record<string, unknown> & { bodyHtml?: string };
+    redactionMode?: "standard" | "confidential";
+    confidentialRegions?: SensitiveRegion[];
   };
   const candidateId = metadata.candidateId;
   const review = metadata.portfolioReview;
@@ -404,11 +410,25 @@ export async function rebuildPortfolioMockupsOnly(workItemId: string) {
     throw new Error("변환된 원본 장표가 없어 목업 이미지를 다시 만들 수 없습니다.");
   }
 
+  const redactionMode = options.redactionMode || metadata.redactionMode || "standard";
+  const confidentialRegions = redactionMode === "confidential"
+    ? metadata.confidentialRegions || await detectConfidentialRegions({
+      bucket: String(conversionResult.bucket),
+      slidePaths: conversionResult.slidePaths,
+      indexes: portfolioMockupIndexes(conversionResult.slidePaths.length).indexes,
+    })
+    : [];
+  if (redactionMode === "confidential" && !confidentialRegions.length) {
+    throw new Error("기밀 본문과 사진 영역을 찾지 못해 이미지 교체를 중단했습니다.");
+  }
+
   const assets = await createPortfolioMockups({
     candidateId,
     bucket: String(conversionResult.bucket),
     slidePaths: conversionResult.slidePaths,
     review,
+    thumbnailTitle: workItem.title,
+    extraSensitiveRegions: confidentialRegions,
   });
   const generated = {
     ...metadata.generated,
@@ -437,7 +457,13 @@ export async function rebuildPortfolioMockupsOnly(workItemId: string) {
     status: "completed",
     completed_at: now,
     error_message: null,
-    result: { visualReview: review, assets, mockupOnlyRebuiltAt: now },
+    result: {
+      visualReview: review,
+      assets,
+      redactionMode,
+      confidentialRegions,
+      mockupOnlyRebuiltAt: now,
+    },
     updated_at: now,
   }).eq("candidate_id", candidateId).eq("job_type", "mockup");
   if (jobError) throw new Error(jobError.message);
@@ -447,6 +473,8 @@ export async function rebuildPortfolioMockupsOnly(workItemId: string) {
       ...metadata,
       generated,
       portfolioAssets: assets,
+      redactionMode,
+      confidentialRegions,
       mockupOnlyRebuiltAt: now,
     },
     updated_at: now,
@@ -459,6 +487,8 @@ export async function rebuildPortfolioMockupsOnly(workItemId: string) {
     status: workItem.status,
     assetCount: assets.length,
     slideAspectRatio: assets[0]?.slideAspectRatio,
+    redactionMode,
+    redactionRegionCount: confidentialRegions.length,
   };
 }
 

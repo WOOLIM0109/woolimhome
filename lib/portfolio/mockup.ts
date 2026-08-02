@@ -1,4 +1,6 @@
 import sharp from "sharp";
+import { readFile } from "node:fs/promises";
+import path from "node:path";
 import { contentAdmin } from "@/lib/content-ops/data";
 import type { PortfolioVisualReview, SensitiveRegion } from "./visual-review";
 
@@ -19,6 +21,7 @@ export type GeneratedPortfolioAsset = {
 };
 
 const CANVAS = { width: 1600, height: 1000 };
+let thumbnailFontPromise: Promise<string> | null = null;
 
 function assetUrl(bucket: string, path: string) {
   return `/api/admin/assets?bucket=${encodeURIComponent(bucket)}&path=${encodeURIComponent(path)}`;
@@ -40,10 +43,14 @@ async function redact(buffer: Buffer, regions: SensitiveRegion[]) {
   for (const region of regions) {
     const box = clampRegion(region, oriented.info.width, oriented.info.height);
     if (!box) continue;
+    const blurStrength = region.type === "body_text" ? 18 : 24;
     const blurred = await sharp(oriented.data)
       .extract(box)
-      .blur(22)
-      .modulate({ brightness: 0.96, saturation: 0.5 })
+      .blur(blurStrength)
+      .modulate({
+        brightness: region.type === "embedded_photo" ? 0.98 : 0.96,
+        saturation: region.type === "embedded_photo" ? 0.72 : 0.5,
+      })
       .png()
       .toBuffer();
     composites.push({ input: blurred, left: box.left, top: box.top });
@@ -161,31 +168,115 @@ function galleryBackgroundSvg(width: number, height: number, variant: number) {
   </svg>`);
 }
 
-async function thumbnail(slides: LoadedSlide[]) {
+function escapeXml(value: string) {
+  return value.replace(/[<>&"']/g, (character) => ({
+    "<": "&lt;",
+    ">": "&gt;",
+    "&": "&amp;",
+    "\"": "&quot;",
+    "'": "&apos;",
+  })[character] || character);
+}
+
+function thumbnailTitleLines(value: string) {
+  const compact = value
+    .split(/[:,]/)[0]
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 34);
+  if (!compact) return ["비즈니스 문서", "디자인 포트폴리오"];
+  if (compact.length <= 16) return [compact];
+  const words = compact.split(" ");
+  if (words.length === 1) {
+    const middle = Math.ceil(compact.length / 2);
+    return [compact.slice(0, middle), compact.slice(middle)];
+  }
+  const target = compact.length / 2;
+  let bestIndex = 1;
+  let running = words[0].length;
+  let bestDistance = Math.abs(running - target);
+  for (let index = 1; index < words.length; index += 1) {
+    running += 1 + words[index].length;
+    const distance = Math.abs(running - target);
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      bestIndex = index + 1;
+    }
+  }
+  return [words.slice(0, bestIndex).join(" "), words.slice(bestIndex).join(" ")]
+    .filter(Boolean);
+}
+
+async function thumbnailFontData() {
+  if (!thumbnailFontPromise) {
+    thumbnailFontPromise = readFile(path.join(process.cwd(), "public", "fonts", "Paperlogy-7Bold.ttf"))
+      .then((bytes) => bytes.toString("base64"));
+  }
+  return thumbnailFontPromise;
+}
+
+async function portfolioThumbnailSvg(title: string) {
+  const font = await thumbnailFontData();
+  const lines = thumbnailTitleLines(title).map(escapeXml);
+  const titleMarkup = lines.length === 1
+    ? `<text x="540" y="395" text-anchor="middle" class="title">${lines[0]}</text>`
+    : `<text x="540" y="340" text-anchor="middle" class="title">${lines[0]}</text>
+       <text x="540" y="415" text-anchor="middle" class="title">${lines[1]}</text>`;
+  return Buffer.from(`<svg width="1080" height="1080" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+        <stop stop-color="#ffd3bd"/>
+        <stop offset=".52" stop-color="#ff9a67"/>
+        <stop offset="1" stop-color="#ff7049"/>
+      </linearGradient>
+      <linearGradient id="orange" x1="0" y1="0" x2="1" y2="0">
+        <stop stop-color="#f05a17"/>
+        <stop offset="1" stop-color="#ff7a2f"/>
+      </linearGradient>
+      <radialGradient id="blob" cx="35%" cy="30%">
+        <stop stop-color="#ffd3f1"/>
+        <stop offset="1" stop-color="#ff8cab"/>
+      </radialGradient>
+      <filter id="soft" x="-30%" y="-30%" width="160%" height="160%">
+        <feGaussianBlur stdDeviation="22"/>
+      </filter>
+      <filter id="panelShadow" x="-20%" y="-20%" width="140%" height="150%">
+        <feDropShadow dx="0" dy="18" stdDeviation="22" flood-color="#c74318" flood-opacity=".22"/>
+      </filter>
+      <style>
+        @font-face { font-family: Paperlogy; src: url(data:font/ttf;base64,${font}); }
+        text { font-family: Paperlogy, sans-serif; }
+        .title { font-size: 62px; font-weight: 700; fill: #f15b20; }
+      </style>
+    </defs>
+    <rect width="1080" height="1080" fill="#ffffff"/>
+    <rect x="10" y="10" width="1060" height="1060" rx="42" fill="url(#bg)"/>
+    <circle cx="95" cy="220" r="150" fill="url(#blob)" filter="url(#soft)" opacity=".78"/>
+    <circle cx="1000" cy="125" r="145" fill="#ffd9f1" filter="url(#soft)" opacity=".86"/>
+    <circle cx="1005" cy="975" r="185" fill="#ffbe76" filter="url(#soft)" opacity=".8"/>
+    <circle cx="70" cy="955" r="170" fill="#ff8b6d" filter="url(#soft)" opacity=".72"/>
+    <rect x="55" y="75" width="970" height="950" rx="42" fill="#ffffff" filter="url(#panelShadow)"/>
+    <path d="M97 75h886a42 42 0 0 1 42 42v116H55V117a42 42 0 0 1 42-42z" fill="url(#orange)"/>
+    <text x="540" y="139" text-anchor="middle" fill="#ffffff" font-size="29" font-weight="700">Woolim Company</text>
+    <text x="540" y="178" text-anchor="middle" fill="#ffffff" font-size="16" opacity=".92">BUSINESS DOCUMENT DESIGN</text>
+    <rect x="185" y="250" width="710" height="62" rx="31" fill="#fff0e9"/>
+    <text x="540" y="291" text-anchor="middle" fill="#f26a2b" font-size="25">울림컴퍼니 Portfolio</text>
+    <circle cx="850" cy="281" r="9" fill="none" stroke="#f26a2b" stroke-width="4"/>
+    <path d="M857 288l10 10" stroke="#f26a2b" stroke-width="4" stroke-linecap="round"/>
+    ${titleMarkup}
+  </svg>`);
+}
+
+async function thumbnail(slide: LoadedSlide, title: string) {
   const width = 1080;
   const height = 1080;
-  const selected = slides.slice(0, 6);
-  const cardWidth = 250;
-  const cardHeight = slideFrameHeight(cardWidth, selected);
-  const frames = await Promise.all(selected.map((slide) =>
-    frame(slide.buffer, cardWidth, cardHeight, { radius: 8 })));
-  const columns = selected.length <= 4 ? 2 : 3;
-  const rowCounts = Array.from({ length: Math.ceil(selected.length / columns) }, (_, row) =>
-    Math.min(columns, selected.length - row * columns));
-  const placements: sharp.OverlayOptions[] = [];
-  let index = 0;
-  rowCounts.forEach((rowCount, row) => {
-    const rowWidth = rowCount * 340;
-    const startX = Math.round((width - rowWidth) / 2);
-    for (let column = 0; column < rowCount; column += 1) {
-      placements.push({ input: frames[index], left: startX + column * 340, top: 250 + row * 275 });
-      index += 1;
-    }
-  });
+  const coverWidth = 650;
+  const coverHeight = Math.round(coverWidth / slide.aspectRatio);
+  const cover = await frame(slide.buffer, coverWidth, coverHeight, { radius: 8 });
   return sharp({ create: { width, height, channels: 3, background: "#24183a" } })
     .composite([
-      { input: galleryBackgroundSvg(width, height, 0), left: 0, top: 0 },
-      ...placements,
+      { input: await portfolioThumbnailSvg(title), left: 0, top: 0 },
+      { input: cover, left: Math.round((width - coverWidth - 90) / 2), top: 465 },
     ])
     .jpeg({ quality: 94, chromaSubsampling: "4:4:4" })
     .toBuffer();
@@ -237,6 +328,13 @@ function sectionGroups(length: number, groupCount = 5, groupSize = 6) {
   });
 }
 
+export function portfolioMockupIndexes(slideCount: number) {
+  const groups = sectionGroups(slideCount);
+  const indexes = [...new Set([0, ...groups.flat()])]
+    .filter((index) => index >= 0 && index < slideCount);
+  return { groups, indexes };
+}
+
 async function uploadAsset(bucket: string, path: string, bytes: Buffer) {
   const { error } = await contentAdmin().storage.from(bucket).upload(path, bytes, {
     contentType: "image/jpeg",
@@ -251,31 +349,23 @@ export async function createPortfolioMockups(input: {
   bucket: string;
   slidePaths: string[];
   review: PortfolioVisualReview;
+  thumbnailTitle?: string;
+  extraSensitiveRegions?: SensitiveRegion[];
 }) {
-  const reviewedIndexes = [...input.review.slideAssessments]
-    .sort((a, b) => Number(b.quality || 0) - Number(a.quality || 0))
-    .map((slide) => slide.slideIndex);
-  const groups = sectionGroups(input.slidePaths.length);
-  const thumbnailIndexes = [...new Set([
-    ...input.review.recommendedSlideIndexes,
-    ...reviewedIndexes,
-    ...groups[0],
-  ])].filter((index) => index >= 0 && index < input.slidePaths.length).slice(0, 6);
-  const indexes = [...new Set([...thumbnailIndexes, ...groups.flat()])];
+  const { groups, indexes } = portfolioMockupIndexes(input.slidePaths.length);
   const slides = await loadSlides({
     bucket: input.bucket,
     slidePaths: input.slidePaths,
     indexes,
-    sensitiveRegions: input.review.sensitiveRegions,
+    sensitiveRegions: [...input.review.sensitiveRegions, ...(input.extraSensitiveRegions || [])],
   });
   if (slides.length < 4) throw new Error("다중 페이지 목업을 만들 슬라이드가 4장 미만입니다.");
   const slideMap = new Map(slides.map((slide) => [slide.index, slide]));
-  const thumbnailSlides = thumbnailIndexes
-    .map((index) => slideMap.get(index))
-    .filter((slide): slide is LoadedSlide => Boolean(slide));
   const groupSlides = groups.map((group) => group
     .map((index) => slideMap.get(index))
     .filter((slide): slide is LoadedSlide => Boolean(slide)));
+  const thumbnailSlide = slideMap.get(0) || groupSlides[0][0];
+  if (!thumbnailSlide) throw new Error("대표 썸네일에 사용할 표지 장표가 없습니다.");
   const captions = [
     "문서 도입부의 구성과 첫인상을 한눈에 보여주는 다중 페이지 목업",
     "초반부 정보 구조와 레이아웃의 반복 원칙을 비교하는 다중 페이지 목업",
@@ -296,13 +386,13 @@ export async function createPortfolioMockups(input: {
     {
       kind: "thumbnail" as const,
       name: "thumbnail.jpg",
-      bytes: await thumbnail(thumbnailSlides.length >= 4 ? thumbnailSlides : groupSlides[0]),
-      caption: "문서의 여러 구간을 한 화면에 보여주는 포트폴리오 대표 이미지",
-      slideIndexes: (thumbnailSlides.length >= 4 ? thumbnailSlides : groupSlides[0])
-        .map((slide) => slide.index),
-      slideAspectRatio: representativeSlideAspectRatio(
-        thumbnailSlides.length >= 4 ? thumbnailSlides : groupSlides[0],
+      bytes: await thumbnail(
+        thumbnailSlide,
+        input.thumbnailTitle || input.review.projectTitle || input.review.documentType,
       ),
+      caption: "문서의 여러 구간을 한 화면에 보여주는 포트폴리오 대표 이미지",
+      slideIndexes: [thumbnailSlide.index],
+      slideAspectRatio: thumbnailSlide.aspectRatio,
     },
     ...bodyOutputs,
   ];

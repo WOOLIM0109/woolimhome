@@ -51,6 +51,8 @@ type WorkItem = {
       note?: string;
       appliedAt?: string;
     };
+    redactionMode?: "standard" | "confidential";
+    confidentialRegions?: unknown[];
   };
   content_review_assets?: { id: string; asset_type: "thumbnail" | "body_image" | "article_preview"; public_url: string; sort_order?: number; review_note?: string }[];
 };
@@ -152,14 +154,17 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
     }
   }
 
-  async function rebuildImages(item: WorkItem) {
+  async function rebuildImages(item: WorkItem, redactionMode?: "confidential") {
     setRebuildingImagesId(item.id);
     setError("");
     try {
       const response = await fetch(`/api/admin/content/${item.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "rebuild_portfolio_mockups" }),
+        body: JSON.stringify({
+          action: "rebuild_portfolio_mockups",
+          ...(redactionMode ? { redaction_mode: redactionMode } : {}),
+        }),
       });
       const data = await response.json();
       if (!response.ok) {
@@ -355,6 +360,18 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
             <div className="mt-5 flex flex-wrap justify-end gap-2 border-t border-[var(--line)] pt-4">
               {item.format === "portfolio" && (
                 <>
+                  <button
+                    onClick={() => void rebuildImages(item, "confidential")}
+                    disabled={rebuildingImagesId === item.id || rebuildingId === item.id}
+                    className="inline-flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-bold text-red-900 hover:bg-red-100 disabled:cursor-wait disabled:opacity-60"
+                  >
+                    <RotateCcw size={15} className={rebuildingImagesId === item.id ? "animate-spin" : ""} />
+                    {rebuildingImagesId === item.id
+                      ? "기밀 영역 판정·목업 제작 중"
+                      : item.metadata?.redactionMode === "confidential"
+                        ? `기밀 블러 다시 적용 (${item.metadata.confidentialRegions?.length || 0}곳)`
+                        : "기밀 블러 적용 후 목업 만들기"}
+                  </button>
                   <button
                     onClick={() => void rebuildImages(item)}
                     disabled={rebuildingImagesId === item.id || rebuildingId === item.id}
