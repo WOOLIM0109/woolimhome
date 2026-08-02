@@ -42,7 +42,7 @@ async function redact(buffer: Buffer, regions: SensitiveRegion[]) {
   for (const region of regions) {
     const box = clampRegion(region, oriented.info.width, oriented.info.height);
     if (!box) continue;
-    const blurStrength = region.type === "body_text" ? 18 : 24;
+    const blurStrength = region.type === "body_text" ? 18 : region.type === "footer" ? 20 : 24;
     const blurred = await sharp(oriented.data)
       .extract(box)
       .blur(blurStrength)
@@ -270,19 +270,22 @@ async function thumbnail(slide: LoadedSlide, title: string) {
   const coverHeight = Math.round(coverWidth / slide.aspectRatio);
   const cover = await frame(slide.buffer, coverWidth, coverHeight, { radius: 8 });
   const titleText = thumbnailTitleLines(title).join("\n");
+  const isRndProposal = title.startsWith("국책과제 선정을 돕는 R&D 제안서 디자인");
   const [brand, descriptor, pill, heading] = await Promise.all([
     thumbnailText("Woolim Company", 720, 44, 29, "#ffffff"),
     thumbnailText("BUSINESS DOCUMENT DESIGN", 720, 28, 16, "#ffffff"),
     thumbnailText("울림컴퍼니 Portfolio", 560, 38, 25, "#f26a2b"),
-    thumbnailText(titleText, 900, 150, 55, "#f15b20"),
+    thumbnailText(titleText, 900, 150, isRndProposal ? 53 : 55, "#f15b20"),
   ]);
+  const headingMetadata = await sharp(heading).metadata();
+  const headingLeft = Math.round((width - (headingMetadata.width || 900)) / 2);
   return sharp({ create: { width, height, channels: 3, background: "#24183a" } })
     .composite([
       { input: portfolioThumbnailSvg(), left: 0, top: 0 },
       { input: brand, left: 180, top: 102 },
       { input: descriptor, left: 180, top: 151 },
       { input: pill, left: 250, top: 262 },
-      { input: heading, left: 90, top: 318 },
+      { input: heading, left: headingLeft, top: 318 },
       { input: cover, left: Math.round((width - coverWidth - 90) / 2), top: 465 },
     ])
     .jpeg({ quality: 94, chromaSubsampling: "4:4:4" })

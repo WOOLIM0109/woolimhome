@@ -411,12 +411,15 @@ export async function rebuildPortfolioMockupsOnly(
   }
 
   const redactionMode = options.redactionMode || metadata.redactionMode || "standard";
+  const refreshConfidentialRegions = options.redactionMode === "confidential";
   const confidentialRegions = redactionMode === "confidential"
-    ? metadata.confidentialRegions || await detectConfidentialRegions({
-      bucket: String(conversionResult.bucket),
-      slidePaths: conversionResult.slidePaths,
-      indexes: portfolioMockupIndexes(conversionResult.slidePaths.length).indexes,
-    })
+    ? !refreshConfidentialRegions && metadata.confidentialRegions
+      ? metadata.confidentialRegions
+      : await detectConfidentialRegions({
+        bucket: String(conversionResult.bucket),
+        slidePaths: conversionResult.slidePaths,
+        indexes: portfolioMockupIndexes(conversionResult.slidePaths.length).indexes,
+      })
     : [];
   if (redactionMode === "confidential" && !confidentialRegions.length) {
     throw new Error("기밀 본문과 사진 영역을 찾지 못해 이미지 교체를 중단했습니다.");

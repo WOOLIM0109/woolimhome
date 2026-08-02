@@ -5,7 +5,7 @@ import { generateGeminiJson } from "./gemini";
 export type SensitiveRegion = {
   slideIndex: number;
   type: "contact" | "address" | "registration_number" | "person_name" | "personal_information"
-    | "body_text" | "embedded_photo";
+    | "body_text" | "embedded_photo" | "logo" | "footer";
   label: string;
   x: number;
   y: number;
@@ -132,11 +132,13 @@ export async function detectConfidentialRegions(input: {
 - 소제목 아래에 이어지는 작은 본문, 설명문, 각주, 상세 조건, 수치 설명, 표 안의 작은 셀 내용
 - 실제 인물·제품·장소·시설·행사 사진, 화면 캡처, 영상 캡처 등 삽입된 사진 이미지
 - 전화번호, 이메일, 주소, 등록번호, 개인 이름 등 개인 식별정보
+- 표지와 내지에 있는 모든 회사·기관·사업 로고 및 심벌. 좌측 상단, 중앙 하단, 좌우측 하단, 여러 로고가 나란히 배치된 영역도 각각 빠짐없이 찾으세요.
+- 내지 하단의 바닥글 문구, 저작권·기관명·문서명·쪽번호 등 푸터 정보. 디자인 선이나 여백 전체가 아니라 실제 글자와 마크가 있는 부분만 찾으세요.
 
 반드시 남겨 둘 대상:
 - 표지 제목, 페이지 제목, 장·절 제목, 큰 소제목
 - 타이포그래피 크기 차이로 디자인 효과를 준 큰 숫자·핵심어·짧은 강조 문구
-- 로고, 아이콘, 일러스트, 도형, 선, 화살표, 컬러 블록, 표의 선과 그리드, 다이어그램 구조
+- 일반 아이콘, 일러스트, 도형, 선, 화살표, 컬러 블록, 표의 선과 그리드, 다이어그램 구조
 
 좌표 규칙:
 - 슬라이드 전체를 한 번에 가리지 마세요.
@@ -145,6 +147,7 @@ export async function detectConfidentialRegions(input: {
 - 서로 떨어진 글이나 사진은 반드시 별도 영역으로 나누세요.
 - 좌표는 각 이미지 전체를 기준으로 0~1 사이 x,y,width,height입니다.
 - 작은 본문은 type="body_text", 삽입 사진은 type="embedded_photo"로 기록하세요.
+- 회사·기관·사업 로고와 심벌은 type="logo", 하단 바닥글과 쪽번호는 type="footer"로 기록하세요.
 - 개인 식별정보는 contact, address, registration_number, person_name, personal_information 중 맞는 type을 사용하세요.
 - 큰 제목과 디자인 효과용 타이포그래피를 가리는 영역은 반환하지 마세요.
 
