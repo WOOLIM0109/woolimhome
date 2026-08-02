@@ -95,10 +95,26 @@ export async function detectConfidentialRegions(input: {
 }) {
   const indexes = [...new Set(input.indexes)]
     .filter((index) => Number.isInteger(index) && index >= 0 && index < input.slidePaths.length);
-  const regions: SensitiveRegion[] = [];
   // Two slides per request keeps dense proposal pages below the model's JSON
   // output limit. Four-slide batches can be truncated before the closing brace.
   const batchSize = 2;
+  if (indexes.length > batchSize) {
+    const batches = Array.from(
+      { length: Math.ceil(indexes.length / batchSize) },
+      (_, batchIndex) => indexes.slice(batchIndex * batchSize, (batchIndex + 1) * batchSize),
+    );
+    const combined: SensitiveRegion[] = [];
+    const concurrentBatches = 2;
+    for (let offset = 0; offset < batches.length; offset += concurrentBatches) {
+      const wave = await Promise.all(batches
+        .slice(offset, offset + concurrentBatches)
+        .map((batch) => detectConfidentialRegions({ ...input, indexes: batch })));
+      combined.push(...wave.flat());
+    }
+    return uniqueRegions(combined);
+  }
+
+  const regions: SensitiveRegion[] = [];
   for (let offset = 0; offset < indexes.length; offset += batchSize) {
     const batch = indexes.slice(offset, offset + batchSize);
     const parts = await Promise.all(batch.map(async (index) => [
