@@ -1,5 +1,4 @@
 import sharp from "sharp";
-import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { contentAdmin } from "@/lib/content-ops/data";
 import type { PortfolioVisualReview, SensitiveRegion } from "./visual-review";
@@ -21,7 +20,7 @@ export type GeneratedPortfolioAsset = {
 };
 
 const CANVAS = { width: 1600, height: 1000 };
-let thumbnailFontPromise: Promise<string> | null = null;
+const thumbnailFontPath = path.join(process.cwd(), "public", "fonts", "Paperlogy-7Bold.ttf");
 
 function assetUrl(bucket: string, path: string) {
   return `/api/admin/assets?bucket=${encodeURIComponent(bucket)}&path=${encodeURIComponent(path)}`;
@@ -207,21 +206,28 @@ function thumbnailTitleLines(value: string) {
     .filter(Boolean);
 }
 
-async function thumbnailFontData() {
-  if (!thumbnailFontPromise) {
-    thumbnailFontPromise = readFile(path.join(process.cwd(), "public", "fonts", "Paperlogy-7Bold.ttf"))
-      .then((bytes) => bytes.toString("base64"));
-  }
-  return thumbnailFontPromise;
+async function thumbnailText(
+  text: string,
+  width: number,
+  height: number,
+  fontSize: number,
+  color: string,
+) {
+  return sharp({
+    text: {
+      text: `<span foreground="${color}" font_desc="Paperlogy ${fontSize}">${escapeXml(text)}</span>`,
+      font: "Paperlogy",
+      fontfile: thumbnailFontPath,
+      width,
+      height,
+      align: "center",
+      rgba: true,
+      dpi: 72,
+    },
+  }).png().toBuffer();
 }
 
-async function portfolioThumbnailSvg(title: string) {
-  const font = await thumbnailFontData();
-  const lines = thumbnailTitleLines(title).map(escapeXml);
-  const titleMarkup = lines.length === 1
-    ? `<text x="540" y="395" text-anchor="middle" class="title">${lines[0]}</text>`
-    : `<text x="540" y="340" text-anchor="middle" class="title">${lines[0]}</text>
-       <text x="540" y="415" text-anchor="middle" class="title">${lines[1]}</text>`;
+function portfolioThumbnailSvg() {
   return Buffer.from(`<svg width="1080" height="1080" xmlns="http://www.w3.org/2000/svg">
     <defs>
       <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
@@ -243,11 +249,6 @@ async function portfolioThumbnailSvg(title: string) {
       <filter id="panelShadow" x="-20%" y="-20%" width="140%" height="150%">
         <feDropShadow dx="0" dy="18" stdDeviation="22" flood-color="#c74318" flood-opacity=".22"/>
       </filter>
-      <style>
-        @font-face { font-family: Paperlogy; src: url(data:font/ttf;base64,${font}); }
-        text { font-family: Paperlogy, sans-serif; }
-        .title { font-size: 62px; font-weight: 700; fill: #f15b20; }
-      </style>
     </defs>
     <rect width="1080" height="1080" fill="#ffffff"/>
     <rect x="10" y="10" width="1060" height="1060" rx="42" fill="url(#bg)"/>
@@ -257,13 +258,9 @@ async function portfolioThumbnailSvg(title: string) {
     <circle cx="70" cy="955" r="170" fill="#ff8b6d" filter="url(#soft)" opacity=".72"/>
     <rect x="55" y="75" width="970" height="950" rx="42" fill="#ffffff" filter="url(#panelShadow)"/>
     <path d="M97 75h886a42 42 0 0 1 42 42v116H55V117a42 42 0 0 1 42-42z" fill="url(#orange)"/>
-    <text x="540" y="139" text-anchor="middle" fill="#ffffff" font-size="29" font-weight="700">Woolim Company</text>
-    <text x="540" y="178" text-anchor="middle" fill="#ffffff" font-size="16" opacity=".92">BUSINESS DOCUMENT DESIGN</text>
     <rect x="185" y="250" width="710" height="62" rx="31" fill="#fff0e9"/>
-    <text x="540" y="291" text-anchor="middle" fill="#f26a2b" font-size="25">울림컴퍼니 Portfolio</text>
     <circle cx="850" cy="281" r="9" fill="none" stroke="#f26a2b" stroke-width="4"/>
     <path d="M857 288l10 10" stroke="#f26a2b" stroke-width="4" stroke-linecap="round"/>
-    ${titleMarkup}
   </svg>`);
 }
 
@@ -273,9 +270,20 @@ async function thumbnail(slide: LoadedSlide, title: string) {
   const coverWidth = 650;
   const coverHeight = Math.round(coverWidth / slide.aspectRatio);
   const cover = await frame(slide.buffer, coverWidth, coverHeight, { radius: 8 });
+  const titleText = thumbnailTitleLines(title).join("\n");
+  const [brand, descriptor, pill, heading] = await Promise.all([
+    thumbnailText("Woolim Company", 720, 44, 29, "#ffffff"),
+    thumbnailText("BUSINESS DOCUMENT DESIGN", 720, 28, 16, "#ffffff"),
+    thumbnailText("울림컴퍼니 Portfolio", 560, 38, 25, "#f26a2b"),
+    thumbnailText(titleText, 900, 150, 55, "#f15b20"),
+  ]);
   return sharp({ create: { width, height, channels: 3, background: "#24183a" } })
     .composite([
-      { input: await portfolioThumbnailSvg(title), left: 0, top: 0 },
+      { input: portfolioThumbnailSvg(), left: 0, top: 0 },
+      { input: brand, left: 180, top: 102 },
+      { input: descriptor, left: 180, top: 151 },
+      { input: pill, left: 250, top: 262 },
+      { input: heading, left: 90, top: 318 },
       { input: cover, left: Math.round((width - coverWidth - 90) / 2), top: 465 },
     ])
     .jpeg({ quality: 94, chromaSubsampling: "4:4:4" })
