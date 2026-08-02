@@ -178,11 +178,15 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
   }
 
   if (loading) return <p className="mt-6 text-sm text-[var(--muted)]">작업 목록을 불러오고 있습니다.</p>;
-  if (error) return <p className="mt-6 rounded-xl bg-red-50 p-4 text-sm font-bold text-red-700">{error}</p>;
   if (!items.length) return <p className="mt-6 rounded-xl border border-dashed border-[var(--line)] bg-white p-7 text-center text-sm text-[var(--muted)]">현재 대기 중인 작업이 없습니다.</p>;
 
   return (
     <div className="mt-6 space-y-4">
+      {error && (
+        <p className="rounded-xl bg-red-50 p-4 text-sm font-bold text-red-700" role="alert">
+          {error}
+        </p>
+      )}
       {items.map((item) => (
         <article key={item.id} className="card p-5">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
