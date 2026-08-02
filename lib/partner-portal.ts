@@ -22,10 +22,12 @@ export function isPartnerReleaseReady(item: {
   metadata?: {
     novelty?: { duplicate?: boolean };
     validation?: { issues?: string[] };
+    partnerReleaseOverride?: { approvedAt?: string };
   } | null;
 }) {
   if (!isPartnerVisibleStatus(item.status)) return false;
   if (item.status === "published" || item.format === "portfolio") return true;
+  if (item.metadata?.partnerReleaseOverride?.approvedAt) return true;
 
   return item.metadata?.novelty?.duplicate === false
     && Array.isArray(item.metadata?.validation?.issues)
@@ -39,6 +41,7 @@ export function shouldGenerateScheduledItem(item: {
     pendingRevision?: { note?: unknown };
     novelty?: { duplicate?: boolean };
     validation?: { issues?: string[] };
+    partnerReleaseOverride?: { approvedAt?: string };
   } | null;
 }) {
   if (item.status === "topic_candidate") return true;

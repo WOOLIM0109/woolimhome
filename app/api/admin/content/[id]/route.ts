@@ -133,6 +133,33 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
       }, { status: 500 });
     }
   }
+  if (body.action === "release_to_partner") {
+    const admin = contentAdmin();
+    const { data: current, error: currentError } = await admin
+      .from("content_work_items")
+      .select("format,status,metadata")
+      .eq("id", id)
+      .single();
+    if (currentError) return NextResponse.json({ error: currentError.message }, { status: 500 });
+    if (current.format === "portfolio" || current.status === "published") {
+      return NextResponse.json({ error: "이 원고는 별도 외주 전달 승인이 필요하지 않습니다." }, { status: 400 });
+    }
+    const now = new Date().toISOString();
+    const metadata = {
+      ...(current.metadata || {}),
+      partnerReleaseOverride: {
+        approvedAt: now,
+        approvedBy: user.email || "admin",
+      },
+    };
+    const { data, error } = await admin.from("content_work_items").update({
+      status: "approved",
+      metadata,
+      updated_at: now,
+    }).eq("id", id).select().single();
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json(data);
+  }
   if (body.status === "approved") {
     const { data: current, error: currentError } = await contentAdmin()
       .from("content_work_items")
