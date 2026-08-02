@@ -222,7 +222,6 @@ async function thumbnailText(
       height,
       align: "center",
       rgba: true,
-      dpi: 72,
     },
   }).png().toBuffer();
 }
