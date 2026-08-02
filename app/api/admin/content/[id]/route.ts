@@ -3,7 +3,7 @@ import { authenticatedAdmin, contentAdmin } from "@/lib/content-ops/data";
 import { validatePortfolioBodyHtml } from "@/lib/content-ops/portfolio-rules";
 import type { WorkflowStatus } from "@/lib/content-ops/types";
 import { parseStoredAssetUrl } from "@/lib/partner-portal";
-import { rebuildPortfolioDraft } from "@/lib/portfolio/job-runner";
+import { rebuildPortfolioDraft, rebuildPortfolioMockupsOnly } from "@/lib/portfolio/job-runner";
 import { EDITORIAL_SLOTS } from "@/lib/content-ops/config";
 import { generateContentWorkItem } from "@/lib/content-ops/generate";
 import { resolveRevisionNote } from "@/lib/content-ops/generated-content";
@@ -119,6 +119,15 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     } catch (error) {
       return NextResponse.json({
         error: error instanceof Error ? error.message : "포트폴리오를 다시 만들지 못했습니다.",
+      }, { status: 500 });
+    }
+  }
+  if (body.action === "rebuild_portfolio_mockups") {
+    try {
+      return NextResponse.json(await rebuildPortfolioMockupsOnly(id));
+    } catch (error) {
+      return NextResponse.json({
+        error: error instanceof Error ? error.message : "포트폴리오 목업 이미지를 다시 만들지 못했습니다.",
       }, { status: 500 });
     }
   }
