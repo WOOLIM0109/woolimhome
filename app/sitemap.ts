@@ -2,6 +2,7 @@ import type { MetadataRoute } from "next";
 import { navFlatLinks } from "@/lib/schema";
 import { toAbsoluteUrl } from "@/lib/site-config";
 import { getPublishedColumns } from "@/lib/columns/data";
+import { news } from "@/data/news";
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const now = new Date();
@@ -27,6 +28,12 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       lastModified: new Date(post.updated_at),
       changeFrequency: "monthly" as const,
       priority: 0.8,
+    })),
+    ...news.filter((item) => item.slug).map((item) => ({
+      url: toAbsoluteUrl(`/news/${item.slug}`),
+      lastModified: new Date(item.date),
+      changeFrequency: "yearly" as const,
+      priority: 0.75,
     })),
   ];
 }
