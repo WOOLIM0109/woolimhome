@@ -124,7 +124,9 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
   }
   if (body.action === "rebuild_portfolio_mockups") {
     try {
-      return NextResponse.json(await rebuildPortfolioMockupsOnly(id));
+      return NextResponse.json(await rebuildPortfolioMockupsOnly(id, {
+        redactionMode: body.redaction_mode === "confidential" ? "confidential" : undefined,
+      }));
     } catch (error) {
       return NextResponse.json({
         error: error instanceof Error ? error.message : "포트폴리오 목업 이미지를 다시 만들지 못했습니다.",
