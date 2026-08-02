@@ -5,6 +5,7 @@ import type { PortfolioVisualReview, SensitiveRegion } from "./visual-review";
 type LoadedSlide = {
   index: number;
   buffer: Buffer;
+  aspectRatio: number;
 };
 
 export type GeneratedPortfolioAsset = {
@@ -14,6 +15,7 @@ export type GeneratedPortfolioAsset = {
   url: string;
   caption: string;
   slideIndexes: number[];
+  slideAspectRatio: number;
 };
 
 const CANVAS = { width: 1600, height: 1000 };
@@ -64,15 +66,37 @@ async function loadSlides(input: {
     const { data, error } = await contentAdmin().storage.from(input.bucket).download(path);
     if (error || !data) throw new Error(error?.message || `슬라이드 ${index + 1}을 읽지 못했습니다.`);
     const bytes = Buffer.from(await data.arrayBuffer());
+    const buffer = await redact(
+      bytes,
+      input.sensitiveRegions.filter((region) => region.slideIndex === index),
+    );
+    const metadata = await sharp(buffer).rotate().metadata();
+    if (!metadata.width || !metadata.height) {
+      throw new Error(`슬라이드 ${index + 1}의 비율을 불러오지 못했습니다.`);
+    }
     values.push({
       index,
-      buffer: await redact(
-        bytes,
-        input.sensitiveRegions.filter((region) => region.slideIndex === index),
-      ),
+      buffer,
+      aspectRatio: metadata.width / metadata.height,
     });
   }
   return values;
+}
+
+export function representativeSlideAspectRatio(slides: Pick<LoadedSlide, "aspectRatio">[]) {
+  const ratios = slides
+    .map((slide) => slide.aspectRatio)
+    .filter((ratio) => Number.isFinite(ratio) && ratio >= 1.2 && ratio <= 2.2)
+    .sort((a, b) => a - b);
+  if (!ratios.length) return 16 / 9;
+  const middle = Math.floor(ratios.length / 2);
+  return ratios.length % 2
+    ? ratios[middle]
+    : (ratios[middle - 1] + ratios[middle]) / 2;
+}
+
+function slideFrameHeight(width: number, slides: LoadedSlide[]) {
+  return Math.round(width / representativeSlideAspectRatio(slides));
 }
 
 async function fittedSlide(buffer: Buffer, width: number, height: number) {
@@ -141,7 +165,10 @@ async function thumbnail(slides: LoadedSlide[]) {
   const width = 1080;
   const height = 1080;
   const selected = slides.slice(0, 6);
-  const frames = await Promise.all(selected.map((slide) => frame(slide.buffer, 250, 141, { radius: 8 })));
+  const cardWidth = 250;
+  const cardHeight = slideFrameHeight(cardWidth, selected);
+  const frames = await Promise.all(selected.map((slide) =>
+    frame(slide.buffer, cardWidth, cardHeight, { radius: 8 })));
   const columns = selected.length <= 4 ? 2 : 3;
   const rowCounts = Array.from({ length: Math.ceil(selected.length / columns) }, (_, row) =>
     Math.min(columns, selected.length - row * columns));
@@ -168,7 +195,7 @@ async function multiPageBoard(slides: LoadedSlide[], variant: number) {
   const selected = slides.slice(0, 6);
   const columns = selected.length <= 4 ? 2 : 3;
   const cardWidth = columns === 3 ? 430 : 620;
-  const cardHeight = Math.round(cardWidth * 9 / 16);
+  const cardHeight = slideFrameHeight(cardWidth, selected);
   const frames = await Promise.all(selected.map((slide) =>
     frame(slide.buffer, cardWidth, cardHeight, { radius: 10 })));
   const frameWidth = cardWidth + 90;
@@ -176,11 +203,11 @@ async function multiPageBoard(slides: LoadedSlide[], variant: number) {
   const rowCounts = Array.from({ length: Math.ceil(selected.length / columns) }, (_, row) =>
     Math.min(columns, selected.length - row * columns));
   const placements: sharp.OverlayOptions[] = [];
+  const startY = Math.max(0, Math.round((CANVAS.height - rowCounts.length * frameHeight) / 2));
   let index = 0;
   rowCounts.forEach((rowCount, row) => {
     const rowWidth = rowCount * frameWidth;
     const startX = Math.round((CANVAS.width - rowWidth) / 2);
-    const startY = columns === 3 ? 165 : 55;
     for (let column = 0; column < rowCount; column += 1) {
       placements.push({
         input: frames[index],
@@ -263,6 +290,7 @@ export async function createPortfolioMockups(input: {
     bytes: await multiPageBoard(group, index),
     caption: captions[index],
     slideIndexes: group.map((slide) => slide.index),
+    slideAspectRatio: representativeSlideAspectRatio(group),
   })));
   const outputs = [
     {
@@ -272,6 +300,9 @@ export async function createPortfolioMockups(input: {
       caption: "문서의 여러 구간을 한 화면에 보여주는 포트폴리오 대표 이미지",
       slideIndexes: (thumbnailSlides.length >= 4 ? thumbnailSlides : groupSlides[0])
         .map((slide) => slide.index),
+      slideAspectRatio: representativeSlideAspectRatio(
+        thumbnailSlides.length >= 4 ? thumbnailSlides : groupSlides[0],
+      ),
     },
     ...bodyOutputs,
   ];
@@ -288,6 +319,7 @@ export async function createPortfolioMockups(input: {
       url: assetUrl(input.bucket, path),
       caption: output.caption,
       slideIndexes: output.slideIndexes,
+      slideAspectRatio: output.slideAspectRatio,
     });
   }
   return assets;

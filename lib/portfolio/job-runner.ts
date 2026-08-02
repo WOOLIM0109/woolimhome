@@ -346,6 +346,122 @@ export async function retryPortfolioDraft(workItemId: string) {
   };
 }
 
+function replacePortfolioAssetUrls(
+  html: string,
+  previousAssets: GeneratedPortfolioAsset[],
+  nextAssets: GeneratedPortfolioAsset[],
+) {
+  const previousBodyAssets = previousAssets.filter((asset) => asset.kind === "body_image");
+  const nextBodyAssets = nextAssets.filter((asset) => asset.kind === "body_image");
+  return previousBodyAssets.reduce((result, previousAsset, index) => {
+    const nextAsset = nextBodyAssets[index];
+    if (!nextAsset) return result;
+    return result
+      .split(previousAsset.url)
+      .join(nextAsset.url)
+      .split(previousAsset.url.replaceAll("&", "&amp;"))
+      .join(nextAsset.url.replaceAll("&", "&amp;"));
+  }, html);
+}
+
+export async function rebuildPortfolioMockupsOnly(workItemId: string) {
+  const admin = contentAdmin();
+  const { data: workItem, error: workItemError } = await admin
+    .from("content_work_items")
+    .select("id,format,status,metadata")
+    .eq("id", workItemId)
+    .single();
+  if (workItemError) throw new Error(workItemError.message);
+  if (workItem.format !== "portfolio") {
+    throw new Error("포트폴리오 작업만 목업 이미지를 다시 만들 수 있습니다.");
+  }
+  if (workItem.status === "published") {
+    throw new Error("이미 발행한 포트폴리오는 자동으로 이미지를 교체할 수 없습니다.");
+  }
+
+  const metadata = (workItem.metadata || {}) as Record<string, unknown> & {
+    candidateId?: string;
+    portfolioReview?: PortfolioVisualReview;
+    portfolioAssets?: GeneratedPortfolioAsset[];
+    generated?: Record<string, unknown> & { bodyHtml?: string };
+  };
+  const candidateId = metadata.candidateId;
+  const review = metadata.portfolioReview;
+  const previousAssets = metadata.portfolioAssets;
+  if (!candidateId || !review?.suitable || !Array.isArray(previousAssets) || !metadata.generated?.bodyHtml) {
+    throw new Error("기존 원본·검토 결과·본문을 찾지 못해 이미지만 다시 만들 수 없습니다.");
+  }
+
+  const { data: conversion, error: conversionError } = await admin
+    .from("content_jobs")
+    .select("status,result")
+    .eq("candidate_id", candidateId)
+    .eq("job_type", "convert")
+    .maybeSingle();
+  if (conversionError) throw new Error(conversionError.message);
+  const conversionResult = (conversion?.result || {}) as JobResult;
+  if (conversion?.status !== "completed" || !conversionResult.bucket || !conversionResult.slidePaths?.length) {
+    throw new Error("변환된 원본 장표가 없어 목업 이미지를 다시 만들 수 없습니다.");
+  }
+
+  const assets = await createPortfolioMockups({
+    candidateId,
+    bucket: String(conversionResult.bucket),
+    slidePaths: conversionResult.slidePaths,
+    review,
+  });
+  const generated = {
+    ...metadata.generated,
+    bodyHtml: replacePortfolioAssetUrls(metadata.generated.bodyHtml, previousAssets, assets),
+  };
+  const now = new Date().toISOString();
+
+  const { error: deleteError } = await admin
+    .from("content_review_assets")
+    .delete()
+    .eq("work_item_id", workItemId);
+  if (deleteError) throw new Error(deleteError.message);
+  const { error: assetsError } = await admin.from("content_review_assets").insert(
+    assets.map((asset, index) => ({
+      work_item_id: workItemId,
+      asset_type: asset.kind,
+      public_url: asset.url,
+      sort_order: index,
+      approved: false,
+      review_note: `${asset.caption} · 원본 슬라이드 ${asset.slideIndexes.map((value) => value + 1).join(", ")}`,
+    })),
+  );
+  if (assetsError) throw new Error(assetsError.message);
+
+  const { error: jobError } = await admin.from("content_jobs").update({
+    status: "completed",
+    completed_at: now,
+    error_message: null,
+    result: { visualReview: review, assets, mockupOnlyRebuiltAt: now },
+    updated_at: now,
+  }).eq("candidate_id", candidateId).eq("job_type", "mockup");
+  if (jobError) throw new Error(jobError.message);
+
+  const { error: updateError } = await admin.from("content_work_items").update({
+    metadata: {
+      ...metadata,
+      generated,
+      portfolioAssets: assets,
+      mockupOnlyRebuiltAt: now,
+    },
+    updated_at: now,
+  }).eq("id", workItemId);
+  if (updateError) throw new Error(updateError.message);
+
+  return {
+    workItemId,
+    candidateId,
+    status: workItem.status,
+    assetCount: assets.length,
+    slideAspectRatio: assets[0]?.slideAspectRatio,
+  };
+}
+
 export async function rebuildPortfolioDraft(workItemId: string) {
   const admin = contentAdmin();
   const { data: workItem, error: workItemError } = await admin
