@@ -96,14 +96,18 @@ export async function detectConfidentialRegions(input: {
   const indexes = [...new Set(input.indexes)]
     .filter((index) => Number.isInteger(index) && index >= 0 && index < input.slidePaths.length);
   const regions: SensitiveRegion[] = [];
-  const batchSize = 4;
+  // Two slides per request keeps dense proposal pages below the model's JSON
+  // output limit. Four-slide batches can be truncated before the closing brace.
+  const batchSize = 2;
   for (let offset = 0; offset < indexes.length; offset += batchSize) {
     const batch = indexes.slice(offset, offset + batchSize);
     const parts = await Promise.all(batch.map(async (index) => [
       { text: `분석 대상 슬라이드: 실제 인덱스 ${index}` },
       await imagePart(input.bucket, input.slidePaths[index]),
     ]));
-    const result = await generateGeminiJson<{ regions: SensitiveRegion[] }>([
+    let result: { regions: SensitiveRegion[] };
+    try {
+      result = await generateGeminiJson<{ regions: SensitiveRegion[] }>([
       {
         text: `당신은 기밀 비즈니스 문서의 정밀 비식별화 편집자입니다.
 제공된 슬라이드에서 디자인 레이아웃은 최대한 보존하고, 공개하면 안 되는 세부 내용과 삽입 사진만 블러 처리할 직사각형 좌표를 찾으세요.
@@ -136,7 +140,16 @@ export async function detectConfidentialRegions(input: {
 }`,
       },
       ...parts.flat(),
-    ], { maxOutputTokens: 12000, timeoutMs: 150_000 });
+      ], { maxOutputTokens: 16000, timeoutMs: 120_000 });
+    } catch (error) {
+      if (batch.length === 1) throw error;
+      const fallback = await Promise.all(batch.map((index) => detectConfidentialRegions({
+        ...input,
+        indexes: [index],
+      })));
+      regions.push(...fallback.flat());
+      continue;
+    }
     regions.push(...(result.regions || []));
   }
   const allowed = new Set(indexes);
