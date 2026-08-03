@@ -1,4 +1,5 @@
 import { contentAdmin } from "@/lib/content-ops/data";
+import { FRIENDLY_EDITORIAL_STYLE_RULES } from "@/lib/content-ops/editorial-style";
 import { validatePortfolioBodyHtml } from "@/lib/content-ops/portfolio-rules";
 import { generateGeminiJson } from "./gemini";
 import type { GeneratedPortfolioAsset } from "./mockup";
@@ -96,6 +97,7 @@ ${JSON.stringify(input.existingTitles.slice(0, 30))}
 - 이미지 태그는 넣지 않습니다. 시스템이 문단 사이에 완성 목업을 자동 배치합니다.
 - FAQ는 실제 의뢰 고객이 물을 법한 질문과 현실적인 답변 4개로 작성합니다.
 - 제목에 "포트폴리오", 내부 채널명, 파일명을 기계적으로 붙이지 말고 프로젝트의 기획적 차별점을 드러냅니다.
+${FRIENDLY_EDITORIAL_STYLE_RULES}
 ${input.previousIssues?.length ? `이전 결과의 문제를 반드시 고치세요: ${input.previousIssues.join(", ")}
 이번에는 같은 내용을 반복하지 말고 각 구간의 정보 우선순위·그리드·색상·도표·페이지 흐름을 더 구체적으로 설명하여 공백 제외 2,800자 이상인지 확인한 뒤 반환하세요.` : ""}
 

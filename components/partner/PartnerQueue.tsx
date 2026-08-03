@@ -13,6 +13,7 @@ import {
   RefreshCw,
   Tags,
 } from "lucide-react";
+import { faqAnswerHtml, faqQuestionHtml } from "@/lib/content-ops/editorial-style";
 
 type PartnerChannel = "naver_consulting" | "naver_design";
 
@@ -81,7 +82,7 @@ function buildFaqHtml(faq: PartnerItem["faq"]) {
     "<h2>자주 묻는 질문</h2>",
     ...faq.map(
       (item) =>
-        `<p><strong>${item.question}</strong></p><p>${item.answer}</p>`,
+        `<p>${faqQuestionHtml(item.question)}</p><p>${faqAnswerHtml(item.answer)}</p>`,
     ),
   ].join("");
 }
@@ -396,8 +397,8 @@ export default function PartnerQueue({ onUnauthorized }: { onUnauthorized: () =>
                         <h4 className="text-xl font-bold">자주 묻는 질문</h4>
                         {item.faq.map((faq) => (
                           <div key={faq.question} className="mt-5 rounded-xl border border-[var(--line)] p-4">
-                            <p className="font-bold">{faq.question}</p>
-                            <p className="mt-2 text-sm leading-7 text-[var(--muted)]">{faq.answer}</p>
+                            <p className="font-bold" dangerouslySetInnerHTML={{ __html: faqQuestionHtml(faq.question) }} />
+                            <p className="mt-2 text-sm leading-7 text-[var(--muted)]" dangerouslySetInnerHTML={{ __html: faqAnswerHtml(faq.answer) }} />
                           </div>
                         ))}
                       </section>
