@@ -9,6 +9,7 @@ import {
   assertSameNumericFacts,
   lockValue,
   markerLetters,
+  numericFacts,
   restoreLocked,
 } from "@/lib/content-ops/protected-markers";
 import type { ContentChannel } from "@/lib/content-ops/types";
@@ -64,6 +65,11 @@ async function rewriteGenerated(
   generated: GeneratedContent,
 ) {
   const originalSummary = generated.summary || item.summary || "";
+  const numericChecklist = numericFacts([
+    originalSummary,
+    generated.bodyHtml,
+    ...(generated.faq || []).flatMap((faq) => [faq.question, faq.answer]),
+  ].join("\n"));
   const body = lockValue(generated.bodyHtml, "BODY", true, false);
   const summary = lockValue(originalSummary, "SUMMARY", false, false);
   const faqLocks = (generated.faq || []).map((faq, index) => ({
@@ -93,6 +99,7 @@ ${FRIENDLY_EDITORIAL_STYLE_RULES}
 - 본문의 H2/H3 주제와 순서, 문단의 핵심 주장, 모든 사실과 조건을 유지합니다.
 - figure와 링크는 보호 마커로 잠겨 있으며 위치를 이동하지 않습니다.
 - 기존 FAQ 개수와 질문의 의미를 유지합니다.
+- 수치 체크리스트의 각 항목은 단위까지 그대로, 같은 횟수로 결과 전체에 포함합니다. 요약·본문·FAQ 사이의 위치는 자연스럽게 조정할 수 있습니다.
 - summary에는 HTML을 넣지 않습니다.
 - bodyHtml에는 h2,h3,p,ul,ol,li,strong,blockquote만 새로 사용합니다.
 - FAQ question에는 HTML과 Q. 접두어를 넣지 않습니다.
@@ -102,7 +109,10 @@ ${FRIENDLY_EDITORIAL_STYLE_RULES}
 {"summary":"","bodyHtml":"","faq":[{"question":"","answer":""}]}
 
 승인 원고:
-${JSON.stringify(input)}${retry}
+${JSON.stringify(input)}
+
+수치 체크리스트:
+${JSON.stringify(numericChecklist)}${retry}
 ` }], { maxOutputTokens: 30000, timeoutMs: 150_000 });
     try {
       if (!rewritten || typeof rewritten.summary !== "string" || typeof rewritten.bodyHtml !== "string") {
