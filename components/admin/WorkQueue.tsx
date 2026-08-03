@@ -186,10 +186,6 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
 
   async function rewritePendingStyle() {
     if (!channel || reviewMode) return;
-    const label = channel === "naver_design" ? "디자인 블로그" : "컨설팅 블로그";
-    if (!window.confirm(
-      `${label}의 외주 포스팅 대기 원고를 친근한 말투·핵심어 볼드·Q./A. 형식으로 다듬을까요?\n이미 발행한 글과 포트폴리오 이미지는 변경하지 않습니다.`,
-    )) return;
     setRewritingStyle(true);
     setStyleResult("");
     setError("");
