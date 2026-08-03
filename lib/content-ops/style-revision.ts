@@ -117,13 +117,20 @@ ${JSON.stringify(input)}${retry}
         question: stripFaqPrefix(restoreLocked(faq.question, faqLocks[index].question.locks)),
         answer: stripFaqPrefix(restoreLocked(faq.answer, faqLocks[index].answer.locks)),
       }));
-      assertSameNumericFacts(originalSummary, restoredSummary);
-      assertSameNumericFacts(generated.bodyHtml, restoredBody);
-      restoredFaq.forEach((faq, index) => {
-        const originalFaq = (generated.faq || [])[index];
-        assertSameNumericFacts(stripFaqPrefix(originalFaq.question), faq.question);
-        assertSameNumericFacts(stripFaqPrefix(originalFaq.answer), faq.answer);
-      });
+      const originalNumericText = [
+        originalSummary,
+        generated.bodyHtml,
+        ...(generated.faq || []).flatMap((faq) => [
+          stripFaqPrefix(faq.question),
+          stripFaqPrefix(faq.answer),
+        ]),
+      ].join("\n");
+      const revisedNumericText = [
+        restoredSummary,
+        restoredBody,
+        ...restoredFaq.flatMap((faq) => [faq.question, faq.answer]),
+      ].join("\n");
+      assertSameNumericFacts(originalNumericText, revisedNumericText);
       const originalLength = plainLength(generated.bodyHtml);
       const nextLength = plainLength(restoredBody);
       // Friendly editing removes repetitive setup and recap from older drafts.
