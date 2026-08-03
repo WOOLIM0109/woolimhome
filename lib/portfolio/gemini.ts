@@ -49,7 +49,9 @@ export async function generateGeminiJson<T>(
   options: { maxOutputTokens?: number; timeoutMs?: number } = {},
 ) {
   let lastError: unknown;
-  for (let attempt = 0; attempt < 2; attempt += 1) {
+  let retryJson = false;
+  const attemptLimit = 4;
+  for (let attempt = 0; attempt < attemptLimit; attempt += 1) {
     const response = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${apiKey()}`,
       {
@@ -58,7 +60,7 @@ export async function generateGeminiJson<T>(
         body: JSON.stringify({
           contents: [{
             role: "user",
-            parts: attempt
+            parts: retryJson
               ? [...parts, { text: "직전 응답은 JSON 문법이 깨졌습니다. 설명이나 코드펜스 없이 유효한 JSON 객체만 다시 반환하세요." }]
               : parts,
           }],
@@ -73,6 +75,12 @@ export async function generateGeminiJson<T>(
     );
     if (!response.ok) {
       lastError = new Error(`AI 판정 요청 실패: ${response.status} ${await response.text()}`);
+      retryJson = false;
+      const retryable = [429, 500, 502, 503, 504].includes(response.status);
+      if (!retryable) break;
+      if (attempt < attemptLimit - 1) {
+        await new Promise((resolve) => setTimeout(resolve, (attempt + 1) * 3_000));
+      }
       continue;
     }
     const payload = await response.json();
@@ -86,6 +94,7 @@ export async function generateGeminiJson<T>(
       return JSON.parse(firstJsonObject(raw)) as T;
     } catch (error) {
       lastError = error;
+      retryJson = true;
     }
   }
   throw lastError instanceof Error ? lastError : new Error("AI JSON 판정에 실패했습니다.");
