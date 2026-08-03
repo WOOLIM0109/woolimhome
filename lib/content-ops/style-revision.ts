@@ -5,7 +5,12 @@ import {
   stripFaqPrefix,
 } from "@/lib/content-ops/editorial-style";
 import type { GeneratedContent } from "@/lib/content-ops/generated-content";
-import { lockValue, markerLetters, restoreLocked } from "@/lib/content-ops/protected-markers";
+import {
+  assertSameNumericFacts,
+  lockValue,
+  markerLetters,
+  restoreLocked,
+} from "@/lib/content-ops/protected-markers";
 import type { ContentChannel } from "@/lib/content-ops/types";
 import { isPartnerReleaseReady } from "@/lib/partner-portal";
 import { generateGeminiJson } from "@/lib/portfolio/gemini";
@@ -58,11 +63,12 @@ async function rewriteGenerated(
   item: PendingItem,
   generated: GeneratedContent,
 ) {
-  const body = lockValue(generated.bodyHtml, "BODY", true);
-  const summary = lockValue(generated.summary || item.summary || "", "SUMMARY");
+  const originalSummary = generated.summary || item.summary || "";
+  const body = lockValue(generated.bodyHtml, "BODY", true, false);
+  const summary = lockValue(originalSummary, "SUMMARY", false, false);
   const faqLocks = (generated.faq || []).map((faq, index) => ({
-    question: lockValue(stripFaqPrefix(faq.question), `FAQ${markerLetters(index)}QUESTION`),
-    answer: lockValue(stripFaqPrefix(faq.answer), `FAQ${markerLetters(index)}ANSWER`),
+    question: lockValue(stripFaqPrefix(faq.question), `FAQ${markerLetters(index)}QUESTION`, false, false),
+    answer: lockValue(stripFaqPrefix(faq.answer), `FAQ${markerLetters(index)}ANSWER`, false, false),
   }));
   const input = {
     summary: summary.value,
@@ -111,6 +117,13 @@ ${JSON.stringify(input)}${retry}
         question: stripFaqPrefix(restoreLocked(faq.question, faqLocks[index].question.locks)),
         answer: stripFaqPrefix(restoreLocked(faq.answer, faqLocks[index].answer.locks)),
       }));
+      assertSameNumericFacts(originalSummary, restoredSummary);
+      assertSameNumericFacts(generated.bodyHtml, restoredBody);
+      restoredFaq.forEach((faq, index) => {
+        const originalFaq = (generated.faq || [])[index];
+        assertSameNumericFacts(stripFaqPrefix(originalFaq.question), faq.question);
+        assertSameNumericFacts(stripFaqPrefix(originalFaq.answer), faq.answer);
+      });
       const originalLength = plainLength(generated.bodyHtml);
       const nextLength = plainLength(restoredBody);
       // Friendly editing removes repetitive setup and recap from older drafts.
