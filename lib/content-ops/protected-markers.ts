@@ -26,7 +26,20 @@ export function assertSameNumericFacts(source: string, revised: string) {
   const before = numericFacts(source);
   const after = numericFacts(revised);
   if (before.length !== after.length || before.some((value, index) => value !== after[index])) {
-    throw new Error("원문의 수치가 누락·추가·변경되었습니다.");
+    const difference = (left: string[], right: string[]) => {
+      const remaining = [...right];
+      return left.filter((value) => {
+        const index = remaining.indexOf(value);
+        if (index < 0) return true;
+        remaining.splice(index, 1);
+        return false;
+      });
+    };
+    const missing = difference(before, after);
+    const added = difference(after, before);
+    throw new Error(
+      `원문의 수치가 누락·추가·변경되었습니다. 빠진 수치: ${missing.join(", ") || "없음"}; 추가·변경된 수치: ${added.join(", ") || "없음"}`,
+    );
   }
 }
 
