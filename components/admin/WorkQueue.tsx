@@ -204,8 +204,12 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
         setError(data.error || "외주 대기 원고의 말투를 다듬지 못했습니다.");
         return;
       }
+      const failureDetails = (data.results || [])
+        .filter((result: { success: boolean }) => !result.success)
+        .map((result: { title: string; error: string }) => `${result.title}: ${result.error}`)
+        .join(" / ");
       setStyleResult(
-        `대기 원고 ${data.found}건 중 ${data.updated}건을 다듬었습니다.${data.failed ? ` 실패 ${data.failed}건은 원문을 유지했습니다.` : ""}`,
+        `대기 원고 ${data.found}건 중 ${data.updated}건을 다듬었습니다.${data.failed ? ` 실패 ${data.failed}건은 원문을 유지했습니다.${failureDetails ? ` 사유: ${failureDetails}` : ""}` : ""}`,
       );
       await load();
     } finally {
