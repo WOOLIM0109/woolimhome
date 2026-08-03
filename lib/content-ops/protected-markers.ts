@@ -16,7 +16,21 @@ export function markerLetters(value: number) {
   return result;
 }
 
-export function lockValue(source: string, prefix: string, html = false) {
+const NUMERIC_FACT_PATTERN = /\d[\d,.]*(?:\s?(?:%|억원|만원|원|년|개월|월|일|회|건|개|명|시간|분|점))?/g;
+
+export function numericFacts(source: string) {
+  return (String(source || "").match(NUMERIC_FACT_PATTERN) || []).toSorted();
+}
+
+export function assertSameNumericFacts(source: string, revised: string) {
+  const before = numericFacts(source);
+  const after = numericFacts(revised);
+  if (before.length !== after.length || before.some((value, index) => value !== after[index])) {
+    throw new Error("원문의 수치가 누락·추가·변경되었습니다.");
+  }
+}
+
+export function lockValue(source: string, prefix: string, html = false, lockNumbers = true) {
   const locks: Lock[] = [];
   const add = (value: string, block = false, ordered = false) => {
     const marker = `WOOLIMLOCK${prefix}${markerLetters(locks.length)}END`;
@@ -27,11 +41,11 @@ export function lockValue(source: string, prefix: string, html = false) {
   if (html) {
     value = value.replace(/<figure\b[\s\S]*?<\/figure>/gi, (match) => add(match, true, true));
     value = value.replace(/<a\b[^>]*>[\s\S]*?<\/a>/gi, (match) => add(match, false, true));
+    value = value.replace(/https?:\/\/[^\s<>"']+/gi, (match) => add(match, false, true));
   }
-  value = value.replace(
-    /\d[\d,.]*(?:\s?(?:%|억원|만원|원|년|개월|월|일|회|건|개|명|시간|분|점))?/g,
-    (match) => add(match),
-  );
+  if (lockNumbers) {
+    value = value.replace(NUMERIC_FACT_PATTERN, (match) => add(match));
+  }
   const sourceMarkers = value.match(/WOOLIMLOCK[A-Z]+?END/g) || [];
   const sourcePositions = new Map(sourceMarkers.map((marker, index) => [marker, index]));
   for (const lock of locks) lock.sourceOrder = sourcePositions.get(lock.marker) ?? -1;
