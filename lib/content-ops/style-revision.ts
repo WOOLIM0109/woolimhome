@@ -159,7 +159,9 @@ ${JSON.stringify(input)}${retry}
       }));
       const originalLength = plainLength(generated.bodyHtml);
       const nextLength = plainLength(restoredBody);
-      if (nextLength < Math.max(1200, Math.floor(originalLength * 0.82))) {
+      // Friendly editing removes repetitive setup and recap from older drafts.
+      // Keep a substantial floor without rejecting a fact-preserving tighter edit.
+      if (nextLength < Math.max(900, Math.floor(originalLength * 0.65))) {
         throw new Error("본문이 원문보다 지나치게 짧아졌습니다.");
       }
       if (nextLength > Math.ceil(originalLength * 1.25)) {
