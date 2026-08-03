@@ -1,5 +1,6 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { PORTFOLIO_WRITING_RULES } from "./portfolio-rules";
+import { FRIENDLY_EDITORIAL_STYLE_RULES } from "./editorial-style";
 import type { EditorialSlot } from "./types";
 import {
   generationCancellationRequested,
@@ -118,6 +119,7 @@ ${designRules}
 ${slot.format === "portfolio" ? PORTFOLIO_WRITING_RULES : ""}
 ${formatRules}
 ${revisionRules}
+${FRIENDLY_EDITORIAL_STYLE_RULES}
 
 선정된 주제 기획:
 ${JSON.stringify(plan)}

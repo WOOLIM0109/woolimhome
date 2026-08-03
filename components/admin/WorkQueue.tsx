@@ -1,9 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { RotateCcw, Trash2 } from "lucide-react";
+import { RotateCcw, Sparkles, Trash2 } from "lucide-react";
 import StatusBadge from "./StatusBadge";
 import type { ContentChannel, WorkflowStatus } from "@/lib/content-ops/types";
+import { faqAnswerHtml, faqQuestionHtml } from "@/lib/content-ops/editorial-style";
 
 type WorkItem = {
   id: string;
@@ -69,6 +70,8 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
   const [rebuildingId, setRebuildingId] = useState<string | null>(null);
   const [rebuildingImagesId, setRebuildingImagesId] = useState<string | null>(null);
   const [regeneratingId, setRegeneratingId] = useState<string | null>(null);
+  const [rewritingStyle, setRewritingStyle] = useState(false);
+  const [styleResult, setStyleResult] = useState("");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -181,11 +184,58 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
     }
   }
 
+  async function rewritePendingStyle() {
+    if (!channel || reviewMode) return;
+    const label = channel === "naver_design" ? "디자인 블로그" : "컨설팅 블로그";
+    if (!window.confirm(
+      `${label}의 외주 포스팅 대기 원고를 친근한 말투·핵심어 볼드·Q./A. 형식으로 다듬을까요?\n이미 발행한 글과 포트폴리오 이미지는 변경하지 않습니다.`,
+    )) return;
+    setRewritingStyle(true);
+    setStyleResult("");
+    setError("");
+    try {
+      const response = await fetch("/api/admin/content/rewrite-pending-style", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ channel }),
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        setError(data.error || "외주 대기 원고의 말투를 다듬지 못했습니다.");
+        return;
+      }
+      setStyleResult(
+        `대기 원고 ${data.found}건 중 ${data.updated}건을 다듬었습니다.${data.failed ? ` 실패 ${data.failed}건은 원문을 유지했습니다.` : ""}`,
+      );
+      await load();
+    } finally {
+      setRewritingStyle(false);
+    }
+  }
+
   if (loading) return <p className="mt-6 text-sm text-[var(--muted)]">작업 목록을 불러오고 있습니다.</p>;
   if (!items.length) return <p className="mt-6 rounded-xl border border-dashed border-[var(--line)] bg-white p-7 text-center text-sm text-[var(--muted)]">현재 대기 중인 작업이 없습니다.</p>;
 
   return (
     <div className="mt-6 space-y-4">
+      {channel && !reviewMode && (
+        <section className="flex flex-col gap-3 rounded-xl border border-orange-200 bg-orange-50 p-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="font-bold text-orange-950">외주 대기 원고 말투 정리</p>
+            <p className="mt-1 text-sm leading-6 text-orange-900/80">친근한 채널별 말투, 핵심어 볼드, FAQ의 Q.·A. 표기를 적용합니다.</p>
+            {styleResult && <p className="mt-2 text-sm font-bold text-emerald-700">{styleResult}</p>}
+          </div>
+          <button
+            type="button"
+            onClick={() => void rewritePendingStyle()}
+            disabled={rewritingStyle}
+            className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl bg-orange-600 px-4 py-3 text-sm font-bold text-white hover:bg-orange-700 disabled:cursor-wait disabled:opacity-60"
+          >
+            <Sparkles size={16} className={rewritingStyle ? "animate-spin" : ""} />
+            {rewritingStyle ? "원고 다듬는 중…" : "포스팅 대기 원고 다듬기"}
+          </button>
+        </section>
+      )}
       {error && (
         <p className="rounded-xl bg-red-50 p-4 text-sm font-bold text-red-700" role="alert">
           {error}
@@ -342,7 +392,7 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
             <details className="mt-5 rounded-xl border border-[var(--line)] bg-white p-5">
               <summary className="cursor-pointer font-bold">이미지가 배치된 글 전체 미리보기</summary>
               <div className="column-body mt-5" dangerouslySetInnerHTML={{ __html: item.metadata.generated.bodyHtml }} />
-              {item.metadata.generated.faq?.length ? <section className="mt-7 border-t border-[var(--line)] pt-5"><h3 className="text-lg font-bold">FAQ</h3>{item.metadata.generated.faq.map((faq) => <div key={faq.question} className="mt-4"><p className="font-bold">{faq.question}</p><p className="mt-1 text-sm leading-6 text-[var(--muted)]">{faq.answer}</p></div>)}</section> : null}
+              {item.metadata.generated.faq?.length ? <section className="mt-7 border-t border-[var(--line)] pt-5"><h3 className="text-lg font-bold">FAQ</h3>{item.metadata.generated.faq.map((faq) => <div key={faq.question} className="mt-4"><p className="font-bold" dangerouslySetInnerHTML={{ __html: faqQuestionHtml(faq.question) }} /><p className="mt-1 text-sm leading-6 text-[var(--muted)]" dangerouslySetInnerHTML={{ __html: faqAnswerHtml(faq.answer) }} /></div>)}</section> : null}
             </details>
           )}
           {reviewMode && (
