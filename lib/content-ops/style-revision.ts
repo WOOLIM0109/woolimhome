@@ -5,6 +5,7 @@ import {
   stripFaqPrefix,
 } from "@/lib/content-ops/editorial-style";
 import type { GeneratedContent } from "@/lib/content-ops/generated-content";
+import { lockValue, markerLetters, restoreLocked } from "@/lib/content-ops/protected-markers";
 import type { ContentChannel } from "@/lib/content-ops/types";
 import { isPartnerReleaseReady } from "@/lib/partner-portal";
 import { generateGeminiJson } from "@/lib/portfolio/gemini";
@@ -26,53 +27,6 @@ type FriendlyRewrite = {
   bodyHtml: string;
   faq: { question: string; answer: string }[];
 };
-
-type Lock = { marker: string; value: string; block: boolean };
-
-function letters(value: number) {
-  let result = "";
-  let current = value;
-  do {
-    result = String.fromCharCode(65 + (current % 26)) + result;
-    current = Math.floor(current / 26) - 1;
-  } while (current >= 0);
-  return result;
-}
-
-function lockValue(source: string, prefix: string, html = false) {
-  const locks: Lock[] = [];
-  const add = (value: string, block = false) => {
-    const marker = `WOOLIMLOCK${prefix}${letters(locks.length)}END`;
-    locks.push({ marker, value, block });
-    return marker;
-  };
-  let value = String(source || "");
-  if (html) {
-    value = value.replace(/<figure\b[\s\S]*?<\/figure>/gi, (match) => add(match, true));
-    value = value.replace(/<a\b[^>]*>[\s\S]*?<\/a>/gi, (match) => add(match));
-  }
-  value = value.replace(
-    /\d[\d,.]*(?:\s?(?:%|억원|만원|원|년|개월|월|일|회|건|개|명|시간|분|점))?/g,
-    (match) => add(match),
-  );
-  return { value, locks };
-}
-
-function restoreLocked(source: string, locks: Lock[]) {
-  let value = String(source || "");
-  const actual = value.match(/WOOLIMLOCK[A-Z]+END/g) || [];
-  const expected = locks.map((lock) => lock.marker);
-  if (actual.length !== expected.length || actual.some((marker, index) => marker !== expected[index])) {
-    throw new Error("보호한 수치·링크·이미지의 순서가 달라졌습니다.");
-  }
-  for (const lock of locks) {
-    if (lock.block) {
-      value = value.replace(new RegExp(`<p>\\s*${lock.marker}\\s*</p>`, "g"), lock.marker);
-    }
-    value = value.replaceAll(lock.marker, lock.value);
-  }
-  return value;
-}
 
 function safeBodyHtml(value: string) {
   return value
@@ -107,8 +61,8 @@ async function rewriteGenerated(
   const body = lockValue(generated.bodyHtml, "BODY", true);
   const summary = lockValue(generated.summary || item.summary || "", "SUMMARY");
   const faqLocks = (generated.faq || []).map((faq, index) => ({
-    question: lockValue(stripFaqPrefix(faq.question), `FAQ${letters(index)}QUESTION`),
-    answer: lockValue(stripFaqPrefix(faq.answer), `FAQ${letters(index)}ANSWER`),
+    question: lockValue(stripFaqPrefix(faq.question), `FAQ${markerLetters(index)}QUESTION`),
+    answer: lockValue(stripFaqPrefix(faq.answer), `FAQ${markerLetters(index)}ANSWER`),
   }));
   const input = {
     summary: summary.value,
@@ -143,7 +97,7 @@ ${FRIENDLY_EDITORIAL_STYLE_RULES}
 
 승인 원고:
 ${JSON.stringify(input)}${retry}
-` }], { maxOutputTokens: 18000, timeoutMs: 150_000 });
+` }], { maxOutputTokens: 30000, timeoutMs: 150_000 });
     try {
       if (!rewritten || typeof rewritten.summary !== "string" || typeof rewritten.bodyHtml !== "string") {
         throw new Error("말투 수정 결과의 필수 필드가 없습니다.");
