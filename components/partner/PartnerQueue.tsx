@@ -75,9 +75,52 @@ const STATUS_LABELS: Record<PartnerItem["status"], string> = {
   published: "발행 완료",
 };
 
+const SENTENCE_END = /([.!?](?:["'”’」』)\]]*)?)(?:[ \t\r\n]+|$)/g;
+
+function formatMobileCopyHtml(html: string) {
+  const parsedDocument = new DOMParser().parseFromString(html, "text/html");
+
+  parsedDocument.body.querySelectorAll("p, li, blockquote").forEach((container) => {
+    if (container.closest("figure")) return;
+
+    const walker = parsedDocument.createTreeWalker(container, NodeFilter.SHOW_TEXT);
+    const textNodes: Text[] = [];
+    while (walker.nextNode()) textNodes.push(walker.currentNode as Text);
+
+    textNodes.forEach((textNode) => {
+      const value = textNode.nodeValue || "";
+      SENTENCE_END.lastIndex = 0;
+      if (!SENTENCE_END.test(value)) return;
+
+      SENTENCE_END.lastIndex = 0;
+      const fragment = parsedDocument.createDocumentFragment();
+      let cursor = 0;
+      let match: RegExpExecArray | null;
+      while ((match = SENTENCE_END.exec(value))) {
+        fragment.append(parsedDocument.createTextNode(value.slice(cursor, match.index) + match[1]));
+        fragment.append(parsedDocument.createElement("br"), parsedDocument.createElement("br"));
+        cursor = match.index + match[0].length;
+      }
+      fragment.append(parsedDocument.createTextNode(value.slice(cursor)));
+      textNode.replaceWith(fragment);
+    });
+  });
+
+  return parsedDocument.body.innerHTML;
+}
+
 function htmlToText(html: string) {
-  const document = new DOMParser().parseFromString(html, "text/html");
-  return document.body.innerText.trim();
+  const parsedDocument = new DOMParser().parseFromString(html, "text/html");
+  parsedDocument.body.querySelectorAll("br").forEach((element) => element.replaceWith("\n"));
+  parsedDocument.body
+    .querySelectorAll("p, h1, h2, h3, h4, li, blockquote, section")
+    .forEach((element) => element.append("\n\n"));
+
+  return (parsedDocument.body.textContent || "")
+    .replace(/\u00a0/g, " ")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }
 
 function buildFaqHtml(faq: PartnerItem["faq"]) {
@@ -98,11 +141,12 @@ function assetLabel(type: PartnerItem["assets"][number]["type"], order: number) 
 }
 
 async function writeRichClipboard(html: string) {
-  const text = htmlToText(html);
+  const mobileHtml = formatMobileCopyHtml(html);
+  const text = htmlToText(mobileHtml);
   if (navigator.clipboard.write && typeof ClipboardItem !== "undefined") {
     await navigator.clipboard.write([
       new ClipboardItem({
-        "text/html": new Blob([html], { type: "text/html" }),
+        "text/html": new Blob([mobileHtml], { type: "text/html" }),
         "text/plain": new Blob([text], { type: "text/plain" }),
       }),
     ]);
@@ -415,7 +459,7 @@ export default function PartnerQueue({ onUnauthorized }: { onUnauthorized: () =>
 
                   <details className="mt-5 rounded-2xl border border-[var(--line)] p-4 sm:p-5">
                     <summary className="cursor-pointer text-sm font-bold">이미지가 배치된 전체 원고 미리보기</summary>
-                    <div className="column-body mt-6" dangerouslySetInnerHTML={{ __html: item.previewHtml }} />
+                    <div className="partner-copy-preview column-body mt-6" dangerouslySetInnerHTML={{ __html: item.previewHtml }} />
                     {item.faq.length > 0 && (
                       <section className="mt-8 border-t border-[var(--line)] pt-6">
                         <h4 className="text-xl font-bold">자주 묻는 질문</h4>
