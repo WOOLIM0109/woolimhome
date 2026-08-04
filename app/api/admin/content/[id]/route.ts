@@ -1,9 +1,15 @@
 import { NextResponse } from "next/server";
 import { authenticatedAdmin, contentAdmin } from "@/lib/content-ops/data";
-import { validatePortfolioBodyHtml } from "@/lib/content-ops/portfolio-rules";
+import {
+  validatePortfolioPublicationMetadata,
+  validatePortfolioSourceState,
+} from "@/lib/content-ops/portfolio-rules";
 import type { WorkflowStatus } from "@/lib/content-ops/types";
 import { parseStoredAssetUrl } from "@/lib/partner-portal";
-import { rebuildPortfolioDraft, rebuildPortfolioMockupsOnly } from "@/lib/portfolio/job-runner";
+import {
+  PortfolioRebuildConflict,
+  rebuildPortfolioDraft,
+} from "@/lib/portfolio/job-runner";
 import { EDITORIAL_SLOTS } from "@/lib/content-ops/config";
 import { generateContentWorkItem } from "@/lib/content-ops/generate";
 import { resolveRevisionNote } from "@/lib/content-ops/generated-content";
@@ -101,6 +107,12 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const { id } = await context.params;
   const body = await request.json();
+  let expectedUpdatedAt: string | null = null;
+  if (body.status === "published") {
+    return NextResponse.json({
+      error: "발행 완료는 파트너 발행 완료 등록 화면에서 네이버 게시물 URL을 입력해 처리해 주세요.",
+    }, { status: 400 });
+  }
   if (body.action === "regenerate" || body.action === "replace_topic" || body.status === "creating") {
     const { data: current, error: currentError } = await contentAdmin()
       .from("content_work_items")
@@ -126,18 +138,16 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     } catch (error) {
       return NextResponse.json({
         error: error instanceof Error ? error.message : "포트폴리오를 다시 만들지 못했습니다.",
-      }, { status: 500 });
+      }, { status: error instanceof PortfolioRebuildConflict ? 409 : 500 });
     }
   }
   if (body.action === "rebuild_portfolio_mockups") {
     try {
-      return NextResponse.json(await rebuildPortfolioMockupsOnly(id, {
-        redactionMode: body.redaction_mode === "confidential" ? "confidential" : undefined,
-      }));
+      return NextResponse.json(await rebuildPortfolioDraft(id));
     } catch (error) {
       return NextResponse.json({
         error: error instanceof Error ? error.message : "포트폴리오 목업 이미지를 다시 만들지 못했습니다.",
-      }, { status: 500 });
+      }, { status: error instanceof PortfolioRebuildConflict ? 409 : 500 });
     }
   }
   if (body.action === "retry_missing_fonts") {
@@ -195,16 +205,45 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     return NextResponse.json(data);
   }
-  if (body.status === "approved") {
-    const { data: current, error: currentError } = await contentAdmin()
+  if (["approved", "naver_ready", "scheduled"].includes(String(body.status || ""))) {
+    const admin = contentAdmin();
+    const { data: current, error: currentError } = await admin
       .from("content_work_items")
-      .select("format,metadata")
+      .select("format,metadata,updated_at")
       .eq("id", id)
       .single();
     if (currentError) return NextResponse.json({ error: currentError.message }, { status: 500 });
+    expectedUpdatedAt = current.updated_at;
     if (current.format === "portfolio") {
-      const generated = current.metadata?.generated as { bodyHtml?: string } | undefined;
-      const issues = validatePortfolioBodyHtml(generated?.bodyHtml || "");
+      const [mockupJobQuery, conversionJobQuery] = await Promise.all([
+        admin.from("content_jobs")
+          .select("status,result")
+          .eq("work_item_id", id)
+          .eq("job_type", "mockup")
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle(),
+        admin.from("content_jobs")
+          .select("status,result,updated_at")
+          .eq("work_item_id", id)
+          .eq("job_type", "convert")
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle(),
+      ]);
+      if (mockupJobQuery.error || conversionJobQuery.error) {
+        return NextResponse.json({
+          error: mockupJobQuery.error?.message || conversionJobQuery.error?.message,
+        }, { status: 500 });
+      }
+      const issues = [
+        ...validatePortfolioPublicationMetadata(current.metadata),
+        ...validatePortfolioSourceState(
+          current.metadata,
+          mockupJobQuery.data,
+          conversionJobQuery.data,
+        ),
+      ];
       if (issues.length) {
         return NextResponse.json(
           { error: `포트폴리오 기본 규칙을 확인해 주세요: ${issues.join(" ")}` },
@@ -219,8 +258,14 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
   if (body.scheduled_at !== undefined) patch.scheduled_at = body.scheduled_at || null;
   if (body.status === "published") patch.published_at = body.published_at || new Date().toISOString();
 
-  const { data, error } = await contentAdmin()
-    .from("content_work_items").update(patch).eq("id", id).select().single();
+  let updateQuery = contentAdmin().from("content_work_items").update(patch).eq("id", id);
+  if (expectedUpdatedAt) updateQuery = updateQuery.eq("updated_at", expectedUpdatedAt);
+  const { data, error } = await updateQuery.select().single();
+  if (error?.code === "PGRST116" && expectedUpdatedAt) {
+    return NextResponse.json({
+      error: "승인 직전에 원본 또는 목업 상태가 변경되었습니다. 새로고침 후 다시 확인해 주세요.",
+    }, { status: 409 });
+  }
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json(data);
 }

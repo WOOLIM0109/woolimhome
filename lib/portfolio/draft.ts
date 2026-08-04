@@ -6,6 +6,7 @@ import type { GeneratedPortfolioAsset } from "./mockup";
 import type { PortfolioVisualReview } from "./visual-review";
 import { fetchExistingDesignBlogTitles } from "./naver-blog";
 import { sanitizeGeneratedHtml, sanitizeInlineHtml } from "@/lib/security/html";
+import { yieldPortfolioCheckpointIfNeeded } from "./checkpoint";
 
 export type PortfolioDraft = {
   title: string;
@@ -14,6 +15,12 @@ export type PortfolioDraft = {
   faq: { question: string; answer: string }[];
   tags: string[];
   imageCaptions: string[];
+};
+
+export type PortfolioDraftProgress = {
+  attempt: number;
+  generated: PortfolioDraft;
+  validation: ReturnType<typeof draftIssues>;
 };
 
 function clean(value: string) {
@@ -60,21 +67,27 @@ function interleaveFigures(
 }
 
 function writingPrompt(input: {
-  sourceFileName: string;
   review: PortfolioVisualReview;
   existingTitles: string[];
+  bodyImageCount: number;
   previousIssues?: string[];
 }) {
   return `당신은 기획 전문가가 이끄는 울림컴퍼니의 디자인 포트폴리오 편집자입니다.
 실제 완성 문서의 시각 판정만 근거로 네이버 디자인 블로그에 올릴 비공개 검토 초안을 작성하세요.
 
-원본 파일명은 독자에게 노출하지 마세요: ${input.sourceFileName}
+원본 파일명과 저장 경로는 개인정보 보호를 위해 제공되지 않습니다. 이를 추측하거나 본문에 쓰지 마세요.
 문서 유형: ${input.review.documentType}
 업종: ${input.review.industry}
-프로젝트명 후보: ${input.review.projectTitle}
-디자인 해설: ${input.review.designSummary}
-확인된 장면:
-${JSON.stringify(input.review.slideAssessments)}
+고객 분류: ${input.review.clientCategory === "large_company" ? "대기업" : input.review.clientCategory === "public_institution" ? "공공기관" : "일반 프로젝트"}
+개인정보를 제외한 장표별 시각 점수와 도식 유형:
+${JSON.stringify(input.review.slideAssessments.map((slide) => ({
+    quality: slide.quality,
+    diagramRichness: slide.diagramRichness,
+    visualQuality: slide.visualQuality,
+    rarity: slide.rarity,
+    textDensity: slide.textDensity,
+    diagramTypes: slide.diagramTypes,
+  })))}
 
 기존 초안 제목과 겹치지 않아야 합니다:
 ${JSON.stringify(input.existingTitles.slice(0, 30))}
@@ -90,7 +103,7 @@ ${JSON.stringify(input.existingTitles.slice(0, 30))}
 - 본문은 공백 제외 2,800~3,500자를 목표로 하며, 절대 2,500자 아래로 쓰지 않습니다.
 - H2는 5개 이상 사용하고, 각 H2 아래에 서로 다른 관점의 설명 문단을 최소 2개씩 작성해 전체 문단을 12개 이상으로 구성합니다.
 - 다량 문서의 강점은 한 장의 화려함보다 수십 페이지에 걸친 정보 구조, 반복 원칙, 구간별 변주와 읽는 흐름에 있습니다. 이 점을 구체적으로 해설합니다.
-- 이미지 태그는 넣지 않습니다. 시스템이 문단 사이에 완성 목업을 자동 배치합니다.
+- 이미지 태그는 넣지 않습니다. 시스템이 문단 사이에 완성 목업 ${input.bodyImageCount}장을 자동 배치합니다.
 - FAQ는 실제 의뢰 고객이 물을 법한 질문과 현실적인 답변 4개로 작성합니다.
 - 제목에 "포트폴리오", 내부 채널명, 파일명을 기계적으로 붙이지 말고 프로젝트의 기획적 차별점을 드러냅니다.
 ${FRIENDLY_EDITORIAL_STYLE_RULES}
@@ -104,7 +117,7 @@ ${input.previousIssues?.length ? `이전 결과의 문제를 반드시 고치세
   "bodyHtml": "<h2>...</h2><p>...</p>",
   "faq": [{"question": "", "answer": ""}],
   "tags": [""],
-  "imageCaptions": ["도입부 다중 페이지 설명", "초반부 다중 페이지 설명", "중반부 다중 페이지 설명", "전략 구간 다중 페이지 설명", "후반부 다중 페이지 설명"]
+  "imageCaptions": [${Array.from({ length: input.bodyImageCount }, (_, index) => `"본문 목업 ${index + 1} 설명"`).join(", ")}]
 }`;
 }
 
@@ -137,9 +150,11 @@ function draftIssues(draft: PortfolioDraft) {
 }
 
 export async function createPortfolioDraft(input: {
-  sourceFileName: string;
   review: PortfolioVisualReview;
   assets: GeneratedPortfolioAsset[];
+  progress?: PortfolioDraftProgress;
+  onProgress?: (progress: PortfolioDraftProgress) => Promise<void> | void;
+  shouldYield?: () => boolean;
 }) {
   const admin = contentAdmin();
   const { data: existing } = await admin.from("content_work_items")
@@ -154,31 +169,45 @@ export async function createPortfolioDraft(input: {
     ...blogTitles,
   ])];
 
-  let generated: PortfolioDraft | null = null;
-  let validation: ReturnType<typeof draftIssues> | null = null;
-  for (let attempt = 0; attempt < 3; attempt += 1) {
+  const bodyAssets = input.assets.filter((asset) => asset.kind === "body_image");
+  let generated: PortfolioDraft | null = input.progress?.generated || null;
+  let validation: ReturnType<typeof draftIssues> | null = generated
+    ? draftIssues(generated)
+    : null;
+  const completedAttempts = Math.max(0, Math.min(3, Number(input.progress?.attempt || 0)));
+  for (let attempt = completedAttempts; attempt < 3; attempt += 1) {
+    yieldPortfolioCheckpointIfNeeded(input.shouldYield);
     generated = await generateGeminiJson<PortfolioDraft>([
       {
         text: writingPrompt({
-          sourceFileName: input.sourceFileName,
           review: input.review,
           existingTitles,
+          bodyImageCount: bodyAssets.length,
           previousIssues: validation?.issues,
         }),
       },
-    ], { maxOutputTokens: attempt ? 20000 : 18000, timeoutMs: 150_000 });
+    ], {
+      maxOutputTokens: attempt ? 20000 : 18000,
+      timeoutMs: 55_000,
+      attempts: 1,
+      jsonAttempts: 1,
+    });
     validation = draftIssues(generated);
+    if (input.onProgress) {
+      await input.onProgress({ attempt: attempt + 1, generated, validation });
+    }
     if (!validation.issues.length) break;
   }
   if (!generated || !validation) throw new Error("포트폴리오 본문 생성 결과가 비어 있습니다.");
 
-  const bodyAssets = input.assets.filter((asset) => asset.kind === "body_image");
   const bodyHtml = interleaveFigures(
     validation.bodyHtml,
     bodyAssets,
     generated.imageCaptions || [],
   );
-  const portfolioIssues = validatePortfolioBodyHtml(bodyHtml);
+  const portfolioIssues = validatePortfolioBodyHtml(bodyHtml, {
+    minimumFigures: Math.max(1, bodyAssets.length),
+  });
   const issues = [...validation.issues, ...portfolioIssues];
   return {
     draft: {

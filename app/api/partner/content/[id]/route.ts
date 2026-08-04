@@ -8,6 +8,10 @@ import {
   isPartnerVisibleStatus,
 } from "@/lib/partner-portal";
 import { validateNaverPublication } from "@/lib/publication";
+import {
+  validatePortfolioPublicationMetadata,
+  validatePortfolioSourceState,
+} from "@/lib/content-ops/portfolio-rules";
 
 export const dynamic = "force-dynamic";
 
@@ -29,7 +33,7 @@ export async function PATCH(
   const admin = contentAdmin();
   const { data: item, error: readError } = await admin
     .from("content_work_items")
-    .select("id, title, channel, status, metadata, published_url_normalized, published_at")
+    .select("id, title, channel, format, status, metadata, published_url_normalized, published_at, updated_at")
     .eq("id", id)
     .maybeSingle();
 
@@ -42,6 +46,44 @@ export async function PATCH(
     || !PARTNER_VISIBLE_STATUSES.includes(item.status)
   ) {
     return apiError(404, "NOT_FOUND", "처리할 수 없는 작업입니다.");
+  }
+
+  if (item.format === "portfolio") {
+    const [mockupJobQuery, conversionJobQuery] = await Promise.all([
+      admin.from("content_jobs")
+        .select("status,result")
+        .eq("work_item_id", item.id)
+        .eq("job_type", "mockup")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+      admin.from("content_jobs")
+        .select("status,result,updated_at")
+        .eq("work_item_id", item.id)
+        .eq("job_type", "convert")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+    ]);
+    if (mockupJobQuery.error || conversionJobQuery.error) {
+      return apiError(500, "INTERNAL_ERROR", "최신 목업 작업 상태를 확인하지 못했습니다.", {
+        retryable: true,
+      });
+    }
+    const issues = [
+      ...validatePortfolioPublicationMetadata(item.metadata),
+      ...validatePortfolioSourceState(
+        item.metadata,
+        mockupJobQuery.data,
+        conversionJobQuery.data,
+      ),
+    ];
+    if (issues.length) {
+      return apiError(409, "PORTFOLIO_REVIEW_REQUIRED", "포트폴리오 기밀·본문 검수가 완료되지 않았습니다.", {
+        nextAction: "관리자 화면에서 목업 재생성과 기밀 검수를 완료해 주세요.",
+        details: { issues },
+      });
+    }
   }
 
   const validation = validateNaverPublication({
@@ -109,6 +151,7 @@ export async function PATCH(
       updated_at: completedAt,
     })
     .eq("id", id)
+    .eq("updated_at", item.updated_at)
     .in("channel", PARTNER_CHANNELS)
     .in("status", PARTNER_VISIBLE_STATUSES)
     .select("id, status, published_at")
@@ -117,6 +160,12 @@ export async function PATCH(
   if (error?.code === "23505") {
     return apiError(409, "PUBLISHED_URL_CONFLICT", "이미 다른 작업에 등록된 발행 주소입니다.", {
       nextAction: "현재 작업에서 새로 발행한 게시글 주소를 입력해 주세요.",
+    });
+  }
+  if (error?.code === "PGRST116") {
+    return apiError(409, "CONTENT_CHANGED", "발행 등록 직전에 원고 또는 목업 상태가 변경되었습니다.", {
+      retryable: true,
+      nextAction: "화면을 새로고침해 최신 검토 상태를 확인한 뒤 다시 등록해 주세요.",
     });
   }
   if (error) return apiError(500, "INTERNAL_ERROR", "발행 완료 상태를 저장하지 못했습니다.", {

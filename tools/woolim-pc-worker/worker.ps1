@@ -436,15 +436,27 @@ function Find-PdfRenderer {
   throw "MISSING_PDF_RENDERER: pdftoppm.exe를 찾을 수 없습니다. Poppler를 설치하거나 WOOLIM_PDFTOPPM_PATH를 설정하세요."
 }
 
-function Assert-LandscapeImage {
+function Test-SupportedPageRatio {
+  param([double]$AspectRatio)
+
+  $targets = @(16.0 / 9.0, 4.0 / 3.0, 297.0 / 210.0, 210.0 / 297.0)
+  foreach ($target in $targets) {
+    if ([Math]::Abs($AspectRatio - $target) / $target -le 0.025) {
+      return $true
+    }
+  }
+  return $false
+}
+
+function Assert-SupportedPageImage {
   param([string]$ImagePath)
 
   Add-Type -AssemblyName System.Drawing
   $image = [System.Drawing.Image]::FromFile($ImagePath)
   try {
     $aspectRatio = [double]$image.Width / [double]$image.Height
-    if ($aspectRatio -lt 1.2 -or $aspectRatio -gt 2.2) {
-      throw "NON_PRESENTATION_LAYOUT: Page ratio $([Math]::Round($aspectRatio, 3)) is not a supported landscape presentation."
+    if (-not (Test-SupportedPageRatio -AspectRatio $aspectRatio)) {
+      throw "NON_PRESENTATION_LAYOUT: Page ratio $([Math]::Round($aspectRatio, 3)) is not 16:9, 4:3, A4 landscape, or A4 portrait."
     }
   } finally {
     $image.Dispose()
@@ -454,7 +466,7 @@ function Assert-LandscapeImage {
 function Get-RepresentativeIndexes {
   param(
     [int]$Count,
-    [int]$Maximum = 24
+    [int]$Maximum = 100
   )
 
   if ($Count -le $Maximum) {
@@ -515,7 +527,7 @@ function Convert-Document {
       if ($renderedPages.Count -lt 5) {
         throw "NON_PRESENTATION_LAYOUT: A portfolio PDF must contain at least 5 pages."
       }
-      Assert-LandscapeImage -ImagePath $renderedPages[0].FullName
+      Assert-SupportedPageImage -ImagePath $renderedPages[0].FullName
       foreach ($pageIndex in (Get-RepresentativeIndexes -Count $renderedPages.Count)) {
         $slidePaths.Add($renderedPages[$pageIndex].FullName)
       }
@@ -533,8 +545,8 @@ function Convert-Document {
       $slideWidth = [double]$presentation.PageSetup.SlideWidth
       $slideHeight = [double]$presentation.PageSetup.SlideHeight
       $aspectRatio = $slideWidth / $slideHeight
-      if ($aspectRatio -lt 1.2 -or $aspectRatio -gt 2.2) {
-        throw "NON_PRESENTATION_LAYOUT: Slide ratio $([Math]::Round($aspectRatio, 3)) is not a supported landscape presentation."
+      if (-not (Test-SupportedPageRatio -AspectRatio $aspectRatio)) {
+        throw "NON_PRESENTATION_LAYOUT: Slide ratio $([Math]::Round($aspectRatio, 3)) is not 16:9, 4:3, A4 landscape, or A4 portrait."
       }
       if ([int]$presentation.Slides.Count -lt 5) {
         throw "NON_PRESENTATION_LAYOUT: A portfolio presentation must contain at least 5 slides."
