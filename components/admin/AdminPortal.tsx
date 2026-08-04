@@ -11,6 +11,7 @@ import {
   Home,
   LayoutDashboard,
   LogOut,
+  MessageSquareText,
   Newspaper,
   Palette,
 } from "lucide-react";
@@ -26,6 +27,7 @@ const NAV_ITEMS = [
   { href: "/admin/reviews", label: "검토 요청", icon: FileCheck2 },
   { href: "/admin/schedule", label: "발행 일정", icon: CalendarDays },
   { href: "/admin/sources", label: "주제·자료 수집", icon: Bell },
+  { href: "/admin/openchat", label: "오픈채팅 자동배포", icon: MessageSquareText },
   { href: "/partner", label: "외주 포스팅 작업실", icon: BriefcaseBusiness },
 ];
 

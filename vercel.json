@@ -7,6 +7,34 @@
     {
       "path": "/api/cron/content-operations",
       "schedule": "7 * * * *"
+    },
+    {
+      "path": "/api/cron/openchat/morning-collect",
+      "schedule": "0 23 * * 0-4"
+    },
+    {
+      "path": "/api/cron/openchat/morning-draft-notify",
+      "schedule": "0 0 * * 1-5"
+    },
+    {
+      "path": "/api/cron/openchat/morning-cutoff",
+      "schedule": "15 1 * * 1-5"
+    },
+    {
+      "path": "/api/cron/openchat/morning-ready",
+      "schedule": "0 2 * * 1-5"
+    },
+    {
+      "path": "/api/cron/openchat/afternoon-draft",
+      "schedule": "0 6 * * *"
+    },
+    {
+      "path": "/api/cron/openchat/afternoon-cutoff",
+      "schedule": "30 8 * * *"
+    },
+    {
+      "path": "/api/cron/openchat/afternoon-ready",
+      "schedule": "0 9 * * *"
     }
   ]
 }
