@@ -34,6 +34,9 @@ function invalidatePortfolioMetadata(value: unknown, invalidatedAt: string) {
     "validation",
     "redactionMode",
     "confidentialRegions",
+    "redactionProof",
+    "portfolioStage",
+    "designCompletedAt",
     "generatedAt",
     "mockupOnlyRebuiltAt",
     "draftRetryCompletedAt",
@@ -241,6 +244,21 @@ async function completePdfImageJob(
     .maybeSingle();
   if (resetMockupError) throw new Error(resetMockupError.message);
   if (!resetMockupJob) throw new Error("The portfolio mockup job could not be reset.");
+  const { error: resetDraftError } = await admin.from("content_jobs").update({
+    status: "on_hold",
+    attempts: 0,
+    next_retry_at: null,
+    last_error_code: null,
+    payload: { waitsFor: "mockup" },
+    result: {},
+    started_at: null,
+    completed_at: null,
+    error_message: null,
+    updated_at: completedAt,
+  }).eq("candidate_id", job.candidate_id)
+    .eq("job_type", "draft")
+    .in("status", ["queued", "running", "completed", "on_hold", "failed"]);
+  if (resetDraftError) throw new Error(resetDraftError.message);
 
   const { error: reviewAssetsError } = await admin
     .from("content_review_assets")

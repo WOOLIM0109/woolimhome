@@ -7,7 +7,10 @@ import {
   processNextPortfolioDownload,
   restorePcEligibleOversizedCandidates,
 } from "@/lib/naver-works/job-runner";
-import { processNextPortfolioMockup } from "@/lib/portfolio/job-runner";
+import {
+  processNextPortfolioDraft,
+  processNextPortfolioMockup,
+} from "@/lib/portfolio/job-runner";
 import { shouldGenerateScheduledItem } from "@/lib/partner-portal";
 import { geminiRetryDecision } from "@/lib/gemini/client";
 
@@ -64,9 +67,17 @@ export async function GET(request: Request) {
         restoredCandidates,
       });
     }
-    const completedDraft = await processNextPortfolioMockup();
-    if (completedDraft) portfolioProgress.push(completedDraft);
-    if (!completedDraft || completedDraft.status === "rejected") {
+    const completedMockup = await processNextPortfolioMockup();
+    if (completedMockup) portfolioProgress.push(completedMockup);
+    // Keep one long-running AI stage per invocation. A completed mockup is
+    // durable, so the next cron window can write the draft without delaying
+    // design generation or putting its assets back at risk.
+    let completedDraft = null;
+    if (!completedMockup) {
+      completedDraft = await processNextPortfolioDraft();
+      if (completedDraft) portfolioProgress.push(completedDraft);
+    }
+    if ((!completedMockup && !completedDraft) || completedMockup?.status === "rejected") {
       const downloaded = await processNextPortfolioDownload();
       if (downloaded) portfolioProgress.push(downloaded);
     }

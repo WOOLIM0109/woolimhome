@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 import { contentAdmin } from "@/lib/content-ops/data";
 import { authenticateWorker } from "@/lib/pc-worker/auth";
+import {
+  type LocalRedactionManifest,
+  validateLocalRedactionManifest,
+} from "@/lib/pc-worker/redaction-manifest";
 import { processNextPortfolioMockup } from "@/lib/portfolio/job-runner";
 
 export const runtime = "nodejs";
@@ -20,6 +24,8 @@ function invalidatePortfolioMetadata(value: unknown, invalidatedAt: string) {
     "validation",
     "redactionMode",
     "confidentialRegions",
+    "redactionProof",
+    "portfolioStage",
     "generatedAt",
     "mockupOnlyRebuiltAt",
     "draftRetryCompletedAt",
@@ -64,6 +70,38 @@ export async function POST(request: Request) {
 
   const now = new Date().toISOString();
   const slidePaths = body.slidePaths.slice(0, 100) as string[];
+  const { data: sourceJobs, error: sourceError } = await admin.from("content_jobs")
+    .select("result")
+    .eq("candidate_id", job.candidate_id)
+    .eq("job_type", "download")
+    .eq("status", "completed")
+    .limit(1);
+  if (sourceError) return NextResponse.json({ error: sourceError.message }, { status: 500 });
+  const sourceResult = sourceJobs?.[0]?.result as { originalFileName?: unknown } | undefined;
+  const sourceFileName = typeof sourceResult?.originalFileName === "string"
+    ? sourceResult.originalFileName
+    : "";
+  const sourceExtension = sourceFileName.split(".").pop()?.toLowerCase() || "";
+  const isPowerPoint = ["ppt", "pptx", "pptm"].includes(sourceExtension);
+  const isPdf = sourceExtension === "pdf";
+  if (!isPowerPoint && !isPdf) {
+    return NextResponse.json({ error: "The conversion source format could not be verified." }, { status: 409 });
+  }
+  let localRedactionManifest: LocalRedactionManifest | null = null;
+  if (isPowerPoint) {
+    if (typeof body.powerPointVersion !== "string" || !body.powerPointVersion.trim()) {
+      return NextResponse.json({ error: "PowerPoint version is required for a PowerPoint completion." }, { status: 400 });
+    }
+    const validation = validateLocalRedactionManifest(body.localRedactionManifest, slidePaths.length);
+    if (!validation.ok) {
+      return NextResponse.json({ error: validation.error }, { status: 400 });
+    }
+    localRedactionManifest = validation.manifest;
+  } else if (body.localRedactionManifest !== null && body.localRedactionManifest !== undefined) {
+    return NextResponse.json({
+      error: "PDF conversions cannot claim a local PowerPoint redaction manifest.",
+    }, { status: 400 });
+  }
   const previousResult = job.result && typeof job.result === "object"
     ? job.result as Record<string, unknown>
     : {};
@@ -74,6 +112,8 @@ export async function POST(request: Request) {
     previousResult.bucket !== body.bucket
     || JSON.stringify(previousSlidePaths) !== JSON.stringify(slidePaths)
     || previousResult.pcWorkerId !== worker.id
+    || (previousResult.localRedactionManifest !== undefined
+      && JSON.stringify(previousResult.localRedactionManifest) !== JSON.stringify(localRedactionManifest))
   )) {
     return NextResponse.json({
       error: "A completed conversion can only resume with its original output.",
@@ -108,27 +148,32 @@ export async function POST(request: Request) {
   if (!preInvalidatedWorkItem) {
     return NextResponse.json({ error: "The portfolio work item could not be invalidated." }, { status: 409 });
   }
-  const completion = job.status === "completed"
+  const completedResult = {
+    ...(job.result || {}),
+    bucket: body.bucket,
+    slidePaths,
+    slideCount: slidePaths.length,
+    pcWorkerId: worker.id,
+    pcWorkerName: worker.displayName,
+    pcCompletedAt: now,
+    powerPointVersion: body.powerPointVersion || null,
+    workerVersion: body.workerVersion || null,
+    localRedactionManifest,
+  };
+  const needsCompletedManifestBackfill = job.status === "completed"
+    && previousResult.localRedactionManifest === undefined;
+  const completion = job.status === "completed" && !needsCompletedManifestBackfill
     ? { data: { id: job.id }, error: null }
     : await admin.from("content_jobs").update({
     status: "completed",
     completed_at: now,
     lease_expires_at: null,
     error_message: null,
-    result: {
-      ...(job.result || {}),
-      bucket: body.bucket,
-      slidePaths,
-      slideCount: slidePaths.length,
-      pcWorkerId: worker.id,
-      pcWorkerName: worker.displayName,
-      pcCompletedAt: now,
-      powerPointVersion: body.powerPointVersion || null,
-    },
+    result: completedResult,
     updated_at: now,
     })
       .eq("id", job.id)
-      .eq("status", "pc_running")
+      .eq("status", job.status)
       .eq("claimed_by_worker_id", worker.id)
       .select("id")
       .maybeSingle();
@@ -162,7 +207,12 @@ export async function POST(request: Request) {
     attempts: 0,
     next_retry_at: null,
     last_error_code: null,
-    payload: { waitsFor: "privacy_check", slidePaths, bucket: body.bucket },
+    payload: {
+      waitsFor: "privacy_check",
+      slidePaths,
+      bucket: body.bucket,
+      localRedactionManifest,
+    },
     result: {},
     started_at: null,
     completed_at: null,
@@ -192,6 +242,23 @@ export async function POST(request: Request) {
       }).eq("id", job.id).eq("status", "completed").eq("claimed_by_worker_id", worker.id);
     }
     return NextResponse.json({ error: "The portfolio mockup job could not be reset." }, { status: 409 });
+  }
+  const { error: resetDraftError } = await admin.from("content_jobs").update({
+    status: "on_hold",
+    attempts: 0,
+    next_retry_at: null,
+    last_error_code: null,
+    payload: { waitsFor: "mockup" },
+    result: {},
+    started_at: null,
+    completed_at: null,
+    error_message: null,
+    updated_at: now,
+  }).eq("candidate_id", job.candidate_id)
+    .eq("job_type", "draft")
+    .in("status", ["queued", "running", "completed", "on_hold", "failed"]);
+  if (resetDraftError) {
+    return NextResponse.json({ error: resetDraftError.message }, { status: 500 });
   }
 
   const { error: reviewAssetsError } = await admin

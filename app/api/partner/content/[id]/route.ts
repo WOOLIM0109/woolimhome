@@ -49,7 +49,7 @@ export async function PATCH(
   }
 
   if (item.format === "portfolio") {
-    const [mockupJobQuery, conversionJobQuery] = await Promise.all([
+    const [mockupJobQuery, conversionJobQuery, draftJobQuery] = await Promise.all([
       admin.from("content_jobs")
         .select("status,result")
         .eq("work_item_id", item.id)
@@ -64,8 +64,15 @@ export async function PATCH(
         .order("created_at", { ascending: false })
         .limit(1)
         .maybeSingle(),
+      admin.from("content_jobs")
+        .select("status,result")
+        .eq("work_item_id", item.id)
+        .eq("job_type", "draft")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle(),
     ]);
-    if (mockupJobQuery.error || conversionJobQuery.error) {
+    if (mockupJobQuery.error || conversionJobQuery.error || draftJobQuery.error) {
       return apiError(500, "INTERNAL_ERROR", "최신 목업 작업 상태를 확인하지 못했습니다.", {
         retryable: true,
       });
@@ -76,6 +83,7 @@ export async function PATCH(
         item.metadata,
         mockupJobQuery.data,
         conversionJobQuery.data,
+        draftJobQuery.data,
       ),
     ];
     if (issues.length) {

@@ -5,7 +5,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$WorkerVersion = "2.2.1"
+$WorkerVersion = "2.3.0"
 
 function Get-WorkerSetting {
   param(
@@ -487,6 +487,453 @@ function Get-RepresentativeIndexes {
   return @($indexes | Sort-Object)
 }
 
+function New-LocalRedactionRegion {
+  param(
+    [Parameter(Mandatory = $true)]$Shape,
+    [Parameter(Mandatory = $true)][int]$SlideIndex,
+    [Parameter(Mandatory = $true)][double]$SlideWidth,
+    [Parameter(Mandatory = $true)][double]$SlideHeight,
+    [Parameter(Mandatory = $true)][string]$Type,
+    [Parameter(Mandatory = $true)][string]$Label
+  )
+
+  try {
+    $rawLeft = $Shape.Left
+    $rawTop = $Shape.Top
+    $rawWidth = $Shape.Width
+    $rawHeight = $Shape.Height
+    if ($null -eq $rawLeft -or $null -eq $rawTop -or $null -eq $rawWidth -or $null -eq $rawHeight) {
+      throw "PowerPoint returned an empty shape boundary."
+    }
+    $paddingX = [Math]::Max(1.5, $SlideWidth * 0.004)
+    $paddingY = [Math]::Max(1.5, $SlideHeight * 0.004)
+    $left = [Math]::Max(0.0, [double]$rawLeft - $paddingX)
+    $top = [Math]::Max(0.0, [double]$rawTop - $paddingY)
+    $right = [Math]::Min($SlideWidth, [double]$rawLeft + [double]$rawWidth + $paddingX)
+    $bottom = [Math]::Min($SlideHeight, [double]$rawTop + [double]$rawHeight + $paddingY)
+    if ($right -le $left -or $bottom -le $top) { return $null }
+
+    return [PSCustomObject]@{
+      slideIndex = $SlideIndex
+      type = $Type
+      label = $Label
+      x = [double]($left / $SlideWidth)
+      y = [double]($top / $SlideHeight)
+      width = [double](($right - $left) / $SlideWidth)
+      height = [double](($bottom - $top) / $SlideHeight)
+    }
+  } catch {
+    # If a sensitive shape cannot be mapped to pixels, a partial manifest is
+    # unsafe. Propagate the geometry failure so the slide becomes one
+    # full-page fail-closed region.
+    throw "SHAPE_GEOMETRY_INSPECTION_FAILED: $($_.Exception.Message)"
+  }
+}
+
+function New-FullSlideRedactionRegion {
+  param([Parameter(Mandatory = $true)][int]$SlideIndex)
+
+  return [PSCustomObject]@{
+    slideIndex = $SlideIndex
+    type = "screenshot"
+    label = "local_ambiguous"
+    x = [double]0
+    y = [double]0
+    width = [double]1
+    height = [double]1
+  }
+}
+
+function Test-ShapeHasText {
+  param([Parameter(Mandatory = $true)]$Shape)
+
+  try {
+    $hasTextFrame = $Shape.HasTextFrame
+    if ($null -eq $hasTextFrame) {
+      throw "PowerPoint returned no HasTextFrame value."
+    }
+    if ([int]$hasTextFrame -eq 0) { return $false }
+    $textFrame = $Shape.TextFrame
+    if ($null -eq $textFrame) {
+      throw "PowerPoint returned no TextFrame object."
+    }
+    $hasText = $textFrame.HasText
+    if ($null -eq $hasText) {
+      throw "PowerPoint returned no HasText value."
+    }
+    return [int]$hasText -ne 0
+  } catch {
+    # `false` means that PowerPoint positively reported no text. A COM read
+    # failure is different: treating it as no text could expose a text box,
+    # placeholder, or autoshape. Propagate uncertainty so the caller can blur
+    # the whole slide instead of guessing.
+    throw "SHAPE_TEXT_INSPECTION_FAILED: $($_.Exception.Message)"
+  }
+}
+
+function Get-ShapeTextClassification {
+  param([Parameter(Mandatory = $true)]$Shape)
+
+  if (-not (Test-ShapeHasText -Shape $Shape)) { return "none" }
+  try {
+    # Text is inspected only inside this process. It is never logged or placed
+    # in the manifest sent to the server.
+    $rawText = $Shape.TextFrame.TextRange.Text
+    if ($null -eq $rawText) {
+      throw "PowerPoint returned no text value for a shape that reports text."
+    }
+    $text = ([string]$rawText).Trim()
+    if ([string]::IsNullOrWhiteSpace($text)) { return "none" }
+    $shapeName = ""
+    try {
+      $rawShapeName = $Shape.Name
+      if ($null -eq $rawShapeName) {
+        throw "PowerPoint returned no shape name."
+      }
+      $shapeName = [string]$rawShapeName
+    } catch {
+      throw "SHAPE_NAME_INSPECTION_FAILED: $($_.Exception.Message)"
+    }
+    $identifierSignal = '(?i)(@|https?://|www\.|\b(?:client|customer|project|company|corporation|corp\.?|inc\.?|ltd\.?|customer)\b|고객사|발주처|수행사|제안사|프로젝트|과제명|주식회사|\(주\)|㈜|기관명|담당자|연락처|주소|대표자|사업자)'
+    $numberSignal = '(?i)(\b\d{2,3}[- .)]?\d{3,4}[- .]?\d{4}\b|\b\d{3}[- ]?\d{2}[- ]?\d{5}\b)'
+    $containsIdentifier = $shapeName -match '(?i)(logo|client|customer|project|identifier|footer|header|로고|고객|회사명|기관명|과제)'
+    $containsIdentifier = $containsIdentifier -or $text -match $identifierSignal
+    $containsIdentifier = $containsIdentifier -or $text -match $numberSignal
+    if ($containsIdentifier) {
+      return "identifier"
+    }
+
+    $placeholderType = 0
+    try {
+      if ([int]$Shape.Type -eq 14) {
+        $rawPlaceholderType = $Shape.PlaceholderFormat.Type
+        if ($null -eq $rawPlaceholderType) {
+          throw "PowerPoint returned no placeholder type."
+        }
+        $placeholderType = [int]$rawPlaceholderType
+      }
+    } catch {
+      throw "SHAPE_PLACEHOLDER_INSPECTION_FAILED: $($_.Exception.Message)"
+    }
+    if ($placeholderType -in @(13, 14, 15, 16)) { return "footer" }
+
+    $fontSize = -1.0
+    try {
+      $rawFontSize = $Shape.TextFrame.TextRange.Font.Size
+      if ($null -eq $rawFontSize) {
+        throw "PowerPoint returned no font size."
+      }
+      $fontSize = [double]$rawFontSize
+    } catch {
+      throw "SHAPE_FONT_INSPECTION_FAILED: $($_.Exception.Message)"
+    }
+    $isTitlePlaceholder = $placeholderType -in @(1, 3, 5)
+    $largeEnough = ($isTitlePlaceholder -and $fontSize -ge 26.0) -or $fontSize -ge 32.0
+    $normalized = ($text -replace '[\r\n]+', ' ' -replace '\s+', ' ').Trim()
+    $genericTitle = '(?i)^\s*(?:\d{1,2}\s*[.\-:]?\s*)?(?:목차|개요|사업\s*개요|제안\s*개요|프로젝트\s*개요|회사\s*소개|배경|목적|목표|현황|문제점|추진\s*전략|전략|방향|프로세스|로드맵|일정|기대\s*효과|결론|부록|감사합니다|contents?|agenda|overview|introduction|background|objectives?|goals?|strategy|process|roadmap|timeline|solution|services?|portfolio|case\s*study|appendix|thank\s*you)\s*[.：:\-–—]?\s*$'
+    if ($largeEnough -and $normalized.Length -le 120 -and $normalized -match $genericTitle) {
+      return "generic_large_title"
+    }
+    if ($fontSize -gt 0 -and $fontSize -lt 18.0) { return "small_text" }
+    return "body_text"
+  } catch {
+    # A text run that cannot be classified must not be reduced to a guessed
+    # shape boundary. Bubble the error to the slide-level full-page fallback.
+    throw "SHAPE_TEXT_CLASSIFICATION_FAILED: $($_.Exception.Message)"
+  }
+}
+
+function Test-ShapeHasPictureFill {
+  param([Parameter(Mandatory = $true)]$Shape)
+
+  try {
+    # msoFillTextured=4 and msoFillPicture=6.
+    $fill = $Shape.Fill
+    if ($null -eq $fill) {
+      throw "PowerPoint returned no Fill object."
+    }
+    $fillVisible = $fill.Visible
+    if ($null -eq $fillVisible) {
+      throw "PowerPoint returned no Fill.Visible value."
+    }
+    if ([int]$fillVisible -eq 0) { return $false }
+    $fillType = $fill.Type
+    if ($null -eq $fillType) {
+      throw "PowerPoint returned no Fill.Type value."
+    }
+    return [int]$fillType -in @(4, 6)
+  } catch {
+    # A picture-fill read failure must not make the shape look like a safe
+    # vector primitive. Let slide-level handling apply a full-page blur.
+    throw "SHAPE_PICTURE_FILL_INSPECTION_FAILED: $($_.Exception.Message)"
+  }
+}
+
+function Get-ShapeRedactionRegions {
+  param(
+    [Parameter(Mandatory = $true)]$Shape,
+    [Parameter(Mandatory = $true)][int]$SlideIndex,
+    [Parameter(Mandatory = $true)][double]$SlideWidth,
+    [Parameter(Mandatory = $true)][double]$SlideHeight
+  )
+
+  $regions = New-Object System.Collections.Generic.List[object]
+  $shapeType = -1
+  try {
+    $rawShapeType = $Shape.Type
+    if ($null -eq $rawShapeType) {
+      throw "PowerPoint returned no shape type."
+    }
+    $shapeType = [int]$rawShapeType
+  } catch {
+    throw "SHAPE_TYPE_INSPECTION_FAILED: $($_.Exception.Message)"
+  }
+
+  if ($shapeType -eq 6) {
+    # Group-item coordinates and transforms differ between Office versions.
+    # Inspect children recursively, then redact the entire group as the
+    # conservative geometry boundary. A vector-only group can itself be a
+    # client logo, so it cannot be proven public from child types alone.
+    $groupContainsSensitiveContent = $true
+    $groupInspectionFailed = $false
+    try {
+      $groupItems = $Shape.GroupItems
+      if ($null -eq $groupItems) {
+        throw "PowerPoint returned no GroupItems collection."
+      }
+      $rawGroupCount = $groupItems.Count
+      if ($null -eq $rawGroupCount) {
+        throw "PowerPoint returned no grouped-shape count."
+      }
+      for ($childIndex = 1; $childIndex -le [int]$rawGroupCount; $childIndex++) {
+        $child = $null
+        try {
+          $child = $groupItems.Item($childIndex)
+          if ($null -eq $child) {
+            throw "PowerPoint returned no grouped child at index $childIndex."
+          }
+          $childRegions = @(Get-ShapeRedactionRegions `
+            -Shape $child `
+            -SlideIndex $SlideIndex `
+            -SlideWidth $SlideWidth `
+            -SlideHeight $SlideHeight)
+          if ($childRegions.Count -gt 0) { $groupContainsSensitiveContent = $true }
+        } catch {
+          $groupContainsSensitiveContent = $true
+          $groupInspectionFailed = $true
+        } finally {
+          if ($child) {
+            try { [System.Runtime.InteropServices.Marshal]::FinalReleaseComObject($child) | Out-Null } catch {}
+          }
+        }
+      }
+    } catch {
+      $groupContainsSensitiveContent = $true
+      $groupInspectionFailed = $true
+    }
+    if ($groupInspectionFailed) {
+      throw "GROUP_SHAPE_INSPECTION_FAILED: PowerPoint could not inspect every child in a grouped shape."
+    }
+    if ($groupContainsSensitiveContent) {
+      $region = New-LocalRedactionRegion -Shape $Shape -SlideIndex $SlideIndex `
+        -SlideWidth $SlideWidth -SlideHeight $SlideHeight `
+        -Type "screenshot" -Label "local_group"
+      if ($region) { $regions.Add($region) }
+    }
+    return $regions.ToArray()
+  }
+
+  $regionType = $null
+  $regionLabel = $null
+  $shapeIdentity = ""
+  try {
+    $rawShapeName = $Shape.Name
+    $rawAlternativeText = $Shape.AlternativeText
+    $rawShapeTitle = $Shape.Title
+    if ($null -eq $rawShapeName -or $null -eq $rawAlternativeText -or $null -eq $rawShapeTitle) {
+      throw "PowerPoint returned incomplete shape identity metadata."
+    }
+    $shapeIdentity += " " + [string]$rawShapeName
+    $shapeIdentity += " " + [string]$rawAlternativeText
+    $shapeIdentity += " " + [string]$rawShapeTitle
+  } catch {
+    throw "SHAPE_IDENTITY_INSPECTION_FAILED: $($_.Exception.Message)"
+  }
+  if ($shapeIdentity -match '(?i)(logo|client|customer|project|identifier|footer|header|로고|고객|회사명|기관명|과제)') {
+    $regionType = "logo"
+    $regionLabel = "local_logo"
+  }
+  switch ($shapeType) {
+    3 { if (-not $regionType) { $regionType = "chart_label"; $regionLabel = "local_chart" } }
+    7 { if (-not $regionType) { $regionType = "screenshot"; $regionLabel = "local_embedded_object" } }
+    10 { if (-not $regionType) { $regionType = "screenshot"; $regionLabel = "local_linked_object" } }
+    11 { if (-not $regionType) { $regionType = "embedded_photo"; $regionLabel = "local_linked_picture" } }
+    12 { if (-not $regionType) { $regionType = "screenshot"; $regionLabel = "local_control" } }
+    13 { if (-not $regionType) { $regionType = "embedded_photo"; $regionLabel = "local_picture" } }
+    # msoTextEffect (WordArt) often exposes text through TextEffect.Text rather
+    # than TextFrame. Always redact its complete bounds; never classify it as a
+    # decorative vector primitive.
+    15 { if (-not $regionType) { $regionType = "body_text"; $regionLabel = "local_body_text" } }
+    16 { if (-not $regionType) { $regionType = "embedded_photo"; $regionLabel = "local_media" } }
+    19 { if (-not $regionType) { $regionType = "table_content"; $regionLabel = "local_table" } }
+    20 { if (-not $regionType) { $regionType = "screenshot"; $regionLabel = "local_canvas" } }
+    21 { if (-not $regionType) { $regionType = "screenshot"; $regionLabel = "local_diagram" } }
+    22 { if (-not $regionType) { $regionType = "screenshot"; $regionLabel = "local_ink" } }
+    23 { if (-not $regionType) { $regionType = "screenshot"; $regionLabel = "local_ink_comment" } }
+    24 { if (-not $regionType) { $regionType = "screenshot"; $regionLabel = "local_smartart" } }
+    25 { if (-not $regionType) { $regionType = "screenshot"; $regionLabel = "local_slicer" } }
+    26 { if (-not $regionType) { $regionType = "embedded_photo"; $regionLabel = "local_web_media" } }
+  }
+
+  if (-not $regionType -and (Test-ShapeHasPictureFill -Shape $Shape)) {
+    $regionType = "embedded_photo"
+    $regionLabel = "local_picture_fill"
+  }
+  if (-not $regionType -and (Test-ShapeHasText -Shape $Shape)) {
+    $classification = Get-ShapeTextClassification -Shape $Shape
+    switch ($classification) {
+      "generic_large_title" { return $regions.ToArray() }
+      "identifier" { $regionType = "client_identifier"; $regionLabel = "local_identifier" }
+      "footer" { $regionType = "footer"; $regionLabel = "local_footer" }
+      "small_text" { $regionType = "small_text"; $regionLabel = "local_small_text" }
+      default { $regionType = "body_text"; $regionLabel = "local_body_text" }
+    }
+  }
+
+  # Known vector-only primitives are safe when they contain no text or image
+  # fill. Every other unreadable shape is ambiguous and is redacted.
+  $knownVectorOnlyType = $shapeType -in @(1, 2, 5, 9, 14, 17)
+  if (-not $regionType -and -not $knownVectorOnlyType) {
+    $regionType = "screenshot"
+    $regionLabel = "local_ambiguous"
+  }
+  if ($regionType) {
+    $region = New-LocalRedactionRegion -Shape $Shape -SlideIndex $SlideIndex `
+      -SlideWidth $SlideWidth -SlideHeight $SlideHeight `
+      -Type $regionType -Label $regionLabel
+    if ($region) { $regions.Add($region) }
+  }
+  return $regions.ToArray()
+}
+
+function Get-SlideRedactionRegions {
+  param(
+    [Parameter(Mandatory = $true)]$Slide,
+    [Parameter(Mandatory = $true)][int]$SlideIndex,
+    [Parameter(Mandatory = $true)][double]$SlideWidth,
+    [Parameter(Mandatory = $true)][double]$SlideHeight
+  )
+
+  $regions = New-Object System.Collections.Generic.List[object]
+  $inspectionFailed = $false
+  $hasPictureBackground = $false
+  try {
+    $slideBackground = $Slide.Background
+    $slideBackgroundFill = if ($null -ne $slideBackground) { $slideBackground.Fill } else { $null }
+    $slideBackgroundType = if ($null -ne $slideBackgroundFill) { $slideBackgroundFill.Type } else { $null }
+    if ($null -eq $slideBackgroundType) {
+      throw "PowerPoint returned no slide background fill type."
+    }
+    $hasPictureBackground = [int]$slideBackgroundType -in @(4, 6)
+  } catch {
+    $inspectionFailed = $true
+  }
+  try {
+    $customLayout = $Slide.CustomLayout
+    $customBackground = if ($null -ne $customLayout) { $customLayout.Background } else { $null }
+    $customBackgroundFill = if ($null -ne $customBackground) { $customBackground.Fill } else { $null }
+    $customBackgroundType = if ($null -ne $customBackgroundFill) { $customBackgroundFill.Type } else { $null }
+    if ($null -eq $customBackgroundType) {
+      throw "PowerPoint returned no custom-layout background fill type."
+    }
+    $hasPictureBackground = $hasPictureBackground -or ([int]$customBackgroundType -in @(4, 6))
+  } catch {
+    $inspectionFailed = $true
+  }
+  try {
+    $master = $Slide.Master
+    $masterBackground = if ($null -ne $master) { $master.Background } else { $null }
+    $masterBackgroundFill = if ($null -ne $masterBackground) { $masterBackground.Fill } else { $null }
+    $masterBackgroundType = if ($null -ne $masterBackgroundFill) { $masterBackgroundFill.Type } else { $null }
+    if ($null -eq $masterBackgroundType) {
+      throw "PowerPoint returned no master background fill type."
+    }
+    $hasPictureBackground = $hasPictureBackground -or ([int]$masterBackgroundType -in @(4, 6))
+  } catch {
+    $inspectionFailed = $true
+  }
+  if ($hasPictureBackground) {
+    $regions.Add([PSCustomObject]@{
+      slideIndex = $SlideIndex
+      type = "embedded_photo"
+      label = "local_picture_fill"
+      x = [double]0
+      y = [double]0
+      width = [double]1
+      height = [double]1
+    })
+  }
+  $shapeCollections = New-Object System.Collections.Generic.List[object]
+  try {
+    $slideShapes = $Slide.Shapes
+    if ($null -eq $slideShapes) { throw "PowerPoint returned no slide Shapes collection." }
+    $shapeCollections.Add($slideShapes)
+  } catch { $inspectionFailed = $true }
+  try {
+    $layoutShapes = $Slide.CustomLayout.Shapes
+    if ($null -eq $layoutShapes) { throw "PowerPoint returned no layout Shapes collection." }
+    $shapeCollections.Add($layoutShapes)
+  } catch { $inspectionFailed = $true }
+  try {
+    $masterShapes = $Slide.Master.Shapes
+    if ($null -eq $masterShapes) { throw "PowerPoint returned no master Shapes collection." }
+    $shapeCollections.Add($masterShapes)
+  } catch { $inspectionFailed = $true }
+  foreach ($shapeCollection in $shapeCollections) {
+    try {
+      $rawShapeCount = $shapeCollection.Count
+      if ($null -eq $rawShapeCount) {
+        throw "PowerPoint returned no shape collection count."
+      }
+      for ($shapeIndex = 1; $shapeIndex -le [int]$rawShapeCount; $shapeIndex++) {
+        $shape = $null
+        try {
+          $shape = $shapeCollection.Item($shapeIndex)
+          if ($null -eq $shape) {
+            throw "PowerPoint returned no shape at index $shapeIndex."
+          }
+          foreach ($region in @(Get-ShapeRedactionRegions `
+            -Shape $shape `
+            -SlideIndex $SlideIndex `
+            -SlideWidth $SlideWidth `
+            -SlideHeight $SlideHeight)) {
+            if ($region) { $regions.Add($region) }
+          }
+        } catch {
+          # One readable shape elsewhere on the slide must not hide this
+          # failure. Record it and replace every partial region with a
+          # full-slide fail-closed region below.
+          $inspectionFailed = $true
+        } finally {
+          if ($shape) {
+            try { [System.Runtime.InteropServices.Marshal]::FinalReleaseComObject($shape) | Out-Null } catch {}
+          }
+        }
+      }
+    } catch {
+      $inspectionFailed = $true
+    } finally {
+      if ($shapeCollection) {
+        try { [System.Runtime.InteropServices.Marshal]::FinalReleaseComObject($shapeCollection) | Out-Null } catch {}
+      }
+    }
+  }
+  if ($inspectionFailed) {
+    return @((New-FullSlideRedactionRegion -SlideIndex $SlideIndex))
+  }
+  return $regions.ToArray()
+}
+
 function Convert-Document {
   param(
     [string]$JobId,
@@ -513,6 +960,8 @@ function Convert-Document {
   $powerPointVersion = $null
   $heartbeatJob = $null
   $slidePaths = New-Object System.Collections.Generic.List[string]
+  $localRedactionSlides = New-Object System.Collections.Generic.List[object]
+  $localRedactionManifest = $null
   try {
     Send-Heartbeat -Status "busy" -CurrentJobId $JobId
     $heartbeatJob = Start-JobHeartbeat -JobId $JobId
@@ -637,6 +1086,24 @@ function Convert-Document {
           }
 
           if ($exported) {
+            $exportedSlideIndex = $slidePaths.Count
+            $redactionRegions = @(Get-SlideRedactionRegions `
+              -Slide $slide `
+              -SlideIndex $exportedSlideIndex `
+              -SlideWidth $slideWidth `
+              -SlideHeight $slideHeight)
+            if ($redactionRegions.Count -eq 0) {
+              # A slide with no readable shape geometry is not treated as
+              # public. Blur the entire exported slide instead of guessing.
+              $redactionRegions = @(
+                New-FullSlideRedactionRegion -SlideIndex $exportedSlideIndex
+              )
+            }
+            $localRedactionSlides.Add([PSCustomObject]@{
+              slideIndex = $exportedSlideIndex
+              sourceSlideNumber = $slideNumber
+              regions = @($redactionRegions)
+            })
             $slidePaths.Add($path)
           } else {
             $skippedSlideNumbers.Add($slideNumber)
@@ -652,6 +1119,12 @@ function Convert-Document {
         Write-WorkerLog "Skipped $($skippedSlideNumbers.Count) unexportable slide(s): $($skippedSlideNumbers -join ', ')."
       }
       Write-WorkerLog "Selected $($slidePaths.Count) representative slides from $($presentation.Slides.Count) total slides."
+      $localRedactionManifest = [PSCustomObject]@{
+        version = 1
+        method = "powerpoint_com_shapes_v1"
+        slideCount = $slidePaths.Count
+        slides = $localRedactionSlides.ToArray()
+      }
     } else {
       throw "UNSUPPORTED_DOCUMENT: Only PPT, PPTX, PPTM, and PDF sources are supported."
     }
@@ -692,6 +1165,8 @@ function Convert-Document {
       bucket = [string]$uploadPlan.bucket
       slidePaths = $uploadedSlides.ToArray()
       powerPointVersion = $powerPointVersion
+      workerVersion = $WorkerVersion
+      localRedactionManifest = $localRedactionManifest
     } | Out-Null
     Write-WorkerLog "Completed job $JobId with $($slidePaths.Count) pages."
   } finally {
@@ -794,7 +1269,10 @@ try {
 do {
   try {
     Send-Heartbeat
-    $claim = Invoke-WorkerApi -Path "/api/worker/jobs/claim" -Body @{}
+    $claim = Invoke-WorkerApi -Path "/api/worker/jobs/claim" -Body @{
+      workerVersion = $WorkerVersion
+      capabilities = @("powerpoint_local_redaction_manifest_v1")
+    }
     if ($claim.job) {
       try {
         Write-WorkerLog "Claimed job $($claim.job.id): $($claim.job.fileName)"
