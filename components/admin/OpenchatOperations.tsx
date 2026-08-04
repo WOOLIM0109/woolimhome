@@ -88,6 +88,11 @@ export default function OpenchatOperations() {
     .sort((left, right) => left.priority - right.priority)
     .slice(0, MORNING_PROGRAM_LIMIT), [programs]);
 
+  const reviewPrograms = useMemo(() => programs
+    .filter((program) => !["deferred", "excluded"].includes(program.status))
+    .sort((left, right) => left.priority - right.priority)
+    .slice(0, MORNING_PROGRAM_LIMIT), [programs]);
+
   async function run(task: string) {
     setBusy(task);
     setError("");
@@ -212,33 +217,45 @@ export default function OpenchatOperations() {
           <div className="flex flex-col gap-4 rounded-2xl border border-orange-200 bg-orange-50 p-5 lg:flex-row lg:items-center lg:justify-between">
             <div>
               <h2 className="text-xl font-bold">오전 공고 검토</h2>
-              <p className="mt-1 text-sm text-orange-900/80">승인 {selectedPrograms.length}/{MORNING_PROGRAM_LIMIT}건 · 오전 10:15 미승인 공고는 다음 영업일로 이월</p>
+              <p className="mt-1 text-sm text-orange-900/80">승인 {selectedPrograms.length}/{MORNING_PROGRAM_LIMIT}건 · 검토 후보 {reviewPrograms.length}건 · 오전 10:15 미승인 공고는 다음 영업일로 이월</p>
             </div>
             <div className="flex flex-wrap gap-2">
               <button onClick={() => void run("morning-collect")} disabled={Boolean(busy)} className="inline-flex items-center gap-2 rounded-xl bg-orange-700 px-4 py-3 text-sm font-bold text-white disabled:opacity-60"><Play size={16} /> 지금 수집</button>
               <button onClick={() => void copy(formatMorningPost(selectedPrograms, date))} disabled={!selectedPrograms.length} className="inline-flex items-center gap-2 rounded-xl border border-orange-300 bg-white px-4 py-3 text-sm font-bold disabled:opacity-50"><Clipboard size={16} /> 게시문 복사</button>
             </div>
           </div>
-          {selectedPrograms.length > 0 && (
+          {reviewPrograms.length > 0 && (
             <details className="mt-5 rounded-2xl border border-[var(--line)] bg-white p-5">
-              <summary className="cursor-pointer font-bold">카카오톡 게시문 통합 미리보기 · {selectedPrograms.length}건 · 상담 문구 포함</summary>
-              <pre className="mt-5 max-h-[720px] overflow-auto whitespace-pre-wrap rounded-xl bg-[#fff7f1] p-5 text-sm leading-7">{formatMorningPost(selectedPrograms, date)}</pre>
+              <summary className="cursor-pointer font-bold">검토용 게시문 통합 미리보기 · {reviewPrograms.length}건 · 상담 문구 포함</summary>
+              <pre className="mt-5 max-h-[720px] overflow-auto whitespace-pre-wrap rounded-xl bg-[#fff7f1] p-5 text-sm leading-7">{formatMorningPost(reviewPrograms, date)}</pre>
               <div className="mt-5 border-t border-[var(--line)] pt-5">
                 <h3 className="font-bold">원문 링크</h3>
                 <div className="mt-3 space-y-3">
-                  {selectedPrograms.map((program, index) => (
-                    <a key={program.id} href={program.source_url} target="_blank" rel="noreferrer" className="flex items-start gap-2 rounded-xl bg-[#fff7f1] px-4 py-3 text-sm font-bold text-[var(--primary)]">
-                      <span className="shrink-0">{index + 1}.</span>
-                      <span className="min-w-0 break-all">{program.title}<br /><span className="font-normal text-[var(--muted)]">{program.source_url}</span></span>
-                      <ExternalLink size={15} className="mt-0.5 shrink-0" />
-                    </a>
+                  {reviewPrograms.map((program, index) => (
+                    <div key={program.id} className="rounded-xl bg-[#fff7f1] px-4 py-3">
+                      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                        <a href={program.source_url} target="_blank" rel="noreferrer" className="flex min-w-0 items-start gap-2 text-sm font-bold text-[var(--primary)]">
+                          <span className="shrink-0">{index + 1}.</span>
+                          <span className="min-w-0 break-all">{program.title}<br /><span className="font-normal text-[var(--muted)]">{program.source_url}</span></span>
+                          <ExternalLink size={15} className="mt-0.5 shrink-0" />
+                        </a>
+                        <div className="flex shrink-0 flex-wrap gap-2">
+                          <span className={`rounded-full px-3 py-2 text-xs font-bold ${statusClass(program.status)}`}>{PROGRAM_STATUS_LABELS[program.status]}</span>
+                          {!['approved', 'ready', 'published'].includes(program.status) && <button onClick={() => void saveProgram(program, "approved")} className="rounded-xl bg-emerald-700 px-3 py-2 text-xs font-bold text-white">승인</button>}
+                          <button onClick={() => void saveProgram(program, "deferred")} className="rounded-xl bg-stone-100 px-3 py-2 text-xs font-bold">이월</button>
+                          <button onClick={() => void saveProgram(program, "excluded")} className="rounded-xl bg-red-50 px-3 py-2 text-xs font-bold text-red-700">제외</button>
+                        </div>
+                      </div>
+                    </div>
                   ))}
                 </div>
               </div>
             </details>
           )}
           {!programs.length ? <p className="mt-5 rounded-xl border border-dashed border-[var(--line)] bg-white p-8 text-center text-sm text-[var(--muted)]">이 날짜의 수집 공고가 없습니다.</p> : (
-            <div className="mt-5 space-y-4">
+            <details className="mt-5 rounded-2xl border border-[var(--line)] bg-white p-5">
+              <summary className="cursor-pointer font-bold">세부 내용 직접 수정 · {programs.length}건</summary>
+              <div className="mt-5 space-y-4">
               {programs.map((program, index) => (
                 <article key={program.id} className="card p-5">
                   <div className="flex flex-wrap items-center justify-between gap-3">
@@ -269,7 +286,8 @@ export default function OpenchatOperations() {
                   {busy === program.id && <p className="mt-3 inline-flex items-center gap-2 text-xs text-[var(--muted)]"><LoaderCircle size={14} className="animate-spin" /> 저장 중</p>}
                 </article>
               ))}
-            </div>
+              </div>
+            </details>
           )}
         </section>
       )}
