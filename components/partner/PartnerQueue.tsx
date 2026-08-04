@@ -75,9 +75,9 @@ const STATUS_LABELS: Record<PartnerItem["status"], string> = {
   published: "발행 완료",
 };
 
-const SENTENCE_END = /([.!?](?:["'”’」』)\]]*)?)(?:[ \t\r\n]+|$)/g;
+const SENTENCE_END = /([.!?。？！](?:["'”’」』)\]]*)?)(?:[ \t\r\n]+|$)/g;
 
-function formatMobileCopyHtml(html: string) {
+function formatSentenceLineBreaks(html: string) {
   const parsedDocument = new DOMParser().parseFromString(html, "text/html");
 
   parsedDocument.body.querySelectorAll("p, li, blockquote").forEach((container) => {
@@ -98,7 +98,7 @@ function formatMobileCopyHtml(html: string) {
       let match: RegExpExecArray | null;
       while ((match = SENTENCE_END.exec(value))) {
         fragment.append(parsedDocument.createTextNode(value.slice(cursor, match.index) + match[1]));
-        fragment.append(parsedDocument.createElement("br"), parsedDocument.createElement("br"));
+        fragment.append(parsedDocument.createElement("br"));
         cursor = match.index + match[0].length;
       }
       fragment.append(parsedDocument.createTextNode(value.slice(cursor)));
@@ -140,13 +140,13 @@ function assetLabel(type: PartnerItem["assets"][number]["type"], order: number) 
   return `본문 이미지 ${order}`;
 }
 
-async function writeRichClipboard(html: string) {
-  const mobileHtml = formatMobileCopyHtml(html);
-  const text = htmlToText(mobileHtml);
+async function writeRichClipboard(html: string, formatSentences: boolean) {
+  const clipboardHtml = formatSentences ? formatSentenceLineBreaks(html) : html;
+  const text = htmlToText(clipboardHtml);
   if (navigator.clipboard.write && typeof ClipboardItem !== "undefined") {
     await navigator.clipboard.write([
       new ClipboardItem({
-        "text/html": new Blob([mobileHtml], { type: "text/html" }),
+        "text/html": new Blob([clipboardHtml], { type: "text/html" }),
         "text/plain": new Blob([text], { type: "text/plain" }),
       }),
     ]);
@@ -192,12 +192,15 @@ export default function PartnerQueue({ onUnauthorized }: { onUnauthorized: () =>
         return;
       }
       if (!response.ok) throw new Error(data.error || "작업 목록을 불러오지 못했습니다.");
-      const loadedItems = Array.isArray(data) ? data : data.items;
-      setItems(loadedItems);
+      const loadedItems = (Array.isArray(data) ? data : data.items) as PartnerItem[];
+      const displayItems = loadedItems.map((item) => item.status === "published"
+        ? item
+        : { ...item, previewHtml: formatSentenceLineBreaks(item.previewHtml) });
+      setItems(displayItems);
       setChannelConfigs(Array.isArray(data.channels) ? data.channels : []);
       setPublishedUrls(
         Object.fromEntries(
-          (loadedItems as PartnerItem[]).map((item) => [item.id, item.publishedUrl || ""]),
+          displayItems.map((item) => [item.id, item.publishedUrl || ""]),
         ),
       );
       setError("");
@@ -218,9 +221,9 @@ export default function PartnerQueue({ onUnauthorized }: { onUnauthorized: () =>
     return () => window.clearTimeout(timer);
   }, [load]);
 
-  async function copyValue(key: string, value: string, rich = false) {
+  async function copyValue(key: string, value: string, rich = false, formatSentences = false) {
     try {
-      if (rich) await writeRichClipboard(value);
+      if (rich) await writeRichClipboard(value, formatSentences);
       else await navigator.clipboard.writeText(value);
       setCopied(key);
       window.setTimeout(() => setCopied((current) => current === key ? "" : current), 1800);
@@ -397,14 +400,14 @@ export default function PartnerQueue({ onUnauthorized }: { onUnauthorized: () =>
                         label="본문 전체 복사"
                         icon={<FileText size={15} />}
                         done={copied === `${item.id}-body`}
-                        onClick={() => void copyValue(`${item.id}-body`, fullHtml, true)}
+                        onClick={() => void copyValue(`${item.id}-body`, fullHtml, true, !isPublished)}
                       />
                       {item.faq.length > 0 && (
                         <CopyButton
                           label="FAQ만 복사"
                           icon={<Clipboard size={15} />}
                           done={copied === `${item.id}-faq`}
-                          onClick={() => void copyValue(`${item.id}-faq`, faqHtml, true)}
+                          onClick={() => void copyValue(`${item.id}-faq`, faqHtml, true, !isPublished)}
                         />
                       )}
                       {tags && (
