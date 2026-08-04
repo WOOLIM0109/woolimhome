@@ -26,6 +26,7 @@ export type PortfolioVisualReview = {
   confidence: number;
   documentType: string;
   industry: string;
+  clientCategory?: "large_company" | "public_institution" | "general_company" | "unknown";
   projectTitle: string;
   designSummary: string;
   reasons: string[];
@@ -183,6 +184,10 @@ function normalizeReview(review: PortfolioVisualReview, slideCount: number) {
     .map(Number)
     .filter((value) => Number.isInteger(value) && value >= 0 && value < slideCount))];
   review.confidence = Math.max(0, Math.min(1, Number(review.confidence || 0)));
+  review.clientCategory = ["large_company", "public_institution", "general_company", "unknown"]
+    .includes(String(review.clientCategory))
+    ? review.clientCategory
+    : "unknown";
   review.recommendedSlideIndexes = indexes.slice(0, 8);
   review.reasons = (review.reasons || []).map(String).slice(0, 6);
   review.rejectionReasons = (review.rejectionReasons || []).map(String).slice(0, 6);
@@ -232,12 +237,18 @@ export async function reviewPortfolioSlides(input: {
 - 회사명·브랜드명·제품명은 기본적으로 가리지 않는다.
 - 좌표는 해당 슬라이드 전체를 기준으로 0~1 사이 x,y,width,height로 기록한다.
 
+썸네일용 분류:
+- clientCategory는 실제 고객이 대기업이면 large_company, 공공기관·정부기관·지자체이면 public_institution, 일반 기업이면 general_company로 기록한다.
+- 표본만으로 확실히 구분할 수 없으면 unknown으로 기록한다.
+- 실제 회사명·기관명·브랜드명은 projectTitle에 넣지 말고 업종, 문서 목적, 문서 종류만으로 일반화한다.
+
 반드시 아래 모양의 JSON만 반환하세요.
 {
   "suitable": true,
   "confidence": 0.0,
   "documentType": "",
   "industry": "",
+  "clientCategory": "unknown",
   "projectTitle": "",
   "designSummary": "",
   "reasons": [""],

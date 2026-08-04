@@ -187,6 +187,64 @@ function escapeXml(value: string) {
   })[character] || character);
 }
 
+function inferredClientCategory(review: Pick<PortfolioVisualReview, "clientCategory" | "projectTitle" | "industry" | "designSummary" | "reasons">) {
+  if (review.clientCategory && review.clientCategory !== "unknown") return review.clientCategory;
+  const context = [
+    review.projectTitle,
+    review.industry,
+    review.designSummary,
+    ...(review.reasons || []),
+  ].join(" ");
+  if (/대기업|그룹사|글로벌 기업/.test(context)) return "large_company";
+  if (/공공기관|정부기관|지자체|시청|군청|도청|교육청|공사|공단|공공 서비스/.test(context)) {
+    return "public_institution";
+  }
+  return "general_company";
+}
+
+export function privacySafeThumbnailTitle(review: PortfolioVisualReview) {
+  const context = `${review.industry || ""} ${review.documentType || ""}`.toLowerCase();
+  const category = inferredClientCategory(review);
+  const prefix = category === "large_company"
+    ? "대기업"
+    : category === "public_institution"
+      ? "공공기관"
+      : "";
+  const subject = /관광|여행/.test(context)
+    ? "관광마케팅"
+    : /연구|r&d|바이오|농축|스마트팜|기술개발/.test(context)
+      ? "연구개발"
+      : /인사|hr|노무|일터혁신/.test(context)
+        ? "인사·HR"
+        : /뷰티|화장품|미용/.test(context)
+          ? "뷰티"
+          : /반려|펫|동물/.test(context)
+            ? "반려동물"
+            : /무역|수출|해외/.test(context)
+              ? "해외 무역"
+              : /교육|학교/.test(context)
+                ? "교육"
+                : /경영|컨설팅/.test(context)
+                  ? "경영컨설팅"
+                  : "비즈니스";
+  const documentType = /사업계획/.test(context)
+    ? "사업계획서"
+    : /회사소개|브랜드소개/.test(context)
+      ? "회사소개서"
+      : /제품소개/.test(context)
+        ? "제품소개서"
+        : /입찰/.test(context)
+          ? "입찰제안서"
+          : /제안/.test(context)
+            ? "제안서"
+            : /발표|프레젠테이션/.test(context)
+              ? "발표자료"
+              : /ir/.test(context)
+                ? "IR 자료"
+                : "비즈니스 문서";
+  return [prefix, subject, documentType, "디자인"].filter(Boolean).join(" ");
+}
+
 function thumbnailTitleLines(value: string) {
   const compact = value
     .replace(/\s+/g, " ")
@@ -350,7 +408,6 @@ export async function createPortfolioMockups(input: {
   bucket: string;
   slidePaths: string[];
   review: PortfolioVisualReview;
-  thumbnailTitle?: string;
   extraSensitiveRegions?: SensitiveRegion[];
 }) {
   const { groups, indexes } = portfolioMockupIndexes(input.slidePaths.length);
@@ -389,7 +446,7 @@ export async function createPortfolioMockups(input: {
       name: "thumbnail.jpg",
       bytes: await thumbnail(
         thumbnailSlide,
-        input.thumbnailTitle || input.review.projectTitle || input.review.documentType,
+        privacySafeThumbnailTitle(input.review),
       ),
       caption: "문서의 여러 구간을 한 화면에 보여주는 포트폴리오 대표 이미지",
       slideIndexes: [thumbnailSlide.index],

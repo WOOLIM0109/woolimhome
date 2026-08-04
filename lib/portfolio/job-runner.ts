@@ -186,7 +186,6 @@ export async function processNextPortfolioMockup(candidateId?: string) {
       bucket,
       slidePaths,
       review,
-      thumbnailTitle: review.projectTitle || sourceFileName,
     });
     const { draft, validation } = await createPortfolioDraft({
       sourceFileName,
@@ -430,7 +429,6 @@ export async function rebuildPortfolioMockupsOnly(
     bucket: String(conversionResult.bucket),
     slidePaths: conversionResult.slidePaths,
     review,
-    thumbnailTitle: review.projectTitle || workItem.title,
     extraSensitiveRegions: confidentialRegions,
   });
   const generated = {
