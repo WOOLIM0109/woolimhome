@@ -5,7 +5,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$WorkerVersion = "2.2.0"
+$WorkerVersion = "2.2.1"
 
 function Get-WorkerSetting {
   param(
@@ -439,7 +439,14 @@ function Find-PdfRenderer {
 function Test-SupportedPageRatio {
   param([double]$AspectRatio)
 
-  $targets = @(16.0 / 9.0, 4.0 / 3.0, 297.0 / 210.0, 210.0 / 297.0)
+  # Parenthesize each quotient. In Windows PowerShell 5.1, an ungrouped
+  # comma-separated expression can bind as an Object[] operand to `/`.
+  $targets = @(
+    (16.0 / 9.0),
+    (4.0 / 3.0),
+    (297.0 / 210.0),
+    (210.0 / 297.0)
+  )
   foreach ($target in $targets) {
     if ([Math]::Abs($AspectRatio - $target) / $target -le 0.025) {
       return $true
