@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Check, Clipboard, ExternalLink, LoaderCircle, Play, RefreshCw, Save, X } from "lucide-react";
+import { Check, Clipboard, ExternalLink, LoaderCircle, Play, RefreshCw, Save } from "lucide-react";
 import { CONTENT_STATUS_LABELS, MORNING_PROGRAM_LIMIT, PROGRAM_STATUS_LABELS } from "@/lib/openchat/config";
 import { formatAfternoonPost, formatMorningPost } from "@/lib/openchat/post-format";
 import type { OpenchatContentDraft, OpenchatProgram, OpenchatSource } from "@/lib/openchat/types";
@@ -24,22 +24,6 @@ function statusClass(status: string) {
   if (["excluded", "on_hold"].includes(status)) return "bg-red-50 text-red-800";
   if (status === "deferred") return "bg-stone-100 text-stone-700";
   return "bg-amber-50 text-amber-900";
-}
-
-function toKstDateTimeInput(value: string | null) {
-  if (!value) return "";
-  const date = new Date(value);
-  if (Number.isNaN(date.valueOf())) return "";
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Asia/Seoul", year: "numeric", month: "2-digit", day: "2-digit",
-    hour: "2-digit", minute: "2-digit", hourCycle: "h23",
-  }).formatToParts(date);
-  const part = (type: Intl.DateTimeFormatPartTypes) => parts.find((item) => item.type === type)?.value || "";
-  return `${part("year")}-${part("month")}-${part("day")}T${part("hour")}:${part("minute")}`;
-}
-
-function fromKstDateTimeInput(value: string) {
-  return value ? new Date(`${value}:00+09:00`).toISOString() : null;
 }
 
 export default function OpenchatOperations() {
@@ -129,6 +113,42 @@ export default function OpenchatOperations() {
     if (!response.ok) setError(data.error || "공고를 저장하지 못했습니다.");
     else setPrograms((current) => current.map((item) => item.id === program.id ? data : item));
     setBusy("");
+  }
+
+  async function approveAllPrograms() {
+    const pendingPrograms = reviewPrograms.filter((program) => !["approved", "ready", "published"].includes(program.status));
+    if (!pendingPrograms.length) {
+      setMessage("모든 검토 후보가 이미 승인되었습니다.");
+      return;
+    }
+    if (selectedPrograms.length + pendingPrograms.length > MORNING_PROGRAM_LIMIT) {
+      setError(`하루 승인 상한은 ${MORNING_PROGRAM_LIMIT}건입니다.`);
+      return;
+    }
+
+    setBusy("approve-all-programs");
+    setError("");
+    setMessage("");
+    try {
+      const approvedPrograms = await Promise.all(pendingPrograms.map(async (program) => {
+        const response = await fetch("/api/admin/openchat/programs", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ...program, status: "approved" }),
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(`${program.title}: ${data.error || "승인하지 못했습니다."}`);
+        return data as OpenchatProgram;
+      }));
+      const approvedById = new Map(approvedPrograms.map((program) => [program.id, program]));
+      setPrograms((current) => current.map((program) => approvedById.get(program.id) || program));
+      setMessage(`지원사업 ${approvedPrograms.length}건을 전체 승인했습니다.`);
+    } catch (approveError) {
+      setError(approveError instanceof Error ? approveError.message : "전체 승인에 실패했습니다.");
+      await load();
+    } finally {
+      setBusy("");
+    }
   }
 
   async function saveDraft(status?: OpenchatContentDraft["status"]) {
@@ -243,7 +263,13 @@ export default function OpenchatOperations() {
               <summary className="cursor-pointer font-bold">검토용 게시문 통합 미리보기 · {reviewPrograms.length}건 · 상담 문구 포함</summary>
               <pre className="mt-5 max-h-[720px] overflow-auto whitespace-pre-wrap rounded-xl bg-[#fff7f1] p-5 text-sm leading-7">{formatMorningPost(reviewPrograms, date)}</pre>
               <div className="mt-5 border-t border-[var(--line)] pt-5">
-                <h3 className="font-bold">원문 링크</h3>
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <h3 className="font-bold">원문 링크</h3>
+                  <button onClick={() => void approveAllPrograms()} disabled={Boolean(busy) || reviewPrograms.every((program) => ["approved", "ready", "published"].includes(program.status))} className="inline-flex items-center gap-2 rounded-xl bg-emerald-700 px-4 py-2 text-sm font-bold text-white disabled:cursor-not-allowed disabled:bg-emerald-100 disabled:text-emerald-800">
+                    {busy === "approve-all-programs" ? <LoaderCircle size={16} className="animate-spin" /> : <Check size={16} />}
+                    {reviewPrograms.every((program) => ["approved", "ready", "published"].includes(program.status)) ? "전체 승인 완료" : busy === "approve-all-programs" ? "전체 승인 중" : "전체 승인"}
+                  </button>
+                </div>
                 <div className="mt-3 space-y-3">
                   {reviewPrograms.map((program, index) => (
                     <div key={program.id} className="rounded-xl bg-[#fff7f1] px-4 py-3">
@@ -266,43 +292,7 @@ export default function OpenchatOperations() {
               </div>
             </details>
           )}
-          {!programs.length ? <p className="mt-5 rounded-xl border border-dashed border-[var(--line)] bg-white p-8 text-center text-sm text-[var(--muted)]">이 날짜의 수집 공고가 없습니다.</p> : (
-            <details className="mt-5 rounded-2xl border border-[var(--line)] bg-white p-5">
-              <summary className="cursor-pointer font-bold">세부 내용 직접 수정 · {programs.length}건</summary>
-              <div className="mt-5 space-y-4">
-              {programs.map((program, index) => (
-                <article key={program.id} className="card p-5">
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <p className="text-xs font-bold text-[var(--primary)]">공고 {index + 1}</p>
-                    <span className={`rounded-full px-3 py-1 text-xs font-bold ${statusClass(program.status)}`}>{PROGRAM_STATUS_LABELS[program.status]}</span>
-                  </div>
-                  <input className="input mt-4 font-bold" value={program.title} onChange={(event) => setPrograms((current) => current.map((item) => item.id === program.id ? { ...item, title: event.target.value } : item))} />
-                  <div className="mt-4 grid gap-4 lg:grid-cols-2">
-                    <label className="text-xs font-bold text-[var(--muted)]">신청대상<textarea className="input mt-1 min-h-28" value={program.applicant_summary} onChange={(event) => setPrograms((current) => current.map((item) => item.id === program.id ? { ...item, applicant_summary: event.target.value } : item))} /></label>
-                    <label className="text-xs font-bold text-[var(--muted)]">지원내용<textarea className="input mt-1 min-h-28" value={program.support_summary} onChange={(event) => setPrograms((current) => current.map((item) => item.id === program.id ? { ...item, support_summary: event.target.value } : item))} /></label>
-                  </div>
-                  <div className="mt-4 grid gap-3 md:grid-cols-[1fr_120px]">
-                    <label className="text-xs font-bold text-[var(--muted)]">접수방법<input className="input mt-1" value={program.application_method} onChange={(event) => setPrograms((current) => current.map((item) => item.id === program.id ? { ...item, application_method: event.target.value } : item))} /></label>
-                    <label className="text-xs font-bold text-[var(--muted)]">우선순위<input type="number" className="input mt-1" value={program.priority} onChange={(event) => setPrograms((current) => current.map((item) => item.id === program.id ? { ...item, priority: Number(event.target.value) } : item))} /></label>
-                  </div>
-                  <div className="mt-4 grid gap-3 lg:grid-cols-2">
-                    <label className="text-xs font-bold text-[var(--muted)]">신청 시작<input type="datetime-local" className="input mt-1" value={toKstDateTimeInput(program.starts_at)} onChange={(event) => setPrograms((current) => current.map((item) => item.id === program.id ? { ...item, starts_at: fromKstDateTimeInput(event.target.value) } : item))} /></label>
-                    <label className="text-xs font-bold text-[var(--muted)]">신청 마감<input type="datetime-local" className="input mt-1" value={toKstDateTimeInput(program.deadline_at)} onChange={(event) => setPrograms((current) => current.map((item) => item.id === program.id ? { ...item, deadline_at: fromKstDateTimeInput(event.target.value) } : item))} /></label>
-                  </div>
-                  <label className="mt-4 block text-xs font-bold text-[var(--muted)]">신청기간 직접표기<input className="input mt-1" placeholder="상시접수·예산소진 등 날짜 대신 쓸 문구" value={program.application_period_text || ""} onChange={(event) => setPrograms((current) => current.map((item) => item.id === program.id ? { ...item, application_period_text: event.target.value } : item))} /></label>
-                  <div className="mt-5 flex flex-wrap gap-2 border-t border-[var(--line)] pt-4">
-                    <button onClick={() => void saveProgram(program)} className="inline-flex items-center gap-2 rounded-xl border border-[var(--line)] px-4 py-2 text-sm font-bold"><Save size={15} /> 수정 저장</button>
-                    <button onClick={() => void saveProgram(program, "approved")} className="inline-flex items-center gap-2 rounded-xl bg-emerald-700 px-4 py-2 text-sm font-bold text-white"><Check size={15} /> 승인</button>
-                    <button onClick={() => void saveProgram(program, "deferred")} className="rounded-xl bg-stone-100 px-4 py-2 text-sm font-bold">이월</button>
-                    <button onClick={() => void saveProgram(program, "excluded")} className="inline-flex items-center gap-2 rounded-xl bg-red-50 px-4 py-2 text-sm font-bold text-red-700"><X size={15} /> 제외</button>
-                    {program.status === "ready" && <button onClick={() => void saveProgram(program, "published")} className="rounded-xl bg-[#241a15] px-4 py-2 text-sm font-bold text-white">게시 완료</button>}
-                  </div>
-                  {busy === program.id && <p className="mt-3 inline-flex items-center gap-2 text-xs text-[var(--muted)]"><LoaderCircle size={14} className="animate-spin" /> 저장 중</p>}
-                </article>
-              ))}
-              </div>
-            </details>
-          )}
+          {!programs.length && <p className="mt-5 rounded-xl border border-dashed border-[var(--line)] bg-white p-8 text-center text-sm text-[var(--muted)]">이 날짜의 수집 공고가 없습니다.</p>}
         </section>
       )}
 
