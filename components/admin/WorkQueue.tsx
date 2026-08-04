@@ -28,6 +28,15 @@ type LegacyPortfolioAsset = {
   slideAspectRatio?: number;
 };
 
+type PortfolioJob = {
+  id: string;
+  job_type: "mockup" | "draft";
+  status: string;
+  next_retry_at: string | null;
+  last_error_code: string | null;
+  updated_at: string;
+};
+
 type WorkItem = {
   id: string;
   title: string;
@@ -97,6 +106,7 @@ type WorkItem = {
     confidentialRegions?: unknown[];
   };
   content_review_assets?: { id: string; asset_type: "thumbnail" | "body_image" | "article_preview"; public_url: string; sort_order?: number; review_note?: string }[];
+  portfolio_jobs?: PortfolioJob[];
 };
 
 const mockupModeLabels: Record<PortfolioMockupMode, string> = {
@@ -128,6 +138,47 @@ function isAspectClass(value: unknown): value is PortfolioAspectClass {
 
 function isRedactionStatus(value: unknown): value is PortfolioRedactionStatus {
   return value === "verified" || value === "blocked";
+}
+
+function PortfolioRetryStatus({ jobs }: { jobs?: PortfolioJob[] }) {
+  const [currentTime, setCurrentTime] = useState(0);
+  useEffect(() => {
+    const update = () => setCurrentTime(Date.now());
+    const initialTimer = window.setTimeout(update, 0);
+    const interval = window.setInterval(update, 60_000);
+    return () => {
+      window.clearTimeout(initialTimer);
+      window.clearInterval(interval);
+    };
+  }, []);
+
+  const retryJobs = (jobs || []).filter((job) => (
+    job.status !== "completed"
+    && typeof job.next_retry_at === "string"
+    && Number.isFinite(Date.parse(job.next_retry_at))
+  ));
+  if (!retryJobs.length) return null;
+
+  return (
+    <section className="mt-4 space-y-2 rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950">
+      {retryJobs.map((job) => {
+        const retryAt = Date.parse(job.next_retry_at || "");
+        const stage = job.job_type === "mockup"
+          ? "기밀 검수·우수 장표 선정·목업 생성"
+          : "본문 초안 생성";
+        const schedule = currentTime > 0 && retryAt <= currentTime
+          ? "재시도 실행 대기"
+          : new Date(retryAt).toLocaleString("ko-KR", { timeZone: "Asia/Seoul" });
+        return (
+          <p key={job.id}>
+            <strong>AI 자동 재시도 예정</strong>
+            {` · ${stage} · ${schedule}`}
+            {job.last_error_code ? ` · ${job.last_error_code}` : ""}
+          </p>
+        );
+      })}
+    </section>
+  );
 }
 
 function safeSlideIndexes(value: unknown) {
@@ -483,6 +534,7 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
             </div>
             <StatusBadge status={item.status} />
           </div>
+          {item.format === "portfolio" && <PortfolioRetryStatus jobs={item.portfolio_jobs} />}
           {item.metadata?.portfolioReview && (
             <section className="mt-5 rounded-xl border border-violet-200 bg-violet-50/60 p-4 text-sm">
               <div className="flex flex-wrap items-center gap-2 font-bold">
