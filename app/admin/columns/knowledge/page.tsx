@@ -12,6 +12,7 @@ import {
   Eye,
   Pencil,
   Save,
+  Search,
   Trash2,
   Upload,
   X,
@@ -27,7 +28,7 @@ import {
 } from "@/lib/columns/verification";
 import InterviewRequests from "./InterviewRequests";
 
-type Filter = "all" | "pending" | "approved" | "needs_review";
+type Filter = "all" | "pending" | "approved" | "needs_review" | "automatic_research";
 type EditableKnowledge = Pick<
   ExpertKnowledge,
   "topic" | "source_type" | "expertise_area" | "raw_text" | "perspective" | "case_evidence" | "differentiator"
@@ -38,6 +39,7 @@ const FILTERS: { value: Filter; label: string }[] = [
   { value: "pending", label: "미승인" },
   { value: "approved", label: "승인" },
   { value: "needs_review", label: "확인 필요" },
+  { value: "automatic_research", label: "자동 조사" },
 ];
 
 const SOURCE_LABELS: Record<ExpertKnowledge["source_type"], string> = {
@@ -128,7 +130,7 @@ export default function KnowledgePage() {
       const result = await response.json();
       setImportFile(null);
       await load();
-      window.alert(`${result.count}개의 노하우 카드로 분류했습니다. 내용을 확인한 뒤 승인해 주세요.`);
+      window.alert(`${result.count}개의 노하우 카드로 분류했습니다. 공개 사실은 글 작성 시 자동 조사하고, 외부에서 확인할 수 없는 항목만 대표님 확인 대상으로 표시합니다.`);
     } else window.alert((await response.json()).error || "파일 분류에 실패했습니다.");
   };
 
@@ -178,6 +180,7 @@ export default function KnowledgePage() {
     if (filter === "pending") return !item.approved;
     if (filter === "approved") return item.approved;
     if (filter === "needs_review") return needsReview(item);
+    if (filter === "automatic_research") return getKnowledgeVerification(item).automaticResearchPending;
     return true;
   }), [filter, items]);
 
@@ -185,6 +188,7 @@ export default function KnowledgePage() {
     if (value === "pending") return items.filter((item) => !item.approved).length;
     if (value === "approved") return items.filter((item) => item.approved).length;
     if (value === "needs_review") return items.filter(needsReview).length;
+    if (value === "automatic_research") return items.filter((item) => getKnowledgeVerification(item).automaticResearchPending).length;
     return items.length;
   };
 
@@ -216,7 +220,7 @@ export default function KnowledgePage() {
           <Upload className="mt-0.5 text-[var(--primary)]" />
           <div>
             <h2 className="font-bold">인터뷰·강의 자료 파일로 가져오기</h2>
-            <p className="mt-1 text-sm text-[var(--muted)]">TXT 또는 DOCX 파일을 올리면 대표님의 실제 표현과 맥락을 유지해 주제별 노하우 카드로 나눕니다. 외부 자료조사는 칼럼 작성 단계에서 별도로 붙이며, 분류된 카드는 검토 전까지 미승인 상태입니다.</p>
+            <p className="mt-1 text-sm text-[var(--muted)]">TXT 또는 DOCX 파일을 올리면 대표님의 실제 표현과 맥락을 유지해 주제별 노하우 카드로 나눕니다. 공개 사실은 글 작성 단계에서 주장마다 공식 원문을 자동 조사하며, 외부에서 확인할 수 없는 개인정보·내부 사실만 대표님 확인 대상으로 남깁니다.</p>
           </div>
         </div>
         <div className="mt-5 flex flex-col gap-3 sm:flex-row">
@@ -269,9 +273,10 @@ export default function KnowledgePage() {
             const expanded = expandedIds.has(item.id);
             const verification = getKnowledgeVerification(item);
             const flagged = verification.pending;
+            const automaticResearch = verification.automaticResearchPending;
             const editing = editingId === item.id && editForm;
             return (
-              <article key={item.id} className={`rounded-sm border bg-white p-5 ${flagged ? "border-amber-300" : "border-[var(--line)]"}`}>
+              <article key={item.id} className={`rounded-sm border bg-white p-5 ${flagged ? "border-amber-300" : automaticResearch ? "border-sky-200" : "border-[var(--line)]"}`}>
                 <div className="flex flex-col justify-between gap-4 sm:flex-row">
                   <button type="button" onClick={() => toggleExpanded(item.id)} className="min-w-0 flex-1 text-left">
                     <div className="flex flex-wrap items-center gap-2 text-xs font-bold">
@@ -279,6 +284,7 @@ export default function KnowledgePage() {
                       <span className="text-[var(--muted)]">· {SOURCE_LABELS[item.source_type]} · 사용 {Number(item.use_count || 0)}회</span>
                       <span className={`rounded-sm px-2 py-1 ${item.approved ? "bg-emerald-50 text-emerald-800" : "bg-[#f2efec] text-[#5f5750]"}`}>{item.approved ? "승인" : "미승인"}</span>
                       {flagged && <span className="inline-flex items-center gap-1 rounded-sm bg-amber-100 px-2 py-1 text-amber-900"><AlertTriangle size={13} /> 확인 필요 {verification.items.length}건</span>}
+                      {automaticResearch && <span className="inline-flex items-center gap-1 rounded-sm bg-sky-50 px-2 py-1 text-sky-800"><Search size={13} /> 자동 조사 {verification.automaticItems.length}건</span>}
                       {!flagged && verification.completed && <span className="inline-flex items-center gap-1 rounded-sm bg-sky-50 px-2 py-1 text-sky-800"><BadgeCheck size={13} /> 확인 완료{verification.completedAt ? ` · ${verification.completedAt}` : ""}</span>}
                       {Number(item.use_count || 0) >= 3 && <span className="text-amber-800">새 자료 권장</span>}
                     </div>
@@ -336,6 +342,10 @@ export default function KnowledgePage() {
                       }
                     }}
                   />
+                )}
+
+                {automaticResearch && !editing && (
+                  <AutomaticResearchPanel items={verification.automaticItems} />
                 )}
 
                 {expanded && (
@@ -432,6 +442,29 @@ function VerificationPanel({
   );
 }
 
+function AutomaticResearchPanel({
+  items,
+}: {
+  items: ReturnType<typeof getKnowledgeVerification>["automaticItems"];
+}) {
+  return (
+    <div className="mt-5 rounded-sm border border-sky-200 bg-sky-50 p-4">
+      <div className="flex items-center gap-2 text-sm font-bold text-sky-950">
+        <Search size={17} /> 대표님 확인이 아닌 자동 조사 항목
+      </div>
+      <p className="mt-2 text-sm leading-6 text-[#5f5750]">글을 만들 때 아래 주장을 하나씩 검색해 최신 공식 원문과 대조합니다. 공식자료로 확인되지 않은 사실은 초안에 넣지 않으며, 개인정보·내부 성과처럼 외부 조사로 해결할 수 없는 내용만 별도로 확인 요청합니다.</p>
+      <ul className="mt-3 space-y-2 text-sm text-sky-950">
+        {items.map((entry, index) => (
+          <li key={`${entry.label}-${index}`} className="rounded-sm bg-white/80 p-3">
+            <p className="font-bold">{index + 1}. {entry.label}</p>
+            {entry.excerpt && <p className="mt-1 break-words text-[#5f5750]">조사 대상: “{entry.excerpt}”</p>}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 function Detail({ label, value }: { label: string; value?: string | null }) {
   return (
     <div>
@@ -460,6 +493,7 @@ function EditForm({ value, onChange }: { value: EditableKnowledge; onChange: (va
 function ApprovalDialog({ item, updating, onClose, onApprove }: { item: ExpertKnowledge; updating: boolean; onClose: () => void; onApprove: () => void }) {
   const verification = getKnowledgeVerification(item);
   const flagged = verification.pending;
+  const automaticResearch = verification.automaticResearchPending;
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" role="dialog" aria-modal="true" aria-labelledby="approval-title">
       <div className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-sm bg-white shadow-2xl">
@@ -479,9 +513,15 @@ function ApprovalDialog({ item, updating, onClose, onApprove }: { item: ExpertKn
               </ul>
             </div>
           )}
+          {automaticResearch && (
+            <div className="mb-6 border border-sky-200 bg-sky-50 p-4 text-sm text-sky-950">
+              <div className="flex gap-2 font-bold"><Search className="mt-0.5 shrink-0" size={19} /> 공개 사실 {verification.automaticItems.length}건은 시스템이 자동 조사합니다.</div>
+              <p className="mt-2 leading-6 text-[#5f5750]">대표님이 확인 완료 처리할 항목이 아닙니다. 글 작성 시 각 주장을 공식 원문과 대조하고, 확인되지 않으면 본문에서 제외합니다.</p>
+            </div>
+          )}
           <KnowledgeDetails item={item} />
           <div className="mt-7 border-t border-[var(--line)] pt-5">
-            <p className="text-sm leading-6 text-[#5f5750]">승인하면 이 자료가 AI 칼럼 생성에 사용될 수 있습니다. 위 내용을 모두 읽고 사실관계와 공개 가능 여부를 확인한 경우에만 승인해 주세요.</p>
+            <p className="text-sm leading-6 text-[#5f5750]">승인하면 이 자료가 AI 칼럼 생성에 사용될 수 있습니다. 공개 사실은 시스템이 조사하므로, 대표님은 원천 내용과 개인정보·내부 사례의 공개 가능 범위만 확인해 주세요.</p>
             <div className="mt-4 flex flex-wrap justify-end gap-2">
               <button type="button" onClick={onClose} className="rounded-sm border border-[var(--line)] px-4 py-2.5 text-sm font-bold">돌아가서 수정</button>
               <button type="button" disabled={updating} onClick={onApprove} className="inline-flex items-center gap-2 rounded-sm bg-emerald-700 px-4 py-2.5 text-sm font-bold text-white disabled:opacity-50">

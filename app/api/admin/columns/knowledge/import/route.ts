@@ -71,8 +71,9 @@ export async function POST(request: Request) {
 - 파일명과 원천자료 제목이 특정 전문 분야를 명확히 가리키면 그 분야를 주된 expertiseArea로 사용한다.
 - 기획 인터뷰의 경우 PPT·IR·사업계획서 사례도 '기획자의 판단 방식'을 설명하는 내용이면 planning으로 분류한다.
 - rawText에는 확인 필요·익명화 필요 같은 관리 문구를 넣지 않는다.
-- 금액·기간·지원조건·통계·제도명·성과처럼 발행 시 공식 확인이 필요한 사실은 verificationItems에 type "official"로 넣고, 무엇을 확인해야 하는지 구체적으로 쓴다.
-- 고객사·개인을 식별할 수 있는 이름·계약·사례·성과는 verificationItems에 type "privacy"로 넣고, 무엇을 익명화하거나 공개 동의를 확인해야 하는지 구체적으로 쓴다.
+- 금액·기간·지원조건·통계·제도명·법령·성과처럼 공개자료로 조사할 수 있는 사실은 verificationItems에 type "official"로 넣는다. 이는 대표에게 확인을 넘기는 항목이 아니라, 글 작성 시 시스템이 주장마다 개별 검색할 자동 조사 목록이다. 무엇을 조사할지 구체적으로 쓴다.
+- 고객사·개인을 식별할 수 있는 이름·계약·내부 매출·비공개 사례·공개 동의처럼 외부 조사로 확인할 수 없는 내용만 verificationItems에 type "privacy"로 넣고, 대표가 무엇을 확인해야 하는지 구체적으로 쓴다.
+- 공개 검색으로 확인할 수 있는 사실을 type "privacy"로 분류하거나 대표 확인으로 넘기지 않는다.
 - 확인할 내용이 없는 카드는 verificationItems를 빈 배열로 둔다.
 각 카드의 expertiseArea는 planning, design, government_support, business_plan, ir_ppt, management, general 중 하나다.
 기획은 독립 전문 분야이며 전략·서비스·콘텐츠·문서·시각화 기획을 포함한다.

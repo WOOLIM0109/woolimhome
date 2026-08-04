@@ -1,6 +1,8 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { sanitizeGeneratedHtml, sanitizeInlineHtml } from "@/lib/security/html";
 import { generateGeminiText } from "@/lib/gemini/client";
+import { stripVerificationControlText } from "@/lib/columns/verification";
+import { researchOfficialFacts } from "@/lib/research/official";
 import { PORTFOLIO_WRITING_RULES } from "./portfolio-rules";
 import { FRIENDLY_EDITORIAL_STYLE_RULES } from "./editorial-style";
 import type { EditorialSlot } from "./types";
@@ -45,6 +47,8 @@ type Source = {
   channels: string[];
 };
 
+type AvailableSource = Source & { snapshot: string };
+
 type ExpertKnowledge = {
   id: string;
   topic: string;
@@ -85,11 +89,26 @@ async function sourceSnapshot(source: Source) {
   }
 }
 
+function knowledgeForWriting(item: ExpertKnowledge): ExpertKnowledge {
+  return {
+    ...item,
+    raw_text: stripVerificationControlText(item.raw_text),
+    perspective: stripVerificationControlText(item.perspective),
+    case_evidence: stripVerificationControlText(item.case_evidence),
+    differentiator: stripVerificationControlText(item.differentiator),
+  };
+}
+
+function mergeAvailableSources(sources: AvailableSource[]) {
+  return [...new Map(sources.map((source) => [source.base_url, source])).values()];
+}
+
 function promptFor(
   slot: EditorialSlot,
   sources: unknown[],
   plan: ContentPlan,
   knowledge: ExpertKnowledge[],
+  researchDossier: string,
   revision?: { note: string; previous?: GeneratedContent },
 ) {
   const requiresKnowledge = knowledgeRequiredForSlot(slot);
@@ -127,7 +146,14 @@ ${FRIENDLY_EDITORIAL_STYLE_RULES}
 선정된 주제 기획:
 ${JSON.stringify(plan)}
 
-아래 공식 출처만 근거로 한국 기업 담당자가 이해하기 쉬운 초안을 작성하세요. 출처에 없는 숫자·요건·사례를 만들지 마세요. 전문 용어는 처음 나올 때 쉬운 설명을 붙이세요.
+아래 공식 출처와 개별 조사 결과만 근거로 한국 기업 담당자가 이해하기 쉬운 초안을 작성하세요. 출처에 없는 숫자·요건·사례를 만들지 마세요. 전문 용어는 처음 나올 때 쉬운 설명을 붙이세요.
+
+[사실조사 적용 규칙]
+- 제도명, 금액, 기간, 대상, 자격, 지원 조건, 통계, 법령, 기술 기준은 각각 별도의 주장으로 보고 개별 조사 결과와 대조합니다.
+- [공식 확인 완료]에 포함된 사실만 본문에 사용하고 해당 공식 URL을 sourceUrls에 넣습니다.
+- [공식자료 미확인 · 본문 제외] 항목은 표현을 흐리거나 '확인 필요'라고 사용자에게 넘기지 말고 본문에서 완전히 제외합니다.
+- [외부 조사 불가 · 대표 확인 필요] 항목은 공개 동의가 확인된 승인 원천자료가 아니면 본문에 쓰지 않습니다.
+- 새 공개 사실이 필요하면 임의로 보충하지 말고 제공된 조사 결과의 범위 안에서 설명합니다.
 
 반드시 JSON만 반환하세요:
 {"title":"","summary":"","bodyHtml":"<h2>...</h2><p>...</p>","faq":[{"question":"","answer":""}],"tags":[""],"sourceUrls":[""],"usedKnowledgeIds":[""]}
@@ -136,6 +162,9 @@ ${JSON.stringify(plan)}
 
 승인된 울림 원천자료:
 ${knowledge.length ? JSON.stringify(knowledge) : "없음"}
+
+개별 공식 조사 결과:
+${researchDossier}
 
 출처:
 ${JSON.stringify(sources)}`;
@@ -359,6 +388,7 @@ export async function generateContentWorkItem(
     }
     knowledge = [...byId.values()];
   }
+  knowledge = knowledge.map(knowledgeForWriting);
   if (requiresKnowledge && !knowledge.length) {
     throw new Error(`${knowledgeFormatLabel(slot)}에 필요한 승인된 인터뷰·노하우 원천자료가 없습니다.`);
   }
@@ -467,6 +497,7 @@ export async function generateContentWorkItem(
     h2Count: number;
     faqCount: number;
     usedKnowledgeIds: string[];
+    sourcePool: AvailableSource[];
   } | null = null;
   const attempts: {
     title: string;
@@ -476,11 +507,34 @@ export async function generateContentWorkItem(
   }[] = [];
   articlePlans:
   for (const { plan } of eligiblePlans.slice(0, MAX_ARTICLE_ATTEMPTS)) {
+    const selectedKnowledge = knowledge.filter((item) => plan.knowledgeIds.includes(item.id));
+    const research = await researchOfficialFacts({
+      topic: `${plan.workingTitle} — ${plan.primaryTopic}`,
+      sourceContext: JSON.stringify({
+        plan,
+        woolimKnowledge: selectedKnowledge,
+        registeredOfficialSources: sources.map((source) => ({
+          name: source.name,
+          url: source.base_url,
+          snapshot: source.snapshot.slice(0, 2500),
+        })),
+      }),
+    });
+    const researchSources: AvailableSource[] = research.sources.map((source) => ({
+      name: source.title,
+      base_url: source.url,
+      source_grade: 1,
+      topic_families: [plan.topicFamily, plan.primaryTopic],
+      channels: [slot.channel],
+      snapshot: `Google Search 개별 조사에서 확인된 공식 원문: ${source.title}`,
+    }));
+    const sourcePool = mergeAvailableSources([...sources, ...researchSources]);
     const basePrompt = promptFor(
       slot,
-      sources,
+      sourcePool,
       plan,
-      knowledge.filter((item) => plan.knowledgeIds.includes(item.id)),
+      selectedKnowledge,
+      research.dossier,
       revisionNote && !options.forceNewTopic
         ? { note: revisionNote, previous: storedMetadata.generated }
         : undefined,
@@ -499,6 +553,9 @@ export async function generateContentWorkItem(
       }));
       generated.usedKnowledgeIds = [...new Set(generated.usedKnowledgeIds || [])]
         .filter((id) => approvedKnowledgeIds.has(id) && plan.knowledgeIds.includes(id));
+      const allowedSourceUrls = new Set(sourcePool.map((source) => source.base_url));
+      generated.sourceUrls = [...new Set(generated.sourceUrls || [])]
+        .filter((url) => allowedSourceUrls.has(url));
       const plainLength = clean(generated.bodyHtml).replace(/\s/g, "").length;
       const h2Count = (generated.bodyHtml.match(/<h2[\s>]/gi) || []).length;
       const faqCount = generated.faq?.length || 0;
@@ -518,6 +575,7 @@ export async function generateContentWorkItem(
         ...(designForbidden ? ["디자인 채널에서 금지된 컨설팅 주제"] : []),
         ...(internalLabel ? ["제목에 내부 채널 표기"] : []),
         ...(authorityMissingKnowledge ? [`${knowledgeFormatLabel(slot)}에 승인된 원천자료가 사용되지 않음`] : []),
+        ...(generated.sourceUrls.length < 1 ? ["개별 조사에서 확인된 공식 출처가 본문에 연결되지 않음"] : []),
       ];
       const issues = [
         ...structuralIssues,
@@ -540,6 +598,7 @@ export async function generateContentWorkItem(
         h2Count,
         faqCount,
         usedKnowledgeIds: generated.usedKnowledgeIds,
+        sourcePool,
       };
       const candidateIsBetter = !selected
         || candidate.issues.length < selected.issues.length
@@ -572,13 +631,13 @@ ${JSON.stringify(generated)}
     }
   }
   if (!selected) throw new Error("본문 후보를 만들지 못했습니다.");
-  const { generated, plan, novelty, issues, plainLength, h2Count, faqCount } = selected;
+  const { generated, plan, novelty, issues, plainLength, h2Count, faqCount, sourcePool } = selected;
   if (await generationCancellationRequested(scheduleKey)) {
     await removeCancelledGeneration(scheduleKey);
     throw new Error("GENERATION_CANCELLED");
   }
   const status = issues.length ? "on_hold" : "review_required";
-  const usedSourceNames = sources
+  const usedSourceNames = sourcePool
     .filter((source) => generated.sourceUrls.some((url) => {
       try {
         return new URL(url).hostname.replace(/^www\./, "")
@@ -600,7 +659,7 @@ ${JSON.stringify(generated)}
     review_note: status === "on_hold"
       ? `${novelty.duplicate ? "중복 검사" : "자동 검증"} 보류: ${issues.join(", ")}`
       : null,
-    source_label: (usedSourceNames.length ? usedSourceNames : sources.map((source) => source.name)).join(", "),
+    source_label: (usedSourceNames.length ? usedSourceNames : sourcePool.map((source) => source.name)).join(", "),
     source_reference: JSON.stringify(generated.sourceUrls || []),
     metadata: {
       ...successfulMetadata,

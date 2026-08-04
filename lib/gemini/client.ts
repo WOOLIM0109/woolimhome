@@ -1,6 +1,8 @@
 import { redactGeminiTextParts } from "@/lib/security/privacy";
+import { extractGeminiGrounding } from "./grounding";
 import { GeminiRequestError } from "./retry";
 export { GeminiRequestError, geminiRetryDecision } from "./retry";
+export type { GeminiGroundingSource } from "./grounding";
 
 export type GeminiPart =
   | { text: string }
@@ -74,6 +76,7 @@ export async function generateGeminiText(input: {
   model?: string;
   timeoutMs?: number;
   attempts?: number;
+  tools?: Array<Record<string, unknown>>;
 }) {
   const attempts = Math.max(1, Math.min(input.attempts || 4, 5));
   const { parts, redactionCount } = redactGeminiTextParts(input.parts);
@@ -89,6 +92,7 @@ export async function generateGeminiText(input: {
           body: JSON.stringify({
             contents: [{ role: "user", parts }],
             generationConfig: input.generationConfig || {},
+            ...(input.tools?.length ? { tools: input.tools } : {}),
           }),
           signal: AbortSignal.timeout(input.timeoutMs || 120_000),
         },
@@ -116,7 +120,7 @@ export async function generateGeminiText(input: {
           status: response.status,
         });
       }
-      return { text, redactionCount };
+      return { text, redactionCount, ...extractGeminiGrounding(payload) };
     } catch (error) {
       if (error instanceof GeminiRequestError) {
         lastError = error;

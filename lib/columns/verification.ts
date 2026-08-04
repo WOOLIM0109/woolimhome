@@ -18,9 +18,11 @@ export type VerificationChecklistItem = {
 
 export type KnowledgeVerification = {
   pending: boolean;
+  automaticResearchPending: boolean;
   completed: boolean;
   completedAt: string | null;
   items: VerificationChecklistItem[];
+  automaticItems: VerificationChecklistItem[];
 };
 
 const TEXT_FIELDS: VerificationTextField[] = [
@@ -146,9 +148,10 @@ export function getKnowledgeVerification(
   const completedMatches = [...text.matchAll(new RegExp(COMPLETED_MARKER.source, COMPLETED_MARKER.flags))];
   const explicitOfficial = explicitItems(text, OFFICIAL_PENDING, "official");
   const explicitPrivacy = explicitItems(text, PRIVACY_PENDING, "privacy");
-  const items: VerificationChecklistItem[] = [...explicitOfficial, ...explicitPrivacy, ...editorial];
+  const automaticItems: VerificationChecklistItem[] = [...explicitOfficial];
+  const items: VerificationChecklistItem[] = [...explicitPrivacy, ...editorial];
 
-  if (officialPending && explicitOfficial.length === 0) items.push(...inferredOfficialItems(text));
+  if (officialPending && explicitOfficial.length === 0) automaticItems.push(...inferredOfficialItems(text));
   if (privacyPending && explicitPrivacy.length === 0) {
     const privacyExcerpt = sentences(text).find((sentence) => /고객|고객사|대표|업체|기업|계약|사례|개인/i.test(sentence));
     items.push({
@@ -158,20 +161,22 @@ export function getKnowledgeVerification(
       excerpt: privacyExcerpt,
     });
   }
-  if ((officialPending || privacyPending || editorialPending) && items.length === 0) {
-    items.push({
+  if (officialPending && automaticItems.length === 0) {
+    automaticItems.push({
       kind: "official",
       label: "원문에 표시된 사실관계",
-      instruction: "원문에 포함된 외부 사실과 공개 범위를 공식 자료 및 보유 증빙과 대조하세요.",
+      instruction: "글 작성 시 외부 사실을 주장별로 나누어 최신 공식 원문과 자동 대조합니다.",
     });
   }
 
   const completedDates = completedMatches.map((match) => match[1]).sort();
   return {
-    pending: officialPending || privacyPending || editorialPending,
+    pending: privacyPending || editorialPending,
+    automaticResearchPending: officialPending,
     completed: completedMatches.length > 0,
     completedAt: completedDates.at(-1) || null,
     items: uniqueChecklist(items),
+    automaticItems: uniqueChecklist(automaticItems),
   };
 }
 
@@ -186,9 +191,6 @@ export function stripVerificationControlText(value?: string | null) {
 function completeMarkers(value: string | null, completedAt: string) {
   if (!value) return value;
   return value
-    .replace(new RegExp(OFFICIAL_PENDING.source, OFFICIAL_PENDING.flags), (_match, detail?: string) => (
-      `[공식 확인 완료: ${completedAt}${detail?.trim() ? ` | ${detail.trim()}` : ""}]`
-    ))
     .replace(new RegExp(PRIVACY_PENDING.source, PRIVACY_PENDING.flags), (_match, detail?: string) => (
       `[익명화 완료: ${completedAt}${detail?.trim() ? ` | ${detail.trim()}` : ""}]`
     ))

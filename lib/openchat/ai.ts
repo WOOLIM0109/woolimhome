@@ -8,7 +8,7 @@ function wait(milliseconds: number) {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
-async function askGemini(prompt: string, maxOutputTokens = 12_000) {
+async function askGemini(prompt: string, maxOutputTokens = 12_000, useGoogleSearch = false) {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) throw new Error("GEMINI_API_KEY가 설정되지 않았습니다.");
   let lastError = "Gemini 요청 실패";
@@ -26,6 +26,7 @@ async function askGemini(prompt: string, maxOutputTokens = 12_000) {
               maxOutputTokens,
               temperature: 0.35,
             },
+            ...(useGoogleSearch ? { tools: [{ google_search: {} }] } : {}),
           }),
           signal: AbortSignal.timeout(120_000),
         },
@@ -363,7 +364,10 @@ export async function generateAfternoonContent({
 - AI 말투를 줄이고 자연스러운 한국어 문단으로 연결합니다.
 - 과도한 이모티콘과 과장된 표현을 피합니다.
 - 주로 어디에 쓰이는지, 추천 이유, 활용 방법, 주의사항, 울림컴퍼니 팁을 포함합니다.
-- 법률·세무·노무·정책 수치는 단정하지 말고 공식 확인 필요성을 명시합니다.
+- 글을 쓰기 전에 외부 확인이 가능한 사실을 모두 찾고, 법률·세무·노무·정책·통계·금액·기간·조건을 주장마다 나누어 각각 검색합니다.
+- 정부·공공기관·법령·제도 주관기관의 최신 공식 원문으로 확인된 사실만 사용합니다.
+- 공식 원문으로 확인되지 않는 사실은 '확인 필요'라고 독자에게 넘기지 말고 본문에서 제외합니다. 핵심 내용을 확인할 수 없으면 다른 주제로 바꿉니다.
+- 고객명, 내부 매출, 비공개 성과처럼 외부 조사로 알 수 없는 사실은 만들지 않습니다.
 - 참고 링크는 실제 공식 사이트의 정확한 URL만 최대 3개 넣습니다.
 - 상담 안내 문구는 시스템이 별도로 붙이므로 본문에 넣지 않습니다.
 - 전체 분량은 카카오톡에서 읽기 좋은 900~1,500자입니다.
@@ -372,7 +376,7 @@ export async function generateAfternoonContent({
 {"title":"...","body":"...","referenceUrls":["https://..."],"keywords":["..."],"reason":"과거 글과 다른 이유"}
 
 과거 게시물:
-${JSON.stringify(history.map((item) => ({ date: item.published_on, title: item.title, keywords: item.keywords })).slice(0, 80))}`) as Record<string, unknown>;
+${JSON.stringify(history.map((item) => ({ date: item.published_on, title: item.title, keywords: item.keywords })).slice(0, 80))}`, 12_000, true) as Record<string, unknown>;
   } catch (error) {
     result = fallbackAfternoonContent(weekday, error);
   }

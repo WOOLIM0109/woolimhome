@@ -1,6 +1,8 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { generateGeminiText, geminiRetryDecision } from "@/lib/gemini/client";
+import { researchOfficialFacts } from "@/lib/research/official";
 import { sanitizeGeneratedHtml, sanitizeInlineHtml } from "@/lib/security/html";
+import { stripVerificationControlText } from "./verification";
 import type { ColumnFaq, ColumnKind, ColumnSource } from "./types";
 
 const MODEL = "gemini-3.5-flash";
@@ -131,8 +133,39 @@ export async function generateColumn(input: {
     rssCandidates(),
     Promise.all((input.sourceUrls || []).slice(0, 8).map(suppliedCandidate)),
   ]);
-  const candidates = [...supplied.filter((item): item is Candidate => Boolean(item)), ...feedSources].slice(0, 24);
-  if (candidates.length < 2) throw new Error("검증 가능한 공식 출처를 충분히 수집하지 못했습니다.");
+  const writingKnowledge = (knowledge || []).map((item) => ({
+    ...item,
+    raw_text: stripVerificationControlText(item.raw_text),
+    perspective: stripVerificationControlText(item.perspective),
+    case_evidence: stripVerificationControlText(item.case_evidence),
+    differentiator: stripVerificationControlText(item.differentiator),
+  }));
+  const baseCandidates = [...supplied.filter((item): item is Candidate => Boolean(item)), ...feedSources].slice(0, 24);
+  if (baseCandidates.length < 2) throw new Error("검증 가능한 공식 출처를 충분히 수집하지 못했습니다.");
+  const research = await researchOfficialFacts({
+    topic: input.topicHint || "울림컴퍼니 기업 컨설팅 칼럼",
+    sourceContext: JSON.stringify({
+      topicHint: input.topicHint || null,
+      woolimKnowledge: writingKnowledge,
+      officialSources: baseCandidates.map((source) => ({
+        title: source.title,
+        url: source.url,
+        publisher: source.publisher,
+        summary: source.summary.slice(0, 2500),
+      })),
+    }),
+  });
+  const researchCandidates: Candidate[] = research.sources.map((source) => ({
+    title: source.title,
+    url: source.url,
+    publisher: (() => {
+      try { return new URL(source.url).hostname; } catch { return "공식 원문"; }
+    })(),
+    publishedAt: null,
+    summary: `Google Search 개별 조사에서 확인된 공식 원문: ${source.title}`,
+  }));
+  const candidates = [...new Map([...baseCandidates, ...researchCandidates]
+    .map((source) => [source.url, source])).values()].slice(0, 30);
 
   const run = await admin.from("column_generation_runs").insert({
     status: "started",
@@ -156,6 +189,9 @@ export async function generateColumn(input: {
 - 위 내부 칸 이름과 번호를 소제목으로 노출하지 말고 자연스러운 H2/H3로 바꾼다.
 - 쉬운 말로 쓰되 전문적 알맹이는 유지한다.
 - 사실·금액·기한은 아래 출처에서만 사용한다. 선정, 대출, 지원 결과를 보장하지 않는다.
+- 제도명, 금액, 기간, 대상, 자격, 지원 조건, 통계, 법령, 기술 기준은 각각 별도의 주장으로 보고 아래 개별 조사 결과와 대조한다.
+- [공식 확인 완료] 사실만 사용하고, [공식자료 미확인 · 본문 제외] 항목은 '확인 필요'라고 독자나 대표에게 넘기지 말고 본문에서 제외한다.
+- [외부 조사 불가 · 대표 확인 필요] 항목은 공개 동의가 확인된 승인 원천자료가 아니면 본문에 쓰지 않는다.
 - FAQ는 정확히 3~4개, 질문은 실제 기업 고객의 말로 쓴다.
 - 목표는 한글 가시문자 3,500자 이상이다. 불필요한 반복으로 늘리지 않는다.
 - HTML은 h2,h3,p,ul,ol,li,strong,blockquote,a 태그만 사용한다.
@@ -177,7 +213,10 @@ export async function generateColumn(input: {
 ${input.topicHint || "공식 자료 중 기업 고객에게 시의성 있고 울림의 서비스와 자연스럽게 연결되는 주제를 선택"}
 
 [승인된 울림 원천자료]
-${knowledge?.length ? JSON.stringify(knowledge) : "없음. 이 경우 informational 유형만 선택한다."}
+${writingKnowledge.length ? JSON.stringify(writingKnowledge) : "없음. 이 경우 informational 유형만 선택한다."}
+
+[개별 공식 조사 결과]
+${research.dossier}
 
 [사용 가능한 공식 출처]
 ${JSON.stringify(candidates)}
@@ -235,7 +274,7 @@ ${JSON.stringify(generated)}
     const usedSources = generated.usedSourceUrls
       .map((url) => candidates.find((source) => source.url === url))
       .filter((source): source is Candidate => Boolean(source));
-    const approvedKnowledgeIds = new Set((knowledge || []).map((item) => item.id));
+    const approvedKnowledgeIds = new Set(writingKnowledge.map((item) => item.id));
     const usedKnowledgeIds = [...new Set(generated.usedKnowledgeIds || [])]
       .filter((id) => approvedKnowledgeIds.has(id));
     const issues: string[] = [];
@@ -246,7 +285,7 @@ ${JSON.stringify(generated)}
     if (h2Count < 3) issues.push("H2가 3개 미만입니다.");
     if (generated.faqs.length < 3 || generated.faqs.length > 4) issues.push("FAQ는 3~4개여야 합니다.");
     if (usedSources.length < 2) issues.push("독립된 공식 출처가 2개 미만입니다.");
-    if (generated.contentKind !== "informational" && !knowledge?.length) {
+    if (generated.contentKind !== "informational" && !writingKnowledge.length) {
       issues.push("하이브리드·권위형에 필요한 승인된 원천자료가 없습니다.");
     }
     if (generated.contentKind !== "informational" && usedKnowledgeIds.length === 0) {
@@ -303,7 +342,7 @@ ${JSON.stringify(generated)}
 
     if (usedKnowledgeIds.length > 0) {
       await Promise.all(usedKnowledgeIds.map(async (id) => {
-        const source = (knowledge || []).find((item) => item.id === id);
+        const source = writingKnowledge.find((item) => item.id === id);
         if (!source) return;
         await admin.from("column_expert_knowledge").update({
           use_count: Number(source.use_count || 0) + 1,
