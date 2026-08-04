@@ -134,15 +134,29 @@ export default function OpenchatOperations() {
   async function saveDraft(status?: OpenchatContentDraft["status"]) {
     if (!draft) return;
     setBusy(draft.id);
-    const response = await fetch("/api/admin/openchat/content", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ...draft, status: status || draft.status }),
-    });
-    const data = await response.json();
-    if (!response.ok) setError(data.error || "콘텐츠를 저장하지 못했습니다.");
-    else setDraft(data);
-    setBusy("");
+    setError("");
+    setMessage("");
+    try {
+      const response = await fetch("/api/admin/openchat/content", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...draft, status: status || draft.status }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "콘텐츠를 저장하지 못했습니다.");
+      setDraft(data);
+      setMessage(status === "approved"
+        ? "오후 콘텐츠를 승인했습니다. 오후 6시에 게시 준비 상태로 전환됩니다."
+        : status === "deferred"
+          ? "오늘 게시 대상에서 제외했습니다."
+          : status === "published"
+            ? "게시 완료 상태로 변경했습니다."
+            : "오후 콘텐츠 수정사항을 저장했습니다.");
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : "콘텐츠를 저장하지 못했습니다.");
+    } finally {
+      setBusy("");
+    }
   }
 
   async function replaceDraft() {
@@ -319,10 +333,13 @@ export default function OpenchatOperations() {
                 과거 콘텐츠 중복 위험 {draft.similarity_score}점 {draft.review_note ? `· ${draft.review_note}` : "· 자동 검사 통과"}
               </div>
               <div className="mt-5 flex flex-wrap gap-2 border-t border-[var(--line)] pt-4">
-                <button onClick={() => void saveDraft()} className="inline-flex items-center gap-2 rounded-xl border border-[var(--line)] px-4 py-2 text-sm font-bold"><Save size={15} /> 수정 저장</button>
-                <button onClick={() => void saveDraft("approved")} className="inline-flex items-center gap-2 rounded-xl bg-emerald-700 px-4 py-2 text-sm font-bold text-white"><Check size={15} /> 승인</button>
-                <button onClick={() => void saveDraft("deferred")} className="rounded-xl bg-stone-100 px-4 py-2 text-sm font-bold">오늘 게시 제외</button>
-                {draft.status === "ready" && <button onClick={() => void saveDraft("published")} className="rounded-xl bg-[#241a15] px-4 py-2 text-sm font-bold text-white">게시 완료</button>}
+                <button onClick={() => void saveDraft()} disabled={Boolean(busy)} className="inline-flex items-center gap-2 rounded-xl border border-[var(--line)] px-4 py-2 text-sm font-bold disabled:cursor-not-allowed disabled:opacity-50"><Save size={15} /> 수정 저장</button>
+                <button onClick={() => void saveDraft("approved")} disabled={Boolean(busy) || ["approved", "ready", "published"].includes(draft.status)} className="inline-flex items-center gap-2 rounded-xl bg-emerald-700 px-4 py-2 text-sm font-bold text-white disabled:cursor-not-allowed disabled:bg-emerald-100 disabled:text-emerald-800">
+                  {busy === draft.id ? <LoaderCircle size={15} className="animate-spin" /> : <Check size={15} />}
+                  {["approved", "ready", "published"].includes(draft.status) ? "승인 완료" : busy === draft.id ? "승인 처리 중" : "승인"}
+                </button>
+                <button onClick={() => void saveDraft("deferred")} disabled={Boolean(busy)} className="rounded-xl bg-stone-100 px-4 py-2 text-sm font-bold disabled:cursor-not-allowed disabled:opacity-50">오늘 게시 제외</button>
+                {draft.status === "ready" && <button onClick={() => void saveDraft("published")} disabled={Boolean(busy)} className="rounded-xl bg-[#241a15] px-4 py-2 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-50">게시 완료</button>}
               </div>
             </article>
           )}
