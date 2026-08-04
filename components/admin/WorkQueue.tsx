@@ -278,13 +278,19 @@ function PortfolioMockupDetails({ metadata }: { metadata?: WorkItem["metadata"] 
   );
 }
 
+function isPortfolioConversionHold(item: WorkItem) {
+  if (item.format !== "portfolio" || item.status !== "on_hold") return false;
+  if (item.review_note?.includes("MISSING_FONTS:")) return false;
+  const failureContext = `${item.summary || ""} ${item.review_note || ""}`.toLowerCase();
+  return failureContext.includes("pc worker retry limit reached");
+}
+
 export default function WorkQueue({ channel, reviewMode = false }: { channel?: ContentChannel; reviewMode?: boolean }) {
   const [items, setItems] = useState<WorkItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [notes, setNotes] = useState<Record<string, string>>({});
   const [rebuildingId, setRebuildingId] = useState<string | null>(null);
-  const [rebuildingImagesId, setRebuildingImagesId] = useState<string | null>(null);
   const [regeneratingId, setRegeneratingId] = useState<string | null>(null);
   const [rewritingStyle, setRewritingStyle] = useState(false);
   const [styleResult, setStyleResult] = useState("");
@@ -338,11 +344,12 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
 
   async function update(
     id: string,
-    patch: { action?: "regenerate" | "replace_topic" | "release_to_partner" | "retry_missing_fonts"; status?: WorkflowStatus; review_note?: string },
+    patch: { action?: "regenerate" | "replace_topic" | "release_to_partner" | "retry_missing_fonts" | "retry_portfolio_conversion"; status?: WorkflowStatus; review_note?: string },
   ) {
     const regenerating = patch.action === "regenerate"
       || patch.action === "replace_topic"
       || patch.action === "retry_missing_fonts"
+      || patch.action === "retry_portfolio_conversion"
       || patch.status === "creating";
     if (regenerating) setRegeneratingId(id);
     setError("");
@@ -402,33 +409,6 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
       await load();
     } finally {
       setRebuildingId(null);
-    }
-  }
-
-  async function rebuildImages(item: WorkItem, redactionMode?: "confidential") {
-    setRebuildingImagesId(item.id);
-    setError("");
-    try {
-      for (let attempt = 0; attempt < 6; attempt += 1) {
-        const response = await fetch(`/api/admin/content/${item.id}`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            action: "rebuild_portfolio_mockups",
-            ...(redactionMode ? { redaction_mode: redactionMode } : {}),
-          }),
-        });
-        const data = await response.json();
-        if (!response.ok) {
-          setError(data.error || "새 규칙으로 목업과 본문을 다시 만들지 못했습니다.");
-          return;
-        }
-        if (data.status !== "creating" || data.retryAt || data.alreadyRunning) break;
-        await new Promise((resolve) => window.setTimeout(resolve, 900));
-      }
-      await load();
-    } finally {
-      setRebuildingImagesId(null);
     }
   }
 
@@ -682,6 +662,16 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
             <div className="mt-5 flex flex-wrap justify-end gap-2 border-t border-[var(--line)] pt-4">
               {item.format === "portfolio" && (
                 <>
+                  {isPortfolioConversionHold(item) && (
+                    <button
+                      onClick={() => void update(item.id, { action: "retry_portfolio_conversion" })}
+                      disabled={regeneratingId === item.id || rebuildingId === item.id}
+                      className="inline-flex items-center gap-2 rounded-xl border border-blue-300 bg-blue-50 px-3 py-2 text-xs font-bold text-blue-950 hover:bg-blue-100 disabled:cursor-wait disabled:opacity-60"
+                    >
+                      <RotateCcw size={15} className={regeneratingId === item.id ? "animate-spin" : ""} />
+                      {regeneratingId === item.id ? "원본 PPT 변환 다시 시도 중…" : "원본 PPT 변환 다시 시도"}
+                    </button>
+                  )}
                   {item.status === "on_hold" && item.review_note?.startsWith("MISSING_FONTS:") && (
                     <button
                       onClick={() => void update(item.id, { action: "retry_missing_fonts" })}
@@ -693,32 +683,14 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
                     </button>
                   )}
                   <button
-                    onClick={() => void rebuildImages(item, "confidential")}
-                    disabled={rebuildingImagesId === item.id || rebuildingId === item.id}
-                    className="inline-flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-bold text-red-900 hover:bg-red-100 disabled:cursor-wait disabled:opacity-60"
-                  >
-                    <RotateCcw size={15} className={rebuildingImagesId === item.id ? "animate-spin" : ""} />
-                    {rebuildingImagesId === item.id
-                      ? "기밀 영역 판정·목업 제작 중"
-                      : item.metadata?.redactionMode === "confidential"
-                        ? `기밀 블러 다시 적용 (${item.metadata.confidentialRegions?.length || 0}곳)`
-                        : "기밀 블러 적용 후 목업 만들기"}
-                  </button>
-                  <button
-                    onClick={() => void rebuildImages(item)}
-                    disabled={rebuildingImagesId === item.id || rebuildingId === item.id}
-                    className="inline-flex items-center gap-2 rounded-xl border border-violet-200 bg-violet-50 px-3 py-2 text-xs font-bold text-violet-900 hover:bg-violet-100 disabled:cursor-wait disabled:opacity-60"
-                  >
-                    <RotateCcw size={15} className={rebuildingImagesId === item.id ? "animate-spin" : ""} />
-                    {rebuildingImagesId === item.id ? "새 템플릿·본문 다시 만드는 중" : "새 템플릿·본문 전체 다시 만들기"}
-                  </button>
-                  <button
                     onClick={() => void rebuild(item)}
-                    disabled={rebuildingId === item.id || rebuildingImagesId === item.id}
-                    className="inline-flex items-center gap-2 rounded-xl border border-[var(--line)] bg-white px-3 py-2 text-xs font-bold hover:bg-stone-50 disabled:cursor-wait disabled:opacity-60"
+                    disabled={regeneratingId === item.id || rebuildingId === item.id}
+                    className="inline-flex items-center gap-2 rounded-xl border border-violet-200 bg-violet-50 px-3 py-2 text-xs font-bold text-violet-950 hover:bg-violet-100 disabled:cursor-wait disabled:opacity-60"
                   >
                     <RotateCcw size={15} className={rebuildingId === item.id ? "animate-spin" : ""} />
-                    {rebuildingId === item.id ? "전체 규칙 다시 적용 중" : "현재 규칙으로 전체 다시 만들기"}
+                    {rebuildingId === item.id
+                      ? "기밀 검수·목업·본문 전체 재생성 중…"
+                      : "기밀 검수·목업·본문 전체 재생성"}
                   </button>
                 </>
               )}
