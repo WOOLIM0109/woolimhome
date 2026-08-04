@@ -16,6 +16,7 @@ import {
 import { faqAnswerHtml, faqQuestionHtml } from "@/lib/content-ops/editorial-style";
 
 type PartnerChannel = "naver_consulting" | "naver_design";
+type PartnerStatusView = "pending" | "published";
 
 type PartnerItem = {
   id: string;
@@ -168,6 +169,7 @@ function formatDate(value: string | null) {
 
 export default function PartnerQueue({ onUnauthorized }: { onUnauthorized: () => void }) {
   const [channel, setChannel] = useState<PartnerChannel>("naver_consulting");
+  const [statusView, setStatusView] = useState<PartnerStatusView>("pending");
   const [items, setItems] = useState<PartnerItem[]>([]);
   const [channelConfigs, setChannelConfigs] = useState<PartnerChannelConfig[]>([]);
   const [loading, setLoading] = useState(true);
@@ -215,6 +217,16 @@ export default function PartnerQueue({ onUnauthorized }: { onUnauthorized: () =>
     () => channelConfigs.find((item) => item.value === channel),
     [channel, channelConfigs],
   );
+
+  const pendingItems = useMemo(
+    () => items.filter((item) => item.status !== "published"),
+    [items],
+  );
+  const publishedItems = useMemo(
+    () => items.filter((item) => item.status === "published"),
+    [items],
+  );
+  const visibleItems = statusView === "published" ? publishedItems : pendingItems;
 
   useEffect(() => {
     const timer = window.setTimeout(() => void load(), 0);
@@ -289,7 +301,11 @@ export default function PartnerQueue({ onUnauthorized }: { onUnauthorized: () =>
           return (
             <button
               key={item.value}
-              onClick={() => setChannel(item.value)}
+              onClick={() => {
+                setStatusView("pending");
+                setItems([]);
+                setChannel(item.value);
+              }}
               className={`rounded-2xl border p-5 text-left transition ${
                 active
                   ? "border-[var(--primary)] bg-orange-50 shadow-sm"
@@ -341,6 +357,36 @@ export default function PartnerQueue({ onUnauthorized }: { onUnauthorized: () =>
         </div>
       </div>
 
+      <nav
+        className="mt-5 inline-flex w-full rounded-2xl border border-[var(--line)] bg-stone-100 p-1 sm:w-auto"
+        aria-label="작업 상태 선택"
+      >
+        <button
+          onClick={() => setStatusView("pending")}
+          aria-pressed={statusView === "pending"}
+          className={`flex flex-1 items-center justify-center gap-2 rounded-xl px-5 py-3 text-sm font-bold transition sm:flex-none ${
+            statusView === "pending"
+              ? "bg-white text-blue-700 shadow-sm"
+              : "text-stone-600 hover:text-stone-900"
+          }`}
+        >
+          포스팅 대기
+          <span className="rounded-full bg-blue-50 px-2 py-0.5 text-xs text-blue-700">{pendingItems.length}</span>
+        </button>
+        <button
+          onClick={() => setStatusView("published")}
+          aria-pressed={statusView === "published"}
+          className={`flex flex-1 items-center justify-center gap-2 rounded-xl px-5 py-3 text-sm font-bold transition sm:flex-none ${
+            statusView === "published"
+              ? "bg-white text-emerald-700 shadow-sm"
+              : "text-stone-600 hover:text-stone-900"
+          }`}
+        >
+          발행 완료
+          <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-xs text-emerald-700">{publishedItems.length}</span>
+        </button>
+      </nav>
+
       {error && (
         <div className="mt-5 rounded-2xl border border-red-200 bg-red-50 p-5 text-sm font-bold leading-6 text-red-700">
           {error}
@@ -354,15 +400,21 @@ export default function PartnerQueue({ onUnauthorized }: { onUnauthorized: () =>
         <div className="mt-6 flex items-center justify-center gap-2 rounded-2xl border border-[var(--line)] bg-white p-12 text-sm text-[var(--muted)]">
           <LoaderCircle className="animate-spin" size={18} /> 승인된 작업을 불러오고 있습니다.
         </div>
-      ) : !items.length && !error ? (
+      ) : !visibleItems.length && !error ? (
         <div className="mt-6 rounded-2xl border border-dashed border-[var(--line)] bg-white p-12 text-center">
           <CheckCircle2 className="mx-auto text-emerald-600" size={30} />
-          <p className="mt-3 font-bold">현재 전달된 작업이 없습니다.</p>
-          <p className="mt-1 text-sm text-[var(--muted)]">대표님이 승인한 초안이 생기면 자동으로 여기에 표시됩니다.</p>
+          <p className="mt-3 font-bold">
+            {statusView === "published" ? "발행 완료된 작업이 없습니다." : "현재 포스팅 대기 작업이 없습니다."}
+          </p>
+          <p className="mt-1 text-sm text-[var(--muted)]">
+            {statusView === "published"
+              ? "포스팅 완료 등록을 마친 글이 여기에 모입니다."
+              : "대표님이 승인한 초안이 생기면 자동으로 여기에 표시됩니다."}
+          </p>
         </div>
       ) : (
         <div className="mt-6 space-y-6">
-          {items.map((item) => {
+          {visibleItems.map((item) => {
             const faqHtml = buildFaqHtml(item.faq);
             const fullHtml = `${item.copyHtml}${faqHtml}`;
             const tags = item.tags.map((tag) => `#${tag.replace(/^#/, "")}`).join(" ");
