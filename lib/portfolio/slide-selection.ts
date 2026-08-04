@@ -347,7 +347,13 @@ export function areNearSimilarSlides(
   }
 
   const visualDistance = hashDistance(left.visualHash, right.visualHash);
-  if (visualDistance !== null && visualDistance <= 0.08) return true;
+  if (visualDistance !== null) {
+    // Local image analysis supplies a fingerprint for every slide. Once two
+    // fingerprints prove the pages are visually different, do not collapse
+    // them again merely because their generated explanation text is the same.
+    // The prose fallback below is only for legacy assessments without hashes.
+    return visualDistance <= 0.08;
+  }
 
   const leftTokens = wordTokens(`${left.role || ""} ${left.reason || ""}`);
   const rightTokens = wordTokens(`${right.role || ""} ${right.reason || ""}`);
