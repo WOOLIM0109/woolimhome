@@ -5,6 +5,7 @@ import { RotateCcw, Sparkles, Trash2 } from "lucide-react";
 import StatusBadge from "./StatusBadge";
 import type { ContentChannel, WorkflowStatus } from "@/lib/content-ops/types";
 import { faqAnswerHtml, faqQuestionHtml } from "@/lib/content-ops/editorial-style";
+import { formatSentenceLineBreaks } from "@/lib/content-ops/sentence-line-breaks";
 
 type WorkItem = {
   id: string;
@@ -16,7 +17,16 @@ type WorkItem = {
   scheduled_at: string | null;
   review_note: string | null;
   metadata?: {
-    generated?: { bodyHtml?: string; faq?: { question: string; answer: string }[]; tags?: string[] };
+    generated?: {
+      bodyHtml?: string;
+      faq?: {
+        question: string;
+        answer: string;
+        displayQuestionHtml?: string;
+        displayAnswerHtml?: string;
+      }[];
+      tags?: string[];
+    };
     portfolioReview?: {
       suitable?: boolean;
       confidence?: number;
@@ -86,11 +96,34 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
       const activeItems = data.filter(
         (item: WorkItem) => !item.review_note?.startsWith("generation-cancelled:"),
       );
-      const next = reviewMode
+      const next: WorkItem[] = reviewMode
         ? activeItems.filter((item: WorkItem) => item.status === "review_required")
         : activeItems;
-      setItems(next);
-      setNotes(Object.fromEntries(next.map((item: WorkItem) => [item.id, item.review_note || ""])));
+      const displayItems = reviewMode
+        ? next.map((item) => {
+            const generated = item.metadata?.generated;
+            if (!generated) return item;
+            return {
+              ...item,
+              metadata: {
+                ...item.metadata,
+                generated: {
+                  ...generated,
+                  bodyHtml: generated.bodyHtml
+                    ? formatSentenceLineBreaks(generated.bodyHtml)
+                    : generated.bodyHtml,
+                  faq: generated.faq?.map((faq) => ({
+                    ...faq,
+                    displayQuestionHtml: formatSentenceLineBreaks(faqQuestionHtml(faq.question)),
+                    displayAnswerHtml: formatSentenceLineBreaks(faqAnswerHtml(faq.answer)),
+                  })),
+                },
+              },
+            };
+          })
+        : next;
+      setItems(displayItems);
+      setNotes(Object.fromEntries(displayItems.map((item) => [item.id, item.review_note || ""])));
       setError("");
     }
     setLoading(false);
@@ -406,7 +439,7 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
             <details className="mt-5 rounded-xl border border-[var(--line)] bg-white p-5">
               <summary className="cursor-pointer font-bold">이미지가 배치된 글 전체 미리보기</summary>
               <div className="column-body mt-5" dangerouslySetInnerHTML={{ __html: item.metadata.generated.bodyHtml }} />
-              {item.metadata.generated.faq?.length ? <section className="mt-7 border-t border-[var(--line)] pt-5"><h3 className="text-lg font-bold">FAQ</h3>{item.metadata.generated.faq.map((faq) => <div key={faq.question} className="mt-4"><p className="font-bold" dangerouslySetInnerHTML={{ __html: faqQuestionHtml(faq.question) }} /><p className="mt-1 text-sm leading-6 text-[var(--muted)]" dangerouslySetInnerHTML={{ __html: faqAnswerHtml(faq.answer) }} /></div>)}</section> : null}
+              {item.metadata.generated.faq?.length ? <section className="mt-7 border-t border-[var(--line)] pt-5"><h3 className="text-lg font-bold">FAQ</h3>{item.metadata.generated.faq.map((faq) => <div key={faq.question} className="mt-4"><p className="font-bold" dangerouslySetInnerHTML={{ __html: faq.displayQuestionHtml || faqQuestionHtml(faq.question) }} /><p className="mt-1 text-sm leading-6 text-[var(--muted)]" dangerouslySetInnerHTML={{ __html: faq.displayAnswerHtml || faqAnswerHtml(faq.answer) }} /></div>)}</section> : null}
             </details>
           )}
           {reviewMode && (
