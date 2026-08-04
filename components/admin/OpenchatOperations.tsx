@@ -33,6 +33,7 @@ export default function OpenchatOperations() {
   const [draft, setDraft] = useState<OpenchatContentDraft | null>(null);
   const [sources, setSources] = useState<SourcePayload>({ sources: [], runs: [] });
   const [loading, setLoading] = useState(true);
+  const [editingAfternoon, setEditingAfternoon] = useState(false);
   const [busy, setBusy] = useState("");
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
@@ -54,6 +55,7 @@ export default function OpenchatOperations() {
       if (!sourceResponse.ok) throw new Error(sourceData.error || "출처 현황을 불러오지 못했습니다.");
       setPrograms(programData);
       setDraft(contentData);
+      setEditingAfternoon(false);
       setSources(sourceData);
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "데이터를 불러오지 못했습니다.");
@@ -165,6 +167,7 @@ export default function OpenchatOperations() {
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "콘텐츠를 저장하지 못했습니다.");
       setDraft(data);
+      if (!status) setEditingAfternoon(false);
       setMessage(status === "approved"
         ? "오후 콘텐츠를 승인했습니다. 오후 6시에 게시 준비 상태로 전환됩니다."
         : status === "deferred"
@@ -191,6 +194,7 @@ export default function OpenchatOperations() {
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || "기존 초안을 정리하지 못했습니다.");
+      setEditingAfternoon(false);
       setDraft(null);
       await run("afternoon-draft");
     } catch (replaceError) {
@@ -312,18 +316,30 @@ export default function OpenchatOperations() {
                 <p className="text-sm font-bold text-[var(--primary)]">{draft.weekday_theme}</p>
                 <span className={`rounded-full px-3 py-1 text-xs font-bold ${statusClass(draft.status)}`}>{CONTENT_STATUS_LABELS[draft.status]}</span>
               </div>
-              <label className="mt-5 block text-xs font-bold text-[var(--muted)]">제목<input className="input mt-1 text-lg font-bold" value={draft.title} onChange={(event) => setDraft({ ...draft, title: event.target.value })} /></label>
-              <label className="mt-4 block text-xs font-bold text-[var(--muted)]">본문<textarea className="input mt-1 min-h-[460px] whitespace-pre-wrap leading-7" value={draft.body} onChange={(event) => setDraft({ ...draft, body: event.target.value })} /></label>
-              <label className="mt-4 block text-xs font-bold text-[var(--muted)]">참고 링크<textarea className="input mt-1 min-h-24" value={draft.reference_urls.join("\n")} onChange={(event) => setDraft({ ...draft, reference_urls: event.target.value.split("\n").map((value) => value.trim()).filter(Boolean) })} /></label>
               <details open className="mt-5 rounded-2xl border border-[var(--line)] bg-white p-5">
                 <summary className="cursor-pointer font-bold">카카오톡 최종 게시문 미리보기 · 상담 문구 포함</summary>
                 <pre className="mt-5 max-h-[720px] overflow-auto whitespace-pre-wrap rounded-xl bg-[#f7f3ff] p-5 text-sm leading-7">{formatAfternoonPost(draft)}</pre>
               </details>
+              <div className="mt-4 flex justify-end">
+                {editingAfternoon ? (
+                  <button onClick={() => { setEditingAfternoon(false); void load(); }} disabled={Boolean(busy)} className="rounded-xl border border-[var(--line)] bg-white px-4 py-2 text-sm font-bold disabled:cursor-not-allowed disabled:opacity-50">수정 취소</button>
+                ) : (
+                  <button onClick={() => setEditingAfternoon(true)} disabled={Boolean(busy)} className="rounded-xl bg-violet-800 px-4 py-2 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-50">수정하기</button>
+                )}
+              </div>
+              {editingAfternoon && (
+                <div className="mt-5 rounded-2xl border border-violet-200 bg-violet-50/50 p-5">
+                  <h3 className="font-bold">콘텐츠 수정</h3>
+                  <label className="mt-5 block text-xs font-bold text-[var(--muted)]">제목<input className="input mt-1 text-lg font-bold" value={draft.title} onChange={(event) => setDraft({ ...draft, title: event.target.value })} /></label>
+                  <label className="mt-4 block text-xs font-bold text-[var(--muted)]">본문<textarea className="input mt-1 min-h-[460px] whitespace-pre-wrap leading-7" value={draft.body} onChange={(event) => setDraft({ ...draft, body: event.target.value })} /></label>
+                  <label className="mt-4 block text-xs font-bold text-[var(--muted)]">참고 링크<textarea className="input mt-1 min-h-24" value={draft.reference_urls.join("\n")} onChange={(event) => setDraft({ ...draft, reference_urls: event.target.value.split("\n").map((value) => value.trim()).filter(Boolean) })} /></label>
+                </div>
+              )}
               <div className={`mt-4 rounded-xl p-4 text-sm ${draft.similarity_score >= 48 ? "bg-red-50 text-red-800" : "bg-emerald-50 text-emerald-800"}`}>
                 과거 콘텐츠 중복 위험 {draft.similarity_score}점 {draft.review_note ? `· ${draft.review_note}` : "· 자동 검사 통과"}
               </div>
               <div className="mt-5 flex flex-wrap gap-2 border-t border-[var(--line)] pt-4">
-                <button onClick={() => void saveDraft()} disabled={Boolean(busy)} className="inline-flex items-center gap-2 rounded-xl border border-[var(--line)] px-4 py-2 text-sm font-bold disabled:cursor-not-allowed disabled:opacity-50"><Save size={15} /> 수정 저장</button>
+                {editingAfternoon && <button onClick={() => void saveDraft()} disabled={Boolean(busy)} className="inline-flex items-center gap-2 rounded-xl border border-[var(--line)] px-4 py-2 text-sm font-bold disabled:cursor-not-allowed disabled:opacity-50"><Save size={15} /> 수정 저장</button>}
                 <button onClick={() => void saveDraft("approved")} disabled={Boolean(busy) || ["approved", "ready", "published"].includes(draft.status)} className="inline-flex items-center gap-2 rounded-xl bg-emerald-700 px-4 py-2 text-sm font-bold text-white disabled:cursor-not-allowed disabled:bg-emerald-100 disabled:text-emerald-800">
                   {busy === draft.id ? <LoaderCircle size={15} className="animate-spin" /> : <Check size={15} />}
                   {["approved", "ready", "published"].includes(draft.status) ? "승인 완료" : busy === draft.id ? "승인 처리 중" : "승인"}
