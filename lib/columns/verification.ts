@@ -93,10 +93,16 @@ function inferredOfficialItems(value: string): VerificationChecklistItem[] {
     },
   ];
 
-  return rules.flatMap((rule) => {
+  const inferred = rules.flatMap((rule) => {
     const excerpt = (rule.preferredPattern && sourceSentences.find((sentence) => rule.preferredPattern?.test(sentence)))
       || sourceSentences.find((sentence) => rule.pattern.test(sentence));
     return excerpt ? [{ kind: "official" as const, label: rule.label, instruction: rule.instruction, excerpt }] : [];
+  });
+  const usedExcerpts = new Set<string>();
+  return inferred.filter((item) => {
+    if (!item.excerpt || usedExcerpts.has(item.excerpt)) return false;
+    usedExcerpts.add(item.excerpt);
+    return true;
   }).slice(0, 4);
 }
 
