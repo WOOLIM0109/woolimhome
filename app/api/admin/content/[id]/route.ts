@@ -7,8 +7,10 @@ import {
 import type { WorkflowStatus } from "@/lib/content-ops/types";
 import { parseStoredAssetUrl } from "@/lib/partner-portal";
 import {
+  PortfolioConversionRetryConflict,
   PortfolioRebuildConflict,
   rebuildPortfolioDraft,
+  retryPortfolioConversion,
 } from "@/lib/portfolio/job-runner";
 import { EDITORIAL_SLOTS } from "@/lib/content-ops/config";
 import { generateContentWorkItem } from "@/lib/content-ops/generate";
@@ -138,7 +140,21 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     } catch (error) {
       return NextResponse.json({
         error: error instanceof Error ? error.message : "포트폴리오를 다시 만들지 못했습니다.",
-      }, { status: error instanceof PortfolioRebuildConflict ? 409 : 500 });
+      }, {
+        status: error instanceof PortfolioRebuildConflict
+          || error instanceof PortfolioConversionRetryConflict
+          ? 409
+          : 500,
+      });
+    }
+  }
+  if (body.action === "retry_portfolio_conversion") {
+    try {
+      return NextResponse.json(await retryPortfolioConversion(id));
+    } catch (error) {
+      return NextResponse.json({
+        error: error instanceof Error ? error.message : "원본 PPT 변환을 다시 요청하지 못했습니다.",
+      }, { status: error instanceof PortfolioConversionRetryConflict ? 409 : 500 });
     }
   }
   if (body.action === "rebuild_portfolio_mockups") {
@@ -147,7 +163,12 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     } catch (error) {
       return NextResponse.json({
         error: error instanceof Error ? error.message : "포트폴리오 목업 이미지를 다시 만들지 못했습니다.",
-      }, { status: error instanceof PortfolioRebuildConflict ? 409 : 500 });
+      }, {
+        status: error instanceof PortfolioRebuildConflict
+          || error instanceof PortfolioConversionRetryConflict
+          ? 409
+          : 500,
+      });
     }
   }
   if (body.action === "retry_missing_fonts") {

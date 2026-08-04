@@ -594,11 +594,55 @@ function Convert-Document {
       $exportWidth = 2000
       $exportHeight = [Math]::Max(1, [int][Math]::Round($exportWidth * $slideHeight / $slideWidth))
       $representativeIndexes = Get-RepresentativeIndexes -Count ([int]$presentation.Slides.Count)
+      $skippedSlideNumbers = New-Object System.Collections.Generic.List[int]
       foreach ($zeroBasedIndex in $representativeIndexes) {
-        $slide = $presentation.Slides.Item($zeroBasedIndex + 1)
-        $path = Join-Path $SlidesRoot ("slide-{0:D3}.png" -f ($zeroBasedIndex + 1))
-        $slide.Export($path, "PNG", $exportWidth, $exportHeight)
-        $slidePaths.Add($path)
+        $slideNumber = $zeroBasedIndex + 1
+        $slide = $null
+        try {
+          $slide = $presentation.Slides.Item($slideNumber)
+          $path = Join-Path $SlidesRoot ("slide-{0:D3}.png" -f $slideNumber)
+          $exported = $false
+
+          # PowerPoint can occasionally return from Slide.Export before a file
+          # appears (or without creating one at all). Never enqueue a path that
+          # has not been verified on disk. Retry briefly, then skip only that
+          # slide so one flaky page does not discard an otherwise valid deck.
+          for ($exportAttempt = 1; $exportAttempt -le 3 -and -not $exported; $exportAttempt++) {
+            if (Test-Path -LiteralPath $path) {
+              Remove-Item -LiteralPath $path -Force -ErrorAction SilentlyContinue
+            }
+            try {
+              $slide.Export($path, "PNG", $exportWidth, $exportHeight)
+            } catch {
+              Write-WorkerLog "Slide $slideNumber export attempt $exportAttempt failed: $($_.Exception.Message)"
+            }
+
+            for ($poll = 0; $poll -lt 10 -and -not $exported; $poll++) {
+              if (Test-Path -LiteralPath $path) {
+                $exportedFile = Get-Item -LiteralPath $path -ErrorAction SilentlyContinue
+                if ($exportedFile -and $exportedFile.Length -gt 1024) {
+                  $exported = $true
+                  break
+                }
+              }
+              Start-Sleep -Milliseconds 200
+            }
+          }
+
+          if ($exported) {
+            $slidePaths.Add($path)
+          } else {
+            $skippedSlideNumbers.Add($slideNumber)
+            Write-WorkerLog "Skipping slide $slideNumber because PowerPoint did not create a usable PNG after 3 attempts."
+          }
+        } finally {
+          if ($slide) {
+            [System.Runtime.InteropServices.Marshal]::FinalReleaseComObject($slide) | Out-Null
+          }
+        }
+      }
+      if ($skippedSlideNumbers.Count -gt 0) {
+        Write-WorkerLog "Skipped $($skippedSlideNumbers.Count) unexportable slide(s): $($skippedSlideNumbers -join ', ')."
       }
       Write-WorkerLog "Selected $($slidePaths.Count) representative slides from $($presentation.Slides.Count) total slides."
     } else {

@@ -22,6 +22,10 @@ import {
   PortfolioCheckpointYield,
   yieldPortfolioCheckpointIfNeeded,
 } from "./checkpoint";
+import {
+  isCompletePortfolioSourceDownload,
+  portfolioConversionRecoveryState,
+} from "./conversion-retry";
 
 class PortfolioClaimLost extends Error {
   constructor() {
@@ -34,6 +38,13 @@ export class PortfolioRebuildConflict extends Error {
   constructor() {
     super("원고 상태가 바뀌어 다시 만들기를 시작하지 않았습니다. 새로고침 후 다시 확인해 주세요.");
     this.name = "PortfolioRebuildConflict";
+  }
+}
+
+export class PortfolioConversionRetryConflict extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "PortfolioConversionRetryConflict";
   }
 }
 
@@ -956,6 +967,210 @@ export async function rebuildPortfolioMockupsOnly(
   };
 }
 
+export async function retryPortfolioConversion(workItemId: string) {
+  const admin = contentAdmin();
+  const { data: workItem, error: workItemError } = await admin
+    .from("content_work_items")
+    .select("id,format,status,metadata,updated_at")
+    .eq("id", workItemId)
+    .maybeSingle();
+  if (workItemError) throw new Error(workItemError.message);
+  if (!workItem) throw new PortfolioConversionRetryConflict("포트폴리오 작업을 찾지 못했습니다.");
+  if (workItem.format !== "portfolio") {
+    throw new PortfolioConversionRetryConflict("포트폴리오 작업만 원본 변환을 다시 시도할 수 있습니다.");
+  }
+  if (workItem.status === "published") {
+    throw new PortfolioConversionRetryConflict("이미 발행된 작업은 원본 변환을 다시 실행할 수 없습니다.");
+  }
+
+  const { data: conversions, error: conversionError } = await admin
+    .from("content_jobs")
+    .select("id,candidate_id,status,result,error_message,attempts,max_attempts,updated_at")
+    .eq("work_item_id", workItemId)
+    .eq("job_type", "convert")
+    .order("created_at", { ascending: false })
+    .limit(2);
+  if (conversionError) throw new Error(conversionError.message);
+  if ((conversions || []).length > 1) {
+    throw new PortfolioConversionRetryConflict("PC 변환 작업이 중복 연결되어 있어 다시 시도하지 않았습니다.");
+  }
+  const conversion = conversions?.[0];
+  if (!conversion?.candidate_id) {
+    throw new PortfolioConversionRetryConflict("연결된 PC 변환 작업과 포트폴리오 후보를 찾지 못했습니다.");
+  }
+
+  const metadata = (workItem.metadata || {}) as Record<string, unknown> & { candidateId?: unknown };
+  if (typeof metadata.candidateId === "string" && metadata.candidateId !== conversion.candidate_id) {
+    throw new PortfolioConversionRetryConflict("작업 항목과 원본 후보 연결이 일치하지 않아 다시 시도하지 않았습니다.");
+  }
+  const conversionState = portfolioConversionRecoveryState({
+    status: conversion.status,
+    result: (conversion.result || {}) as JobResult,
+    errorMessage: conversion.error_message,
+  });
+  if (conversionState === "active") {
+    throw new PortfolioConversionRetryConflict("원본 변환이 이미 대기 중이거나 다른 PC에서 실행 중입니다.");
+  }
+  if (conversionState === "ready") {
+    throw new PortfolioConversionRetryConflict("원본 변환이 이미 완료되어 목업 다시 만들기를 이용해야 합니다.");
+  }
+  if (conversionState !== "retryable") {
+    throw new PortfolioConversionRetryConflict("자동 재시도 한도에 도달한 PC 변환 작업만 이 기능으로 다시 실행할 수 있습니다.");
+  }
+
+  const [candidateResult, sourceResult, downstreamResult] = await Promise.all([
+    admin.from("portfolio_candidates")
+      .select("id")
+      .eq("id", conversion.candidate_id)
+      .maybeSingle(),
+    admin.from("content_jobs")
+      .select("id,result")
+      .eq("candidate_id", conversion.candidate_id)
+      .eq("work_item_id", workItemId)
+      .eq("job_type", "download")
+      .eq("status", "completed")
+      .order("created_at", { ascending: false })
+      .limit(2),
+    admin.from("content_jobs")
+      .select("id,job_type")
+      .eq("candidate_id", conversion.candidate_id)
+      .eq("work_item_id", workItemId)
+      .in("job_type", ["mockup", "draft"]),
+  ]);
+  const validationError = candidateResult.error || sourceResult.error || downstreamResult.error;
+  if (validationError) throw new Error(validationError.message);
+  if (!candidateResult.data) {
+    throw new PortfolioConversionRetryConflict("연결된 포트폴리오 후보가 없어 다시 시도하지 않았습니다.");
+  }
+  if ((sourceResult.data || []).length > 1) {
+    throw new PortfolioConversionRetryConflict("완료된 원본 다운로드 작업이 중복 연결되어 있어 다시 시도하지 않았습니다.");
+  }
+  const source = sourceResult.data?.[0];
+  if (!source || !isCompletePortfolioSourceDownload(source.result)) {
+    throw new PortfolioConversionRetryConflict("원본 다운로드 연결이 완전하지 않아 PC 변환을 다시 요청할 수 없습니다.");
+  }
+  const downstreamTypes = new Set((downstreamResult.data || []).map((job) => job.job_type));
+  if (!downstreamTypes.has("mockup") || !downstreamTypes.has("draft")) {
+    throw new PortfolioConversionRetryConflict("후속 목업·본문 작업 연결이 완전하지 않아 다시 시도하지 않았습니다.");
+  }
+
+  const now = new Date().toISOString();
+  const preservedMetadata: Record<string, unknown> = { ...metadata };
+  for (const key of [
+    "portfolioSourceFingerprint",
+    "portfolioRuleVersion",
+    "generated",
+    "portfolioAssets",
+    "portfolioMockup",
+    "portfolioReview",
+    "validation",
+    "redactionMode",
+    "confidentialRegions",
+    "generatedAt",
+    "mockupOnlyRebuiltAt",
+    "draftRetryCompletedAt",
+    "rebuildRequestedAt",
+  ]) delete preservedMetadata[key];
+
+  // This optimistic write is the retry mutex. Concurrent requests validated
+  // against the same snapshot cannot both proceed to reset downstream state.
+  const { data: claimedWorkItem, error: claimError } = await admin
+    .from("content_work_items")
+    .update({
+      status: "researching",
+      summary: "문서 변환 PC에 원본 변환을 다시 요청했습니다. 새 작업자가 선점할 때까지 대기합니다.",
+      review_note: null,
+      retry_count: 0,
+      next_retry_at: null,
+      last_error_code: null,
+      last_error_context: null,
+      metadata: {
+        ...preservedMetadata,
+        candidateId: conversion.candidate_id,
+        conversionRetryRequestedAt: now,
+        portfolioSourceInvalidatedAt: now,
+      },
+      updated_at: now,
+    })
+    .eq("id", workItemId)
+    .eq("status", workItem.status)
+    .eq("updated_at", workItem.updated_at)
+    .neq("status", "published")
+    .select("id")
+    .maybeSingle();
+  if (claimError) throw new Error(claimError.message);
+  if (!claimedWorkItem) {
+    throw new PortfolioConversionRetryConflict("작업 상태가 바뀌어 변환을 다시 요청하지 않았습니다. 새로고침 후 확인해 주세요.");
+  }
+
+  const downstreamIds = (downstreamResult.data || []).map((job) => job.id);
+  const { error: downstreamResetError } = await admin.from("content_jobs").update({
+    status: "on_hold",
+    attempts: 0,
+    next_retry_at: null,
+    last_error_code: null,
+    started_at: null,
+    completed_at: null,
+    error_message: null,
+    result: { conversionRetryRequestedAt: now },
+    updated_at: now,
+  }).in("id", downstreamIds);
+  if (downstreamResetError) throw new Error(downstreamResetError.message);
+
+  const { error: assetsError } = await admin.from("content_review_assets")
+    .delete()
+    .eq("work_item_id", workItemId);
+  if (assetsError) throw new Error(assetsError.message);
+
+  const { error: candidateResetError } = await admin.from("portfolio_candidates").update({
+    status: "selected",
+    font_status: "unchecked",
+    updated_at: now,
+  }).eq("id", conversion.candidate_id);
+  if (candidateResetError) throw new Error(candidateResetError.message);
+
+  const { error: workerResetError } = await admin.from("content_workers").update({
+    current_job_id: null,
+    updated_at: now,
+  }).eq("current_job_id", conversion.id);
+  if (workerResetError) throw new Error(workerResetError.message);
+
+  // Publish to the worker queue only after every dependent record is reset.
+  const { data: requeued, error: requeueError } = await admin.from("content_jobs").update({
+    status: "pc_waiting",
+    attempts: 0,
+    claimed_by_worker_id: null,
+    claimed_at: null,
+    lease_expires_at: null,
+    next_retry_at: null,
+    last_error_code: null,
+    started_at: null,
+    completed_at: null,
+    error_message: null,
+    result: {},
+    updated_at: now,
+  })
+    .eq("id", conversion.id)
+    .eq("status", "failed")
+    .eq("updated_at", conversion.updated_at)
+    .eq("attempts", conversion.attempts)
+    .select("id")
+    .maybeSingle();
+  if (requeueError) throw new Error(requeueError.message);
+  if (!requeued) {
+    throw new PortfolioConversionRetryConflict("변환 작업 상태가 바뀌어 대기열에 다시 넣지 않았습니다. 새로고침 후 확인해 주세요.");
+  }
+
+  return {
+    workItemId,
+    candidateId: conversion.candidate_id,
+    conversionJobId: conversion.id,
+    status: "pc_waiting" as const,
+    conversionRetry: true as const,
+    requestedAt: now,
+  };
+}
+
 export async function rebuildPortfolioDraft(workItemId: string) {
   const admin = contentAdmin();
   const { data: workItem, error: workItemError } = await admin
@@ -992,13 +1207,29 @@ export async function rebuildPortfolioDraft(workItemId: string) {
 
   const { data: conversion, error: conversionError } = await admin
     .from("content_jobs")
-    .select("status,result")
+    .select("status,result,error_message")
     .eq("candidate_id", candidateId)
     .eq("job_type", "convert")
     .maybeSingle();
   if (conversionError) throw new Error(conversionError.message);
   const conversionResult = (conversion?.result || {}) as JobResult;
-  if (conversion?.status !== "completed" || !conversionResult.bucket || !conversionResult.slidePaths?.length) {
+  const conversionState = portfolioConversionRecoveryState({
+    status: conversion?.status,
+    result: conversionResult,
+    errorMessage: conversion?.error_message,
+  });
+  if (conversionState === "active") {
+    return {
+      workItemId,
+      candidateId,
+      status: conversion?.status,
+      conversionActive: true,
+    };
+  }
+  if (conversionState === "retryable") {
+    return retryPortfolioConversion(workItemId);
+  }
+  if (conversionState !== "ready") {
     throw new Error("변환이 끝난 슬라이드 원본이 없어 목업을 다시 만들 수 없습니다.");
   }
 
