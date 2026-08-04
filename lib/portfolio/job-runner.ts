@@ -430,7 +430,7 @@ export async function rebuildPortfolioMockupsOnly(
     bucket: String(conversionResult.bucket),
     slidePaths: conversionResult.slidePaths,
     review,
-    thumbnailTitle: workItem.title,
+    thumbnailTitle: review.projectTitle || workItem.title,
     extraSensitiveRegions: confidentialRegions,
   });
   const generated = {
