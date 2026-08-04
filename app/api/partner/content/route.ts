@@ -8,8 +8,9 @@ import {
   partnerAssetUrl,
   replaceAdminAssetUrls,
   replaceFiguresWithMarkers,
-  sanitizeGeneratedHtml,
 } from "@/lib/partner-portal";
+import { expectedNaverAccount } from "@/lib/publication";
+import { sanitizeGeneratedHtml } from "@/lib/security/html";
 
 export const dynamic = "force-dynamic";
 
@@ -35,6 +36,7 @@ type WorkItemRow = {
   status: string;
   scheduled_at: string | null;
   published_at: string | null;
+  published_url: string | null;
   metadata: {
     generated?: GeneratedContent;
     novelty?: {
@@ -46,6 +48,9 @@ type WorkItemRow = {
     partnerHandoff?: {
       publishedUrl?: string;
       completedAt?: string;
+    };
+    publicationValidation?: {
+      duplicateLegacyUrl?: boolean;
     };
   } | null;
   content_review_assets: ReviewAsset[] | null;
@@ -64,7 +69,7 @@ export async function GET(request: Request) {
   let query = contentAdmin()
     .from("content_work_items")
     .select(
-      "id, channel, format, title, summary, status, scheduled_at, published_at, metadata, content_review_assets(id, asset_type, public_url, sort_order)",
+      "id, channel, format, title, summary, status, scheduled_at, published_at, published_url, metadata, content_review_assets(id, asset_type, public_url, sort_order)",
     )
     .in("channel", PARTNER_CHANNELS)
     .in("status", PARTNER_VISIBLE_STATUSES)
@@ -79,6 +84,7 @@ export async function GET(request: Request) {
   const items = ((data || []) as WorkItemRow[])
     .filter(isPartnerReleaseReady)
     .map((item) => {
+      const hasLegacyDuplicateUrl = item.metadata?.publicationValidation?.duplicateLegacyUrl === true;
       const storedAssets = [...(item.content_review_assets || [])]
         .sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0));
       const uploadableAssets = storedAssets.filter((asset) => asset.asset_type !== "article_preview");
@@ -96,7 +102,12 @@ export async function GET(request: Request) {
         status: item.status,
         scheduledAt: item.scheduled_at,
         publishedAt: item.published_at,
-        publishedUrl: item.metadata?.partnerHandoff?.publishedUrl || null,
+        publishedUrl: hasLegacyDuplicateUrl
+          ? null
+          : item.published_url || item.metadata?.partnerHandoff?.publishedUrl || null,
+        publicationWarning: hasLegacyDuplicateUrl
+          ? "기존 발행 URL이 다른 작업과 중복되어 관리자 확인이 필요합니다."
+          : null,
         completedAt: item.metadata?.partnerHandoff?.completedAt || null,
         previewHtml: replaceAdminAssetUrls(originalBodyHtml, storedAssets),
         copyHtml: replaceFiguresWithMarkers(originalBodyHtml),
@@ -117,7 +128,16 @@ export async function GET(request: Request) {
       };
     });
 
-  return NextResponse.json(items, {
+  const channels = PARTNER_CHANNELS.map((channel) => {
+    const account = expectedNaverAccount(channel);
+    return {
+      value: channel,
+      account,
+      blogUrl: account ? `https://blog.naver.com/${account}` : null,
+    };
+  });
+
+  return NextResponse.json({ items, channels }, {
     headers: { "Cache-Control": "private, no-store", Vary: "Cookie" },
   });
 }

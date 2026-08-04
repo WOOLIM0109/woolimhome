@@ -8,6 +8,8 @@ import { EDITORIAL_SLOTS } from "@/lib/content-ops/config";
 import { generateContentWorkItem } from "@/lib/content-ops/generate";
 import { resolveRevisionNote } from "@/lib/content-ops/generated-content";
 import type { ContentChannel, ContentFormat, EditorialSlot } from "@/lib/content-ops/types";
+import { retryMissingFontCandidates } from "@/lib/pc-worker/font-retry";
+import { geminiRetryDecision } from "@/lib/gemini/client";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -79,9 +81,14 @@ async function regenerateContentItem(
   } catch (error) {
     const message = error instanceof Error ? error.message : "자동 재생성 실패";
     if (message !== "GENERATION_CANCELLED") {
+      const retry = geminiRetryDecision(error, 0);
       await contentAdmin().from("content_work_items").update({
         status: "on_hold",
         review_note: `자동 재생성 보류: ${message}`,
+        retry_count: retry.retryCount,
+        next_retry_at: retry.nextRetryAt,
+        last_error_code: retry.code,
+        last_error_context: { source: "admin_regenerate", at: new Date().toISOString() },
         updated_at: new Date().toISOString(),
       }).eq("id", item.id);
     }
@@ -132,6 +139,34 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
         error: error instanceof Error ? error.message : "포트폴리오 목업 이미지를 다시 만들지 못했습니다.",
       }, { status: 500 });
     }
+  }
+  if (body.action === "retry_missing_fonts") {
+    const admin = contentAdmin();
+    const [{ data: jobs, error: jobsError }, { data: worker, error: workerError }] = await Promise.all([
+      admin.from("content_jobs").select("candidate_id").eq("work_item_id", id).eq("job_type", "convert"),
+      admin.from("content_workers")
+        .select("font_inventory_fingerprint,last_seen_at")
+        .not("font_inventory_fingerprint", "is", null)
+        .order("last_seen_at", { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+    ]);
+    if (jobsError || workerError) {
+      return NextResponse.json({ error: jobsError?.message || workerError?.message }, { status: 500 });
+    }
+    if (!worker?.font_inventory_fingerprint) {
+      return NextResponse.json({ error: "글꼴 목록을 보고한 사무실 PC가 없습니다. PC 워커 상태를 먼저 확인해 주세요." }, { status: 409 });
+    }
+    const candidateIds = [...new Set((jobs || []).map((job) => job.candidate_id).filter(Boolean))];
+    let requeued = 0;
+    for (const candidateId of candidateIds) {
+      const result = await retryMissingFontCandidates(worker.font_inventory_fingerprint, candidateId, true);
+      requeued += result.requeued;
+    }
+    if (!requeued) {
+      return NextResponse.json({ error: "다시 처리할 누락 글꼴 작업을 찾지 못했습니다." }, { status: 409 });
+    }
+    return NextResponse.json({ success: true, requeued });
   }
   if (body.action === "release_to_partner") {
     const admin = contentAdmin();

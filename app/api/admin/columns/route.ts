@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { isAdmin } from "@/lib/auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
+import { sanitizeGeneratedHtml } from "@/lib/security/html";
 
 export const dynamic = "force-dynamic";
 
@@ -42,7 +43,7 @@ export async function POST(request: Request) {
       title: body.title,
       slug: body.slug,
       excerpt: body.excerpt || null,
-      content: body.content,
+      content: sanitizeGeneratedHtml(body.content),
       tags: Array.isArray(body.tags) ? body.tags : [],
       category: body.category || null,
       content_kind: body.content_kind || "informational",

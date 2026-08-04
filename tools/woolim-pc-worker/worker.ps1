@@ -1,33 +1,63 @@
 param(
-  [switch]$Once
+  [switch]$Once,
+  [switch]$Check,
+  [switch]$HeartbeatOnly
 )
 
 $ErrorActionPreference = "Stop"
-$WorkerVersion = "2.0.0"
-$ConfiguredServerUrl = if ($env:WOOLIM_WORKER_SERVER_URL) {
-  $env:WOOLIM_WORKER_SERVER_URL
-} else {
-  [Environment]::GetEnvironmentVariable("WOOLIM_WORKER_SERVER_URL", "User")
+$WorkerVersion = "2.2.0"
+
+function Get-WorkerSetting {
+  param(
+    [Parameter(Mandatory = $true)][string]$Name,
+    [string]$DefaultValue = ""
+  )
+
+  $processValue = [Environment]::GetEnvironmentVariable($Name, "Process")
+  if (-not [string]::IsNullOrWhiteSpace($processValue)) {
+    return $processValue.Trim()
+  }
+  $userValue = [Environment]::GetEnvironmentVariable($Name, "User")
+  if (-not [string]::IsNullOrWhiteSpace($userValue)) {
+    return $userValue.Trim()
+  }
+  return $DefaultValue
 }
+
+$ConfiguredServerUrl = Get-WorkerSetting -Name "WOOLIM_WORKER_SERVER_URL"
 $ServerUrl = if ($ConfiguredServerUrl) {
   $ConfiguredServerUrl.TrimEnd("/")
 } else {
   "https://woolim-site.vercel.app"
 }
-$WorkerSecret = if ($env:WOOLIM_PC_WORKER_SECRET) {
-  $env:WOOLIM_PC_WORKER_SECRET
-} else {
-  [Environment]::GetEnvironmentVariable("WOOLIM_PC_WORKER_SECRET", "User")
-}
+$WorkerSecret = Get-WorkerSetting -Name "WOOLIM_PC_WORKER_SECRET"
+$WorkerId = Get-WorkerSetting -Name "WOOLIM_WORKER_ID" -DefaultValue "becky-office-pc"
+$WorkerName = Get-WorkerSetting -Name "WOOLIM_WORKER_NAME" -DefaultValue "울림 집 PC (기존)"
+$ConfiguredPdfRenderer = Get-WorkerSetting -Name "WOOLIM_PDFTOPPM_PATH"
 $WorkerRoot = Join-Path $env:LOCALAPPDATA "WoolimWorker"
+$JobsRoot = Join-Path $WorkerRoot "jobs"
 $LogPath = Join-Path $WorkerRoot "worker.log"
 
 New-Item -ItemType Directory -Force -Path $WorkerRoot | Out-Null
+New-Item -ItemType Directory -Force -Path $JobsRoot | Out-Null
 
 function Write-WorkerLog {
   param([string]$Message)
-  $line = "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') $Message"
+  $line = "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') [$WorkerId] $Message"
   Add-Content -LiteralPath $LogPath -Value $line -Encoding UTF8
+}
+
+function New-WorkerHeaders {
+  $headers = @{
+    Authorization = "Bearer $WorkerSecret"
+    "X-Woolim-Worker-Id" = $WorkerId
+  }
+  # Windows PowerShell 5 can reject non-ASCII HTTP header values. The full
+  # Unicode display name is always present in the JSON body.
+  if ($WorkerName -cmatch '^[\x20-\x7E]+$') {
+    $headers["X-Woolim-Worker-Name"] = $WorkerName
+  }
+  return $headers
 }
 
 function Invoke-WorkerApi {
@@ -35,13 +65,51 @@ function Invoke-WorkerApi {
     [string]$Path,
     [hashtable]$Body
   )
+
+  $payload = @{}
+  if ($Body) {
+    foreach ($key in $Body.Keys) {
+      $payload[$key] = $Body[$key]
+    }
+  }
+  # The headers are authoritative on multi-worker servers. Body fields let a
+  # rolling deployment continue to identify the worker on older route shapes.
+  $payload.workerId = $WorkerId
+  $payload.workerName = $WorkerName
+
   Invoke-RestMethod `
     -Uri "$ServerUrl$Path" `
     -Method Post `
-    -Headers @{ Authorization = "Bearer $WorkerSecret" } `
+    -Headers (New-WorkerHeaders) `
     -ContentType "application/json; charset=utf-8" `
-    -Body ($Body | ConvertTo-Json -Depth 10 -Compress)
+    -Body ($payload | ConvertTo-Json -Depth 10 -Compress)
 }
+
+function Get-FontInventoryFingerprint {
+  $fontNames = New-Object System.Collections.Generic.List[string]
+  foreach ($registryPath in @(
+    "Registry::HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Fonts",
+    "Registry::HKEY_CURRENT_USER\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Fonts"
+  )) {
+    if (-not (Test-Path -LiteralPath $registryPath)) { continue }
+    $properties = Get-ItemProperty -LiteralPath $registryPath -ErrorAction SilentlyContinue
+    if (-not $properties) { continue }
+    foreach ($property in $properties.PSObject.Properties) {
+      if ($property.Name.StartsWith("PS")) { continue }
+      $fontNames.Add("$($property.Name)=$($property.Value)".ToLowerInvariant())
+    }
+  }
+  $inventory = (($fontNames | Sort-Object -Unique) -join "`n")
+  $sha = [System.Security.Cryptography.SHA256]::Create()
+  try {
+    $bytes = [System.Text.Encoding]::UTF8.GetBytes($inventory)
+    return ([BitConverter]::ToString($sha.ComputeHash($bytes))).Replace("-", "").ToLowerInvariant()
+  } finally {
+    $sha.Dispose()
+  }
+}
+
+$FontInventoryFingerprint = Get-FontInventoryFingerprint
 
 function Send-Heartbeat {
   param(
@@ -50,6 +118,7 @@ function Send-Heartbeat {
     [string]$Message = $null,
     [string]$PowerPointVersion = $null
   )
+  $script:FontInventoryFingerprint = Get-FontInventoryFingerprint
   $payload = @{
     status = $Status
     currentJobId = $CurrentJobId
@@ -57,8 +126,120 @@ function Send-Heartbeat {
     computerName = $env:COMPUTERNAME
     powerPointVersion = $PowerPointVersion
     workerVersion = $WorkerVersion
+    workerId = $WorkerId
+    workerName = $WorkerName
+    fontInventoryFingerprint = $script:FontInventoryFingerprint
   }
   Invoke-WorkerApi -Path "/api/worker/heartbeat" -Body $payload | Out-Null
+}
+
+function Start-JobHeartbeat {
+  param(
+    [Parameter(Mandatory = $true)][string]$JobId,
+    [string]$PowerPointVersion = $null
+  )
+
+  $heartbeatScript = {
+    param(
+      [string]$HeartbeatServerUrl,
+      [string]$HeartbeatSecret,
+      [string]$HeartbeatWorkerId,
+      [string]$HeartbeatWorkerName,
+      [string]$HeartbeatJobId,
+      [string]$HeartbeatComputerName,
+      [string]$HeartbeatWorkerVersion,
+      [string]$HeartbeatPowerPointVersion,
+      [string]$HeartbeatFontInventoryFingerprint
+    )
+
+    while ($true) {
+      Start-Sleep -Seconds 45
+      try {
+        $payload = @{
+          status = "busy"
+          currentJobId = $HeartbeatJobId
+          error = $null
+          computerName = $HeartbeatComputerName
+          powerPointVersion = $HeartbeatPowerPointVersion
+          workerVersion = $HeartbeatWorkerVersion
+          workerId = $HeartbeatWorkerId
+          workerName = $HeartbeatWorkerName
+          fontInventoryFingerprint = $HeartbeatFontInventoryFingerprint
+        }
+        $headers = @{
+          Authorization = "Bearer $HeartbeatSecret"
+          "X-Woolim-Worker-Id" = $HeartbeatWorkerId
+        }
+        if ($HeartbeatWorkerName -cmatch '^[\x20-\x7E]+$') {
+          $headers["X-Woolim-Worker-Name"] = $HeartbeatWorkerName
+        }
+        Invoke-RestMethod `
+          -Uri "$HeartbeatServerUrl/api/worker/heartbeat" `
+          -Method Post `
+          -Headers $headers `
+          -ContentType "application/json; charset=utf-8" `
+          -Body ($payload | ConvertTo-Json -Depth 5 -Compress) | Out-Null
+      } catch {
+        # The main loop owns error reporting. A transient heartbeat error must
+        # never interrupt an in-progress PowerPoint or PDF conversion.
+      }
+    }
+  }
+
+  return Start-Job `
+    -ScriptBlock $heartbeatScript `
+    -ArgumentList @(
+      $ServerUrl,
+      $WorkerSecret,
+      $WorkerId,
+      $WorkerName,
+      $JobId,
+      $env:COMPUTERNAME,
+      $WorkerVersion,
+      $PowerPointVersion,
+      $FontInventoryFingerprint
+    )
+}
+
+function Stop-JobHeartbeat {
+  param([System.Management.Automation.Job]$HeartbeatJob)
+
+  if (-not $HeartbeatJob) { return }
+  try { Stop-Job -Job $HeartbeatJob -ErrorAction SilentlyContinue } catch {}
+  try { Remove-Job -Job $HeartbeatJob -Force -ErrorAction SilentlyContinue } catch {}
+}
+
+function Remove-LocalJobDirectory {
+  param([Parameter(Mandatory = $true)][string]$JobId)
+
+  $parsedJobId = [Guid]::Empty
+  if (-not [Guid]::TryParse($JobId, [ref]$parsedJobId)) {
+    throw "INVALID_JOB_ID: The server returned an invalid job identifier."
+  }
+  $jobPath = Join-Path $JobsRoot $parsedJobId.ToString()
+  $jobsRootFull = [System.IO.Path]::GetFullPath($JobsRoot).TrimEnd("\") + "\"
+  $jobPathFull = [System.IO.Path]::GetFullPath($jobPath)
+  if (-not $jobPathFull.StartsWith($jobsRootFull, [StringComparison]::OrdinalIgnoreCase)) {
+    throw "INVALID_JOB_PATH: Refusing to remove a path outside the worker job directory."
+  }
+  if (Test-Path -LiteralPath $jobPathFull) {
+    Remove-Item -LiteralPath $jobPathFull -Recurse -Force -ErrorAction Stop
+    Write-WorkerLog "Removed local files for job $JobId."
+  }
+}
+
+function Remove-StaleJobDirectories {
+  param([int]$OlderThanHours = 24)
+
+  $cutoff = (Get-Date).AddHours(-1 * [Math]::Max(1, $OlderThanHours))
+  foreach ($directory in (Get-ChildItem -LiteralPath $JobsRoot -Directory -ErrorAction SilentlyContinue)) {
+    if ($directory.LastWriteTime -ge $cutoff) { continue }
+    try {
+      Remove-LocalJobDirectory -JobId $directory.Name
+    } catch {
+      Write-WorkerLog "Could not remove stale job directory $($directory.Name): $($_.Exception.Message)"
+    }
+  }
 }
 
 function Upload-SignedFile {
@@ -167,37 +348,92 @@ function Get-SourceFile {
   }
 }
 
+function Test-PdfRendererCandidate {
+  param([string]$Path)
+
+  if (-not $Path -or -not (Test-Path -LiteralPath $Path -PathType Leaf)) {
+    return $false
+  }
+  $previousPreference = $ErrorActionPreference
+  try {
+    $ErrorActionPreference = "SilentlyContinue"
+    & $Path -v *> $null
+    return $LASTEXITCODE -eq 0
+  } catch {
+    return $false
+  } finally {
+    $ErrorActionPreference = $previousPreference
+  }
+}
+
 function Find-PdfRenderer {
-  $command = Get-Command "pdftoppm" -ErrorAction SilentlyContinue
-  if ($command) {
-    return $command.Source
+  if ($ConfiguredPdfRenderer) {
+    $configuredPath = $ConfiguredPdfRenderer
+    if (Test-Path -LiteralPath $configuredPath -PathType Container) {
+      $configuredPath = Join-Path $configuredPath "pdftoppm.exe"
+    }
+    if (Test-PdfRendererCandidate -Path $configuredPath) {
+      return (Resolve-Path -LiteralPath $configuredPath).Path
+    }
+    throw "MISSING_PDF_RENDERER: WOOLIM_PDFTOPPM_PATH does not point to a working pdftoppm executable."
   }
 
-  $workerRenderer = Join-Path $WorkerRoot "bin\pdftoppm.exe"
-  if (Test-Path -LiteralPath $workerRenderer) {
-    return $workerRenderer
-  }
-
-  $knownCodexRenderer = Join-Path $env:USERPROFILE ".cache\codex-runtimes\codex-primary-runtime\dependencies\bin\override\pdftoppm.cmd"
-  if (Test-Path -LiteralPath $knownCodexRenderer) {
-    return $knownCodexRenderer
-  }
-
-  $codexRuntimeRoot = Join-Path $env:USERPROFILE ".cache\codex-runtimes"
-  if (Test-Path -LiteralPath $codexRuntimeRoot) {
-    $discovered = Get-ChildItem `
-      -LiteralPath $codexRuntimeRoot `
-      -Filter "pdftoppm.cmd" `
-      -File `
-      -Recurse `
-      -ErrorAction SilentlyContinue |
+  foreach ($commandName in @("pdftoppm.exe", "pdftoppm")) {
+    $command = Get-Command $commandName -CommandType Application, ExternalScript -ErrorAction SilentlyContinue |
       Select-Object -First 1
-    if ($discovered) {
-      return $discovered.FullName
+    if ($command -and $command.Source -and (Test-PdfRendererCandidate -Path $command.Source)) {
+      return $command.Source
     }
   }
 
-  throw "MISSING_PDF_RENDERER: PDF 페이지 변환기를 찾을 수 없습니다."
+  $candidates = New-Object System.Collections.Generic.List[string]
+  $candidates.Add((Join-Path $WorkerRoot "bin\pdftoppm.exe"))
+  if ($env:USERPROFILE) {
+    $candidates.Add((Join-Path $env:USERPROFILE "scoop\apps\poppler\current\Library\bin\pdftoppm.exe"))
+    $candidates.Add((Join-Path $env:USERPROFILE "scoop\apps\poppler\current\bin\pdftoppm.exe"))
+    $candidates.Add((Join-Path $env:USERPROFILE ".cache\codex-runtimes\codex-primary-runtime\dependencies\native\poppler\Library\bin\pdftoppm.exe"))
+  }
+  if ($env:ProgramData) {
+    $candidates.Add((Join-Path $env:ProgramData "chocolatey\bin\pdftoppm.exe"))
+  }
+  if ($env:ProgramFiles) {
+    $candidates.Add((Join-Path $env:ProgramFiles "poppler\Library\bin\pdftoppm.exe"))
+    $candidates.Add((Join-Path $env:ProgramFiles "poppler\bin\pdftoppm.exe"))
+  }
+  if (${env:ProgramFiles(x86)}) {
+    $candidates.Add((Join-Path ${env:ProgramFiles(x86)} "poppler\Library\bin\pdftoppm.exe"))
+    $candidates.Add((Join-Path ${env:ProgramFiles(x86)} "poppler\bin\pdftoppm.exe"))
+  }
+  foreach ($candidate in $candidates) {
+    if (Test-PdfRendererCandidate -Path $candidate) {
+      return (Resolve-Path -LiteralPath $candidate).Path
+    }
+  }
+
+  $searchRoots = New-Object System.Collections.Generic.List[string]
+  if ($env:LOCALAPPDATA) {
+    $searchRoots.Add((Join-Path $env:LOCALAPPDATA "Microsoft\WinGet\Packages"))
+  }
+  if ($env:USERPROFILE) {
+    $searchRoots.Add((Join-Path $env:USERPROFILE ".cache\codex-runtimes"))
+  }
+  foreach ($searchRoot in $searchRoots) {
+    if (-not (Test-Path -LiteralPath $searchRoot -PathType Container)) { continue }
+    foreach ($fileName in @("pdftoppm.exe")) {
+      $discovered = Get-ChildItem `
+        -LiteralPath $searchRoot `
+        -Filter $fileName `
+        -File `
+        -Recurse `
+        -ErrorAction SilentlyContinue |
+        Select-Object -First 1
+      if ($discovered -and (Test-PdfRendererCandidate -Path $discovered.FullName)) {
+        return $discovered.FullName
+      }
+    }
+  }
+
+  throw "MISSING_PDF_RENDERER: pdftoppm.exe를 찾을 수 없습니다. Poppler를 설치하거나 WOOLIM_PDFTOPPM_PATH를 설정하세요."
 }
 
 function Assert-LandscapeImage {
@@ -239,24 +475,33 @@ function Convert-Document {
     [string]$FileName,
     [string]$SourceAuthorization
   )
-  $JobRoot = Join-Path $WorkerRoot "jobs\$JobId"
+
+  $parsedJobId = [Guid]::Empty
+  if (-not [Guid]::TryParse($JobId, [ref]$parsedJobId)) {
+    throw "INVALID_JOB_ID: The server returned an invalid job identifier."
+  }
+  $JobId = $parsedJobId.ToString()
+  $JobRoot = Join-Path $JobsRoot $JobId
   $SlidesRoot = Join-Path $JobRoot "slides"
   New-Item -ItemType Directory -Force -Path $SlidesRoot | Out-Null
   Get-ChildItem -LiteralPath $SlidesRoot -File -ErrorAction SilentlyContinue |
     Remove-Item -Force -ErrorAction SilentlyContinue
   $extension = [System.IO.Path]::GetExtension($FileName).ToLowerInvariant()
   $SourcePath = Join-Path $JobRoot ("source" + $extension)
-  Get-SourceFile `
-    -SourceUrl $SourceUrl `
-    -SourcePath $SourcePath `
-    -AuthorizationHeader $SourceAuthorization
 
   $powerPoint = $null
   $presentation = $null
   $powerPointVersion = $null
+  $heartbeatJob = $null
   $slidePaths = New-Object System.Collections.Generic.List[string]
   try {
     Send-Heartbeat -Status "busy" -CurrentJobId $JobId
+    $heartbeatJob = Start-JobHeartbeat -JobId $JobId
+    Get-SourceFile `
+      -SourceUrl $SourceUrl `
+      -SourcePath $SourcePath `
+      -AuthorizationHeader $SourceAuthorization
+
     if ($extension -eq ".pdf") {
       Write-WorkerLog "Starting local PDF page rendering."
       $renderer = Find-PdfRenderer
@@ -281,6 +526,8 @@ function Convert-Document {
       $powerPoint = New-Object Microsoft.Office.Interop.PowerPoint.ApplicationClass
       $powerPointVersion = [string]$powerPoint.Version
       Send-Heartbeat -Status "busy" -CurrentJobId $JobId -PowerPointVersion $powerPointVersion
+      Stop-JobHeartbeat -HeartbeatJob $heartbeatJob
+      $heartbeatJob = Start-JobHeartbeat -JobId $JobId -PowerPointVersion $powerPointVersion
       $presentation = $powerPoint.Presentations.Open($SourcePath, 0, 0, 0)
       Write-WorkerLog "PowerPoint opened local copy (readOnly=$($presentation.ReadOnly))."
       $slideWidth = [double]$presentation.PageSetup.SlideWidth
@@ -385,6 +632,7 @@ function Convert-Document {
     } | Out-Null
     Write-WorkerLog "Completed job $JobId with $($slidePaths.Count) pages."
   } finally {
+    Stop-JobHeartbeat -HeartbeatJob $heartbeatJob
     if ($presentation) {
       try { $presentation.Close() } catch {}
       try { [System.Runtime.InteropServices.Marshal]::FinalReleaseComObject($presentation) | Out-Null } catch {}
@@ -395,13 +643,90 @@ function Convert-Document {
     }
     [GC]::Collect()
     [GC]::WaitForPendingFinalizers()
+    try {
+      Remove-LocalJobDirectory -JobId $JobId
+    } catch {
+      Write-WorkerLog "Could not remove local files for job ${JobId}: $($_.Exception.Message)"
+    }
   }
+}
+
+if ($WorkerId -notmatch '^[a-z0-9][a-z0-9._-]{1,63}$') {
+  Write-WorkerLog "WOOLIM_WORKER_ID is invalid. Use 2-64 lowercase letters, numbers, dots, underscores, or hyphens."
+  Write-Error "Invalid WOOLIM_WORKER_ID: $WorkerId" -ErrorAction Continue
+  exit 2
+}
+if ([string]::IsNullOrWhiteSpace($WorkerName) -or $WorkerName.Length -gt 80 -or $WorkerName -match '[\r\n]') {
+  Write-WorkerLog "WOOLIM_WORKER_NAME is invalid."
+  Write-Error "WOOLIM_WORKER_NAME must be 1-80 characters on one line." -ErrorAction Continue
+  exit 2
+}
+$parsedServerUrl = $null
+$validServerUrl = [Uri]::TryCreate($ServerUrl, [UriKind]::Absolute, [ref]$parsedServerUrl)
+$isLocalDevelopment = $validServerUrl -and $parsedServerUrl.IsLoopback -and $parsedServerUrl.Scheme -eq "http"
+if (-not $validServerUrl -or ($parsedServerUrl.Scheme -ne "https" -and -not $isLocalDevelopment)) {
+  Write-WorkerLog "WOOLIM_WORKER_SERVER_URL is invalid."
+  Write-Error "WOOLIM_WORKER_SERVER_URL must use HTTPS (plain HTTP is allowed only for localhost development)." -ErrorAction Continue
+  exit 2
 }
 
 if (-not $WorkerSecret) {
   Write-WorkerLog "WOOLIM_PC_WORKER_SECRET is not configured."
+  Write-Error "WOOLIM_PC_WORKER_SECRET is not configured. Run setup.ps1 first." -ErrorAction Continue
   exit 2
 }
+
+$powerPointType = [Type]::GetTypeFromProgID("PowerPoint.Application")
+if ($Check) {
+  $checkFailed = $false
+  Write-Host "Worker ID: $WorkerId"
+  Write-Host "Worker name: $WorkerName"
+  Write-Host "Server: $ServerUrl"
+  Write-Host "Secret: configured (value hidden)"
+  if ($powerPointType) {
+    Write-Host "PowerPoint: detected"
+  } else {
+    Write-Warning "PowerPoint: not detected; PPT/PPTX/PPTM jobs cannot run."
+    $checkFailed = $true
+  }
+  try {
+    $rendererPath = Find-PdfRenderer
+    Write-Host "PDF renderer: $rendererPath"
+  } catch {
+    Write-Warning $_.Exception.Message
+    $checkFailed = $true
+  }
+  Write-Host "Local data: $WorkerRoot"
+  if ($checkFailed) { exit 3 }
+  exit 0
+}
+
+$mutex = New-Object System.Threading.Mutex($false, "Local\WoolimWorker-$WorkerId")
+$ownsMutex = $false
+try {
+  try {
+    $ownsMutex = $mutex.WaitOne(0)
+  } catch [System.Threading.AbandonedMutexException] {
+    $ownsMutex = $true
+  }
+  if (-not $ownsMutex) {
+    if ($HeartbeatOnly) {
+      Write-Error "Cannot run the heartbeat diagnostic while worker '$WorkerId' is already running. Stop it first or verify its live status in the admin page." -ErrorAction Continue
+      exit 4
+    }
+    Write-WorkerLog "Another process is already running with this worker ID."
+    Write-Error "Worker '$WorkerId' is already running." -ErrorAction Continue
+    exit 4
+  }
+
+  if ($HeartbeatOnly) {
+    Send-Heartbeat
+    Write-Host "Heartbeat accepted for '$WorkerId' ($WorkerName)."
+    exit 0
+  }
+
+  Remove-StaleJobDirectories
+  Write-WorkerLog "Starting worker $WorkerVersion as '$WorkerName' for $ServerUrl."
 
 do {
   try {
@@ -434,6 +759,7 @@ do {
             jobId = [string]$claim.job.id
             error = $message
             retryable = $retryable
+            fontInventoryFingerprint = $FontInventoryFingerprint
           } | Out-Null
         } catch {
           Write-WorkerLog "Could not report failure: $($_.Exception.Message)"
@@ -445,3 +771,9 @@ do {
   }
   if (-not $Once) { Start-Sleep -Seconds 60 }
 } while (-not $Once)
+} finally {
+  if ($ownsMutex) {
+    try { $mutex.ReleaseMutex() } catch {}
+  }
+  $mutex.Dispose()
+}

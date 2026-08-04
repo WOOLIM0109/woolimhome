@@ -5,6 +5,7 @@ import { generateGeminiJson } from "./gemini";
 import type { GeneratedPortfolioAsset } from "./mockup";
 import type { PortfolioVisualReview } from "./visual-review";
 import { fetchExistingDesignBlogTitles } from "./naver-blog";
+import { sanitizeGeneratedHtml, sanitizeInlineHtml } from "@/lib/security/html";
 
 export type PortfolioDraft = {
   title: string;
@@ -24,12 +25,7 @@ function clean(value: string) {
 }
 
 function safeDraftHtml(value: string) {
-  return value
-    .replace(/<(script|style|iframe|object|embed)[\s\S]*?<\/\1>/gi, "")
-    .replace(/\son\w+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, "")
-    .replace(/\s(style|class|id)\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, "")
-    .replace(/javascript:/gi, "")
-    .replace(/<(?!\/?(?:h2|h3|p|ul|ol|li|strong|blockquote|a)\b)[^>]+>/gi, "");
+  return sanitizeGeneratedHtml(value);
 }
 
 function figureHtml(asset: GeneratedPortfolioAsset, caption: string) {
@@ -190,7 +186,10 @@ export async function createPortfolioDraft(input: {
       title: generated.title.trim(),
       summary: generated.summary.trim(),
       bodyHtml,
-      faq: (generated.faq || []).slice(0, 6),
+      faq: (generated.faq || []).slice(0, 6).map((faq) => ({
+        question: sanitizeInlineHtml(faq.question || ""),
+        answer: sanitizeInlineHtml(faq.answer || ""),
+      })),
       tags: (generated.tags || []).map(String).slice(0, 12),
       imageCaptions: (generated.imageCaptions || []).map(String).slice(0, bodyAssets.length),
     },

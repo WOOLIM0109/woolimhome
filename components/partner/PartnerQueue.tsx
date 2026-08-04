@@ -27,6 +27,7 @@ type PartnerItem = {
   scheduledAt: string | null;
   publishedAt: string | null;
   publishedUrl: string | null;
+  publicationWarning: string | null;
   completedAt: string | null;
   previewHtml: string;
   copyHtml: string;
@@ -41,25 +42,28 @@ type PartnerItem = {
   }[];
 };
 
+type PartnerChannelConfig = {
+  value: PartnerChannel;
+  account: string | null;
+  blogUrl: string | null;
+};
+
 const CHANNELS: {
   value: PartnerChannel;
   label: string;
   description: string;
-  blogUrl: string;
   icon: typeof FileText;
 }[] = [
   {
     value: "naver_consulting",
     label: "컨설팅 블로그",
     description: "경영컨설팅 정보·노하우 콘텐츠",
-    blogUrl: "https://blog.naver.com/ygamsjzys",
     icon: FileText,
   },
   {
     value: "naver_design",
     label: "디자인 블로그",
     description: "포트폴리오·기획·디자인 콘텐츠",
-    blogUrl: "https://blog.naver.com/wl_0109",
     icon: Palette,
   },
 ];
@@ -71,9 +75,52 @@ const STATUS_LABELS: Record<PartnerItem["status"], string> = {
   published: "발행 완료",
 };
 
+const SENTENCE_END = /([.!?](?:["'”’」』)\]]*)?)(?:[ \t\r\n]+|$)/g;
+
+function formatMobileCopyHtml(html: string) {
+  const parsedDocument = new DOMParser().parseFromString(html, "text/html");
+
+  parsedDocument.body.querySelectorAll("p, li, blockquote").forEach((container) => {
+    if (container.closest("figure")) return;
+
+    const walker = parsedDocument.createTreeWalker(container, NodeFilter.SHOW_TEXT);
+    const textNodes: Text[] = [];
+    while (walker.nextNode()) textNodes.push(walker.currentNode as Text);
+
+    textNodes.forEach((textNode) => {
+      const value = textNode.nodeValue || "";
+      SENTENCE_END.lastIndex = 0;
+      if (!SENTENCE_END.test(value)) return;
+
+      SENTENCE_END.lastIndex = 0;
+      const fragment = parsedDocument.createDocumentFragment();
+      let cursor = 0;
+      let match: RegExpExecArray | null;
+      while ((match = SENTENCE_END.exec(value))) {
+        fragment.append(parsedDocument.createTextNode(value.slice(cursor, match.index) + match[1]));
+        fragment.append(parsedDocument.createElement("br"), parsedDocument.createElement("br"));
+        cursor = match.index + match[0].length;
+      }
+      fragment.append(parsedDocument.createTextNode(value.slice(cursor)));
+      textNode.replaceWith(fragment);
+    });
+  });
+
+  return parsedDocument.body.innerHTML;
+}
+
 function htmlToText(html: string) {
-  const document = new DOMParser().parseFromString(html, "text/html");
-  return document.body.innerText.trim();
+  const parsedDocument = new DOMParser().parseFromString(html, "text/html");
+  parsedDocument.body.querySelectorAll("br").forEach((element) => element.replaceWith("\n"));
+  parsedDocument.body
+    .querySelectorAll("p, h1, h2, h3, h4, li, blockquote, section")
+    .forEach((element) => element.append("\n\n"));
+
+  return (parsedDocument.body.textContent || "")
+    .replace(/\u00a0/g, " ")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }
 
 function buildFaqHtml(faq: PartnerItem["faq"]) {
@@ -94,11 +141,12 @@ function assetLabel(type: PartnerItem["assets"][number]["type"], order: number) 
 }
 
 async function writeRichClipboard(html: string) {
-  const text = htmlToText(html);
+  const mobileHtml = formatMobileCopyHtml(html);
+  const text = htmlToText(mobileHtml);
   if (navigator.clipboard.write && typeof ClipboardItem !== "undefined") {
     await navigator.clipboard.write([
       new ClipboardItem({
-        "text/html": new Blob([html], { type: "text/html" }),
+        "text/html": new Blob([mobileHtml], { type: "text/html" }),
         "text/plain": new Blob([text], { type: "text/plain" }),
       }),
     ]);
@@ -121,6 +169,7 @@ function formatDate(value: string | null) {
 export default function PartnerQueue({ onUnauthorized }: { onUnauthorized: () => void }) {
   const [channel, setChannel] = useState<PartnerChannel>("naver_consulting");
   const [items, setItems] = useState<PartnerItem[]>([]);
+  const [channelConfigs, setChannelConfigs] = useState<PartnerChannelConfig[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [copied, setCopied] = useState("");
@@ -143,10 +192,12 @@ export default function PartnerQueue({ onUnauthorized }: { onUnauthorized: () =>
         return;
       }
       if (!response.ok) throw new Error(data.error || "작업 목록을 불러오지 못했습니다.");
-      setItems(data);
+      const loadedItems = Array.isArray(data) ? data : data.items;
+      setItems(loadedItems);
+      setChannelConfigs(Array.isArray(data.channels) ? data.channels : []);
       setPublishedUrls(
         Object.fromEntries(
-          (data as PartnerItem[]).map((item) => [item.id, item.publishedUrl || ""]),
+          (loadedItems as PartnerItem[]).map((item) => [item.id, item.publishedUrl || ""]),
         ),
       );
       setError("");
@@ -156,6 +207,11 @@ export default function PartnerQueue({ onUnauthorized }: { onUnauthorized: () =>
       setLoading(false);
     }
   }, [channel]);
+
+  const selectedChannelConfig = useMemo(
+    () => channelConfigs.find((item) => item.value === channel),
+    [channel, channelConfigs],
+  );
 
   useEffect(() => {
     const timer = window.setTimeout(() => void load(), 0);
@@ -206,7 +262,13 @@ export default function PartnerQueue({ onUnauthorized }: { onUnauthorized: () =>
         onUnauthorized();
         return;
       }
-      if (!response.ok) throw new Error(data.error || "발행 완료 상태를 저장하지 못했습니다.");
+      if (!response.ok) {
+        throw new Error(
+          [data.error || "발행 완료 상태를 저장하지 못했습니다.", data.nextAction]
+            .filter(Boolean)
+            .join(" "),
+        );
+      }
       await load();
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "발행 완료 상태를 저장하지 못했습니다.");
@@ -253,14 +315,20 @@ export default function PartnerQueue({ onUnauthorized }: { onUnauthorized: () =>
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <a
-            href={selectedChannel.blogUrl}
-            target="_blank"
-            rel="noreferrer"
-            className="inline-flex items-center gap-2 rounded-xl border border-[var(--line)] px-4 py-2.5 text-sm font-bold"
-          >
-            블로그 열기 <ExternalLink size={15} />
-          </a>
+          {selectedChannelConfig?.blogUrl ? (
+            <a
+              href={selectedChannelConfig.blogUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-2 rounded-xl border border-[var(--line)] px-4 py-2.5 text-sm font-bold"
+            >
+              블로그 열기 ({selectedChannelConfig.account}) <ExternalLink size={15} />
+            </a>
+          ) : (
+            <span className="rounded-xl border border-red-200 bg-red-50 px-4 py-2.5 text-sm font-bold text-red-700">
+              채널 계정 설정 오류
+            </span>
+          )}
           <button
             onClick={() => void load()}
             className="inline-flex items-center gap-2 rounded-xl border border-[var(--line)] px-4 py-2.5 text-sm font-bold"
@@ -391,7 +459,7 @@ export default function PartnerQueue({ onUnauthorized }: { onUnauthorized: () =>
 
                   <details className="mt-5 rounded-2xl border border-[var(--line)] p-4 sm:p-5">
                     <summary className="cursor-pointer text-sm font-bold">이미지가 배치된 전체 원고 미리보기</summary>
-                    <div className="column-body mt-6" dangerouslySetInnerHTML={{ __html: item.previewHtml }} />
+                    <div className="partner-copy-preview column-body mt-6" dangerouslySetInnerHTML={{ __html: item.previewHtml }} />
                     {item.faq.length > 0 && (
                       <section className="mt-8 border-t border-[var(--line)] pt-6">
                         <h4 className="text-xl font-bold">자주 묻는 질문</h4>
@@ -419,15 +487,19 @@ export default function PartnerQueue({ onUnauthorized }: { onUnauthorized: () =>
                         disabled={isPublished}
                         className="min-w-0 flex-1 rounded-xl border border-emerald-200 bg-white px-4 py-3 text-sm outline-none focus:border-emerald-500 disabled:bg-stone-50"
                       />
-                      {isPublished ? (
+                      {isPublished && item.publishedUrl ? (
                         <a
-                          href={item.publishedUrl || "#"}
+                          href={item.publishedUrl}
                           target="_blank"
                           rel="noreferrer"
                           className="inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-700 px-5 py-3 text-sm font-bold text-white"
                         >
                           발행 글 열기 <ExternalLink size={15} />
                         </a>
+                      ) : isPublished ? (
+                        <span className="inline-flex items-center justify-center rounded-xl bg-amber-100 px-5 py-3 text-sm font-bold text-amber-900">
+                          관리자 확인 필요
+                        </span>
                       ) : (
                         <button
                           onClick={() => void markPublished(item)}
@@ -441,6 +513,11 @@ export default function PartnerQueue({ onUnauthorized }: { onUnauthorized: () =>
                     </div>
                     {isPublished && item.publishedAt && (
                       <p className="mt-3 text-xs font-bold text-emerald-800">완료 등록: {formatDate(item.publishedAt)}</p>
+                    )}
+                    {item.publicationWarning && (
+                      <p className="mt-3 rounded-xl border border-amber-300 bg-amber-50 p-3 text-xs font-bold leading-5 text-amber-950" role="alert">
+                        {item.publicationWarning}
+                      </p>
                     )}
                   </section>
                 </div>

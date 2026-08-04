@@ -1,14 +1,37 @@
 import { NextResponse } from "next/server";
+import {
+  authorizeWorkerCredential,
+  resolveWorkerIdentity,
+  type WorkerIdentity,
+} from "@/lib/pc-worker/identity";
 
-export const PC_WORKER_ID = "becky-office-pc";
+export { PC_WORKER_ID } from "@/lib/pc-worker/identity";
 
-export function authorizeWorker(request: Request) {
-  const expected = process.env.PC_WORKER_SECRET;
-  const supplied = request.headers.get("authorization");
-  if (!expected || supplied !== `Bearer ${expected}`) {
-    return NextResponse.json({ error: "Unauthorized worker" }, { status: 401 });
+export type WorkerAuthentication =
+  | { worker: WorkerIdentity; response: null }
+  | { worker: null; response: NextResponse };
+
+export function authenticateWorker(request: Request, body?: unknown): WorkerAuthentication {
+  const worker = resolveWorkerIdentity(request.headers, body);
+  if (!worker) {
+    return {
+      worker: null,
+      response: NextResponse.json({ error: "Invalid worker identity" }, { status: 400 }),
+    };
   }
-  return null;
+  if (!authorizeWorkerCredential(worker, request.headers.get("authorization"))) {
+    return {
+      worker: null,
+      response: NextResponse.json({ error: "Unauthorized worker" }, { status: 401 }),
+    };
+  }
+  return { worker, response: null };
+}
+
+// Retained for compatibility with any server code deployed independently of
+// the worker routes. New code should use authenticateWorker to get the identity.
+export function authorizeWorker(request: Request) {
+  return authenticateWorker(request).response;
 }
 
 export function workerBaseUrl() {

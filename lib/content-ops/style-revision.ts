@@ -15,6 +15,7 @@ import {
 import type { ContentChannel } from "@/lib/content-ops/types";
 import { isPartnerReleaseReady } from "@/lib/partner-portal";
 import { generateGeminiJson } from "@/lib/portfolio/gemini";
+import { sanitizeGeneratedHtml, sanitizeInlineHtml } from "@/lib/security/html";
 
 export const FRIENDLY_STYLE_VERSION = "friendly-partner-v1";
 
@@ -35,12 +36,9 @@ type FriendlyRewrite = {
 };
 
 function safeBodyHtml(value: string) {
-  return value
-    .replace(/<(script|style|iframe|object|embed)[\s\S]*?<\/\1>/gi, "")
-    .replace(/\son\w+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, "")
-    .replace(/javascript:/gi, "")
+  return sanitizeGeneratedHtml(value)
     .replace(/<a\b[^>]*>([\s\S]*?)<\/a>/gi, "$1")
-    .replace(/<(?!\/?(?:h2|h3|p|ul|ol|li|strong|blockquote)\b)[^>]+>/gi, "");
+    .replace(/<\/?(?:figure|figcaption|img|span|section|br)\b[^>]*>/gi, "");
 }
 
 function plainLength(value: string) {
@@ -124,8 +122,8 @@ ${JSON.stringify(numericChecklist)}${retry}
       const restoredSummary = restoreLocked(rewritten.summary, summary.locks).trim();
       const restoredBody = restoreLocked(safeBodyHtml(rewritten.bodyHtml), body.locks);
       const restoredFaq = rewritten.faq.map((faq, index) => ({
-        question: stripFaqPrefix(restoreLocked(faq.question, faqLocks[index].question.locks)),
-        answer: stripFaqPrefix(restoreLocked(faq.answer, faqLocks[index].answer.locks)),
+        question: sanitizeInlineHtml(stripFaqPrefix(restoreLocked(faq.question, faqLocks[index].question.locks))),
+        answer: sanitizeInlineHtml(stripFaqPrefix(restoreLocked(faq.answer, faqLocks[index].answer.locks))),
       }));
       const originalNumericText = [
         originalSummary,

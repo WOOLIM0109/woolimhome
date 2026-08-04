@@ -1,4 +1,5 @@
 import { createAdminClient } from "@/lib/supabase/admin";
+import { generateGeminiText } from "@/lib/gemini/client";
 import type { ExpertiseArea, InterviewQuestion } from "./types";
 
 const MODEL = "gemini-3.5-flash";
@@ -123,30 +124,20 @@ export async function ensureInterviewRequest(input: {
 
 JSON만 반환:
 {"title":"","rationale":"","questions":[{"question":"","followUps":[""]}]}`;
-      const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${apiKey}`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            contents: [{ role: "user", parts: [{ text: prompt }] }],
-            generationConfig: { responseMimeType: "application/json", maxOutputTokens: 8192 },
-          }),
-          signal: AbortSignal.timeout(90_000),
-        },
-      );
-      if (response.ok) {
-        const payload = await response.json();
-        const output = payload.candidates?.[0]?.content?.parts?.map((part: { text?: string }) => part.text || "").join("");
-        const generated = JSON.parse(stripFence(output || "{}")) as {
-          title?: string;
-          rationale?: string;
-          questions?: InterviewQuestion[];
-        };
-        if (generated.title) title = generated.title;
-        if (generated.rationale) rationale = generated.rationale;
-        if (generated.questions?.length === 10) questions = generated.questions;
-      }
+      const { text: output } = await generateGeminiText({
+        model: MODEL,
+        parts: [{ text: prompt }],
+        generationConfig: { responseMimeType: "application/json", maxOutputTokens: 8192 },
+        timeoutMs: 90_000,
+      });
+      const generated = JSON.parse(stripFence(output || "{}")) as {
+        title?: string;
+        rationale?: string;
+        questions?: InterviewQuestion[];
+      };
+      if (generated.title) title = generated.title;
+      if (generated.rationale) rationale = generated.rationale;
+      if (generated.questions?.length === 10) questions = generated.questions;
     } catch {
       // A deterministic guide is still more useful than failing the replenishment flow.
     }

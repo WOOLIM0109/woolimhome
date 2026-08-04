@@ -16,6 +16,7 @@ import {
   X,
 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
+import { useAccess } from "@/hooks/useAccess";
 import type { ExpertKnowledge } from "@/lib/columns/types";
 import { EXPERTISE_AREAS } from "@/lib/columns/interview-requests";
 import InterviewRequests from "./InterviewRequests";
@@ -61,8 +62,10 @@ function editableValues(item: ExpertKnowledge): EditableKnowledge {
 }
 
 export default function KnowledgePage() {
-  const { user, loading } = useAuth();
-  const isAdmin = user?.email?.toLowerCase() === "miseong0928@gmail.com";
+  const { user, loading: authLoading } = useAuth();
+  const access = useAccess(user?.email);
+  const loading = authLoading || (Boolean(user) && access.loading);
+  const isAdmin = access.admin;
   const [items, setItems] = useState<ExpertKnowledge[]>([]);
   const [form, setForm] = useState({
     topic: "", source_type: "interview", expertise_area: "planning", raw_text: "", perspective: "",

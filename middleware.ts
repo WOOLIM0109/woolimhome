@@ -2,6 +2,29 @@ import { NextResponse, type NextFetchEvent, type NextRequest } from "next/server
 import { detectBot } from "@/lib/bot-detection";
 import { attributeBotPath } from "@/lib/bot-path-attribution";
 
+const CONTENT_SECURITY_POLICY = [
+  "default-src 'self'",
+  "script-src 'self' 'unsafe-inline'",
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data: blob: https:",
+  "font-src 'self' data:",
+  "connect-src 'self' https://*.supabase.co wss://*.supabase.co https://generativelanguage.googleapis.com",
+  "object-src 'none'",
+  "base-uri 'self'",
+  "frame-ancestors 'none'",
+  "form-action 'self'",
+  "upgrade-insecure-requests",
+].join("; ");
+
+function securedResponse() {
+  const response = NextResponse.next();
+  response.headers.set("Content-Security-Policy", CONTENT_SECURITY_POLICY);
+  response.headers.set("X-Content-Type-Options", "nosniff");
+  response.headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
+  response.headers.set("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
+  return response;
+}
+
 function maskedIp(request: NextRequest) {
   const raw = request.headers.get("cf-connecting-ip")
     || request.headers.get("x-real-ip")
@@ -17,7 +40,7 @@ function maskedIp(request: NextRequest) {
 }
 
 export function middleware(request: NextRequest, event: NextFetchEvent) {
-  const response = NextResponse.next();
+  const response = securedResponse();
   const pathname = request.nextUrl.pathname;
   if (pathname.startsWith("/admin") || pathname.startsWith("/api") || pathname.startsWith("/auth")) {
     return response;

@@ -1,6 +1,7 @@
-import type { ContentChannel, WorkflowStatus } from "@/lib/content-ops/types";
+import type { WorkflowStatus } from "@/lib/content-ops/types";
+import type { NaverPublicationChannel } from "@/lib/publication";
 
-export const PARTNER_CHANNELS: ContentChannel[] = ["naver_consulting", "naver_design"];
+export const PARTNER_CHANNELS: NaverPublicationChannel[] = ["naver_consulting", "naver_design"];
 export const PARTNER_VISIBLE_STATUSES: WorkflowStatus[] = [
   "approved",
   "naver_ready",
@@ -8,8 +9,8 @@ export const PARTNER_VISIBLE_STATUSES: WorkflowStatus[] = [
   "published",
 ];
 
-export function isPartnerChannel(value: unknown): value is ContentChannel {
-  return typeof value === "string" && PARTNER_CHANNELS.includes(value as ContentChannel);
+export function isPartnerChannel(value: unknown): value is NaverPublicationChannel {
+  return typeof value === "string" && PARTNER_CHANNELS.includes(value as NaverPublicationChannel);
 }
 
 export function isPartnerVisibleStatus(value: unknown): value is WorkflowStatus {
@@ -80,13 +81,6 @@ export function replaceFiguresWithMarkers(html: string) {
     const captionText = caption ? ` — ${caption}` : "";
     return `<p><strong>[본문 이미지 ${bodyImageNumber} 삽입${captionText}]</strong></p>`;
   });
-}
-
-export function sanitizeGeneratedHtml(html: string) {
-  return html
-    .replace(/<(script|style|iframe|object|embed)\b[\s\S]*?<\/\1>/gi, "")
-    .replace(/\son\w+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, "")
-    .replace(/\s(href|src)\s*=\s*(["'])\s*javascript:[\s\S]*?\2/gi, "");
 }
 
 export function parseStoredAssetUrl(publicUrl: string) {

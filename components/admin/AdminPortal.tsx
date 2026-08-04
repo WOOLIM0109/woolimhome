@@ -16,8 +16,7 @@ import {
   Palette,
 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
-
-const ADMIN_EMAIL = "miseong0928@gmail.com";
+import { useAccess } from "@/hooks/useAccess";
 
 const NAV_ITEMS = [
   { href: "/admin", label: "전체 현황", icon: LayoutDashboard },
@@ -49,8 +48,9 @@ export default function AdminPortal({
   actions?: React.ReactNode;
 }) {
   const pathname = usePathname();
-  const { user, loading, signInWithGoogle, signOut } = useAuth();
-  const isAdmin = user?.email?.toLowerCase() === ADMIN_EMAIL;
+  const { user, loading: authLoading, signInWithGoogle, signOut } = useAuth();
+  const access = useAccess(user?.email);
+  const loading = authLoading || (Boolean(user) && access.loading);
 
   if (loading) {
     return <section className="min-h-[70vh] bg-[#fffaf7] px-5 py-20 text-center">로그인 상태를 확인하고 있습니다.</section>;
@@ -70,11 +70,11 @@ export default function AdminPortal({
     );
   }
 
-  if (!isAdmin) {
+  if (!access.admin) {
     return (
       <section className="min-h-[70vh] bg-[#fffaf7] px-5 py-20 text-center">
         <h1 className="text-2xl font-bold text-red-700">접근 권한이 없습니다.</h1>
-        <p className="mt-3">{user.email}</p>
+        <p className="mt-3">{access.error || `${user.email} 계정에는 관리자 권한이 없습니다.`}</p>
         <button onClick={() => void signOut()} className="mt-6 underline">로그아웃</button>
       </section>
     );

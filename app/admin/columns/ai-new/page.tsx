@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { Bot, Loader2, ShieldCheck } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
+import { useAccess } from "@/hooks/useAccess";
 
 type Result = {
   post?: { id: string; title: string };
@@ -15,7 +16,9 @@ type Result = {
 };
 
 export default function AiNewColumnPage() {
-  const { user, loading } = useAuth();
+  const { user, loading: authLoading } = useAuth();
+  const access = useAccess(user?.email);
+  const loading = authLoading || (Boolean(user) && access.loading);
   const [topicHint, setTopicHint] = useState("");
   const [sourceUrls, setSourceUrls] = useState("");
   const [generating, setGenerating] = useState(false);
@@ -42,8 +45,8 @@ export default function AiNewColumnPage() {
   };
 
   if (loading) return <Page><p>로그인 상태를 확인하고 있습니다.</p></Page>;
-  if (!user || user.email?.toLowerCase() !== "miseong0928@gmail.com") {
-    return <Page><p>관리자 계정으로 먼저 로그인해 주세요.</p><Link href="/admin/columns" className="mt-5 inline-block underline">관리자 로그인으로 이동</Link></Page>;
+  if (!user || !access.admin) {
+    return <Page><p>{access.error || "관리자 계정으로 먼저 로그인해 주세요."}</p><Link href="/admin/columns" className="mt-5 inline-block underline">관리자 로그인으로 이동</Link></Page>;
   }
 
   return (

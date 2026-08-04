@@ -4,6 +4,7 @@ import { isAdmin } from "@/lib/auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import type { ColumnPost } from "@/lib/columns/types";
+import { sanitizeGeneratedHtml } from "@/lib/security/html";
 
 type Params = { params: Promise<{ id: string }> };
 export const dynamic = "force-dynamic";
@@ -48,7 +49,7 @@ export async function PUT(request: Request, { params }: Params) {
     title: body.title,
     slug: body.slug,
     excerpt: body.excerpt || null,
-    content: body.content,
+    content: sanitizeGeneratedHtml(body.content || ""),
     tags: Array.isArray(body.tags) ? body.tags : [],
     category: body.category || null,
     content_kind: body.content_kind || existing.content_kind,

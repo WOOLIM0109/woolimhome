@@ -339,6 +339,14 @@
   text-align: center;
 }
 
+/* 외주 작업자가 미리보기 전체를 선택해 복사할 때 이미지 alt와 캡션이
+   일반 텍스트에 중복으로 들어가지 않도록 이미지 영역만 선택에서 제외한다. */
+.partner-copy-preview figure,
+.partner-copy-preview figure * {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
 @media print {
   body * {
     visibility: hidden;

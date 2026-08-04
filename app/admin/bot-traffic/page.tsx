@@ -218,7 +218,10 @@ export default function BotTrafficPage() {
     }
   }, [mode]);
 
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    const timer = window.setTimeout(() => void load(), 0);
+    return () => window.clearTimeout(timer);
+  }, [load]);
 
   const maxDay = Math.max(...(data?.timeseries || []).map((row) => row.total), 1);
   const recentDays = useMemo(() => (data?.timeseries || []).slice(-31), [data]);

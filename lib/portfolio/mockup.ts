@@ -3,6 +3,8 @@ import path from "node:path";
 import { contentAdmin } from "@/lib/content-ops/data";
 import type { PortfolioVisualReview, SensitiveRegion } from "./visual-review";
 
+type SharpOverlayOptions = Parameters<ReturnType<typeof sharp>["composite"]>[0][number];
+
 type LoadedSlide = {
   index: number;
   buffer: Buffer;
@@ -38,7 +40,7 @@ function clampRegion(region: SensitiveRegion, width: number, height: number) {
 async function redact(buffer: Buffer, regions: SensitiveRegion[]) {
   if (!regions.length) return buffer;
   const oriented = await sharp(buffer).rotate().png().toBuffer({ resolveWithObject: true });
-  const composites: sharp.OverlayOptions[] = [];
+  const composites: SharpOverlayOptions[] = [];
   for (const region of regions) {
     const box = clampRegion(region, oriented.info.width, oriented.info.height);
     if (!box) continue;
@@ -303,7 +305,7 @@ async function multiPageBoard(slides: LoadedSlide[], variant: number) {
   const frameHeight = cardHeight + 90;
   const rowCounts = Array.from({ length: Math.ceil(selected.length / columns) }, (_, row) =>
     Math.min(columns, selected.length - row * columns));
-  const placements: sharp.OverlayOptions[] = [];
+  const placements: SharpOverlayOptions[] = [];
   const startY = Math.max(0, Math.round((CANVAS.height - rowCounts.length * frameHeight) / 2));
   let index = 0;
   rowCounts.forEach((rowCount, row) => {
