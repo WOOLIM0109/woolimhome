@@ -5,7 +5,10 @@ import {
   processNextPortfolioDownload,
   restorePcEligibleOversizedCandidates,
 } from "@/lib/naver-works/job-runner";
-import { processNextPortfolioMockup } from "@/lib/portfolio/job-runner";
+import {
+  processNextPortfolioDraft,
+  processNextPortfolioMockup,
+} from "@/lib/portfolio/job-runner";
 import { contentAdmin } from "@/lib/content-ops/data";
 import {
   generationCancellationRequested,
@@ -50,9 +53,13 @@ export async function POST(request: Request) {
         : undefined;
     }
 
-    const completedDraft = scheduleKey && !candidateId
+    const completedMockup = scheduleKey && !candidateId
       ? null
       : await processNextPortfolioMockup(candidateId);
+    const completedDraft = completedMockup || (scheduleKey && !candidateId)
+      ? null
+      : await processNextPortfolioDraft(candidateId);
+    const portfolioProgress = completedMockup || completedDraft;
     if (scheduleKey && await generationCancellationRequested(scheduleKey)) {
       await removeCancelledGeneration(scheduleKey);
       return NextResponse.json({
@@ -60,53 +67,62 @@ export async function POST(request: Request) {
         message: "포트폴리오 초안 생성을 취소했습니다.",
       });
     }
-    if (completedDraft) {
-      if (completedDraft.status === "creating") {
-        const directRetryAt = "retryAt" in completedDraft ? String(completedDraft.retryAt || "") : "";
-        const retryAt = directRetryAt || ("retry" in completedDraft
-          && completedDraft.retry
-          && typeof completedDraft.retry === "object"
-          && "nextRetryAt" in completedDraft.retry
-          ? String(completedDraft.retry.nextRetryAt || "")
+    if (portfolioProgress) {
+      const progressStage = "stage" in portfolioProgress && typeof portfolioProgress.stage === "string"
+        ? portfolioProgress.stage
+        : "";
+      if (portfolioProgress.status === "creating") {
+        const directRetryAt = "retryAt" in portfolioProgress ? String(portfolioProgress.retryAt || "") : "";
+        const retryAt = directRetryAt || ("retry" in portfolioProgress
+          && portfolioProgress.retry
+          && typeof portfolioProgress.retry === "object"
+          && "nextRetryAt" in portfolioProgress.retry
+          ? String(portfolioProgress.retry.nextRetryAt || "")
           : "");
         return NextResponse.json({
           prepared: null,
-          completedDraft,
-          stage: retryAt ? "retry_wait" : "creating",
+          completedDraft: portfolioProgress,
+          stage: progressStage || (retryAt ? "retry_wait" : "creating"),
           shouldContinue: !retryAt,
-          message: retryAt
-            ? `Gemini 일시 오류로 ${retryAt} 이후 자동으로 이어서 제작합니다.`
-            : "진행 상황을 안전하게 저장했습니다. 같은 원본의 다음 제작 단계를 이어서 처리합니다.",
+          message: progressStage === "design_completed"
+            ? "포트폴리오 디자인 목업을 저장했습니다. 다음 단계에서 Gemini 본문만 별도로 작성합니다."
+            : retryAt
+              ? `디자인은 보존되며 Gemini 글쓰기만 ${retryAt} 이후 자동 재시도합니다.`
+              : "진행 상황을 안전하게 저장했습니다. 같은 원본의 다음 제작 단계를 이어서 처리합니다.",
         });
       }
-      if (completedDraft.status === "on_hold") {
-        const hasReviewDraft = "title" in completedDraft && typeof completedDraft.title === "string";
+      if (portfolioProgress.status === "on_hold") {
+        const hasReviewDraft = "title" in portfolioProgress && typeof portfolioProgress.title === "string";
         return NextResponse.json({
           prepared: null,
-          completedDraft,
-          stage: hasReviewDraft ? "review" : "on_hold",
+          completedDraft: portfolioProgress,
+          stage: hasReviewDraft ? "review" : progressStage || "on_hold",
           shouldContinue: false,
           message: hasReviewDraft
-            ? `${completedDraft.title} 초안은 준비됐지만 자동 검수 항목이 남았습니다. 관리자 화면에서 확인해 주세요.`
-            : "Gemini 재시도 한도를 초과했거나 자동 제작 검수를 통과하지 못했습니다. 관리자 화면에서 사유를 확인해 주세요.",
+            ? `${portfolioProgress.title} 초안은 준비됐지만 자동 검수 항목이 남았습니다. 관리자 화면에서 확인해 주세요.`
+            : "디자인은 보존되어 있습니다. 본문 생성 보류 사유를 관리자 화면에서 확인해 주세요.",
         });
       }
+      const completedTitle = "title" in portfolioProgress && typeof portfolioProgress.title === "string"
+        ? portfolioProgress.title
+        : activeWorkItem?.title || "포트폴리오";
       return NextResponse.json({
         prepared: null,
-        completedDraft,
-        stage: completedDraft.status === "rejected" ? "rejected" : "review",
-        shouldContinue: completedDraft.status === "rejected",
-        message: completedDraft.status === "rejected"
+        completedDraft: portfolioProgress,
+        stage: portfolioProgress.status === "rejected" ? "rejected" : "review",
+        shouldContinue: portfolioProgress.status === "rejected",
+        message: portfolioProgress.status === "rejected"
           ? "실제 페이지를 확인한 결과 포트폴리오 기준에 맞지 않아 자동 제외했습니다. 다음 후보를 이어서 확인합니다."
-          : `${completedDraft.title} 비공개 초안을 완성했습니다. 관리자 화면에서 이미지와 본문을 검수할 수 있습니다.`,
+          : `${completedTitle} 비공개 초안을 완성했습니다. 관리자 화면에서 이미지와 본문을 검수할 수 있습니다.`,
       });
     }
     if (candidateId) {
-      const { data: mockupJob } = await contentAdmin().from("content_jobs")
-        .select("status,next_retry_at,error_message")
+      const { data: pipelineJobs } = await contentAdmin().from("content_jobs")
+        .select("job_type,status,next_retry_at,error_message")
         .eq("candidate_id", candidateId)
-        .eq("job_type", "mockup")
-        .maybeSingle();
+        .in("job_type", ["mockup", "draft"]);
+      const mockupJob = pipelineJobs?.find((job) => job.job_type === "mockup");
+      const draftJob = pipelineJobs?.find((job) => job.job_type === "draft");
       if (mockupJob?.status === "queued" || mockupJob?.status === "running") {
         return NextResponse.json({
           prepared: null,
@@ -126,11 +142,32 @@ export async function POST(request: Request) {
           stage: waitingForRetry ? "retry_wait" : "on_hold",
           shouldContinue: false,
           message: waitingForRetry
-            ? `Gemini 일시 오류로 ${mockupJob.next_retry_at} 이후 자동 재시도합니다.`
+            ? `디자인 처리 일시 오류로 ${mockupJob.next_retry_at} 이후 자동 재시도합니다.`
             : `기존 후보의 제작 오류를 확인해 주세요: ${mockupJob.error_message || "재시도 횟수 초과"}`,
         });
       }
       if (mockupJob?.status === "completed") {
+        const draftRetryPending = draftJob?.status === "failed"
+          && draftJob.next_retry_at
+          && new Date(draftJob.next_retry_at).getTime() > Date.now();
+        if (draftRetryPending) {
+          return NextResponse.json({
+            prepared: null,
+            stage: "draft_retry_wait",
+            shouldContinue: false,
+            message: `디자인은 완료되어 보존 중이며 Gemini 글쓰기만 ${draftJob.next_retry_at} 이후 자동 재시도합니다.`,
+          });
+        }
+        if (draftJob?.status !== "completed") {
+          return NextResponse.json({
+            prepared: null,
+            stage: draftJob?.status === "failed" ? "draft_failed" : "design_completed",
+            shouldContinue: draftJob?.status !== "failed",
+            message: draftJob?.status === "failed"
+              ? `디자인은 완료되었습니다. 본문 생성 오류를 확인해 주세요: ${draftJob.error_message || "재시도 횟수 초과"}`
+              : "디자인 목업은 완료되어 보존 중이며 본문 생성 단계를 이어서 진행합니다.",
+          });
+        }
         return NextResponse.json({
           prepared: null,
           stage: activeWorkItem?.status === "on_hold" ? "on_hold" : "review",

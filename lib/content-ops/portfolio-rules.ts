@@ -1,6 +1,11 @@
 import { createHash } from "node:crypto";
+import {
+  isVerifiedPortfolioRedactionProof,
+  localRedactionManifestHash,
+  parseLocalRedactionManifest,
+} from "../portfolio/redaction-proof.ts";
 
-export const PORTFOLIO_RULE_VERSION = "2026-08-04-privacy-template-v1";
+export const PORTFOLIO_RULE_VERSION = "2026-08-04-local-redaction-v3";
 
 export function createPortfolioSourceFingerprint(input: {
   bucket: string;
@@ -50,6 +55,31 @@ export function validatePortfolioBodyHtml(
   return issues;
 }
 
+type PortfolioStoredAsset = {
+  kind?: unknown;
+  slideIndexes?: unknown;
+  url?: unknown;
+};
+
+function renderedPortfolioAssets(value: unknown): PortfolioStoredAsset[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((asset): asset is PortfolioStoredAsset => Boolean(
+    asset
+    && typeof asset === "object"
+    && ((asset as PortfolioStoredAsset).kind === "thumbnail"
+      || (asset as PortfolioStoredAsset).kind === "body_image"),
+  ));
+}
+
+function renderedPortfolioSlideIndexes(assets: PortfolioStoredAsset[]) {
+  const indexes = assets.flatMap((asset) => Array.isArray(asset.slideIndexes)
+    ? asset.slideIndexes.filter((index): index is number => (
+      typeof index === "number" && Number.isInteger(index) && index >= 0
+    ))
+    : []);
+  return [...new Set(indexes)].sort((left, right) => left - right);
+}
+
 export function validatePortfolioPublicationMetadata(metadata: unknown) {
   const value = metadata && typeof metadata === "object"
     ? metadata as Record<string, unknown>
@@ -65,10 +95,9 @@ export function validatePortfolioPublicationMetadata(metadata: unknown) {
       redactionStatus?: unknown;
     }
     : {};
-  const portfolioAssets = Array.isArray(value.portfolioAssets) ? value.portfolioAssets : [];
-  const bodyAssets = portfolioAssets.filter((asset) => (
-    asset && typeof asset === "object" && (asset as { kind?: unknown }).kind === "body_image"
-  )) as Array<{ slideIndexes?: unknown; url?: unknown }>;
+  const portfolioAssets = renderedPortfolioAssets(value.portfolioAssets);
+  const bodyAssets = portfolioAssets.filter((asset) => asset.kind === "body_image");
+  const renderedSlideIndexes = renderedPortfolioSlideIndexes(portfolioAssets);
   const rawSelectedSlideIndexes = Array.isArray(mockup.selectedSlideIndexes)
     ? mockup.selectedSlideIndexes
     : [];
@@ -82,6 +111,22 @@ export function validatePortfolioPublicationMetadata(metadata: unknown) {
     ? mockup.bodyBoardCount
     : null;
   const issues: string[] = [];
+  if (!selectedSlideIndexes.length) {
+    issues.push("선정 장표 기록이 비어 있어 포트폴리오 자산을 검증할 수 없습니다.");
+  }
+  if (!renderedSlideIndexes.length) {
+    issues.push("대표 썸네일과 본문 목업에 연결된 렌더링 장표 기록이 비어 있습니다.");
+  }
+  const invalidRenderedAssetIndexes = portfolioAssets.length === 0 || portfolioAssets.some((asset) => {
+    if (!Array.isArray(asset.slideIndexes) || asset.slideIndexes.length === 0) return true;
+    const indexes = asset.slideIndexes.filter((index): index is number => (
+      typeof index === "number" && Number.isInteger(index) && index >= 0
+    ));
+    return indexes.length !== asset.slideIndexes.length || new Set(indexes).size !== indexes.length;
+  });
+  if (invalidRenderedAssetIndexes) {
+    issues.push("대표 썸네일과 모든 본문 목업은 비어 있지 않은 고유 장표 인덱스를 가져야 합니다.");
+  }
   if (typeof value.portfolioSourceFingerprint !== "string"
     || !/^[a-f0-9]{64}$/i.test(value.portfolioSourceFingerprint)) {
     issues.push("현재 원본과 일치하는 포트폴리오 목업 생성 기록이 없습니다.");
@@ -109,6 +154,16 @@ export function validatePortfolioPublicationMetadata(metadata: unknown) {
   if (mockup.redactionStatus !== "verified") {
     issues.push("기밀 블러 검수를 통과하지 않았습니다.");
   }
+  const sourceFingerprint = typeof value.portfolioSourceFingerprint === "string"
+    ? value.portfolioSourceFingerprint
+    : "";
+  if (!isVerifiedPortfolioRedactionProof(
+    value.redactionProof,
+    sourceFingerprint,
+    renderedSlideIndexes,
+  )) {
+    issues.push("현재 원본에 연결된 로컬 기밀 블러 증명이 완전하지 않습니다.");
+  }
   issues.push(...validatePortfolioBodyHtml(
     typeof generated.bodyHtml === "string" ? generated.bodyHtml : "",
     { minimumFigures },
@@ -133,7 +188,9 @@ export function validatePortfolioPublicationMetadata(metadata: unknown) {
     const indexes = asset.slideIndexes.filter((index): index is number => (
       typeof index === "number" && Number.isInteger(index) && index >= 0
     ));
-    if (indexes.length !== asset.slideIndexes.length || new Set(indexes).size !== indexes.length) {
+    if (!indexes.length
+      || indexes.length !== asset.slideIndexes.length
+      || new Set(indexes).size !== indexes.length) {
       invalidAssetIndexes = true;
     }
     if (mockup.mode === "six_grid" && indexes.length !== 6) invalidAssetIndexes = true;
@@ -180,6 +237,7 @@ export function validatePortfolioSourceState(
     result?: unknown;
     updated_at?: unknown;
   } | null,
+  draftJob?: { status?: unknown; result?: unknown } | null,
 ) {
   const value = metadata && typeof metadata === "object"
     ? metadata as Record<string, unknown>
@@ -193,6 +251,9 @@ export function validatePortfolioSourceState(
   const jobFingerprint = typeof result.sourceFingerprint === "string"
     ? result.sourceFingerprint
     : "";
+  const renderedSlideIndexes = renderedPortfolioSlideIndexes(
+    renderedPortfolioAssets(value.portfolioAssets),
+  );
   const conversionResult = conversionJob?.result && typeof conversionJob.result === "object"
     ? conversionJob.result as Record<string, unknown>
     : {};
@@ -202,6 +263,15 @@ export function validatePortfolioSourceState(
     : [];
   const conversionUpdatedAt = typeof conversionJob?.updated_at === "string"
     ? conversionJob.updated_at
+    : "";
+  const normalizedLocalManifest = conversionSlidePaths.length
+    ? parseLocalRedactionManifest(
+      conversionResult.localRedactionManifest,
+      conversionSlidePaths.length,
+    )
+    : null;
+  const currentManifestHash = normalizedLocalManifest
+    ? localRedactionManifestHash(normalizedLocalManifest)
     : "";
   const currentSourceFingerprint = conversionBucket && conversionSlidePaths.length && conversionUpdatedAt
     ? createPortfolioSourceFingerprint({
@@ -219,6 +289,32 @@ export function validatePortfolioSourceState(
   if (!mockupJob || mockupJob.status !== "completed") {
     issues.push("최신 포트폴리오 목업 작업이 아직 완료되지 않았습니다.");
   }
+  if (!isVerifiedPortfolioRedactionProof(
+    value.redactionProof,
+    metadataFingerprint,
+    renderedSlideIndexes,
+  ) || !isVerifiedPortfolioRedactionProof(
+    result.redactionProof,
+    jobFingerprint,
+    renderedSlideIndexes,
+  )) {
+    issues.push("완료된 목업과 작업 항목의 로컬 기밀 블러 증명이 일치하지 않습니다.");
+  } else {
+    const metadataProof = value.redactionProof as { manifestHash: string; slides: unknown[] };
+    const jobProof = result.redactionProof as { manifestHash: string; slides: unknown[] };
+    if (metadataProof.manifestHash !== jobProof.manifestHash
+      || JSON.stringify(metadataProof.slides) !== JSON.stringify(jobProof.slides)) {
+      issues.push("완료된 목업과 작업 항목의 로컬 기밀 블러 증명이 일치하지 않습니다.");
+    }
+    if (!currentManifestHash
+      || metadataProof.manifestHash !== currentManifestHash
+      || jobProof.manifestHash !== currentManifestHash) {
+      issues.push("완료된 목업의 기밀 블러 증명이 현재 변환 결과의 로컬 좌표와 일치하지 않습니다.");
+    }
+  }
+  if (!normalizedLocalManifest) {
+    issues.push("현재 변환 결과에 검증 가능한 로컬 기밀 블러 좌표가 없습니다.");
+  }
   if (!metadataFingerprint || !jobFingerprint || metadataFingerprint !== jobFingerprint) {
     issues.push("현재 원본과 완료된 목업의 버전이 일치하지 않습니다.");
   }
@@ -227,6 +323,16 @@ export function validatePortfolioSourceState(
   }
   if (!currentSourceFingerprint || currentSourceFingerprint !== jobFingerprint) {
     issues.push("현재 변환된 원본과 완료된 목업의 버전이 일치하지 않습니다.");
+  }
+  const draftResult = draftJob?.result && typeof draftJob.result === "object"
+    ? draftJob.result as Record<string, unknown>
+    : {};
+  if (!draftJob || draftJob.status !== "completed") {
+    issues.push("Gemini 글쓰기 작업이 아직 완료되지 않았습니다.");
+  }
+  if (draftResult.sourceFingerprint !== metadataFingerprint
+    || draftResult.portfolioRuleVersion !== PORTFOLIO_RULE_VERSION) {
+    issues.push("완료된 글 초안이 현재 목업 원본·규칙과 일치하지 않습니다.");
   }
   return issues;
 }

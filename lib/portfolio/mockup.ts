@@ -1,5 +1,6 @@
 import sharp from "sharp";
 import path from "node:path";
+import { createHash } from "node:crypto";
 import { access } from "node:fs/promises";
 import { contentAdmin } from "@/lib/content-ops/data";
 import type { PortfolioVisualReview, SensitiveRegion } from "./visual-review";
@@ -20,6 +21,7 @@ import {
   findDuplicatePortfolioImage,
   fingerprintPortfolioImage,
 } from "./image-fingerprint";
+import type { PortfolioSlideRedactionProof } from "./redaction-proof";
 
 type SharpOverlayOptions = Parameters<ReturnType<typeof sharp>["composite"]>[0][number];
 
@@ -29,6 +31,7 @@ type LoadedSlide = {
   aspectRatio: number;
   contentHash: string;
   visualHash: string;
+  redactionProof: PortfolioSlideRedactionProof;
 };
 
 export type GeneratedPortfolioAsset = {
@@ -58,26 +61,31 @@ function assetUrl(bucket: string, path: string) {
 }
 
 function clampRegion(region: SensitiveRegion, width: number, height: number) {
-  const left = Math.max(0, Math.floor(region.x * width) - 8);
-  const top = Math.max(0, Math.floor(region.y * height) - 8);
-  const regionWidth = Math.min(width - left, Math.ceil(region.width * width) + 16);
-  const regionHeight = Math.min(height - top, Math.ceil(region.height * height) + 16);
+  const padding = Math.max(10, Math.round(Math.min(width, height) * 0.009));
+  const left = Math.max(0, Math.floor(region.x * width) - padding);
+  const top = Math.max(0, Math.floor(region.y * height) - padding);
+  const regionWidth = Math.min(width - left, Math.ceil(region.width * width) + padding * 2);
+  const regionHeight = Math.min(height - top, Math.ceil(region.height * height) + padding * 2);
   if (regionWidth < 8 || regionHeight < 8) return null;
   return { left, top, width: regionWidth, height: regionHeight };
 }
 
 async function redact(buffer: Buffer, regions: SensitiveRegion[]) {
   const oriented = await sharp(buffer).rotate().png().toBuffer({ resolveWithObject: true });
-  if (!regions.length) return oriented.data;
+  if (!regions.length) return {
+    sourceBuffer: oriented.data,
+    buffer: oriented.data,
+    appliedRegionCount: 0,
+  };
   const composites: SharpOverlayOptions[] = [];
   for (const region of regions) {
     const box = clampRegion(region, oriented.info.width, oriented.info.height);
     if (!box) continue;
     const blurStrength = ["body_text", "small_text", "table_content", "chart_label"].includes(region.type)
-      ? 19
+      ? 30
       : region.type === "footer"
-        ? 21
-        : 26;
+        ? 32
+        : 38;
     const blurred = await sharp(oriented.data)
       .extract(box)
       .blur(blurStrength)
@@ -89,9 +97,34 @@ async function redact(buffer: Buffer, regions: SensitiveRegion[]) {
       .toBuffer();
     composites.push({ input: blurred, left: box.left, top: box.top });
   }
-  return composites.length
-    ? sharp(oriented.data).composite(composites).png().toBuffer()
-    : oriented.data;
+  return {
+    sourceBuffer: oriented.data,
+    buffer: composites.length
+      ? await sharp(oriented.data).composite(composites).png().toBuffer()
+      : oriented.data,
+    appliedRegionCount: composites.length,
+  };
+}
+
+async function changedPixelRatio(source: Buffer, redacted: Buffer) {
+  const normalize = (input: Buffer) => sharp(input)
+    .flatten({ background: "#ffffff" })
+    .resize(640, 480, { fit: "fill" })
+    .removeAlpha()
+    .raw()
+    .toBuffer();
+  const [before, after] = await Promise.all([normalize(source), normalize(redacted)]);
+  const pixels = Math.floor(Math.min(before.length, after.length) / 3);
+  if (!pixels) return 0;
+  let changed = 0;
+  for (let pixel = 0; pixel < pixels; pixel += 1) {
+    const offset = pixel * 3;
+    const difference = Math.abs(before[offset] - after[offset])
+      + Math.abs(before[offset + 1] - after[offset + 1])
+      + Math.abs(before[offset + 2] - after[offset + 2]);
+    if (difference >= 9) changed += 1;
+  }
+  return changed / pixels;
 }
 
 async function loadSlides(input: {
@@ -108,10 +141,12 @@ async function loadSlides(input: {
     if (error || !data) throw new Error(error?.message || `슬라이드 ${index + 1}을 읽지 못했습니다.`);
     const bytes = Buffer.from(await data.arrayBuffer());
     const { contentHash, visualHash } = await fingerprintPortfolioImage(bytes);
-    const buffer = await redact(
+    const redacted = await redact(
       bytes,
       input.sensitiveRegions.filter((region) => region.slideIndex === index),
     );
+    const buffer = redacted.buffer;
+    const pixelChange = await changedPixelRatio(redacted.sourceBuffer, buffer);
     const metadata = await sharp(buffer).rotate().metadata();
     if (!metadata.width || !metadata.height) {
       throw new Error(`슬라이드 ${index + 1}의 비율을 불러오지 못했습니다.`);
@@ -122,6 +157,13 @@ async function loadSlides(input: {
       aspectRatio: metadata.width / metadata.height,
       contentHash,
       visualHash,
+      redactionProof: {
+        slideIndex: index,
+        sourceHash: contentHash,
+        redactedHash: createHash("sha256").update(buffer).digest("hex"),
+        regionCount: redacted.appliedRegionCount,
+        changedPixelRatio: pixelChange,
+      },
     });
   }
   return values;
@@ -450,6 +492,7 @@ export async function createPortfolioMockups(input: {
   slidePaths: string[];
   review: PortfolioVisualReview;
   extraSensitiveRegions?: SensitiveRegion[];
+  onRedactionProof?: (proof: PortfolioSlideRedactionProof[]) => Promise<void> | void;
 }) {
   const plan = portfolioMockupIndexes(input.slidePaths.length, input.review);
   if (plan.mode === "insufficient") {
@@ -469,6 +512,17 @@ export async function createPortfolioMockups(input: {
   if (selectedSlides.length < 5) {
     throw new Error("중복되지 않는 우수 장표가 5장 미만이라 목업 제작을 중단했습니다.");
   }
+  const redactionProof = plan.indexes
+    .map((index) => slideMap.get(index)?.redactionProof)
+    .filter((proof): proof is PortfolioSlideRedactionProof => Boolean(proof));
+  if (redactionProof.length !== plan.indexes.length
+    || redactionProof.some((proof) => (
+      proof.regionCount < 1 || proof.sourceHash === proof.redactedHash
+      || proof.changedPixelRatio <= 0
+    ))) {
+    throw new Error("모든 선정 장표의 로컬 기밀 블러가 실제 이미지에 적용되었는지 확인하지 못했습니다.");
+  }
+  if (input.onRedactionProof) await input.onRedactionProof(redactionProof);
   const groupSlides = plan.groups.map((group) => group
     .map((index) => slideMap.get(index))
     .filter((slide): slide is LoadedSlide => Boolean(slide)));

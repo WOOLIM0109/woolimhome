@@ -236,7 +236,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     if (currentError) return NextResponse.json({ error: currentError.message }, { status: 500 });
     expectedUpdatedAt = current.updated_at;
     if (current.format === "portfolio") {
-      const [mockupJobQuery, conversionJobQuery] = await Promise.all([
+      const [mockupJobQuery, conversionJobQuery, draftJobQuery] = await Promise.all([
         admin.from("content_jobs")
           .select("status,result")
           .eq("work_item_id", id)
@@ -251,10 +251,19 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
           .order("created_at", { ascending: false })
           .limit(1)
           .maybeSingle(),
+        admin.from("content_jobs")
+          .select("status,result")
+          .eq("work_item_id", id)
+          .eq("job_type", "draft")
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle(),
       ]);
-      if (mockupJobQuery.error || conversionJobQuery.error) {
+      if (mockupJobQuery.error || conversionJobQuery.error || draftJobQuery.error) {
         return NextResponse.json({
-          error: mockupJobQuery.error?.message || conversionJobQuery.error?.message,
+          error: mockupJobQuery.error?.message
+            || conversionJobQuery.error?.message
+            || draftJobQuery.error?.message,
         }, { status: 500 });
       }
       const issues = [
@@ -263,6 +272,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
           current.metadata,
           mockupJobQuery.data,
           conversionJobQuery.data,
+          draftJobQuery.data,
         ),
       ];
       if (issues.length) {

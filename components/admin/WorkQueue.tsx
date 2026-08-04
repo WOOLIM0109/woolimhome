@@ -104,6 +104,7 @@ type WorkItem = {
     portfolioAssets?: LegacyPortfolioAsset[];
     redactionMode?: "standard" | "confidential";
     confidentialRegions?: unknown[];
+    portfolioStage?: "design_completed" | "draft_retry_wait" | "draft_completed" | "draft_failed";
   };
   content_review_assets?: { id: string; asset_type: "thumbnail" | "body_image" | "article_preview"; public_url: string; sort_order?: number; review_note?: string }[];
   portfolio_jobs?: PortfolioJob[];
@@ -535,10 +536,17 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
             <StatusBadge status={item.status} />
           </div>
           {item.format === "portfolio" && <PortfolioRetryStatus jobs={item.portfolio_jobs} />}
+          {item.format === "portfolio"
+            && ["design_completed", "draft_retry_wait"].includes(String(item.metadata?.portfolioStage || "")) && (
+            <section className="mt-5 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm leading-6 text-emerald-950">
+              <p className="font-bold">디자인 목업 완료</p>
+              <p>로컬 템플릿과 기밀 블러로 만든 이미지는 아래에서 바로 확인할 수 있습니다. Gemini는 본문 글쓰기만 별도로 처리합니다.</p>
+            </section>
+          )}
           {item.metadata?.portfolioReview && (
             <section className="mt-5 rounded-xl border border-violet-200 bg-violet-50/60 p-4 text-sm">
               <div className="flex flex-wrap items-center gap-2 font-bold">
-                <span>실제 페이지 판정</span>
+                <span>로컬 장표 분석</span>
                 <span className="rounded-full bg-white px-3 py-1 text-xs">
                   신뢰도 {Math.round(Number(item.metadata.portfolioReview.confidence || 0) * 100)}%
                 </span>
@@ -662,11 +670,11 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
             </section>
           ) : null}
           {item.content_review_assets?.some((asset) =>
-            reviewMode || asset.asset_type === "thumbnail") ? (
+            reviewMode || Boolean(item.metadata?.portfolioStage) || asset.asset_type === "thumbnail") ? (
             <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
               {[...item.content_review_assets]
                 .sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0))
-                .filter((asset) => reviewMode || asset.asset_type === "thumbnail")
+                .filter((asset) => reviewMode || Boolean(item.metadata?.portfolioStage) || asset.asset_type === "thumbnail")
                 .map((asset, index) => (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img

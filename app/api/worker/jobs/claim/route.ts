@@ -3,6 +3,11 @@ import { contentAdmin } from "@/lib/content-ops/data";
 import { authenticateWorker } from "@/lib/pc-worker/auth";
 import { workerLeaseSeconds } from "@/lib/pc-worker/identity";
 import { workerJobFailureDisposition } from "@/lib/pc-worker/job-state";
+import {
+  LOCAL_REDACTION_WORKER_CAPABILITY,
+  MIN_LOCAL_REDACTION_WORKER_VERSION,
+  supportsLocalRedactionClaims,
+} from "@/lib/pc-worker/capabilities";
 import { sharedDriveDownloadAuthorization } from "@/lib/naver-works/client";
 
 export const runtime = "nodejs";
@@ -93,6 +98,28 @@ export async function POST(request: Request) {
   const { worker } = authentication;
   const admin = contentAdmin();
   const now = new Date().toISOString();
+
+  if (!supportsLocalRedactionClaims(body)) {
+    const upgradeMessage = `WORKER_UPGRADE_REQUIRED: ${MIN_LOCAL_REDACTION_WORKER_VERSION} 이상과 ${LOCAL_REDACTION_WORKER_CAPABILITY} 기능이 필요합니다.`;
+    const { error: upgradeStatusError } = await admin.from("content_workers").upsert({
+      id: worker.id,
+      display_name: worker.displayName,
+      status: "error",
+      current_job_id: null,
+      last_seen_at: now,
+      last_error: upgradeMessage,
+      updated_at: now,
+    }, { onConflict: "id" });
+    if (upgradeStatusError) {
+      return NextResponse.json({ error: upgradeStatusError.message }, { status: 500 });
+    }
+    return NextResponse.json({
+      job: null,
+      upgradeRequired: true,
+      requiredWorkerVersion: MIN_LOCAL_REDACTION_WORKER_VERSION,
+      requiredCapability: LOCAL_REDACTION_WORKER_CAPABILITY,
+    });
+  }
 
   const { error: workerError } = await admin.from("content_workers").upsert({
     id: worker.id,
