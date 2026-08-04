@@ -14,6 +14,7 @@ import {
   Tags,
 } from "lucide-react";
 import { faqAnswerHtml, faqQuestionHtml } from "@/lib/content-ops/editorial-style";
+import { formatSentenceLineBreaks } from "@/lib/content-ops/sentence-line-breaks";
 
 type PartnerChannel = "naver_consulting" | "naver_design";
 type PartnerStatusView = "pending" | "published";
@@ -75,40 +76,6 @@ const STATUS_LABELS: Record<PartnerItem["status"], string> = {
   scheduled: "예약 등록",
   published: "발행 완료",
 };
-
-const SENTENCE_END = /([.!?。？！](?:["'”’」』)\]]*)?)(?:[ \t\r\n]+|$)/g;
-
-function formatSentenceLineBreaks(html: string) {
-  const parsedDocument = new DOMParser().parseFromString(html, "text/html");
-
-  parsedDocument.body.querySelectorAll("p, li, blockquote").forEach((container) => {
-    if (container.closest("figure")) return;
-
-    const walker = parsedDocument.createTreeWalker(container, NodeFilter.SHOW_TEXT);
-    const textNodes: Text[] = [];
-    while (walker.nextNode()) textNodes.push(walker.currentNode as Text);
-
-    textNodes.forEach((textNode) => {
-      const value = textNode.nodeValue || "";
-      SENTENCE_END.lastIndex = 0;
-      if (!SENTENCE_END.test(value)) return;
-
-      SENTENCE_END.lastIndex = 0;
-      const fragment = parsedDocument.createDocumentFragment();
-      let cursor = 0;
-      let match: RegExpExecArray | null;
-      while ((match = SENTENCE_END.exec(value))) {
-        fragment.append(parsedDocument.createTextNode(value.slice(cursor, match.index) + match[1]));
-        fragment.append(parsedDocument.createElement("br"));
-        cursor = match.index + match[0].length;
-      }
-      fragment.append(parsedDocument.createTextNode(value.slice(cursor)));
-      textNode.replaceWith(fragment);
-    });
-  });
-
-  return parsedDocument.body.innerHTML;
-}
 
 function htmlToText(html: string) {
   const parsedDocument = new DOMParser().parseFromString(html, "text/html");
