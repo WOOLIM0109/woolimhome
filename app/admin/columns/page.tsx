@@ -21,7 +21,7 @@ type KnowledgeSummary = {
 
 export default function AdminColumnsPage() {
   const { user, loading: authLoading, signInWithGoogle, signOut } = useAuth();
-  const access = useAccess(Boolean(user));
+  const access = useAccess(user?.email);
   const [posts, setPosts] = useState<ColumnPost[]>([]);
   const [knowledge, setKnowledge] = useState<KnowledgeSummary[]>([]);
   const [loadingPosts, setLoadingPosts] = useState(true);

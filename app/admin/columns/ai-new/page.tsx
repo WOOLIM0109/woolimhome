@@ -17,7 +17,7 @@ type Result = {
 
 export default function AiNewColumnPage() {
   const { user, loading: authLoading } = useAuth();
-  const access = useAccess(Boolean(user));
+  const access = useAccess(user?.email);
   const loading = authLoading || (Boolean(user) && access.loading);
   const [topicHint, setTopicHint] = useState("");
   const [sourceUrls, setSourceUrls] = useState("");

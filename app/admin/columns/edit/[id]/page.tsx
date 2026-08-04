@@ -28,7 +28,7 @@ const EMPTY: FormState = {
 
 export default function EditColumnPage() {
   const { user, loading: authLoading } = useAuth();
-  const access = useAccess(Boolean(user));
+  const access = useAccess(user?.email);
   const params = useParams<{ id: string }>();
   const router = useRouter();
   const [form, setForm] = useState<FormState>(EMPTY);

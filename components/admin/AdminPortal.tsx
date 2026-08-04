@@ -49,7 +49,7 @@ export default function AdminPortal({
 }) {
   const pathname = usePathname();
   const { user, loading: authLoading, signInWithGoogle, signOut } = useAuth();
-  const access = useAccess(Boolean(user));
+  const access = useAccess(user?.email);
   const loading = authLoading || (Boolean(user) && access.loading);
 
   if (loading) {

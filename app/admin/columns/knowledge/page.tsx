@@ -63,7 +63,7 @@ function editableValues(item: ExpertKnowledge): EditableKnowledge {
 
 export default function KnowledgePage() {
   const { user, loading: authLoading } = useAuth();
-  const access = useAccess(Boolean(user));
+  const access = useAccess(user?.email);
   const loading = authLoading || (Boolean(user) && access.loading);
   const isAdmin = access.admin;
   const [items, setItems] = useState<ExpertKnowledge[]>([]);
