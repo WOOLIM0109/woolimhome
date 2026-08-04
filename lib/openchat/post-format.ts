@@ -28,6 +28,12 @@ function formatApplicationPeriod(program: OpenchatProgram) {
   return "-공고문 참조";
 }
 
+function appendConsultationFooter(content: string) {
+  const trimmed = content.trim();
+  if (trimmed.includes(CONSULTATION_FOOTER)) return trimmed;
+  return `${trimmed}\n\n${CONSULTATION_FOOTER}`.trim();
+}
+
 export function formatMorningPost(programs: OpenchatProgram[], date: string) {
   const header = `✅ ${date.replaceAll("-", ". ")} 지원사업 정보 ✅`;
   const entries = programs.map((program) => `◾제목_[${program.title}]
@@ -52,9 +58,9 @@ ${program.application_method || "접수방법은 공고문 참조"}
 ${formatApplicationPeriod(program)}
 
 -----------------------------------------`);
-  return `${header}\n\n${entries.join("\n\n")}`.trim();
+  return appendConsultationFooter(`${header}\n\n${entries.join("\n\n")}`);
 }
 
 export function formatAfternoonPost(draft: OpenchatContentDraft) {
-  return `${draft.body.trim()}\n\n${CONSULTATION_FOOTER}`.trim();
+  return appendConsultationFooter(draft.body);
 }

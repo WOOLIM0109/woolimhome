@@ -221,8 +221,20 @@ export default function OpenchatOperations() {
           </div>
           {selectedPrograms.length > 0 && (
             <details className="mt-5 rounded-2xl border border-[var(--line)] bg-white p-5">
-              <summary className="cursor-pointer font-bold">카카오톡 게시문 통합 미리보기 · {selectedPrograms.length}건</summary>
+              <summary className="cursor-pointer font-bold">카카오톡 게시문 통합 미리보기 · {selectedPrograms.length}건 · 상담 문구 포함</summary>
               <pre className="mt-5 max-h-[720px] overflow-auto whitespace-pre-wrap rounded-xl bg-[#fff7f1] p-5 text-sm leading-7">{formatMorningPost(selectedPrograms, date)}</pre>
+              <div className="mt-5 border-t border-[var(--line)] pt-5">
+                <h3 className="font-bold">원문 링크</h3>
+                <div className="mt-3 space-y-3">
+                  {selectedPrograms.map((program, index) => (
+                    <a key={program.id} href={program.source_url} target="_blank" rel="noreferrer" className="flex items-start gap-2 rounded-xl bg-[#fff7f1] px-4 py-3 text-sm font-bold text-[var(--primary)]">
+                      <span className="shrink-0">{index + 1}.</span>
+                      <span className="min-w-0 break-all">{program.title}<br /><span className="font-normal text-[var(--muted)]">{program.source_url}</span></span>
+                      <ExternalLink size={15} className="mt-0.5 shrink-0" />
+                    </a>
+                  ))}
+                </div>
+              </div>
             </details>
           )}
           {!programs.length ? <p className="mt-5 rounded-xl border border-dashed border-[var(--line)] bg-white p-8 text-center text-sm text-[var(--muted)]">이 날짜의 수집 공고가 없습니다.</p> : (
@@ -230,7 +242,7 @@ export default function OpenchatOperations() {
               {programs.map((program, index) => (
                 <article key={program.id} className="card p-5">
                   <div className="flex flex-wrap items-center justify-between gap-3">
-                    <p className="text-xs font-bold text-[var(--primary)]">{index + 1}. {program.source?.name || "수집 출처"}</p>
+                    <p className="text-xs font-bold text-[var(--primary)]">공고 {index + 1}</p>
                     <span className={`rounded-full px-3 py-1 text-xs font-bold ${statusClass(program.status)}`}>{PROGRAM_STATUS_LABELS[program.status]}</span>
                   </div>
                   <input className="input mt-4 font-bold" value={program.title} onChange={(event) => setPrograms((current) => current.map((item) => item.id === program.id ? { ...item, title: event.target.value } : item))} />
@@ -247,8 +259,6 @@ export default function OpenchatOperations() {
                     <label className="text-xs font-bold text-[var(--muted)]">신청 마감<input type="datetime-local" className="input mt-1" value={toKstDateTimeInput(program.deadline_at)} onChange={(event) => setPrograms((current) => current.map((item) => item.id === program.id ? { ...item, deadline_at: fromKstDateTimeInput(event.target.value) } : item))} /></label>
                   </div>
                   <label className="mt-4 block text-xs font-bold text-[var(--muted)]">신청기간 직접표기<input className="input mt-1" placeholder="상시접수·예산소진 등 날짜 대신 쓸 문구" value={program.application_period_text || ""} onChange={(event) => setPrograms((current) => current.map((item) => item.id === program.id ? { ...item, application_period_text: event.target.value } : item))} /></label>
-                  <label className="mt-4 block text-xs font-bold text-[var(--muted)]">원문 링크<input className="input mt-1" value={program.source_url} onChange={(event) => setPrograms((current) => current.map((item) => item.id === program.id ? { ...item, source_url: event.target.value } : item))} /></label>
-                  <a href={program.source_url} target="_blank" rel="noreferrer" className="mt-3 inline-flex items-center gap-2 break-all text-sm font-bold text-[var(--primary)]">원문 열기 <ExternalLink size={15} /></a>
                   <div className="mt-5 flex flex-wrap gap-2 border-t border-[var(--line)] pt-4">
                     <button onClick={() => void saveProgram(program)} className="inline-flex items-center gap-2 rounded-xl border border-[var(--line)] px-4 py-2 text-sm font-bold"><Save size={15} /> 수정 저장</button>
                     <button onClick={() => void saveProgram(program, "approved")} className="inline-flex items-center gap-2 rounded-xl bg-emerald-700 px-4 py-2 text-sm font-bold text-white"><Check size={15} /> 승인</button>
@@ -283,6 +293,10 @@ export default function OpenchatOperations() {
               <label className="mt-5 block text-xs font-bold text-[var(--muted)]">제목<input className="input mt-1 text-lg font-bold" value={draft.title} onChange={(event) => setDraft({ ...draft, title: event.target.value })} /></label>
               <label className="mt-4 block text-xs font-bold text-[var(--muted)]">본문<textarea className="input mt-1 min-h-[460px] whitespace-pre-wrap leading-7" value={draft.body} onChange={(event) => setDraft({ ...draft, body: event.target.value })} /></label>
               <label className="mt-4 block text-xs font-bold text-[var(--muted)]">참고 링크<textarea className="input mt-1 min-h-24" value={draft.reference_urls.join("\n")} onChange={(event) => setDraft({ ...draft, reference_urls: event.target.value.split("\n").map((value) => value.trim()).filter(Boolean) })} /></label>
+              <details open className="mt-5 rounded-2xl border border-[var(--line)] bg-white p-5">
+                <summary className="cursor-pointer font-bold">카카오톡 최종 게시문 미리보기 · 상담 문구 포함</summary>
+                <pre className="mt-5 max-h-[720px] overflow-auto whitespace-pre-wrap rounded-xl bg-[#f7f3ff] p-5 text-sm leading-7">{formatAfternoonPost(draft)}</pre>
+              </details>
               <div className={`mt-4 rounded-xl p-4 text-sm ${draft.similarity_score >= 48 ? "bg-red-50 text-red-800" : "bg-emerald-50 text-emerald-800"}`}>
                 과거 콘텐츠 중복 위험 {draft.similarity_score}점 {draft.review_note ? `· ${draft.review_note}` : "· 자동 검사 통과"}
               </div>
