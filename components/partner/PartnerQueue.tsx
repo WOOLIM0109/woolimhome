@@ -27,6 +27,7 @@ type PartnerItem = {
   scheduledAt: string | null;
   publishedAt: string | null;
   publishedUrl: string | null;
+  publicationWarning: string | null;
   completedAt: string | null;
   previewHtml: string;
   copyHtml: string;
@@ -41,25 +42,28 @@ type PartnerItem = {
   }[];
 };
 
+type PartnerChannelConfig = {
+  value: PartnerChannel;
+  account: string | null;
+  blogUrl: string | null;
+};
+
 const CHANNELS: {
   value: PartnerChannel;
   label: string;
   description: string;
-  blogUrl: string;
   icon: typeof FileText;
 }[] = [
   {
     value: "naver_consulting",
     label: "컨설팅 블로그",
     description: "경영컨설팅 정보·노하우 콘텐츠",
-    blogUrl: "https://blog.naver.com/ygamsjzys",
     icon: FileText,
   },
   {
     value: "naver_design",
     label: "디자인 블로그",
     description: "포트폴리오·기획·디자인 콘텐츠",
-    blogUrl: "https://blog.naver.com/wl_0109",
     icon: Palette,
   },
 ];
@@ -121,6 +125,7 @@ function formatDate(value: string | null) {
 export default function PartnerQueue({ onUnauthorized }: { onUnauthorized: () => void }) {
   const [channel, setChannel] = useState<PartnerChannel>("naver_consulting");
   const [items, setItems] = useState<PartnerItem[]>([]);
+  const [channelConfigs, setChannelConfigs] = useState<PartnerChannelConfig[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [copied, setCopied] = useState("");
@@ -143,10 +148,12 @@ export default function PartnerQueue({ onUnauthorized }: { onUnauthorized: () =>
         return;
       }
       if (!response.ok) throw new Error(data.error || "작업 목록을 불러오지 못했습니다.");
-      setItems(data);
+      const loadedItems = Array.isArray(data) ? data : data.items;
+      setItems(loadedItems);
+      setChannelConfigs(Array.isArray(data.channels) ? data.channels : []);
       setPublishedUrls(
         Object.fromEntries(
-          (data as PartnerItem[]).map((item) => [item.id, item.publishedUrl || ""]),
+          (loadedItems as PartnerItem[]).map((item) => [item.id, item.publishedUrl || ""]),
         ),
       );
       setError("");
@@ -156,6 +163,11 @@ export default function PartnerQueue({ onUnauthorized }: { onUnauthorized: () =>
       setLoading(false);
     }
   }, [channel]);
+
+  const selectedChannelConfig = useMemo(
+    () => channelConfigs.find((item) => item.value === channel),
+    [channel, channelConfigs],
+  );
 
   useEffect(() => {
     const timer = window.setTimeout(() => void load(), 0);
@@ -206,7 +218,13 @@ export default function PartnerQueue({ onUnauthorized }: { onUnauthorized: () =>
         onUnauthorized();
         return;
       }
-      if (!response.ok) throw new Error(data.error || "발행 완료 상태를 저장하지 못했습니다.");
+      if (!response.ok) {
+        throw new Error(
+          [data.error || "발행 완료 상태를 저장하지 못했습니다.", data.nextAction]
+            .filter(Boolean)
+            .join(" "),
+        );
+      }
       await load();
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "발행 완료 상태를 저장하지 못했습니다.");
@@ -253,14 +271,20 @@ export default function PartnerQueue({ onUnauthorized }: { onUnauthorized: () =>
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <a
-            href={selectedChannel.blogUrl}
-            target="_blank"
-            rel="noreferrer"
-            className="inline-flex items-center gap-2 rounded-xl border border-[var(--line)] px-4 py-2.5 text-sm font-bold"
-          >
-            블로그 열기 <ExternalLink size={15} />
-          </a>
+          {selectedChannelConfig?.blogUrl ? (
+            <a
+              href={selectedChannelConfig.blogUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-2 rounded-xl border border-[var(--line)] px-4 py-2.5 text-sm font-bold"
+            >
+              블로그 열기 ({selectedChannelConfig.account}) <ExternalLink size={15} />
+            </a>
+          ) : (
+            <span className="rounded-xl border border-red-200 bg-red-50 px-4 py-2.5 text-sm font-bold text-red-700">
+              채널 계정 설정 오류
+            </span>
+          )}
           <button
             onClick={() => void load()}
             className="inline-flex items-center gap-2 rounded-xl border border-[var(--line)] px-4 py-2.5 text-sm font-bold"
@@ -419,15 +443,19 @@ export default function PartnerQueue({ onUnauthorized }: { onUnauthorized: () =>
                         disabled={isPublished}
                         className="min-w-0 flex-1 rounded-xl border border-emerald-200 bg-white px-4 py-3 text-sm outline-none focus:border-emerald-500 disabled:bg-stone-50"
                       />
-                      {isPublished ? (
+                      {isPublished && item.publishedUrl ? (
                         <a
-                          href={item.publishedUrl || "#"}
+                          href={item.publishedUrl}
                           target="_blank"
                           rel="noreferrer"
                           className="inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-700 px-5 py-3 text-sm font-bold text-white"
                         >
                           발행 글 열기 <ExternalLink size={15} />
                         </a>
+                      ) : isPublished ? (
+                        <span className="inline-flex items-center justify-center rounded-xl bg-amber-100 px-5 py-3 text-sm font-bold text-amber-900">
+                          관리자 확인 필요
+                        </span>
                       ) : (
                         <button
                           onClick={() => void markPublished(item)}
@@ -441,6 +469,11 @@ export default function PartnerQueue({ onUnauthorized }: { onUnauthorized: () =>
                     </div>
                     {isPublished && item.publishedAt && (
                       <p className="mt-3 text-xs font-bold text-emerald-800">완료 등록: {formatDate(item.publishedAt)}</p>
+                    )}
+                    {item.publicationWarning && (
+                      <p className="mt-3 rounded-xl border border-amber-300 bg-amber-50 p-3 text-xs font-bold leading-5 text-amber-950" role="alert">
+                        {item.publicationWarning}
+                      </p>
                     )}
                   </section>
                 </div>

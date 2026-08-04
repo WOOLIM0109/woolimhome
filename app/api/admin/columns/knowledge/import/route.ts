@@ -3,6 +3,7 @@ import mammoth from "mammoth";
 import { isAdmin } from "@/lib/auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
+import { generateGeminiText } from "@/lib/gemini/client";
 
 export const runtime = "nodejs";
 
@@ -80,21 +81,11 @@ ${file.name}
 원천자료:
 ${text}`;
 
-  const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${apiKey}`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [{ role: "user", parts: [{ text: prompt }] }],
-        generationConfig: { responseMimeType: "application/json", maxOutputTokens: 32768 },
-      }),
-      signal: AbortSignal.timeout(120_000),
-    },
-  );
-  if (!response.ok) return NextResponse.json({ error: `자료 분류에 실패했습니다(${response.status}).` }, { status: 502 });
-  const payload = await response.json();
-  const output = payload.candidates?.[0]?.content?.parts?.map((part: { text?: string }) => part.text || "").join("");
+  const { text: output } = await generateGeminiText({
+    parts: [{ text: prompt }],
+    generationConfig: { responseMimeType: "application/json", maxOutputTokens: 32768 },
+    timeoutMs: 120_000,
+  });
   const cards = JSON.parse(stripFence(output || "[]")) as ImportedCard[];
   const groundedCards = cards.slice(0, 15)
     .filter((card) => card.topic && card.rawText)

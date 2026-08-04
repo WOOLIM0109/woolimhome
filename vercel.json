@@ -2,11 +2,11 @@
   "crons": [
     {
       "path": "/api/cron/columns",
-      "schedule": "0 1 * * 2,4,6"
+      "schedule": "17 1 * * 2,4,6"
     },
     {
       "path": "/api/cron/content-operations",
-      "schedule": "0 * * * *"
+      "schedule": "7 * * * *"
     }
   ]
 }

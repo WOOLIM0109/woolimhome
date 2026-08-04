@@ -1,4 +1,6 @@
 import { createAdminClient } from "@/lib/supabase/admin";
+import { generateGeminiText, geminiRetryDecision } from "@/lib/gemini/client";
+import { sanitizeGeneratedHtml, sanitizeInlineHtml } from "@/lib/security/html";
 import type { ColumnFaq, ColumnKind, ColumnSource } from "./types";
 
 const MODEL = "gemini-3.5-flash";
@@ -193,27 +195,22 @@ JSON만 반환:
 }`;
 
   const requestGemini = async (promptText: string) => {
-    const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${apiKey}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [{ role: "user", parts: [{ text: promptText }] }],
-          generationConfig: { responseMimeType: "application/json", maxOutputTokens: 32768 },
-        }),
-        signal: AbortSignal.timeout(120_000),
-      },
-    );
-    if (!response.ok) throw new Error(`Gemini 요청 실패: ${response.status} ${await response.text()}`);
-    const payload = await response.json();
-    const text = payload.candidates?.[0]?.content?.parts?.map((part: { text?: string }) => part.text || "").join("");
-    if (!text) throw new Error("AI 응답이 비어 있습니다.");
+    const { text } = await generateGeminiText({
+      model: MODEL,
+      parts: [{ text: promptText }],
+      generationConfig: { responseMimeType: "application/json", maxOutputTokens: 32768 },
+      timeoutMs: 120_000,
+    });
     return JSON.parse(stripFence(text)) as Generated;
   };
 
   try {
     let generated = await requestGemini(prompt);
+    generated.bodyHtml = sanitizeGeneratedHtml(generated.bodyHtml || "");
+    generated.faqs = (generated.faqs || []).map((faq) => ({
+      question: sanitizeInlineHtml(faq.question || ""),
+      answer: sanitizeInlineHtml(faq.answer || ""),
+    }));
     let initialCharCount = visibleText(generated.bodyHtml).replace(/\s/g, "").length;
     if (initialCharCount < 3000) {
       generated = await requestGemini(`
@@ -227,6 +224,11 @@ JSON만 반환하세요.
 
 ${JSON.stringify(generated)}
 `);
+      generated.bodyHtml = sanitizeGeneratedHtml(generated.bodyHtml || "");
+      generated.faqs = (generated.faqs || []).map((faq) => ({
+        question: sanitizeInlineHtml(faq.question || ""),
+        answer: sanitizeInlineHtml(faq.answer || ""),
+      }));
       initialCharCount = visibleText(generated.bodyHtml).replace(/\s/g, "").length;
     }
 
@@ -319,9 +321,13 @@ ${JSON.stringify(generated)}
     }).eq("id", run.data.id);
     return { blocked: false, post, validation: { charCount, h2Count, blockquoteCount, faqCount: generated.faqs.length, sourceCount: sourceRecords.length } };
   } catch (error) {
+    const retry = geminiRetryDecision(error, 0);
     await admin.from("column_generation_runs").update({
       status: "failed",
       error_message: error instanceof Error ? error.message : "Unknown error",
+      retry_count: retry.retryCount,
+      next_retry_at: retry.nextRetryAt,
+      last_error_code: retry.code,
       completed_at: new Date().toISOString(),
     }).eq("id", run.data.id);
     throw error;

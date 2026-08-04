@@ -56,6 +56,10 @@ type WorkItem = {
       approvedAt?: string;
       approvedBy?: string;
     };
+    publicationValidation?: {
+      duplicateLegacyUrl?: boolean;
+      duplicateOf?: string;
+    };
     redactionMode?: "standard" | "confidential";
     confidentialRegions?: unknown[];
   };
@@ -99,10 +103,11 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
 
   async function update(
     id: string,
-    patch: { action?: "regenerate" | "replace_topic" | "release_to_partner"; status?: WorkflowStatus; review_note?: string },
+    patch: { action?: "regenerate" | "replace_topic" | "release_to_partner" | "retry_missing_fonts"; status?: WorkflowStatus; review_note?: string },
   ) {
     const regenerating = patch.action === "regenerate"
       || patch.action === "replace_topic"
+      || patch.action === "retry_missing_fonts"
       || patch.status === "creating";
     if (regenerating) setRegeneratingId(id);
     setError("");
@@ -339,6 +344,15 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
               </p>
             </section>
           )}
+          {item.metadata?.publicationValidation?.duplicateLegacyUrl && (
+            <section className="mt-5 rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm leading-6 text-amber-950" role="alert">
+              <p className="font-bold">기존 발행 URL 중복 확인 필요</p>
+              <p className="mt-1">
+                이 작업의 발행 주소가 다른 과거 작업과 중복되어 링크를 외주 화면에서 숨겼습니다.
+                실제 네이버 글을 확인한 뒤 올바른 작업과 URL을 정정해 주세요.
+              </p>
+            </section>
+          )}
           {item.status === "approved"
             && item.format !== "portfolio"
             && (
@@ -424,6 +438,16 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
             <div className="mt-5 flex flex-wrap justify-end gap-2 border-t border-[var(--line)] pt-4">
               {item.format === "portfolio" && (
                 <>
+                  {item.status === "on_hold" && item.review_note?.startsWith("MISSING_FONTS:") && (
+                    <button
+                      onClick={() => void update(item.id, { action: "retry_missing_fonts" })}
+                      disabled={regeneratingId === item.id}
+                      className="inline-flex items-center gap-2 rounded-xl border border-cyan-300 bg-cyan-50 px-3 py-2 text-xs font-bold text-cyan-950 disabled:cursor-wait disabled:opacity-60"
+                    >
+                      <RotateCcw size={15} className={regeneratingId === item.id ? "animate-spin" : ""} />
+                      {regeneratingId === item.id ? "글꼴 확인 후 재요청 중" : "글꼴 설치 후 다시 처리"}
+                    </button>
+                  )}
                   <button
                     onClick={() => void rebuildImages(item, "confidential")}
                     disabled={rebuildingImagesId === item.id || rebuildingId === item.id}

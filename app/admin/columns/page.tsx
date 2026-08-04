@@ -4,11 +4,11 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { AlertTriangle, BookOpen, Bot, CheckCircle2, Edit, Eye, EyeOff, LogOut, Trash2 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
+import { useAccess } from "@/hooks/useAccess";
 import type { ColumnPost } from "@/lib/columns/types";
 import { EXPERTISE_AREAS } from "@/lib/columns/interview-requests";
 import EditorialSchedule from "./EditorialSchedule";
 
-const ADMIN_EMAIL = "miseong0928@gmail.com";
 type KnowledgeSummary = {
   id: string;
   topic: string;
@@ -20,11 +20,13 @@ type KnowledgeSummary = {
 };
 
 export default function AdminColumnsPage() {
-  const { user, loading, signInWithGoogle, signOut } = useAuth();
+  const { user, loading: authLoading, signInWithGoogle, signOut } = useAuth();
+  const access = useAccess(Boolean(user));
   const [posts, setPosts] = useState<ColumnPost[]>([]);
   const [knowledge, setKnowledge] = useState<KnowledgeSummary[]>([]);
   const [loadingPosts, setLoadingPosts] = useState(true);
-  const isAdmin = user?.email?.toLowerCase() === ADMIN_EMAIL;
+  const loading = authLoading || (Boolean(user) && access.loading);
+  const isAdmin = access.admin;
 
   const loadPosts = async () => {
     const response = await fetch("/api/admin/columns", { cache: "no-store" });
@@ -64,7 +66,7 @@ export default function AdminColumnsPage() {
     return (
       <AdminShell>
         <h1 className="text-2xl font-bold text-red-700">접근 권한이 없습니다.</h1>
-        <p className="mt-3">{user.email}</p>
+        <p className="mt-3">{access.error || `${user.email} 계정에는 관리자 권한이 없습니다.`}</p>
         <button onClick={() => void signOut()} className="mt-6 underline">로그아웃</button>
       </AdminShell>
     );

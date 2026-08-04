@@ -5,7 +5,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$WorkerVersion = "2.1.0"
+$WorkerVersion = "2.2.0"
 
 function Get-WorkerSetting {
   param(
@@ -85,6 +85,32 @@ function Invoke-WorkerApi {
     -Body ($payload | ConvertTo-Json -Depth 10 -Compress)
 }
 
+function Get-FontInventoryFingerprint {
+  $fontNames = New-Object System.Collections.Generic.List[string]
+  foreach ($registryPath in @(
+    "Registry::HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Fonts",
+    "Registry::HKEY_CURRENT_USER\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Fonts"
+  )) {
+    if (-not (Test-Path -LiteralPath $registryPath)) { continue }
+    $properties = Get-ItemProperty -LiteralPath $registryPath -ErrorAction SilentlyContinue
+    if (-not $properties) { continue }
+    foreach ($property in $properties.PSObject.Properties) {
+      if ($property.Name.StartsWith("PS")) { continue }
+      $fontNames.Add("$($property.Name)=$($property.Value)".ToLowerInvariant())
+    }
+  }
+  $inventory = (($fontNames | Sort-Object -Unique) -join "`n")
+  $sha = [System.Security.Cryptography.SHA256]::Create()
+  try {
+    $bytes = [System.Text.Encoding]::UTF8.GetBytes($inventory)
+    return ([BitConverter]::ToString($sha.ComputeHash($bytes))).Replace("-", "").ToLowerInvariant()
+  } finally {
+    $sha.Dispose()
+  }
+}
+
+$FontInventoryFingerprint = Get-FontInventoryFingerprint
+
 function Send-Heartbeat {
   param(
     [string]$Status = "online",
@@ -92,6 +118,7 @@ function Send-Heartbeat {
     [string]$Message = $null,
     [string]$PowerPointVersion = $null
   )
+  $script:FontInventoryFingerprint = Get-FontInventoryFingerprint
   $payload = @{
     status = $Status
     currentJobId = $CurrentJobId
@@ -101,6 +128,7 @@ function Send-Heartbeat {
     workerVersion = $WorkerVersion
     workerId = $WorkerId
     workerName = $WorkerName
+    fontInventoryFingerprint = $script:FontInventoryFingerprint
   }
   Invoke-WorkerApi -Path "/api/worker/heartbeat" -Body $payload | Out-Null
 }
@@ -120,7 +148,8 @@ function Start-JobHeartbeat {
       [string]$HeartbeatJobId,
       [string]$HeartbeatComputerName,
       [string]$HeartbeatWorkerVersion,
-      [string]$HeartbeatPowerPointVersion
+      [string]$HeartbeatPowerPointVersion,
+      [string]$HeartbeatFontInventoryFingerprint
     )
 
     while ($true) {
@@ -135,6 +164,7 @@ function Start-JobHeartbeat {
           workerVersion = $HeartbeatWorkerVersion
           workerId = $HeartbeatWorkerId
           workerName = $HeartbeatWorkerName
+          fontInventoryFingerprint = $HeartbeatFontInventoryFingerprint
         }
         $headers = @{
           Authorization = "Bearer $HeartbeatSecret"
@@ -166,7 +196,8 @@ function Start-JobHeartbeat {
       $JobId,
       $env:COMPUTERNAME,
       $WorkerVersion,
-      $PowerPointVersion
+      $PowerPointVersion,
+      $FontInventoryFingerprint
     )
 }
 
@@ -728,6 +759,7 @@ do {
             jobId = [string]$claim.job.id
             error = $message
             retryable = $retryable
+            fontInventoryFingerprint = $FontInventoryFingerprint
           } | Out-Null
         } catch {
           Write-WorkerLog "Could not report failure: $($_.Exception.Message)"

@@ -1,4 +1,6 @@
 import { createAdminClient } from "@/lib/supabase/admin";
+import { sanitizeGeneratedHtml, sanitizeInlineHtml } from "@/lib/security/html";
+import { generateGeminiText } from "@/lib/gemini/client";
 import { PORTFOLIO_WRITING_RULES } from "./portfolio-rules";
 import { FRIENDLY_EDITORIAL_STYLE_RULES } from "./editorial-style";
 import type { EditorialSlot } from "./types";
@@ -65,12 +67,6 @@ const AI_RESPONSE_TIMEOUT_MS = 90_000;
 function clean(value: string) {
   return value.replace(/<script[\s\S]*?<\/script>/gi, " ").replace(/<style[\s\S]*?<\/style>/gi, " ")
     .replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
-}
-
-function safeHtml(value: string) {
-  return value.replace(/<(script|style|iframe|object|embed)[\s\S]*?<\/\1>/gi, "")
-    .replace(/\son\w+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, "")
-    .replace(/javascript:/gi, "");
 }
 
 async function sourceSnapshot(source: Source) {
@@ -153,14 +149,12 @@ function recentContentSummary(existing: ComparableContent[]) {
 }
 
 async function requestTopicPlans({
-  apiKey,
   slot,
   sources,
   knowledge,
   existing,
   scheduleKey,
 }: {
-  apiKey: string;
   slot: EditorialSlot;
   sources: (Source & { snapshot: string })[];
   knowledge: ExpertKnowledge[];
@@ -222,26 +216,15 @@ JSON 객체만 반환한다.`;
     const retryInstruction = attempt
       ? "\n\n이전 주제 후보 응답은 JSON 문법 오류로 읽지 못했습니다. 후보를 처음부터 다시 만들고 JSON 객체 외에는 아무 글자도 반환하지 마세요."
       : "";
-    const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${apiKey}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [{ role: "user", parts: [{ text: `${prompt}${retryInstruction}` }] }],
-          generationConfig: {
-            responseMimeType: "application/json",
-            responseSchema: TOPIC_PLAN_SCHEMA,
-            maxOutputTokens: 6000,
-          },
-        }),
-        signal: AbortSignal.timeout(AI_RESPONSE_TIMEOUT_MS),
+    const { text: raw } = await generateGeminiText({
+      parts: [{ text: `${prompt}${retryInstruction}` }],
+      generationConfig: {
+        responseMimeType: "application/json",
+        responseSchema: TOPIC_PLAN_SCHEMA,
+        maxOutputTokens: 6000,
       },
-    );
-    if (!response.ok) throw new Error(`주제 기획 요청 실패: ${response.status}`);
-    const payload = await response.json();
-    const raw = payload.candidates?.[0]?.content?.parts
-      ?.map((part: { text?: string }) => part.text || "").join("")?.trim();
+      timeoutMs: AI_RESPONSE_TIMEOUT_MS,
+    });
     try {
       if (!raw) throw new Error("주제 기획 응답이 비어 있습니다.");
       const plans = parseTopicPlans(raw);
@@ -258,11 +241,9 @@ JSON 객체만 반환한다.`;
 }
 
 async function requestGeneratedContent({
-  apiKey,
   prompt,
   scheduleKey,
 }: {
-  apiKey: string;
   prompt: string;
   scheduleKey: string;
 }) {
@@ -275,26 +256,15 @@ async function requestGeneratedContent({
     const retryInstruction = attempt
       ? "\n\n이전 응답은 JSON 문법 오류로 읽지 못했습니다. 내용을 처음부터 다시 생성하고, JSON 객체 외에는 아무 글자도 반환하지 마세요."
       : "";
-    const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${apiKey}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [{ role: "user", parts: [{ text: `${prompt}${retryInstruction}` }] }],
-          generationConfig: {
-            responseMimeType: "application/json",
-            responseSchema: GENERATED_CONTENT_SCHEMA,
-            maxOutputTokens: 12000,
-          },
-        }),
-          signal: AbortSignal.timeout(AI_RESPONSE_TIMEOUT_MS),
+    const { text: raw } = await generateGeminiText({
+      parts: [{ text: `${prompt}${retryInstruction}` }],
+      generationConfig: {
+        responseMimeType: "application/json",
+        responseSchema: GENERATED_CONTENT_SCHEMA,
+        maxOutputTokens: 12000,
       },
-    );
-    if (!response.ok) throw new Error(`AI 생성 요청 실패: ${response.status}`);
-    const payload = await response.json();
-    const raw = payload.candidates?.[0]?.content?.parts
-      ?.map((part: { text?: string }) => part.text || "").join("")?.trim();
+      timeoutMs: AI_RESPONSE_TIMEOUT_MS,
+    });
     if (!raw) throw new Error("AI 응답이 비어 있습니다.");
     try {
       return parseGeneratedContent(raw);
@@ -416,7 +386,6 @@ export async function generateContentWorkItem(
   const requestedPlans = revisionNote && !options.forceNewTopic && priorRevisionPlan
     ? [contentPlanForRevision(priorRevisionPlan)]
     : await requestTopicPlans({
-      apiKey,
       slot,
       sources,
       knowledge,
@@ -449,6 +418,10 @@ export async function generateContentWorkItem(
       : `최근 글과 겹치지 않는 주제 후보가 없습니다.${strongest ? ` 가장 유사한 글: ${strongest.title}` : ""}`;
     const { data, error } = await admin.from("content_work_items").update({
       status: "on_hold",
+      retry_count: 0,
+      next_retry_at: null,
+      last_error_code: null,
+      last_error_context: {},
       review_note: `${missingKnowledge ? "원천자료 확인" : "중복 검사"} 보류: ${message}`,
       metadata: {
         ...storedMetadata,
@@ -498,11 +471,15 @@ export async function generateContentWorkItem(
     let repairInstruction = "";
     for (let repairAttempt = 0; repairAttempt < 2; repairAttempt += 1) {
       const generated = await requestGeneratedContent({
-        apiKey,
         prompt: `${basePrompt}${repairInstruction}`,
         scheduleKey,
       });
-      generated.bodyHtml = safeHtml(generated.bodyHtml || "");
+      generated.bodyHtml = sanitizeGeneratedHtml(generated.bodyHtml || "");
+      generated.faq = (generated.faq || []).map((faq) => ({
+        ...faq,
+        question: sanitizeInlineHtml(faq.question || ""),
+        answer: sanitizeInlineHtml(faq.answer || ""),
+      }));
       generated.usedKnowledgeIds = [...new Set(generated.usedKnowledgeIds || [])]
         .filter((id) => approvedKnowledgeIds.has(id) && plan.knowledgeIds.includes(id));
       const plainLength = clean(generated.bodyHtml).replace(/\s/g, "").length;
@@ -599,6 +576,10 @@ ${JSON.stringify(generated)}
     title: generated.title,
     summary: generated.summary || "",
     status,
+    retry_count: 0,
+    next_retry_at: null,
+    last_error_code: null,
+    last_error_context: {},
     review_note: status === "on_hold"
       ? `${novelty.duplicate ? "중복 검사" : "자동 검증"} 보류: ${issues.join(", ")}`
       : null,

@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import type { ColumnPost } from "./types";
+import { sanitizeGeneratedHtml } from "@/lib/security/html";
 
 function publicClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -45,10 +46,7 @@ export async function getPublishedColumn(slug: string): Promise<ColumnPost | nul
 }
 
 export function safeArticleHtml(html: string) {
-  return html
-    .replace(/<(script|style|iframe|object|embed|form)[\s\S]*?<\/\1>/gi, "")
-    .replace(/\son\w+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, "")
-    .replace(/\s(href|src)\s*=\s*(["'])\s*javascript:[\s\S]*?\2/gi, "");
+  return sanitizeGeneratedHtml(html);
 }
 
 export function metadataArray<T>(post: ColumnPost, key: string): T[] {

@@ -5,6 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { Bold, Heading2, Heading3, List, ListOrdered, Pilcrow, Save } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
+import { useAccess } from "@/hooks/useAccess";
 import type { ColumnKind, ColumnPost } from "@/lib/columns/types";
 
 type FormState = {
@@ -27,15 +28,16 @@ const EMPTY: FormState = {
 
 export default function EditColumnPage() {
   const { user, loading: authLoading } = useAuth();
+  const access = useAccess(Boolean(user));
   const params = useParams<{ id: string }>();
   const router = useRouter();
   const [form, setForm] = useState<FormState>(EMPTY);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const isAdmin = user?.email?.toLowerCase() === "miseong0928@gmail.com";
+  const isAdmin = access.admin;
 
   useEffect(() => {
-    if (!authLoading && isAdmin) {
+    if (!authLoading && !access.loading && isAdmin) {
       fetch(`/api/admin/columns/${params.id}`, { cache: "no-store" })
         .then(async (response) => {
           if (!response.ok) throw new Error("칼럼을 불러오지 못했습니다.");
@@ -56,7 +58,7 @@ export default function EditColumnPage() {
         .catch(() => router.push("/admin/columns"))
         .finally(() => setLoading(false));
     }
-  }, [authLoading, isAdmin, params.id, router]);
+  }, [access.loading, authLoading, isAdmin, params.id, router]);
 
   const save = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -74,8 +76,8 @@ export default function EditColumnPage() {
     else window.alert((await response.json()).error || "저장에 실패했습니다.");
   };
 
-  if (authLoading) return <Shell><p>로그인 상태를 확인하고 있습니다.</p></Shell>;
-  if (!isAdmin) return <Shell><p>관리자 권한이 없습니다.</p></Shell>;
+  if (authLoading || (Boolean(user) && access.loading)) return <Shell><p>로그인 상태를 확인하고 있습니다.</p></Shell>;
+  if (!isAdmin) return <Shell><p>{access.error || "관리자 권한이 없습니다."}</p></Shell>;
   if (loading) return <Shell><p>칼럼을 불러오는 중입니다.</p></Shell>;
 
   return (

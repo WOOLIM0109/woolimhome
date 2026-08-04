@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { authenticatedAdmin, contentAdmin } from "@/lib/content-ops/data";
+import { sanitizeWorkItemMetadata } from "@/lib/security/html";
 
 export const dynamic = "force-dynamic";
 
@@ -18,7 +19,11 @@ export async function GET(request: Request) {
 
   const { data, error } = await query;
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json(data, { headers: { "Cache-Control": "private, no-store", Vary: "Cookie" } });
+  const items = (data || []).map((item) => ({
+    ...item,
+    metadata: sanitizeWorkItemMetadata(item.metadata),
+  }));
+  return NextResponse.json(items, { headers: { "Cache-Control": "private, no-store", Vary: "Cookie" } });
 }
 
 export async function POST(request: Request) {
@@ -37,7 +42,7 @@ export async function POST(request: Request) {
     source_label: body.source_label || null,
     source_reference: body.source_reference || null,
     scheduled_at: body.scheduled_at || null,
-    metadata: body.metadata || {},
+    metadata: sanitizeWorkItemMetadata(body.metadata || {}),
     created_by: user.email,
   }).select().single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
