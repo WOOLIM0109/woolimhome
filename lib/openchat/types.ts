@@ -51,6 +51,7 @@ export type OpenchatProgram = {
   applicant_summary: string;
   support_summary: string;
   application_method: string;
+  application_period_text: string;
   source_url: string;
   starts_at: string | null;
   deadline_at: string | null;
@@ -86,4 +87,3 @@ export type OpenchatCronTask =
   | "afternoon-draft"
   | "afternoon-cutoff"
   | "afternoon-ready";
-

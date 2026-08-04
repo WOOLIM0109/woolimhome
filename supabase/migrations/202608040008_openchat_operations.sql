@@ -26,6 +26,7 @@ create table if not exists public.openchat_programs (
   applicant_summary text not null default '',
   support_summary text not null default '',
   application_method text not null default '',
+  application_period_text text not null default '',
   source_url text not null,
   starts_at timestamptz,
   deadline_at timestamptz,

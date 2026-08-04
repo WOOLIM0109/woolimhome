@@ -152,6 +152,7 @@ async function collectMorningPrograms(date: string) {
       applicant_summary: program.applicantSummary,
       support_summary: program.supportSummary,
       application_method: program.applicationMethod,
+      application_period_text: program.applicationPeriodText,
       source_url: program.url,
       starts_at: program.startsAt || null,
       deadline_at: program.deadlineAt || null,

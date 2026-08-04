@@ -26,6 +26,22 @@ function statusClass(status: string) {
   return "bg-amber-50 text-amber-900";
 }
 
+function toKstDateTimeInput(value: string | null) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.valueOf())) return "";
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Seoul", year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", hourCycle: "h23",
+  }).formatToParts(date);
+  const part = (type: Intl.DateTimeFormatPartTypes) => parts.find((item) => item.type === type)?.value || "";
+  return `${part("year")}-${part("month")}-${part("day")}T${part("hour")}:${part("minute")}`;
+}
+
+function fromKstDateTimeInput(value: string) {
+  return value ? new Date(`${value}:00+09:00`).toISOString() : null;
+}
+
 export default function OpenchatOperations() {
   const [tab, setTab] = useState<Tab>("morning");
   const [date, setDate] = useState(todayKst);
@@ -203,6 +219,12 @@ export default function OpenchatOperations() {
               <button onClick={() => void copy(formatMorningPost(selectedPrograms, date))} disabled={!selectedPrograms.length} className="inline-flex items-center gap-2 rounded-xl border border-orange-300 bg-white px-4 py-3 text-sm font-bold disabled:opacity-50"><Clipboard size={16} /> 게시문 복사</button>
             </div>
           </div>
+          {selectedPrograms.length > 0 && (
+            <details className="mt-5 rounded-2xl border border-[var(--line)] bg-white p-5">
+              <summary className="cursor-pointer font-bold">카카오톡 게시문 통합 미리보기 · {selectedPrograms.length}건</summary>
+              <pre className="mt-5 max-h-[720px] overflow-auto whitespace-pre-wrap rounded-xl bg-[#fff7f1] p-5 text-sm leading-7">{formatMorningPost(selectedPrograms, date)}</pre>
+            </details>
+          )}
           {!programs.length ? <p className="mt-5 rounded-xl border border-dashed border-[var(--line)] bg-white p-8 text-center text-sm text-[var(--muted)]">이 날짜의 수집 공고가 없습니다.</p> : (
             <div className="mt-5 space-y-4">
               {programs.map((program, index) => (
@@ -220,7 +242,13 @@ export default function OpenchatOperations() {
                     <label className="text-xs font-bold text-[var(--muted)]">접수방법<input className="input mt-1" value={program.application_method} onChange={(event) => setPrograms((current) => current.map((item) => item.id === program.id ? { ...item, application_method: event.target.value } : item))} /></label>
                     <label className="text-xs font-bold text-[var(--muted)]">우선순위<input type="number" className="input mt-1" value={program.priority} onChange={(event) => setPrograms((current) => current.map((item) => item.id === program.id ? { ...item, priority: Number(event.target.value) } : item))} /></label>
                   </div>
-                  <a href={program.source_url} target="_blank" rel="noreferrer" className="mt-4 inline-flex items-center gap-2 break-all text-sm font-bold text-[var(--primary)]">원문 열기 <ExternalLink size={15} /></a>
+                  <div className="mt-4 grid gap-3 lg:grid-cols-2">
+                    <label className="text-xs font-bold text-[var(--muted)]">신청 시작<input type="datetime-local" className="input mt-1" value={toKstDateTimeInput(program.starts_at)} onChange={(event) => setPrograms((current) => current.map((item) => item.id === program.id ? { ...item, starts_at: fromKstDateTimeInput(event.target.value) } : item))} /></label>
+                    <label className="text-xs font-bold text-[var(--muted)]">신청 마감<input type="datetime-local" className="input mt-1" value={toKstDateTimeInput(program.deadline_at)} onChange={(event) => setPrograms((current) => current.map((item) => item.id === program.id ? { ...item, deadline_at: fromKstDateTimeInput(event.target.value) } : item))} /></label>
+                  </div>
+                  <label className="mt-4 block text-xs font-bold text-[var(--muted)]">신청기간 직접표기<input className="input mt-1" placeholder="상시접수·예산소진 등 날짜 대신 쓸 문구" value={program.application_period_text || ""} onChange={(event) => setPrograms((current) => current.map((item) => item.id === program.id ? { ...item, application_period_text: event.target.value } : item))} /></label>
+                  <label className="mt-4 block text-xs font-bold text-[var(--muted)]">원문 링크<input className="input mt-1" value={program.source_url} onChange={(event) => setPrograms((current) => current.map((item) => item.id === program.id ? { ...item, source_url: event.target.value } : item))} /></label>
+                  <a href={program.source_url} target="_blank" rel="noreferrer" className="mt-3 inline-flex items-center gap-2 break-all text-sm font-bold text-[var(--primary)]">원문 열기 <ExternalLink size={15} /></a>
                   <div className="mt-5 flex flex-wrap gap-2 border-t border-[var(--line)] pt-4">
                     <button onClick={() => void saveProgram(program)} className="inline-flex items-center gap-2 rounded-xl border border-[var(--line)] px-4 py-2 text-sm font-bold"><Save size={15} /> 수정 저장</button>
                     <button onClick={() => void saveProgram(program, "approved")} className="inline-flex items-center gap-2 rounded-xl bg-emerald-700 px-4 py-2 text-sm font-bold text-white"><Check size={15} /> 승인</button>

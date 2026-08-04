@@ -64,6 +64,7 @@ export type ProgramAnalysis = {
   applicantSummary: string;
   supportSummary: string;
   applicationMethod: string;
+  applicationPeriodText: string;
   startsAt?: string | null;
   deadlineAt?: string | null;
   regions: string[];
@@ -104,6 +105,7 @@ function fallbackProgramAnalysis(program: CollectedProgram): ProgramAnalysis {
     applicantSummary: `- ${applicant}`,
     supportSummary: `- ${purpose}`,
     applicationMethod: program.applicationMethod || "접수방법은 원문 공고문 참조",
+    applicationPeriodText: payload.rcritEndChk === "Y" ? "-공고일로부터 예산 소진 시까지" : "",
     startsAt: program.startsAt,
     deadlineAt: program.deadlineAt,
     regions: [region],
@@ -123,6 +125,7 @@ export async function analyzePrograms(programs: CollectedProgram[]) {
       applicantSummary: "- 신청 대상은 공고문 확인이 필요합니다.",
       supportSummary: "- 지원 내용은 공고문 확인이 필요합니다.",
       applicationMethod: program.applicationMethod || "접수방법은 공고문 참조",
+      applicationPeriodText: "",
       startsAt: program.startsAt,
       deadlineAt: program.deadlineAt,
       regions: [],
@@ -164,7 +167,7 @@ export async function analyzePrograms(programs: CollectedProgram[]) {
 priority는 중앙정부 10, 전국 20, 부산 30, 울산 35, 경남 40, 그 외 100을 기준으로 중요도를 반영하세요.
 
 반환 형식:
-{"programs":[{"index":0,"keep":true,"exclusionReason":"","applicantSummary":"- ...","supportSummary":"- ...","applicationMethod":"온라인 접수","startsAt":null,"deadlineAt":null,"regions":["전국"],"categories":["창업","사업화"],"priority":20}]}
+{"programs":[{"index":0,"keep":true,"exclusionReason":"","applicantSummary":"- ...","supportSummary":"- ...","applicationMethod":"온라인 접수","applicationPeriodText":"공고일로부터 상시접수","startsAt":null,"deadlineAt":null,"regions":["전국"],"categories":["창업","사업화"],"priority":20}]}
 
 후보:
 ${JSON.stringify(compact)}`) as { programs?: Array<Record<string, unknown>> };
@@ -186,6 +189,7 @@ ${JSON.stringify(compact)}`) as { programs?: Array<Record<string, unknown>> };
       applicantSummary: String(row.applicantSummary || "- 신청 대상은 공고문을 확인해 주세요."),
       supportSummary: String(row.supportSummary || "- 지원 내용은 공고문을 확인해 주세요."),
       applicationMethod: String(row.applicationMethod || original.applicationMethod || "접수방법은 공고문 참조"),
+      applicationPeriodText: String(row.applicationPeriodText || ""),
       startsAt: typeof row.startsAt === "string" ? row.startsAt : original.startsAt,
       deadlineAt: typeof row.deadlineAt === "string" ? row.deadlineAt : original.deadlineAt,
       regions: Array.isArray(row.regions) ? row.regions.map(String) : [],

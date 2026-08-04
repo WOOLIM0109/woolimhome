@@ -38,7 +38,7 @@ export async function PATCH(request: Request) {
     return NextResponse.json({ error: "지원하지 않는 상태입니다." }, { status: 400 });
   }
   const allowed = [
-    "title", "applicant_summary", "support_summary", "application_method", "source_url",
+    "title", "applicant_summary", "support_summary", "application_method", "application_period_text", "source_url",
     "starts_at", "deadline_at", "regions", "categories", "priority", "draft_for",
     "status", "review_note", "exclusion_reason",
   ];

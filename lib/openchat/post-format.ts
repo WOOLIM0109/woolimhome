@@ -5,15 +5,27 @@ function formatKoreanDate(value?: string | null) {
   if (!value) return "공고문 참조";
   const date = new Date(value);
   if (Number.isNaN(date.valueOf())) return value;
-  return new Intl.DateTimeFormat("ko-KR", {
+  const parts = new Intl.DateTimeFormat("ko-KR", {
     timeZone: "Asia/Seoul",
     year: "numeric",
-    month: "long",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
+    month: "2-digit",
+    day: "2-digit",
+    weekday: "short",
+    hour: "2-digit", minute: "2-digit", hourCycle: "h23",
     hour12: false,
-  }).format(date);
+  }).formatToParts(date);
+  const valueOf = (type: Intl.DateTimeFormatPartTypes) => parts.find((part) => part.type === type)?.value || "";
+  return `${valueOf("year")}년 ${valueOf("month")}월 ${valueOf("day")}일 (${valueOf("weekday")}) ${valueOf("hour")}:${valueOf("minute")}`;
+}
+
+function formatApplicationPeriod(program: OpenchatProgram) {
+  if (program.application_period_text?.trim()) return program.application_period_text.trim();
+  if (program.starts_at && program.deadline_at) {
+    return `-${formatKoreanDate(program.starts_at)} ~ ${formatKoreanDate(program.deadline_at)} 까지`;
+  }
+  if (program.starts_at) return `-${formatKoreanDate(program.starts_at)} 부터`;
+  if (program.deadline_at) return `-${formatKoreanDate(program.deadline_at)} 까지`;
+  return "-공고문 참조";
 }
 
 export function formatMorningPost(programs: OpenchatProgram[], date: string) {
@@ -37,7 +49,7 @@ ${program.source_url}
 ${program.application_method || "접수방법은 공고문 참조"}
 
 ◾신청기간
-${program.starts_at ? `${formatKoreanDate(program.starts_at)} ~ ` : ""}${formatKoreanDate(program.deadline_at)}까지
+${formatApplicationPeriod(program)}
 
 -----------------------------------------`);
   return `${header}\n\n${entries.join("\n\n")}`.trim();
@@ -46,4 +58,3 @@ ${program.starts_at ? `${formatKoreanDate(program.starts_at)} ~ ` : ""}${formatK
 export function formatAfternoonPost(draft: OpenchatContentDraft) {
   return `${draft.body.trim()}\n\n${CONSULTATION_FOOTER}`.trim();
 }
-
