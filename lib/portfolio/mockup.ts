@@ -1,5 +1,6 @@
 import sharp from "sharp";
 import path from "node:path";
+import { access } from "node:fs/promises";
 import { contentAdmin } from "@/lib/content-ops/data";
 import type { PortfolioVisualReview, SensitiveRegion } from "./visual-review";
 
@@ -22,7 +23,14 @@ export type GeneratedPortfolioAsset = {
 };
 
 const CANVAS = { width: 1600, height: 1000 };
-const thumbnailFontPath = path.join(process.cwd(), "public", "fonts", "Paperlogy-7Bold.ttf");
+const thumbnailTitleFontPath = path.join(process.cwd(), "public", "fonts", "Paperlogy-8ExtraBold.ttf");
+const thumbnailTemplatePath = path.join(
+  process.cwd(),
+  "public",
+  "images",
+  "content-ops",
+  "portfolio-thumbnail-template.png",
+);
 
 function assetUrl(bucket: string, path: string) {
   return `/api/admin/assets?bucket=${encodeURIComponent(bucket)}&path=${encodeURIComponent(path)}`;
@@ -181,10 +189,10 @@ function escapeXml(value: string) {
 
 function thumbnailTitleLines(value: string) {
   const compact = value
-    .split(/[:,]/)[0]
     .replace(/\s+/g, " ")
     .trim()
-    .slice(0, 34);
+    .slice(0, 36)
+    .replace(/\b3d\b/gi, "3D");
   if (!compact) return ["비즈니스 문서", "디자인 포트폴리오"];
   if (compact.length <= 16) return [compact];
   const words = compact.split(" ");
@@ -208,87 +216,68 @@ function thumbnailTitleLines(value: string) {
     .filter(Boolean);
 }
 
-async function thumbnailText(
-  text: string,
-  width: number,
-  height: number,
-  fontSize: number,
-  color: string,
-) {
-  return sharp({
+async function thumbnailTitle(text: string) {
+  const lines = thumbnailTitleLines(text);
+  const longestLine = Math.max(...lines.map((line) => line.length));
+  const fontSize = longestLine <= 13 ? 80 : longestLine <= 16 ? 72 : 64;
+  const width = 760;
+  const height = 160;
+  const textImage = await sharp({
     text: {
-      text: `<span foreground="${color}" font_desc="Paperlogy ${fontSize}">${escapeXml(text)}</span>`,
+      text: `<span foreground="#ffffff" font_desc="Paperlogy ExtraBold ${fontSize}">${escapeXml(lines.join("\n"))}</span>`,
       font: "Paperlogy",
-      fontfile: thumbnailFontPath,
+      fontfile: thumbnailTitleFontPath,
       width,
       height,
+      spacing: Math.max(30, Math.round(fontSize * 0.475)),
       align: "center",
       rgba: true,
     },
   }).png().toBuffer();
+  const gradient = Buffer.from(`<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
+    <defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="0">
+      <stop stop-color="#f15b24"/>
+      <stop offset=".7" stop-color="#f36b2a"/>
+      <stop offset="1" stop-color="#ffb27d"/>
+    </linearGradient></defs>
+    <rect width="${width}" height="${height}" fill="url(#g)"/>
+  </svg>`);
+  return {
+    buffer: await sharp(gradient)
+      .composite([{ input: textImage, blend: "dest-in" }])
+      .png()
+      .toBuffer(),
+    top: lines.length === 1 ? 368 : 328,
+  };
 }
 
-function portfolioThumbnailSvg() {
-  return Buffer.from(`<svg width="1080" height="1080" xmlns="http://www.w3.org/2000/svg">
-    <defs>
-      <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
-        <stop stop-color="#ffd3bd"/>
-        <stop offset=".52" stop-color="#ff9a67"/>
-        <stop offset="1" stop-color="#ff7049"/>
-      </linearGradient>
-      <linearGradient id="orange" x1="0" y1="0" x2="1" y2="0">
-        <stop stop-color="#f05a17"/>
-        <stop offset="1" stop-color="#ff7a2f"/>
-      </linearGradient>
-      <radialGradient id="blob" cx="35%" cy="30%">
-        <stop stop-color="#ffd3f1"/>
-        <stop offset="1" stop-color="#ff8cab"/>
-      </radialGradient>
-      <filter id="soft" x="-30%" y="-30%" width="160%" height="160%">
-        <feGaussianBlur stdDeviation="22"/>
-      </filter>
-      <filter id="panelShadow" x="-20%" y="-20%" width="140%" height="150%">
-        <feDropShadow dx="0" dy="18" stdDeviation="22" flood-color="#c74318" flood-opacity=".22"/>
-      </filter>
-    </defs>
-    <rect width="1080" height="1080" fill="#ffffff"/>
-    <rect x="10" y="10" width="1060" height="1060" rx="42" fill="url(#bg)"/>
-    <circle cx="95" cy="220" r="150" fill="url(#blob)" filter="url(#soft)" opacity=".78"/>
-    <circle cx="1000" cy="125" r="145" fill="#ffd9f1" filter="url(#soft)" opacity=".86"/>
-    <circle cx="1005" cy="975" r="185" fill="#ffbe76" filter="url(#soft)" opacity=".8"/>
-    <circle cx="70" cy="955" r="170" fill="#ff8b6d" filter="url(#soft)" opacity=".72"/>
-    <rect x="55" y="75" width="970" height="950" rx="42" fill="#ffffff" filter="url(#panelShadow)"/>
-    <path d="M97 75h886a42 42 0 0 1 42 42v116H55V117a42 42 0 0 1 42-42z" fill="url(#orange)"/>
-    <rect x="185" y="250" width="710" height="62" rx="31" fill="#fff0e9"/>
-    <circle cx="850" cy="281" r="9" fill="none" stroke="#f26a2b" stroke-width="4"/>
-    <path d="M857 288l10 10" stroke="#f26a2b" stroke-width="4" stroke-linecap="round"/>
+async function thumbnailCover(slide: LoadedSlide) {
+  const width = 778;
+  const height = 439;
+  const fitted = await fittedSlide(slide.buffer, width, height);
+  const mask = Buffer.from(`<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
+    <rect width="${width}" height="${height}" rx="7" fill="#ffffff"/>
   </svg>`);
+  return sharp(fitted)
+    .composite([{ input: mask, blend: "dest-in" }])
+    .png()
+    .toBuffer();
 }
 
 async function thumbnail(slide: LoadedSlide, title: string) {
-  const width = 1080;
-  const height = 1080;
-  const coverWidth = 650;
-  const coverHeight = Math.round(coverWidth / slide.aspectRatio);
-  const cover = await frame(slide.buffer, coverWidth, coverHeight, { radius: 8 });
-  const titleText = thumbnailTitleLines(title).join("\n");
-  const isRndProposal = title.startsWith("국책과제 선정을 돕는 R&D 제안서 디자인");
-  const [brand, descriptor, pill, heading] = await Promise.all([
-    thumbnailText("Woolim Company", 720, 44, 29, "#ffffff"),
-    thumbnailText("BUSINESS DOCUMENT DESIGN", 720, 28, 16, "#ffffff"),
-    thumbnailText("울림컴퍼니 Portfolio", 560, 38, 25, "#f26a2b"),
-    thumbnailText(titleText, 900, 150, isRndProposal ? 53 : 55, "#f15b20"),
+  try {
+    await Promise.all([access(thumbnailTemplatePath), access(thumbnailTitleFontPath)]);
+  } catch {
+    throw new Error("PSD 썸네일 템플릿 또는 Paperlogy-8ExtraBold 글꼴을 찾지 못했습니다.");
+  }
+  const [cover, heading] = await Promise.all([
+    thumbnailCover(slide),
+    thumbnailTitle(title),
   ]);
-  const headingMetadata = await sharp(heading).metadata();
-  const headingLeft = Math.round((width - (headingMetadata.width || 900)) / 2);
-  return sharp({ create: { width, height, channels: 3, background: "#24183a" } })
+  return sharp(thumbnailTemplatePath)
     .composite([
-      { input: portfolioThumbnailSvg(), left: 0, top: 0 },
-      { input: brand, left: 180, top: 102 },
-      { input: descriptor, left: 180, top: 151 },
-      { input: pill, left: 250, top: 262 },
-      { input: heading, left: headingLeft, top: 318 },
-      { input: cover, left: Math.round((width - coverWidth - 90) / 2), top: 465 },
+      { input: heading.buffer, left: 160, top: heading.top },
+      { input: cover, left: 154, top: 517 },
     ])
     .jpeg({ quality: 94, chromaSubsampling: "4:4:4" })
     .toBuffer();
