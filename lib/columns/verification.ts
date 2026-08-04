@@ -2,7 +2,7 @@ import type { ExpertKnowledge } from "./types";
 
 type VerificationTextField = "raw_text" | "perspective" | "case_evidence" | "differentiator";
 
-export type VerificationKind = "official" | "privacy";
+export type VerificationKind = "official" | "privacy" | "editorial";
 
 export type VerificationImportItem = {
   type: VerificationKind;
@@ -32,8 +32,9 @@ const TEXT_FIELDS: VerificationTextField[] = [
 
 const OFFICIAL_PENDING = /\[(?:발행 전\s*)?공식 확인 필요(?:\s*:\s*([^\]]+))?\]/g;
 const PRIVACY_PENDING = /\[익명화 필요(?:\s*:\s*([^\]]+))?\]/g;
-const COMPLETED_MARKER = /\[(?:공식 확인|익명화) 완료:\s*(\d{4}-\d{2}-\d{2})(?:\s*\|\s*[^\]]+)?\]/g;
-const ANY_CONTROL_MARKER = /\[(?:(?:발행 전\s*)?공식 확인 필요|익명화 필요)(?:\s*:\s*[^\]]+)?\]|\[(?:공식 확인|익명화) 완료:\s*\d{4}-\d{2}-\d{2}(?:\s*\|\s*[^\]]+)?\]/g;
+const EDITORIAL_PENDING = /\[([^\[\]\n:]{1,40})\s*확인 필요(?:\s*:\s*([^\]]+))?\]/g;
+const COMPLETED_MARKER = /\[(?:공식 확인|익명화|[^\[\]\n:]{1,40}\s*확인) 완료:\s*(\d{4}-\d{2}-\d{2})(?:\s*\|\s*[^\]]+)?\]/g;
+const ANY_CONTROL_MARKER = /\[(?:(?:발행 전\s*)?공식 확인 필요|익명화 필요|[^\[\]\n:]{1,40}\s*확인 필요)(?:\s*:\s*[^\]]+)?\]|\[(?:공식 확인|익명화|[^\[\]\n:]{1,40}\s*확인) 완료:\s*\d{4}-\d{2}-\d{2}(?:\s*\|\s*[^\]]+)?\]/g;
 
 function combinedText(item: Pick<ExpertKnowledge, VerificationTextField>) {
   return TEXT_FIELDS.map((field) => item[field]).filter(Boolean).join("\n");
@@ -67,11 +68,13 @@ function inferredOfficialItems(value: string): VerificationChecklistItem[] {
     label: string;
     instruction: string;
     pattern: RegExp;
+    preferredPattern?: RegExp;
   }> = [
     {
       label: "제도·공고의 최신 운영 여부",
       instruction: "해당 제도와 사업이 현재도 운영되는지, 명칭·대상·적용 조건이 달라지지 않았는지 공식 기관 자료로 확인하세요.",
       pattern: /정부|공공|벤처나라|지원사업|정책|제도|공고|기관|법령|규정|인증|TIPS|팁스/i,
+      preferredPattern: /벤처나라|지원사업|정책|제도|공고|법령|규정|인증|TIPS|팁스/i,
     },
     {
       label: "통계·수치의 공식 출처",
@@ -81,7 +84,7 @@ function inferredOfficialItems(value: string): VerificationChecklistItem[] {
     {
       label: "성과·사례의 사실관계",
       instruction: "선정·합격·수령·투자·매출 등 성과가 실제 자료와 일치하고 공개 가능한 표현인지 확인하세요.",
-      pattern: /선정|합격|수령|유치|투자|매출|지원금|성과|성공|증가|감소|달성/i,
+      pattern: /선정|합격|수령|유치|투자금|매출|지원금|실적|성공|증가|감소|달성/i,
     },
     {
       label: "기간·대상·지원 조건",
@@ -91,9 +94,25 @@ function inferredOfficialItems(value: string): VerificationChecklistItem[] {
   ];
 
   return rules.flatMap((rule) => {
-    const excerpt = sourceSentences.find((sentence) => rule.pattern.test(sentence));
+    const excerpt = (rule.preferredPattern && sourceSentences.find((sentence) => rule.preferredPattern?.test(sentence)))
+      || sourceSentences.find((sentence) => rule.pattern.test(sentence));
     return excerpt ? [{ kind: "official" as const, label: rule.label, instruction: rule.instruction, excerpt }] : [];
   }).slice(0, 4);
+}
+
+function editorialItems(value: string) {
+  return [...value.matchAll(new RegExp(EDITORIAL_PENDING.source, EDITORIAL_PENDING.flags))]
+    .filter((match) => !/^(?:발행 전\s*)?공식$/.test(match[1].trim()))
+    .map((match): VerificationChecklistItem => {
+      const subject = compact(match[1], 40);
+      const detail = match[2]?.trim();
+      return {
+        kind: "editorial",
+        label: `${subject} 확인`,
+        instruction: "해당 표현이 공개용 콘텐츠에 적절한지, 과장·오해·부정적인 인상을 줄 가능성이 없는지 확인하세요.",
+        excerpt: detail ? compact(detail) : undefined,
+      };
+    });
 }
 
 function explicitItems(value: string, pattern: RegExp, kind: VerificationKind) {
@@ -116,10 +135,12 @@ export function getKnowledgeVerification(
   const text = combinedText(item);
   const officialPending = new RegExp(OFFICIAL_PENDING.source).test(text);
   const privacyPending = new RegExp(PRIVACY_PENDING.source).test(text);
+  const editorial = editorialItems(text);
+  const editorialPending = editorial.length > 0;
   const completedMatches = [...text.matchAll(new RegExp(COMPLETED_MARKER.source, COMPLETED_MARKER.flags))];
   const explicitOfficial = explicitItems(text, OFFICIAL_PENDING, "official");
   const explicitPrivacy = explicitItems(text, PRIVACY_PENDING, "privacy");
-  const items: VerificationChecklistItem[] = [...explicitOfficial, ...explicitPrivacy];
+  const items: VerificationChecklistItem[] = [...explicitOfficial, ...explicitPrivacy, ...editorial];
 
   if (officialPending && explicitOfficial.length === 0) items.push(...inferredOfficialItems(text));
   if (privacyPending && explicitPrivacy.length === 0) {
@@ -131,7 +152,7 @@ export function getKnowledgeVerification(
       excerpt: privacyExcerpt,
     });
   }
-  if ((officialPending || privacyPending) && items.length === 0) {
+  if ((officialPending || privacyPending || editorialPending) && items.length === 0) {
     items.push({
       kind: "official",
       label: "원문에 표시된 사실관계",
@@ -141,7 +162,7 @@ export function getKnowledgeVerification(
 
   const completedDates = completedMatches.map((match) => match[1]).sort();
   return {
-    pending: officialPending || privacyPending,
+    pending: officialPending || privacyPending || editorialPending,
     completed: completedMatches.length > 0,
     completedAt: completedDates.at(-1) || null,
     items: uniqueChecklist(items),
@@ -164,7 +185,12 @@ function completeMarkers(value: string | null, completedAt: string) {
     ))
     .replace(new RegExp(PRIVACY_PENDING.source, PRIVACY_PENDING.flags), (_match, detail?: string) => (
       `[익명화 완료: ${completedAt}${detail?.trim() ? ` | ${detail.trim()}` : ""}]`
-    ));
+    ))
+    .replace(new RegExp(EDITORIAL_PENDING.source, EDITORIAL_PENDING.flags), (match, subject?: string, detail?: string) => {
+      const normalizedSubject = subject?.trim();
+      if (!normalizedSubject || /^(?:발행 전\s*)?공식$/.test(normalizedSubject)) return match;
+      return `[${normalizedSubject} 확인 완료: ${completedAt}${detail?.trim() ? ` | ${detail.trim()}` : ""}]`;
+    });
 }
 
 export function verificationCompletionChanges(
