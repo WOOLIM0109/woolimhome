@@ -32,10 +32,16 @@ function firstJsonObject(value: string) {
 
 export async function generateGeminiJson<T>(
   parts: GeminiPart[],
-  options: { maxOutputTokens?: number; timeoutMs?: number } = {},
+  options: {
+    maxOutputTokens?: number;
+    timeoutMs?: number;
+    attempts?: number;
+    jsonAttempts?: number;
+  } = {},
 ) {
   let lastError: unknown;
-  for (let attempt = 0; attempt < 2; attempt += 1) {
+  const jsonAttempts = Math.max(1, Math.min(options.jsonAttempts || 2, 2));
+  for (let attempt = 0; attempt < jsonAttempts; attempt += 1) {
     const { text } = await generateGeminiText({
       parts: attempt
         ? [...parts, { text: "The previous response was invalid JSON. Return only one valid JSON object." }]
@@ -46,6 +52,7 @@ export async function generateGeminiJson<T>(
         temperature: attempt ? 0 : 0.2,
       },
       timeoutMs: options.timeoutMs,
+      attempts: options.attempts,
     });
     try {
       return JSON.parse(firstJsonObject(text)) as T;

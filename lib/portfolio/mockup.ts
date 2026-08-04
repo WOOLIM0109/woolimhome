@@ -3,6 +3,23 @@ import path from "node:path";
 import { access } from "node:fs/promises";
 import { contentAdmin } from "@/lib/content-ops/data";
 import type { PortfolioVisualReview, SensitiveRegion } from "./visual-review";
+import {
+  classifySlideAspect,
+  buildSixGridGroups,
+  portfolioMockupMode,
+  selectPortfolioSlides,
+  shortMockupRankedIndexes,
+  type SlideAspect,
+} from "./slide-selection";
+import {
+  renderShortDocumentMockups,
+  type SupportedShortMockupAspectClass,
+} from "./short-mockup";
+import { multiPageGridDimensions } from "./grid-layout";
+import {
+  findDuplicatePortfolioImage,
+  fingerprintPortfolioImage,
+} from "./image-fingerprint";
 
 type SharpOverlayOptions = Parameters<ReturnType<typeof sharp>["composite"]>[0][number];
 
@@ -10,6 +27,8 @@ type LoadedSlide = {
   index: number;
   buffer: Buffer;
   aspectRatio: number;
+  contentHash: string;
+  visualHash: string;
 };
 
 export type GeneratedPortfolioAsset = {
@@ -20,10 +39,12 @@ export type GeneratedPortfolioAsset = {
   caption: string;
   slideIndexes: number[];
   slideAspectRatio: number;
+  mockupMode?: "short_psd" | "six_grid";
+  aspectClass?: SlideAspect | "mixed";
 };
 
 const CANVAS = { width: 1600, height: 1000 };
-const thumbnailTitleFontPath = path.join(process.cwd(), "public", "fonts", "Paperlogy-8ExtraBold.ttf");
+const thumbnailTitleFontPath = path.join(process.cwd(), "public", "fonts", "Paperlogy-7Bold.ttf");
 const thumbnailTemplatePath = path.join(
   process.cwd(),
   "public",
@@ -46,19 +67,23 @@ function clampRegion(region: SensitiveRegion, width: number, height: number) {
 }
 
 async function redact(buffer: Buffer, regions: SensitiveRegion[]) {
-  if (!regions.length) return buffer;
   const oriented = await sharp(buffer).rotate().png().toBuffer({ resolveWithObject: true });
+  if (!regions.length) return oriented.data;
   const composites: SharpOverlayOptions[] = [];
   for (const region of regions) {
     const box = clampRegion(region, oriented.info.width, oriented.info.height);
     if (!box) continue;
-    const blurStrength = region.type === "body_text" ? 18 : region.type === "footer" ? 20 : 24;
+    const blurStrength = ["body_text", "small_text", "table_content", "chart_label"].includes(region.type)
+      ? 19
+      : region.type === "footer"
+        ? 21
+        : 26;
     const blurred = await sharp(oriented.data)
       .extract(box)
       .blur(blurStrength)
       .modulate({
-        brightness: region.type === "embedded_photo" ? 0.98 : 0.96,
-        saturation: region.type === "embedded_photo" ? 0.72 : 0.5,
+        brightness: ["embedded_photo", "screenshot"].includes(region.type) ? 0.98 : 0.96,
+        saturation: ["embedded_photo", "screenshot"].includes(region.type) ? 0.68 : 0.48,
       })
       .png()
       .toBuffer();
@@ -82,6 +107,7 @@ async function loadSlides(input: {
     const { data, error } = await contentAdmin().storage.from(input.bucket).download(path);
     if (error || !data) throw new Error(error?.message || `슬라이드 ${index + 1}을 읽지 못했습니다.`);
     const bytes = Buffer.from(await data.arrayBuffer());
+    const { contentHash, visualHash } = await fingerprintPortfolioImage(bytes);
     const buffer = await redact(
       bytes,
       input.sensitiveRegions.filter((region) => region.slideIndex === index),
@@ -94,6 +120,8 @@ async function loadSlides(input: {
       index,
       buffer,
       aspectRatio: metadata.width / metadata.height,
+      contentHash,
+      visualHash,
     });
   }
   return values;
@@ -102,17 +130,13 @@ async function loadSlides(input: {
 export function representativeSlideAspectRatio(slides: Pick<LoadedSlide, "aspectRatio">[]) {
   const ratios = slides
     .map((slide) => slide.aspectRatio)
-    .filter((ratio) => Number.isFinite(ratio) && ratio >= 1.2 && ratio <= 2.2)
+    .filter((ratio) => Number.isFinite(ratio) && ratio >= 0.55 && ratio <= 2.2)
     .sort((a, b) => a - b);
   if (!ratios.length) return 16 / 9;
   const middle = Math.floor(ratios.length / 2);
   return ratios.length % 2
     ? ratios[middle]
     : (ratios[middle - 1] + ratios[middle]) / 2;
-}
-
-function slideFrameHeight(width: number, slides: LoadedSlide[]) {
-  return Math.round(width / representativeSlideAspectRatio(slides));
 }
 
 async function fittedSlide(buffer: Buffer, width: number, height: number) {
@@ -282,7 +306,7 @@ async function thumbnailTitle(text: string) {
   const height = 160;
   const textImage = await sharp({
     text: {
-      text: `<span foreground="#ffffff" font_desc="Paperlogy ExtraBold ${fontSize}">${escapeXml(lines.join("\n"))}</span>`,
+      text: `<span foreground="#ffffff" font_desc="Paperlogy Bold ${fontSize}">${escapeXml(lines.join("\n"))}</span>`,
       font: "Paperlogy",
       fontfile: thumbnailTitleFontPath,
       width,
@@ -326,7 +350,7 @@ async function thumbnail(slide: LoadedSlide, title: string) {
   try {
     await Promise.all([access(thumbnailTemplatePath), access(thumbnailTitleFontPath)]);
   } catch {
-    throw new Error("PSD 썸네일 템플릿 또는 Paperlogy-8ExtraBold 글꼴을 찾지 못했습니다.");
+    throw new Error("PSD 썸네일 템플릿 또는 Paperlogy-7Bold 글꼴을 찾지 못했습니다.");
   }
   const [cover, heading] = await Promise.all([
     thumbnailCover(slide),
@@ -341,11 +365,19 @@ async function thumbnail(slide: LoadedSlide, title: string) {
     .toBuffer();
 }
 
+function assertVisuallyUniqueSlides(slides: LoadedSlide[]) {
+  const duplicate = findDuplicatePortfolioImage(slides);
+  if (!duplicate) return;
+  throw new Error(`같은 장표 이미지가 ${slides[duplicate.duplicatePosition].index + 1}번과 ${slides[duplicate.position].index + 1}번에 중복되어 목업 제작을 중단했습니다.`);
+}
+
 async function multiPageBoard(slides: LoadedSlide[], variant: number) {
   const selected = slides.slice(0, 6);
-  const columns = selected.length <= 4 ? 2 : 3;
-  const cardWidth = columns === 3 ? 430 : 620;
-  const cardHeight = slideFrameHeight(cardWidth, selected);
+  const dimensions = multiPageGridDimensions(
+    selected.length,
+    representativeSlideAspectRatio(selected),
+  );
+  const { columns, cardWidth, cardHeight } = dimensions;
   const frames = await Promise.all(selected.map((slide) =>
     frame(slide.buffer, cardWidth, cardHeight, { radius: 10 })));
   const frameWidth = cardWidth + 90;
@@ -376,22 +408,31 @@ async function multiPageBoard(slides: LoadedSlide[], variant: number) {
     .toBuffer();
 }
 
-function sectionGroups(length: number, groupCount = 5, groupSize = 6) {
-  const size = Math.min(groupSize, length);
-  const maxStart = Math.max(0, length - size);
-  return Array.from({ length: groupCount }, (_, groupIndex) => {
-    const start = groupCount === 1
-      ? 0
-      : Math.round((groupIndex * maxStart) / (groupCount - 1));
-    return Array.from({ length: size }, (__, offset) => start + offset);
+export function portfolioMockupIndexes(slideCount: number, review?: PortfolioVisualReview) {
+  const selection = review?.selection || selectPortfolioSlides({
+    slideCount,
+    assessments: review?.slideAssessments || [],
   });
+  const selectedIndexes = selection.selectedSlideIndexes
+    .filter((index) => index >= 0 && index < slideCount);
+  const mode = portfolioMockupMode(slideCount);
+  const groups = mode === "long" ? buildSixGridGroups(selectedIndexes) : [];
+  const indexes = [...new Set([0, ...selectedIndexes])];
+  return { mode, groups, indexes, selectedIndexes, selection };
 }
 
-export function portfolioMockupIndexes(slideCount: number) {
-  const groups = sectionGroups(slideCount);
-  const indexes = [...new Set([0, ...groups.flat()])]
-    .filter((index) => index >= 0 && index < slideCount);
-  return { groups, indexes };
+function aggregateAspectClass(slides: LoadedSlide[]) {
+  const classes = slides.map((slide) => classifySlideAspect(slide.aspectRatio));
+  const supported = classes.filter((value): value is SupportedShortMockupAspectClass => value !== "unknown");
+  if (!supported.length) return { aspectClass: "unknown" as const, primary: null };
+  const counts = new Map<SupportedShortMockupAspectClass, number>();
+  supported.forEach((value) => counts.set(value, (counts.get(value) || 0) + 1));
+  const primary = [...counts.entries()].sort((left, right) => right[1] - left[1])[0][0];
+  const distinct = new Set(classes);
+  return {
+    aspectClass: distinct.size > 1 ? "mixed" as const : primary,
+    primary,
+  };
 }
 
 async function uploadAsset(bucket: string, path: string, bytes: Buffer) {
@@ -410,20 +451,43 @@ export async function createPortfolioMockups(input: {
   review: PortfolioVisualReview;
   extraSensitiveRegions?: SensitiveRegion[];
 }) {
-  const { groups, indexes } = portfolioMockupIndexes(input.slidePaths.length);
+  const plan = portfolioMockupIndexes(input.slidePaths.length, input.review);
+  if (plan.mode === "insufficient") {
+    throw new Error("포트폴리오 목업은 최소 5장인 문서에서 만들 수 있습니다.");
+  }
   const slides = await loadSlides({
     bucket: input.bucket,
     slidePaths: input.slidePaths,
-    indexes,
+    indexes: plan.indexes,
     sensitiveRegions: [...input.review.sensitiveRegions, ...(input.extraSensitiveRegions || [])],
   });
-  if (slides.length < 4) throw new Error("다중 페이지 목업을 만들 슬라이드가 4장 미만입니다.");
+  if (slides.length < 5) throw new Error("다중 페이지 목업을 만들 장표가 5장 미만입니다.");
   const slideMap = new Map(slides.map((slide) => [slide.index, slide]));
-  const groupSlides = groups.map((group) => group
+  const selectedSlides = plan.selectedIndexes
+    .map((index) => slideMap.get(index))
+    .filter((slide): slide is LoadedSlide => Boolean(slide));
+  if (selectedSlides.length < 5) {
+    throw new Error("중복되지 않는 우수 장표가 5장 미만이라 목업 제작을 중단했습니다.");
+  }
+  const groupSlides = plan.groups.map((group) => group
     .map((index) => slideMap.get(index))
     .filter((slide): slide is LoadedSlide => Boolean(slide)));
-  const thumbnailSlide = slideMap.get(0) || groupSlides[0][0];
+  if (plan.mode === "long" && (
+    groupSlides.length < 3
+    || groupSlides.length > 5
+    || groupSlides.some((group) => group.length !== 6)
+  )) {
+    throw new Error("긴 문서 목업에 필요한 중복 없는 6장 묶음 3~5개를 완성하지 못했습니다.");
+  }
+  const thumbnailSlide = slideMap.get(0) || selectedSlides[0];
   if (!thumbnailSlide) throw new Error("대표 썸네일에 사용할 표지 장표가 없습니다.");
+  const aspect = aggregateAspectClass(selectedSlides);
+  const rankedShortSlides = plan.mode === "short"
+    ? shortMockupRankedIndexes(plan.selection, aspect.primary === "4:3" ? 13 : 14)
+      .map((index) => slideMap.get(index))
+      .filter((slide): slide is LoadedSlide => Boolean(slide))
+    : selectedSlides;
+  assertVisuallyUniqueSlides(plan.mode === "short" ? rankedShortSlides : selectedSlides);
   const captions = [
     "문서 도입부의 구성과 첫인상을 한눈에 보여주는 다중 페이지 목업",
     "초반부 정보 구조와 레이아웃의 반복 원칙을 비교하는 다중 페이지 목업",
@@ -432,14 +496,32 @@ export async function createPortfolioMockups(input: {
     "문서 후반부까지 이어지는 디자인 일관성을 확인하는 다중 페이지 목업",
   ];
 
-  const bodyOutputs = await Promise.all(groupSlides.map(async (group, index) => ({
-    kind: "body_image" as const,
-    name: `multi-page-${index + 1}.jpg`,
-    bytes: await multiPageBoard(group, index),
-    caption: captions[index],
-    slideIndexes: group.map((slide) => slide.index),
-    slideAspectRatio: representativeSlideAspectRatio(group),
-  })));
+  const bodyOutputs = plan.mode === "short"
+    ? await (async () => {
+      if (!aspect.primary) {
+        throw new Error("PPT 규격을 16:9, 4:3, A4 가로, A4 세로 중 하나로 판별하지 못했습니다.");
+      }
+      const result = await renderShortDocumentMockups({
+        deckSlideCount: input.slidePaths.length,
+        aspectClass: aspect.primary,
+        slides: rankedShortSlides.map((slide) => ({ index: slide.index, buffer: slide.buffer })),
+      });
+      return result.boards.map((board) => ({
+        ...board,
+        mockupMode: "short_psd" as const,
+        aspectClass: aspect.aspectClass,
+      }));
+    })()
+    : await Promise.all(groupSlides.map(async (group, index) => ({
+      kind: "body_image" as const,
+      name: `multi-page-${index + 1}.jpg`,
+      bytes: await multiPageBoard(group, index),
+      caption: captions[index],
+      slideIndexes: group.map((slide) => slide.index),
+      slideAspectRatio: representativeSlideAspectRatio(group),
+      mockupMode: "six_grid" as const,
+      aspectClass: aspect.aspectClass,
+    })));
   const outputs = [
     {
       kind: "thumbnail" as const,
@@ -451,6 +533,8 @@ export async function createPortfolioMockups(input: {
       caption: "문서의 여러 구간을 한 화면에 보여주는 포트폴리오 대표 이미지",
       slideIndexes: [thumbnailSlide.index],
       slideAspectRatio: thumbnailSlide.aspectRatio,
+      mockupMode: plan.mode === "short" ? "short_psd" as const : "six_grid" as const,
+      aspectClass: aspect.aspectClass,
     },
     ...bodyOutputs,
   ];
@@ -468,6 +552,8 @@ export async function createPortfolioMockups(input: {
       caption: output.caption,
       slideIndexes: output.slideIndexes,
       slideAspectRatio: output.slideAspectRatio,
+      mockupMode: output.mockupMode,
+      aspectClass: output.aspectClass,
     });
   }
   return assets;

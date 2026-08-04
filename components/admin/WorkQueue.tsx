@@ -7,6 +7,27 @@ import type { ContentChannel, WorkflowStatus } from "@/lib/content-ops/types";
 import { faqAnswerHtml, faqQuestionHtml } from "@/lib/content-ops/editorial-style";
 import { formatSentenceLineBreaks } from "@/lib/content-ops/sentence-line-breaks";
 
+type PortfolioMockupMode = "short_psd" | "six_grid";
+type PortfolioAspectClass = "16:9" | "4:3" | "a4_landscape" | "a4_portrait" | "mixed" | "unknown";
+type PortfolioRedactionStatus = "verified" | "blocked";
+
+type PortfolioMockupMetadata = {
+  mode?: PortfolioMockupMode;
+  bodyBoardCount?: number;
+  aspectClass?: PortfolioAspectClass;
+  selectedSlideIndexes?: number[];
+  selectionReasons?: string[];
+  redactionRegionCount?: number;
+  redactionCoverage?: number;
+  redactionStatus?: PortfolioRedactionStatus;
+};
+
+type LegacyPortfolioAsset = {
+  kind?: "thumbnail" | "body_image";
+  slideIndexes?: number[];
+  slideAspectRatio?: number;
+};
+
 type WorkItem = {
   id: string;
   title: string;
@@ -70,11 +91,192 @@ type WorkItem = {
       duplicateLegacyUrl?: boolean;
       duplicateOf?: string;
     };
+    portfolioMockup?: PortfolioMockupMetadata;
+    portfolioAssets?: LegacyPortfolioAsset[];
     redactionMode?: "standard" | "confidential";
     confidentialRegions?: unknown[];
   };
   content_review_assets?: { id: string; asset_type: "thumbnail" | "body_image" | "article_preview"; public_url: string; sort_order?: number; review_note?: string }[];
 };
+
+const mockupModeLabels: Record<PortfolioMockupMode, string> = {
+  short_psd: "짧은 문서 · PSD 목업",
+  six_grid: "긴 문서 · 6장 구성",
+};
+
+const aspectClassLabels: Record<PortfolioAspectClass, string> = {
+  "16:9": "16:9",
+  "4:3": "4:3",
+  a4_landscape: "A4 가로",
+  a4_portrait: "A4 세로",
+  mixed: "혼합 규격",
+  unknown: "규격 확인 필요",
+};
+
+function isMockupMode(value: unknown): value is PortfolioMockupMode {
+  return value === "short_psd" || value === "six_grid";
+}
+
+function isAspectClass(value: unknown): value is PortfolioAspectClass {
+  return value === "16:9"
+    || value === "4:3"
+    || value === "a4_landscape"
+    || value === "a4_portrait"
+    || value === "mixed"
+    || value === "unknown";
+}
+
+function isRedactionStatus(value: unknown): value is PortfolioRedactionStatus {
+  return value === "verified" || value === "blocked";
+}
+
+function safeSlideIndexes(value: unknown) {
+  if (!Array.isArray(value)) return [];
+  return [...new Set(value.filter((index): index is number => (
+    typeof index === "number" && Number.isInteger(index) && index >= 0
+  )))];
+}
+
+function safeReasons(value: unknown) {
+  if (!Array.isArray(value)) return [];
+  return value.filter((reason): reason is string => typeof reason === "string" && reason.trim().length > 0);
+}
+
+function classifyAspectRatio(ratio: number): Exclude<PortfolioAspectClass, "mixed"> {
+  if (Math.abs(ratio - 16 / 9) <= 0.08) return "16:9";
+  if (Math.abs(ratio - 4 / 3) <= 0.06) return "4:3";
+  if (Math.abs(ratio - Math.SQRT2) <= 0.06) return "a4_landscape";
+  if (Math.abs(ratio - 1 / Math.SQRT2) <= 0.05) return "a4_portrait";
+  return "unknown";
+}
+
+function legacyAspectClass(assets: LegacyPortfolioAsset[]): PortfolioAspectClass | undefined {
+  const aspectClasses = new Set(assets
+    .map((asset) => asset.slideAspectRatio)
+    .filter((ratio): ratio is number => typeof ratio === "number" && Number.isFinite(ratio) && ratio > 0)
+    .map(classifyAspectRatio));
+  if (!aspectClasses.size) return undefined;
+  if (aspectClasses.size > 1) return "mixed";
+  return [...aspectClasses][0];
+}
+
+function legacyMockupMode(assets: LegacyPortfolioAsset[]): PortfolioMockupMode | undefined {
+  const bodyAssets = assets.filter((asset) => asset.kind === "body_image");
+  if (bodyAssets.length >= 5 || bodyAssets.some((asset) => safeSlideIndexes(asset.slideIndexes).length >= 6)) {
+    return "six_grid";
+  }
+  if (bodyAssets.length === 4) return "short_psd";
+  return undefined;
+}
+
+function PortfolioMockupDetails({ metadata }: { metadata?: WorkItem["metadata"] }) {
+  if (!metadata) return null;
+
+  const mockup = metadata.portfolioMockup;
+  const legacyAssets = Array.isArray(metadata.portfolioAssets) ? metadata.portfolioAssets : [];
+  const legacySlideIndexes = safeSlideIndexes(legacyAssets.flatMap((asset) => safeSlideIndexes(asset.slideIndexes)));
+  const selectedSlideIndexes = safeSlideIndexes(mockup?.selectedSlideIndexes);
+  const selectedSlideCount = selectedSlideIndexes.length || legacySlideIndexes.length;
+  const bodyBoardCount = typeof mockup?.bodyBoardCount === "number"
+    && Number.isInteger(mockup.bodyBoardCount)
+    && mockup.bodyBoardCount >= 1
+    && mockup.bodyBoardCount <= 5
+    ? mockup.bodyBoardCount
+    : legacyAssets.filter((asset) => asset.kind === "body_image").length || undefined;
+  const selectionReasons = safeReasons(mockup?.selectionReasons);
+  const mode = isMockupMode(mockup?.mode) ? mockup.mode : legacyMockupMode(legacyAssets);
+  const aspectClass = isAspectClass(mockup?.aspectClass)
+    ? mockup.aspectClass
+    : legacyAspectClass(legacyAssets);
+  const canonicalRegionCount = typeof mockup?.redactionRegionCount === "number"
+    && Number.isFinite(mockup.redactionRegionCount)
+    && mockup.redactionRegionCount >= 0
+    ? Math.floor(mockup.redactionRegionCount)
+    : undefined;
+  const legacyRegionCount = Array.isArray(metadata.confidentialRegions)
+    ? metadata.confidentialRegions.length
+    : undefined;
+  const redactionRegionCount = canonicalRegionCount ?? legacyRegionCount;
+  const redactionCoverage = typeof mockup?.redactionCoverage === "number" && Number.isFinite(mockup.redactionCoverage)
+    ? Math.min(1, Math.max(0, mockup.redactionCoverage))
+    : undefined;
+  const redactionStatus = isRedactionStatus(mockup?.redactionStatus) ? mockup.redactionStatus : undefined;
+  const hasLegacyRedaction = !redactionStatus && metadata.redactionMode === "confidential";
+  const hasDetails = Boolean(
+    mode
+    || aspectClass
+    || selectedSlideCount
+    || bodyBoardCount
+    || selectionReasons.length
+    || redactionRegionCount !== undefined
+    || redactionCoverage !== undefined
+    || redactionStatus
+    || hasLegacyRedaction,
+  );
+
+  if (!hasDetails) return null;
+
+  return (
+    <section className="mt-5 rounded-xl border border-sky-200 bg-sky-50/60 p-4 text-sm">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="font-bold text-sky-950">포트폴리오 목업</span>
+        {mode && (
+          <span className="rounded-full bg-white px-3 py-1 text-xs font-bold text-sky-900">
+            {mockupModeLabels[mode]}
+          </span>
+        )}
+        {aspectClass && (
+          <span className="rounded-full bg-white px-3 py-1 text-xs font-bold text-sky-900">
+            규격 {aspectClassLabels[aspectClass]}
+          </span>
+        )}
+        {selectedSlideCount > 0 && (
+          <span className="rounded-full bg-white px-3 py-1 text-xs font-bold text-sky-900">
+            선정 장표 {selectedSlideCount}장
+          </span>
+        )}
+        {bodyBoardCount !== undefined && (
+          <span className="rounded-full bg-white px-3 py-1 text-xs font-bold text-sky-900">
+            본문 목업 {bodyBoardCount}장
+          </span>
+        )}
+        {redactionRegionCount !== undefined && (
+          <span className="rounded-full bg-white px-3 py-1 text-xs font-bold text-sky-900">
+            블러 {redactionRegionCount}곳
+          </span>
+        )}
+        {redactionCoverage !== undefined && (
+          <span className="rounded-full bg-white px-3 py-1 text-xs font-bold text-sky-900">
+            블러 범위 {Math.round(redactionCoverage * 100)}%
+          </span>
+        )}
+        {redactionStatus === "verified" && (
+          <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-bold text-emerald-800">
+            기밀 검수 통과
+          </span>
+        )}
+        {redactionStatus === "blocked" && (
+          <span className="rounded-full bg-red-100 px-3 py-1 text-xs font-bold text-red-800">
+            기밀 검수 보류
+          </span>
+        )}
+        {hasLegacyRedaction && (
+          <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-bold text-amber-900">
+            기존 기밀 블러 적용
+          </span>
+        )}
+      </div>
+      {selectionReasons.length > 0 && (
+        <details className="mt-3 text-[var(--muted)]">
+          <summary className="cursor-pointer font-bold text-sky-950">장표 선정 이유 {selectionReasons.length}개</summary>
+          <ul className="mt-2 list-disc space-y-1 pl-5">
+            {selectionReasons.map((reason, index) => <li key={`${index}-${reason}`}>{reason}</li>)}
+          </ul>
+        </details>
+      )}
+    </section>
+  );
+}
 
 export default function WorkQueue({ channel, reviewMode = false }: { channel?: ContentChannel; reviewMode?: boolean }) {
   const [items, setItems] = useState<WorkItem[]>([]);
@@ -183,15 +385,19 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
     setRebuildingId(item.id);
     setError("");
     try {
-      const response = await fetch(`/api/admin/content/${item.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "rebuild_portfolio" }),
-      });
-      const data = await response.json();
-      if (!response.ok) {
-        setError(data.error || "목업과 본문을 다시 만들지 못했습니다.");
-        return;
+      for (let attempt = 0; attempt < 6; attempt += 1) {
+        const response = await fetch(`/api/admin/content/${item.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "rebuild_portfolio" }),
+        });
+        const data = await response.json();
+        if (!response.ok) {
+          setError(data.error || "목업과 본문을 다시 만들지 못했습니다.");
+          return;
+        }
+        if (data.status !== "creating" || data.retryAt || data.alreadyRunning) break;
+        await new Promise((resolve) => window.setTimeout(resolve, 900));
       }
       await load();
     } finally {
@@ -203,18 +409,22 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
     setRebuildingImagesId(item.id);
     setError("");
     try {
-      const response = await fetch(`/api/admin/content/${item.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "rebuild_portfolio_mockups",
-          ...(redactionMode ? { redaction_mode: redactionMode } : {}),
-        }),
-      });
-      const data = await response.json();
-      if (!response.ok) {
-        setError(data.error || "목업 이미지를 다시 만들지 못했습니다.");
-        return;
+      for (let attempt = 0; attempt < 6; attempt += 1) {
+        const response = await fetch(`/api/admin/content/${item.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "rebuild_portfolio_mockups",
+            ...(redactionMode ? { redaction_mode: redactionMode } : {}),
+          }),
+        });
+        const data = await response.json();
+        if (!response.ok) {
+          setError(data.error || "새 규칙으로 목업과 본문을 다시 만들지 못했습니다.");
+          return;
+        }
+        if (data.status !== "creating" || data.retryAt || data.alreadyRunning) break;
+        await new Promise((resolve) => window.setTimeout(resolve, 900));
       }
       await load();
     } finally {
@@ -319,6 +529,7 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
               </p>
             </section>
           )}
+          <PortfolioMockupDetails metadata={item.metadata} />
           {item.metadata?.novelty && item.format !== "portfolio" && (
             <section className={`mt-5 rounded-xl border p-4 text-sm ${
               item.metadata.novelty.duplicate
@@ -499,7 +710,7 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
                     className="inline-flex items-center gap-2 rounded-xl border border-violet-200 bg-violet-50 px-3 py-2 text-xs font-bold text-violet-900 hover:bg-violet-100 disabled:cursor-wait disabled:opacity-60"
                   >
                     <RotateCcw size={15} className={rebuildingImagesId === item.id ? "animate-spin" : ""} />
-                    {rebuildingImagesId === item.id ? "목업 이미지 다시 만드는 중" : "목업 이미지만 다시 만들기"}
+                    {rebuildingImagesId === item.id ? "새 템플릿·본문 다시 만드는 중" : "새 템플릿·본문 전체 다시 만들기"}
                   </button>
                   <button
                     onClick={() => void rebuild(item)}
@@ -507,7 +718,7 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
                     className="inline-flex items-center gap-2 rounded-xl border border-[var(--line)] bg-white px-3 py-2 text-xs font-bold hover:bg-stone-50 disabled:cursor-wait disabled:opacity-60"
                   >
                     <RotateCcw size={15} className={rebuildingId === item.id ? "animate-spin" : ""} />
-                    {rebuildingId === item.id ? "목업·본문 다시 만드는 중" : "목업·본문 다시 만들기"}
+                    {rebuildingId === item.id ? "전체 규칙 다시 적용 중" : "현재 규칙으로 전체 다시 만들기"}
                   </button>
                 </>
               )}

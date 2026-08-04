@@ -20,6 +20,30 @@ type JobResult = {
   [key: string]: unknown;
 };
 
+function invalidatePortfolioMetadata(value: unknown, invalidatedAt: string) {
+  const metadata = value && typeof value === "object" && !Array.isArray(value)
+    ? { ...(value as Record<string, unknown>) }
+    : {};
+  for (const key of [
+    "generated",
+    "portfolioAssets",
+    "portfolioMockup",
+    "portfolioReview",
+    "portfolioSourceFingerprint",
+    "portfolioRuleVersion",
+    "validation",
+    "redactionMode",
+    "confidentialRegions",
+    "generatedAt",
+    "mockupOnlyRebuiltAt",
+    "draftRetryCompletedAt",
+  ]) {
+    delete metadata[key];
+  }
+  metadata.portfolioSourceInvalidatedAt = invalidatedAt;
+  return metadata;
+}
+
 function metadataValue(value: string) {
   return Buffer.from(value, "utf8").toString("base64");
 }
@@ -113,7 +137,7 @@ async function completePdfImageJob(
   const outputs = exportedFiles(cloudJob, "export-images")
     .filter((file) => /\.png$/i.test(file.filename) && file.url)
     .sort((a, b) => a.filename.localeCompare(b.filename, undefined, { numeric: true }))
-    .slice(0, 24);
+    .slice(0, 100);
   if (!outputs.length) throw new Error("PDF 페이지 이미지 변환 결과를 찾지 못했습니다.");
 
   const { data: downloads, error: downloadError } = await admin.from("content_jobs")
@@ -178,21 +202,62 @@ async function completePdfImageJob(
   }).eq("candidate_id", job.candidate_id)
     .in("job_type", ["font_check", "privacy_check"])
     .in("status", ["queued", "on_hold"]);
-  await admin.from("content_jobs").update({
+  const { data: currentWorkItem, error: workItemReadError } = await admin
+    .from("content_work_items")
+    .select("metadata")
+    .eq("id", job.work_item_id)
+    .maybeSingle();
+  if (workItemReadError) throw new Error(workItemReadError.message);
+  if (!currentWorkItem) throw new Error("The portfolio work item could not be found.");
+  const invalidatedMetadata = invalidatePortfolioMetadata(currentWorkItem.metadata, completedAt);
+  const { data: preInvalidatedWorkItem, error: preInvalidationError } = await admin
+    .from("content_work_items")
+    .update({
+      status: "creating",
+      review_note: null,
+      metadata: invalidatedMetadata,
+      updated_at: completedAt,
+    })
+    .eq("id", job.work_item_id)
+    .select("id")
+    .maybeSingle();
+  if (preInvalidationError) throw new Error(preInvalidationError.message);
+  if (!preInvalidatedWorkItem) throw new Error("The portfolio work item could not be invalidated.");
+  const { data: resetMockupJob, error: resetMockupError } = await admin.from("content_jobs").update({
     status: "queued",
+    attempts: 0,
+    next_retry_at: null,
+    last_error_code: null,
     payload: { waitsFor: "privacy_check", slidePaths, bucket },
+    result: {},
+    started_at: null,
+    completed_at: null,
+    error_message: null,
     updated_at: completedAt,
   }).eq("candidate_id", job.candidate_id)
     .eq("job_type", "mockup")
-    .in("status", ["on_hold", "failed"]);
+    .in("status", ["queued", "running", "completed", "on_hold", "failed"])
+    .select("id")
+    .maybeSingle();
+  if (resetMockupError) throw new Error(resetMockupError.message);
+  if (!resetMockupJob) throw new Error("The portfolio mockup job could not be reset.");
 
-  await admin.from("content_review_assets").delete().eq("work_item_id", job.work_item_id);
-  await admin.from("content_work_items").update({
+  const { error: reviewAssetsError } = await admin
+    .from("content_review_assets")
+    .delete()
+    .eq("work_item_id", job.work_item_id);
+  if (reviewAssetsError) throw new Error(reviewAssetsError.message);
+  const { data: invalidatedWorkItem, error: workItemError } = await admin.from("content_work_items").update({
     status: "creating",
     summary: `PDF 원본에서 ${slidePaths.length}장의 페이지를 정확히 변환했습니다. 실제 페이지 적합성 판정과 목업 제작을 이어서 진행합니다.`,
     review_note: null,
+    metadata: invalidatedMetadata,
     updated_at: completedAt,
-  }).eq("id", job.work_item_id);
+  }).eq("id", job.work_item_id)
+    .select("id")
+    .maybeSingle();
+  if (workItemError) throw new Error(workItemError.message);
+  if (!invalidatedWorkItem) throw new Error("The portfolio work item could not be invalidated.");
 
   return {
     candidateId: job.candidate_id,
