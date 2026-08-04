@@ -30,6 +30,12 @@ import {
   parseTopicPlans,
   TOPIC_PLAN_SCHEMA,
 } from "./topic-planning";
+import {
+  knowledgeAreasForChannel,
+  knowledgeFormatLabel,
+  knowledgeRequiredForSlot,
+  mostRelevantKnowledgeId,
+} from "./knowledge-routing";
 
 type Source = {
   name: string;
@@ -86,6 +92,7 @@ function promptFor(
   knowledge: ExpertKnowledge[],
   revision?: { note: string; previous?: GeneratedContent },
 ) {
+  const requiresKnowledge = knowledgeRequiredForSlot(slot);
   const designRules = slot.channel === "naver_design" ? `
 이 글은 디자인 블로그 전용이다. 주제는 PPT·PDF·비즈니스 문서 기획, 정보 구조, 레이아웃, 가독성, 시각화, 디자인 시스템 중에서만 고른다.
 정부지원사업·정책자금·기업인증·대출·지원금은 제목과 중심 주제로 사용할 수 없다.
@@ -93,8 +100,8 @@ function promptFor(
 포트폴리오 사례처럼 쓰지 말고, 공식 디자인 자료를 실무자가 적용할 수 있도록 해설하는 기획·디자인 인사이트로 작성한다.
 제목에 채널명이나 [naver_design] 같은 내부 표기를 넣지 않는다.` : "";
   const channel = slot.channel === "naver_design" ? "PPT·PDF·디자인·비즈니스 문서" : "종합 경영컨설팅";
-  const formatRules = slot.format === "authority" ? `
-이 글은 울림 콘텐츠형이다. 승인된 울림 원천자료가 글의 중심이어야 한다.
+  const formatRules = requiresKnowledge ? `
+이 글은 ${knowledgeFormatLabel(slot)}이다. 승인된 울림 원천자료가 글의 중심이어야 한다.
 공식 자료는 울림의 판단을 뒷받침하는 사실 근거로만 사용하고, 여러 지원사업을 모은 종합 안내문으로 바꾸지 않는다.
 usedKnowledgeIds에는 실제로 활용한 원천자료 id를 최소 1개 넣는다.
 원천자료에 없는 경험·성과·의견은 만들지 않는다.
@@ -165,7 +172,8 @@ async function requestTopicPlans({
     await removeCancelledGeneration(scheduleKey);
     throw new Error("GENERATION_CANCELLED");
   }
-  const authorityRules = slot.format === "authority" ? `
+  const requiresKnowledge = knowledgeRequiredForSlot(slot);
+  const authorityRules = requiresKnowledge ? `
 - 반드시 승인된 울림 원천자료 중 하나를 중심으로 삼고 knowledgeIds에 해당 id를 넣는다.
 - 공식 지원사업을 모아 소개하는 종합 안내 주제는 금지한다.
 - 울림의 판단 순서, 선택 기준, 실제 맥락이 중심이 되는 후보만 만든다.` : `
@@ -305,6 +313,8 @@ export async function generateContentWorkItem(
   const pinnedKnowledgeIds = revisionNote && !options.forceNewTopic
     ? revisionKnowledgeIds(storedMetadata)
     : [];
+  const requiresKnowledge = knowledgeRequiredForSlot(slot);
+  const allowedKnowledgeAreas = knowledgeAreasForChannel(slot.channel);
   const lookbackAt = new Date(Date.now() - (NOVELTY_LOOKBACK_DAYS * 24 * 60 * 60 * 1000)).toISOString();
   const [
     { data: registered, error: sourceError },
@@ -321,10 +331,11 @@ export async function generateContentWorkItem(
       .gte("created_at", lookbackAt)
       .order("created_at", { ascending: false })
       .limit(40),
-    slot.format === "authority"
+    requiresKnowledge
       ? admin.from("column_expert_knowledge")
         .select("id,topic,raw_text,perspective,case_evidence,differentiator,expertise_area,use_count")
         .eq("approved", true)
+        .in("expertise_area", allowedKnowledgeAreas)
         .order("use_count", { ascending: true })
         .order("created_at", { ascending: false })
         .limit(8)
@@ -334,11 +345,12 @@ export async function generateContentWorkItem(
   if (recentError) throw new Error(recentError.message);
   if (knowledgeResult.error) throw new Error(knowledgeResult.error.message);
   let knowledge = (knowledgeResult.data || []) as ExpertKnowledge[];
-  if (slot.format === "authority" && pinnedKnowledgeIds.length) {
+  if (requiresKnowledge && pinnedKnowledgeIds.length) {
     const { data: pinnedKnowledge, error: pinnedKnowledgeError } = await admin
       .from("column_expert_knowledge")
       .select("id,topic,raw_text,perspective,case_evidence,differentiator,expertise_area,use_count")
       .eq("approved", true)
+      .in("expertise_area", allowedKnowledgeAreas)
       .in("id", pinnedKnowledgeIds);
     if (pinnedKnowledgeError) throw new Error(pinnedKnowledgeError.message);
     const byId = new Map<string, ExpertKnowledge>();
@@ -347,8 +359,8 @@ export async function generateContentWorkItem(
     }
     knowledge = [...byId.values()];
   }
-  if (slot.format === "authority" && !knowledge.length) {
-    throw new Error("울림 콘텐츠형에 필요한 승인된 인터뷰·노하우 원천자료가 없습니다.");
+  if (requiresKnowledge && !knowledge.length) {
+    throw new Error(`${knowledgeFormatLabel(slot)}에 필요한 승인된 인터뷰·노하우 원천자료가 없습니다.`);
   }
   const sources = (await Promise.all((registered || []).map(sourceSnapshot)))
     .filter((source): source is Source & { snapshot: string } => Boolean(source));
@@ -396,7 +408,12 @@ export async function generateContentWorkItem(
   const planned = requestedPlans.map((plan) => ({
     plan: {
       ...plan,
-      knowledgeIds: plan.knowledgeIds.filter((id) => approvedKnowledgeIds.has(id)),
+      knowledgeIds: (() => {
+        const validIds = plan.knowledgeIds.filter((id) => approvedKnowledgeIds.has(id));
+        if (validIds.length || !requiresKnowledge || !revisionNote) return validIds;
+        const fallbackId = mostRelevantKnowledgeId(plan, knowledge);
+        return fallbackId ? [fallbackId] : [];
+      })(),
     },
     assessment: assessNovelty({
       candidate: fingerprintFromPlan(plan),
@@ -406,12 +423,12 @@ export async function generateContentWorkItem(
   }));
   const eligiblePlans = planned.filter(({ plan, assessment }) =>
     (revisionNote && !options.forceNewTopic || !assessment.duplicate)
-    && (slot.format !== "authority" || plan.knowledgeIds.length > 0));
+    && (!requiresKnowledge || plan.knowledgeIds.length > 0));
   if (!eligiblePlans.length) {
     const strongest = planned
       .flatMap(({ assessment }) => assessment.matches)
       .sort((left, right) => right.score - left.score)[0];
-    const missingKnowledge = slot.format === "authority"
+    const missingKnowledge = requiresKnowledge
       && planned.every(({ plan }) => !plan.knowledgeIds.length);
     const message = missingKnowledge
       ? "울림 원천자료를 중심으로 한 차별화 주제 후보가 없습니다."
@@ -488,7 +505,7 @@ export async function generateContentWorkItem(
       const designForbidden = slot.channel === "naver_design"
         && /정부지원사업|정책자금|지원금|융자|기업인증/.test(`${generated.title} ${generated.summary}`);
       const internalLabel = /\[naver_design\]|naver_design/i.test(generated.title || "");
-      const authorityMissingKnowledge = slot.format === "authority" && !generated.usedKnowledgeIds.length;
+      const authorityMissingKnowledge = requiresKnowledge && !generated.usedKnowledgeIds.length;
       const novelty = assessNovelty({
         candidate: fingerprintFromGenerated({ generated, plan }),
         existing,
@@ -500,7 +517,7 @@ export async function generateContentWorkItem(
         ...(faqCount < 3 ? [`FAQ ${faqCount}개 — 정확히 3개 이상으로 보완`] : []),
         ...(designForbidden ? ["디자인 채널에서 금지된 컨설팅 주제"] : []),
         ...(internalLabel ? ["제목에 내부 채널 표기"] : []),
-        ...(authorityMissingKnowledge ? ["울림 콘텐츠형에 승인된 원천자료가 사용되지 않음"] : []),
+        ...(authorityMissingKnowledge ? [`${knowledgeFormatLabel(slot)}에 승인된 원천자료가 사용되지 않음`] : []),
       ];
       const issues = [
         ...structuralIssues,
