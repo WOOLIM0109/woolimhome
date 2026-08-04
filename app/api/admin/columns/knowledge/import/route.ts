@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import mammoth from "mammoth";
 import { isAdmin } from "@/lib/auth";
+import { serializeVerificationMarkers, type VerificationImportItem } from "@/lib/columns/verification";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { generateGeminiText } from "@/lib/gemini/client";
@@ -14,6 +15,7 @@ type ImportedCard = {
   perspective?: string;
   caseEvidence?: string;
   differentiator?: string;
+  verificationItems?: VerificationImportItem[];
 };
 
 function stripFence(text: string) {
@@ -68,12 +70,14 @@ export async function POST(request: Request) {
 - rawText는 카드마다 250~900자를 권장한다. 한두 문장의 일반론으로 축약하지 않는다.
 - 파일명과 원천자료 제목이 특정 전문 분야를 명확히 가리키면 그 분야를 주된 expertiseArea로 사용한다.
 - 기획 인터뷰의 경우 PPT·IR·사업계획서 사례도 '기획자의 판단 방식'을 설명하는 내용이면 planning으로 분류한다.
-금액·기간·지원조건처럼 발행 시 공식 확인이 필요한 내용은 rawText 끝에 "[발행 전 공식 확인 필요]"라고 표시한다.
-고객사·개인을 식별할 수 있는 내용은 익명화 필요 여부를 rawText 끝에 표시한다.
+- rawText에는 확인 필요·익명화 필요 같은 관리 문구를 넣지 않는다.
+- 금액·기간·지원조건·통계·제도명·성과처럼 발행 시 공식 확인이 필요한 사실은 verificationItems에 type "official"로 넣고, 무엇을 확인해야 하는지 구체적으로 쓴다.
+- 고객사·개인을 식별할 수 있는 이름·계약·사례·성과는 verificationItems에 type "privacy"로 넣고, 무엇을 익명화하거나 공개 동의를 확인해야 하는지 구체적으로 쓴다.
+- 확인할 내용이 없는 카드는 verificationItems를 빈 배열로 둔다.
 각 카드의 expertiseArea는 planning, design, government_support, business_plan, ir_ppt, management, general 중 하나다.
 기획은 독립 전문 분야이며 전략·서비스·콘텐츠·문서·시각화 기획을 포함한다.
 JSON 배열만 반환한다:
-[{"topic":"","expertiseArea":"planning","rawText":"","perspective":"","caseEvidence":"","differentiator":""}]
+[{"topic":"","expertiseArea":"planning","rawText":"","perspective":"","caseEvidence":"","differentiator":"","verificationItems":[{"type":"official","detail":"확인할 사실"}]}]
 
 [파일명]
 ${file.name}
@@ -103,17 +107,20 @@ ${text}`;
     }, { status: 422 });
   }
 
-  const rows = groundedCards.map((card) => ({
-    topic: card.topic,
-    source_type: "interview",
-    expertise_area: card.expertiseArea || "general",
-    raw_text: card.rawText,
-    perspective: card.perspective || null,
-    case_evidence: card.caseEvidence || null,
-    differentiator: card.differentiator || null,
-    approved: false,
-    created_by: user.email,
-  }));
+  const rows = groundedCards.map((card) => {
+    const verificationMarkers = serializeVerificationMarkers(card.verificationItems);
+    return {
+      topic: card.topic,
+      source_type: "interview",
+      expertise_area: card.expertiseArea || "general",
+      raw_text: `${card.rawText}${verificationMarkers ? `\n\n${verificationMarkers}` : ""}`,
+      perspective: card.perspective || null,
+      case_evidence: card.caseEvidence || null,
+      differentiator: card.differentiator || null,
+      approved: false,
+      created_by: user.email,
+    };
+  });
 
   const { data, error } = await createAdminClient().from("column_expert_knowledge").insert(rows).select();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });

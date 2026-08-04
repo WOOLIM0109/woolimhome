@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
+  BadgeCheck,
   BookOpen,
   Check,
   ChevronDown,
@@ -19,6 +20,11 @@ import { useAuth } from "@/hooks/useAuth";
 import { useAccess } from "@/hooks/useAccess";
 import type { ExpertKnowledge } from "@/lib/columns/types";
 import { EXPERTISE_AREAS } from "@/lib/columns/interview-requests";
+import {
+  getKnowledgeVerification,
+  stripVerificationControlText,
+  verificationCompletionChanges,
+} from "@/lib/columns/verification";
 import InterviewRequests from "./InterviewRequests";
 
 type Filter = "all" | "pending" | "approved" | "needs_review";
@@ -40,13 +46,17 @@ const SOURCE_LABELS: Record<ExpertKnowledge["source_type"], string> = {
   note: "업무 노트",
 };
 
-const REVIEW_MARKERS = ["[발행 전 공식 확인 필요]", "[공식 확인 필요]", "[익명화 필요]", "확인 필요"];
-
 function needsReview(item: ExpertKnowledge) {
-  const text = [item.raw_text, item.perspective, item.case_evidence, item.differentiator]
-    .filter(Boolean)
-    .join(" ");
-  return REVIEW_MARKERS.some((marker) => text.includes(marker));
+  return getKnowledgeVerification(item).pending;
+}
+
+function koreanToday() {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Seoul",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
 }
 
 function editableValues(item: ExpertKnowledge): EditableKnowledge {
@@ -257,7 +267,8 @@ export default function KnowledgePage() {
         <div className="mt-5 space-y-4">
           {filteredItems.map((item) => {
             const expanded = expandedIds.has(item.id);
-            const flagged = needsReview(item);
+            const verification = getKnowledgeVerification(item);
+            const flagged = verification.pending;
             const editing = editingId === item.id && editForm;
             return (
               <article key={item.id} className={`rounded-sm border bg-white p-5 ${flagged ? "border-amber-300" : "border-[var(--line)]"}`}>
@@ -267,7 +278,8 @@ export default function KnowledgePage() {
                       <span className="text-[var(--primary)]">{EXPERTISE_AREAS.find((area) => area.value === (item.expertise_area || "general"))?.label}</span>
                       <span className="text-[var(--muted)]">· {SOURCE_LABELS[item.source_type]} · 사용 {Number(item.use_count || 0)}회</span>
                       <span className={`rounded-sm px-2 py-1 ${item.approved ? "bg-emerald-50 text-emerald-800" : "bg-[#f2efec] text-[#5f5750]"}`}>{item.approved ? "승인" : "미승인"}</span>
-                      {flagged && <span className="inline-flex items-center gap-1 rounded-sm bg-amber-100 px-2 py-1 text-amber-900"><AlertTriangle size={13} /> 확인 필요</span>}
+                      {flagged && <span className="inline-flex items-center gap-1 rounded-sm bg-amber-100 px-2 py-1 text-amber-900"><AlertTriangle size={13} /> 확인 필요 {verification.items.length}건</span>}
+                      {!flagged && verification.completed && <span className="inline-flex items-center gap-1 rounded-sm bg-sky-50 px-2 py-1 text-sky-800"><BadgeCheck size={13} /> 확인 완료{verification.completedAt ? ` · ${verification.completedAt}` : ""}</span>}
                       {Number(item.use_count || 0) >= 3 && <span className="text-amber-800">새 자료 권장</span>}
                     </div>
                     <h3 className="mt-3 text-lg font-bold">{item.topic}</h3>
@@ -312,6 +324,19 @@ export default function KnowledgePage() {
                     </button>
                   </div>
                 </div>
+
+                {flagged && !editing && (
+                  <VerificationPanel
+                    items={verification.items}
+                    updating={updatingId === item.id}
+                    onComplete={() => {
+                      const checklist = verification.items.map((entry) => `- ${entry.label}`).join("\n");
+                      if (window.confirm(`아래 내용을 실제 자료로 확인했나요?\n\n${checklist}\n\n확인 완료로 처리하면 완료 날짜가 기록됩니다.`)) {
+                        void patchItem(item.id, verificationCompletionChanges(item, koreanToday()));
+                      }
+                    }}
+                  />
+                )}
 
                 {expanded && (
                   <div className="mt-5 border-t border-[var(--line)] pt-5">
@@ -358,11 +383,50 @@ export default function KnowledgePage() {
 function KnowledgeDetails({ item }: { item: ExpertKnowledge }) {
   return (
     <div className="space-y-5">
-      <Detail label="대표 표현을 보존한 원천 내용" value={item.raw_text} />
+      <Detail label="대표 표현을 보존한 원천 내용" value={stripVerificationControlText(item.raw_text)} />
       <div className="grid gap-5 md:grid-cols-3">
-        <Detail label="통념을 뒤집는 관점" value={item.perspective} />
-        <Detail label="사례·숫자·전후 변화" value={item.case_evidence} />
-        <Detail label="울림만의 방식·절대 하지 않는 것" value={item.differentiator} />
+        <Detail label="통념을 뒤집는 관점" value={stripVerificationControlText(item.perspective)} />
+        <Detail label="사례·숫자·전후 변화" value={stripVerificationControlText(item.case_evidence)} />
+        <Detail label="울림만의 방식·절대 하지 않는 것" value={stripVerificationControlText(item.differentiator)} />
+      </div>
+    </div>
+  );
+}
+
+function VerificationPanel({
+  items,
+  updating,
+  onComplete,
+}: {
+  items: ReturnType<typeof getKnowledgeVerification>["items"];
+  updating: boolean;
+  onComplete: () => void;
+}) {
+  return (
+    <div className="mt-5 rounded-sm border border-amber-300 bg-amber-50 p-4">
+      <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 text-sm font-bold text-amber-950">
+            <AlertTriangle size={17} /> 발행 전에 확인할 내용
+          </div>
+          <ul className="mt-3 space-y-3 text-sm text-amber-950">
+            {items.map((entry, index) => (
+              <li key={`${entry.kind}-${entry.label}-${index}`} className="rounded-sm bg-white/70 p-3">
+                <p className="font-bold">{index + 1}. {entry.label}</p>
+                {entry.excerpt && <p className="mt-1 break-words text-[#5f5750]">확인 대상: “{entry.excerpt}”</p>}
+                <p className="mt-1 text-[#5f5750]">{entry.instruction}</p>
+              </li>
+            ))}
+          </ul>
+        </div>
+        <button
+          type="button"
+          disabled={updating}
+          onClick={onComplete}
+          className="inline-flex shrink-0 items-center justify-center gap-2 rounded-sm bg-sky-700 px-4 py-2.5 text-sm font-bold text-white disabled:opacity-50"
+        >
+          <BadgeCheck size={17} /> {updating ? "처리 중…" : "모두 확인 완료"}
+        </button>
       </div>
     </div>
   );
@@ -394,7 +458,8 @@ function EditForm({ value, onChange }: { value: EditableKnowledge; onChange: (va
 }
 
 function ApprovalDialog({ item, updating, onClose, onApprove }: { item: ExpertKnowledge; updating: boolean; onClose: () => void; onApprove: () => void }) {
-  const flagged = needsReview(item);
+  const verification = getKnowledgeVerification(item);
+  const flagged = verification.pending;
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" role="dialog" aria-modal="true" aria-labelledby="approval-title">
       <div className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-sm bg-white shadow-2xl">
@@ -407,9 +472,11 @@ function ApprovalDialog({ item, updating, onClose, onApprove }: { item: ExpertKn
         </div>
         <div className="p-5">
           {flagged && (
-            <div className="mb-6 flex gap-3 border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950">
-              <AlertTriangle className="mt-0.5 shrink-0" size={19} />
-              <p><strong>확인이 필요한 표현이 남아 있습니다.</strong><br />공식 수치와 사실을 확인하고, 고객명·성과 사례 등 공개하면 안 되는 정보는 익명화했는지 살펴보세요.</p>
+            <div className="mb-6 border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950">
+              <div className="flex gap-2 font-bold"><AlertTriangle className="mt-0.5 shrink-0" size={19} /> 확인이 필요한 내용이 남아 있습니다.</div>
+              <ul className="mt-3 list-disc space-y-1 pl-5">
+                {verification.items.map((entry, index) => <li key={`${entry.label}-${index}`}>{entry.label}{entry.excerpt ? `: ${entry.excerpt}` : ""}</li>)}
+              </ul>
             </div>
           )}
           <KnowledgeDetails item={item} />
