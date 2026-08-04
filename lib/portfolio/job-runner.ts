@@ -1083,7 +1083,7 @@ export async function retryPortfolioConversion(workItemId: string) {
       retry_count: 0,
       next_retry_at: null,
       last_error_code: null,
-      last_error_context: null,
+      last_error_context: {},
       metadata: {
         ...preservedMetadata,
         candidateId: conversion.candidate_id,
