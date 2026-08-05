@@ -2,6 +2,7 @@ export const LOCAL_REDACTION_MANIFEST_VERSION = 2 as const;
 export const LOCAL_REDACTION_MANIFEST_METHOD = "powerpoint_com_shapes_v2" as const;
 export const MAX_AUTOMATIC_REDACTION_REGION_COVERAGE = 0.55;
 export const MAX_AUTOMATIC_REDACTION_UNION_COVERAGE = 0.65;
+export const MAX_AUTOMATIC_REDACTION_TOTAL_COVERAGE = 0.9;
 
 const REGION_LABELS = {
   body_text: new Set(["local_body_text"]),
@@ -116,6 +117,7 @@ export type LocalRedactionSlideSafety = {
   slideIndex: number;
   safeForAutomaticDesign: boolean;
   hasFullSlideRegion: boolean;
+  hasNearTotalCoverage: boolean;
   hasOversizedRegion: boolean;
   maxRegionCoverage: number;
   unionCoverage: number;
@@ -137,14 +139,18 @@ export function inspectLocalRedactionSlideSafety(
   ));
   const hasOversizedRegion = maxRegionCoverage > MAX_AUTOMATIC_REDACTION_REGION_COVERAGE
     || unionCoverage > MAX_AUTOMATIC_REDACTION_UNION_COVERAGE;
+  const hasNearTotalCoverage = maxRegionCoverage >= MAX_AUTOMATIC_REDACTION_TOTAL_COVERAGE
+    || unionCoverage >= MAX_AUTOMATIC_REDACTION_TOTAL_COVERAGE;
   return {
     slideIndex: slide.slideIndex,
     // Large photos and dense body layouts can legitimately require a large
-    // selective mask. Only a true full-slide mask would reproduce the old
-    // blanket-blur failure and must block automatic design.
+    // selective mask. Near-total masks, however, no longer communicate the
+    // source design and reproduce the old blanket-blur failure in practice.
     safeForAutomaticDesign: slide.inspectionStatus === "verified"
-      && !hasFullSlideRegion,
+      && !hasFullSlideRegion
+      && !hasNearTotalCoverage,
     hasFullSlideRegion,
+    hasNearTotalCoverage,
     hasOversizedRegion,
     maxRegionCoverage,
     unionCoverage,
