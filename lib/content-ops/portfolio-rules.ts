@@ -5,7 +5,7 @@ import {
   parseLocalRedactionManifest,
 } from "../portfolio/redaction-proof.ts";
 
-export const PORTFOLIO_RULE_VERSION = "2026-08-05-selective-redaction-v4";
+export const PORTFOLIO_RULE_VERSION = "2026-08-05-selective-redaction-v5";
 
 export function createPortfolioSourceFingerprint(input: {
   bucket: string;
