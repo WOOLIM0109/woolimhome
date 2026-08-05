@@ -865,6 +865,9 @@ export async function processNextPortfolioMockup(candidateId?: string) {
         sourceHint: `${candidate.project_name || ""} ${conversionResult.originalFileName || ""}`,
       });
     console.info(`[portfolio-mockup] review ready candidate=${job.candidate_id}`);
+    console.info(
+      `[portfolio-mockup] review summary candidate=${job.candidate_id} suitable=${review.suitable} confidence=${review.confidence} recommended=${review.recommendedSlideIndexes.length}`,
+    );
     result = { ...result,
       visualReview: review,
       visualReviewCompletedAt: new Date().toISOString(),
@@ -888,6 +891,9 @@ export async function processNextPortfolioMockup(candidateId?: string) {
     }
 
     const mockupPlan = portfolioMockupIndexes(slidePaths.length, review, localManifest);
+    console.info(
+      `[portfolio-mockup] plan ready candidate=${job.candidate_id} mode=${mockupPlan.mode} selected=${mockupPlan.selectedIndexes.length} indexes=${mockupPlan.indexes.length}`,
+    );
     const confidentialRegions = localRedactionRegions(localManifest, mockupPlan.indexes);
     const redactionVerification = verifyLocalRedactionSelection(localManifest, mockupPlan.indexes);
     const minimumSelectedSlides = mockupPlan.mode === "long" ? 18 : 5;
@@ -917,6 +923,7 @@ export async function processNextPortfolioMockup(candidateId?: string) {
     let assets = cachedAssets.length >= 4 && redactionProof ? cachedAssets : [];
     if (!assets.length || !redactionProof) {
       yieldPortfolioCheckpointIfNeeded(shouldYield);
+      console.info(`[portfolio-mockup] entering renderer candidate=${job.candidate_id}`);
       let slideProof = Array.isArray(result.redactionSlideProofProgress)
         ? result.redactionSlideProofProgress.filter(isPortfolioSlideRedactionProof)
         : [];
