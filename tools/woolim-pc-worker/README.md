@@ -135,9 +135,24 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\setup.ps1 `
 - 유휴 상태에서는 60초마다 heartbeat를 보내고 작업을 확인합니다.
 - 변환 중에는 별도 백그라운드 heartbeat가 45초마다 이어집니다.
 - 서버가 한 작업을 한 PC에 선점시킨 뒤 해당 PC만 완료 또는 실패를 보고합니다.
+- 워커 `2.4.0`은 `powerpoint_selective_redaction_manifest_v2` 기능을 서버에 알립니다.
 - PPT는 PowerPoint와 설치 글꼴로 최대 100장의 대표 슬라이드를 PNG로 만듭니다.
 - PDF는 `pdftoppm`으로 최대 100페이지를 렌더링하며, 16:9·4:3·A4 가로·A4 세로를 지원합니다.
 - 작업이 끝나거나 실패하면 내려받은 원본과 생성 이미지가 로컬에서 삭제됩니다.
+
+### PowerPoint 선택적 블러 v2
+
+- 제목 placeholder의 26pt 이상 텍스트와 일반 32pt 이상 텍스트는 별도의 제목 문구 whitelist 없이 유지합니다.
+- WordArt도 `TextEffect.Text`와 `TextEffect.FontSize`를 판독해 일반 32pt 이상 제목은 유지하고, 식별 신호가 있거나 32pt 미만이면 요소 영역을 블러합니다. WordArt 판독 실패 시 해당 슬라이드를 제외합니다.
+- 이메일·URL·전화번호·주소·사업자번호·회사명·고객사·프로젝트명·담당자·로고 등 식별 신호가 있으면 글자 크기와 관계없이 블러 대상으로 분류합니다.
+- 원본 파일명에서는 확장자와 `최종`, `제안서`, `발표본`, `PPT`, `연구개발` 같은 일반어를 제거해 2자 이상의 고객 식별 토큰을 로컬에서 추출합니다. 파일명 토큰과 문구를 한글·영문·숫자만 남긴 로컬 canonical 형식으로 비교하므로 `HPC컨설팅`/`HPC 컨설팅`, `현대자동차`/`현대 자동차`처럼 공백·구두점이 달라도 식별합니다. 짧은 영문 약어는 더 긴 영단어의 일부와 일치하지 않도록 경계를 확인합니다. 해당 토큰이 제목에 있으면 큰 글자도 블러하며, 토큰 원문과 판독 문구는 manifest에 넣지 않습니다.
+- `msoPlaceholder`도 `PlaceholderFormat.ContainedType`을 필수로 판독합니다. picture·table·chart·SmartArt·media·OLE 등 비텍스트 콘텐츠가 들어 있으면 placeholder 영역을 블러하고, 일반 텍스트 placeholder만 기존 글자 크기 규칙으로 판정합니다. 내부 형식 판독 실패 시 해당 슬라이드를 제외하며, 모호한 형식은 검증된 placeholder 경계만 안전하게 블러합니다.
+- 그룹은 모든 child와 그 좌표를 재귀적으로 판독하고, 민감한 child의 영역만 요소별로 블러합니다. 부모 그룹의 이름·대체 텍스트·제목에서 고객사·프로젝트·로고 같은 식별 신호가 발견되면 중첩 그룹을 포함한 모든 자식에 그 신호를 전파해 각 자식 영역을 따로 블러합니다. 그룹 전체 경계 fallback은 사용하지 않으며 child 좌표나 내용 판독이 실패하면 해당 슬라이드를 제외합니다.
+- 모든 배경과 shape를 완전히 판독했고 민감 영역이 없는 슬라이드는 `regions=[]`로 내보내며 원본 화면을 유지합니다.
+- 슬라이드 전용 배경은 `FollowMasterBackground=false`일 때만 별도로 판독합니다. 다만 슬라이드·CustomLayout·Master 중 어느 범위든 picture/texture Background가 있거나 picture shape가 슬라이드 전체를 덮으면 무가림 장식 예외를 두지 않고 해당 원본 슬라이드를 변환 결과에서 제외합니다. 판독할 수 없는 그룹·shape·배경도 같은 방식으로 제외하며, 전체 블러로 대체하지 않습니다. 작은 picture·logo·식별 텍스트는 요소 영역별로 블러하고, 제외한 원본 슬라이드 번호와 사유는 로컬 로그에 기록합니다.
+- full-slide fallback region은 만들거나 사용하지 않습니다.
+- manifest는 `version=2`, `method=powerpoint_com_shapes_v2`이며 원본 장수 `sourceSlideCount`와 usable 장수 `slideCount`를 따로 기록합니다. 포함된 각 슬라이드는 `inspectionStatus=verified`를 가집니다. 따라서 일부 슬라이드가 제외되어도 원본이 20장 이상이었다면 서버가 6장 구조 규칙을 유지할 수 있습니다.
+- 완전 판독·내보내기에 성공한 usable slide가 5개 미만이면 `INSUFFICIENT_USABLE_SLIDES`로 작업을 명확하게 실패 처리합니다.
 
 수동 1회 실행은 실제 대기 작업을 하나 선점할 수 있습니다.
 
@@ -187,6 +202,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\uninstall.ps1
 
 - `MISSING_FONTS`: 표시된 글꼴의 정확한 라이선스와 파일을 확인해 현재 Windows 사용자 또는 모든 사용자용으로 설치한 뒤 작업을 재시도해야 합니다.
 - `MISSING_PDF_RENDERER`: Poppler 설치를 확인하고 `setup.ps1 -PdfToPpmPath ...`로 정확한 경로를 지정합니다.
+- `INSUFFICIENT_USABLE_SLIDES`: 판독 실패 또는 picture/texture 전체 배경 제외 후 usable slide가 5개 미만입니다. 로그에서 제외된 원본 슬라이드 번호와 사유를 확인합니다.
 - PowerPoint 미감지: Microsoft 365 웹 앱이 아니라 데스크톱 PowerPoint가 설치되어 있어야 합니다.
 - PC가 오프라인으로 표시됨: 해당 Windows 사용자로 로그인되어 있는지, 예약 작업이 실행 중인지, 방화벽에서 HTTPS 연결이 가능한지 확인합니다.
 - `Unauthorized worker`: 서버의 Worker ID별 비밀키와 이 PC에 입력한 비밀키가 같은지 확인합니다.

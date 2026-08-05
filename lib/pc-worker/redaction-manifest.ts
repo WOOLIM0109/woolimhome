@@ -1,5 +1,7 @@
-export const LOCAL_REDACTION_MANIFEST_VERSION = 1 as const;
-export const LOCAL_REDACTION_MANIFEST_METHOD = "powerpoint_com_shapes_v1" as const;
+export const LOCAL_REDACTION_MANIFEST_VERSION = 2 as const;
+export const LOCAL_REDACTION_MANIFEST_METHOD = "powerpoint_com_shapes_v2" as const;
+export const MAX_AUTOMATIC_REDACTION_REGION_COVERAGE = 0.55;
+export const MAX_AUTOMATIC_REDACTION_UNION_COVERAGE = 0.65;
 
 const REGION_LABELS = {
   body_text: new Set(["local_body_text"]),
@@ -14,7 +16,6 @@ const REGION_LABELS = {
     "local_picture_fill",
   ]),
   screenshot: new Set([
-    "local_group",
     "local_embedded_object",
     "local_linked_object",
     "local_control",
@@ -47,12 +48,14 @@ export type LocalRedactionRegion = {
 export type LocalRedactionSlide = {
   slideIndex: number;
   sourceSlideNumber: number;
+  inspectionStatus: "verified";
   regions: LocalRedactionRegion[];
 };
 
 export type LocalRedactionManifest = {
   version: typeof LOCAL_REDACTION_MANIFEST_VERSION;
   method: typeof LOCAL_REDACTION_MANIFEST_METHOD;
+  sourceSlideCount: number;
   slideCount: number;
   slides: LocalRedactionSlide[];
 };
@@ -67,6 +70,89 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function finiteNumber(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value);
+}
+
+/** Exact geometric union of normalized redaction rectangles. */
+export function localRedactionUnionCoverage(
+  regions: readonly Pick<LocalRedactionRegion, "x" | "y" | "width" | "height">[],
+) {
+  if (!regions.length) return 0;
+  const xCoordinates = [...new Set(regions.flatMap((region) => [
+    region.x,
+    region.x + region.width,
+  ]))].sort((left, right) => left - right);
+  let area = 0;
+  for (let index = 0; index + 1 < xCoordinates.length; index += 1) {
+    const left = xCoordinates[index];
+    const right = xCoordinates[index + 1];
+    const width = right - left;
+    if (width <= 0) continue;
+    const intervals = regions
+      .filter((region) => region.x < right && region.x + region.width > left)
+      .map((region) => [region.y, region.y + region.height] as const)
+      .sort((first, second) => first[0] - second[0] || first[1] - second[1]);
+    let coveredHeight = 0;
+    let start: number | null = null;
+    let end = 0;
+    intervals.forEach(([nextStart, nextEnd]) => {
+      if (start === null) {
+        start = nextStart;
+        end = nextEnd;
+      } else if (nextStart <= end) {
+        end = Math.max(end, nextEnd);
+      } else {
+        coveredHeight += end - start;
+        start = nextStart;
+        end = nextEnd;
+      }
+    });
+    if (start !== null) coveredHeight += end - start;
+    area += width * coveredHeight;
+  }
+  return Math.max(0, Math.min(1, area));
+}
+
+export type LocalRedactionSlideSafety = {
+  slideIndex: number;
+  safeForAutomaticDesign: boolean;
+  hasFullSlideRegion: boolean;
+  hasOversizedRegion: boolean;
+  maxRegionCoverage: number;
+  unionCoverage: number;
+};
+
+export function inspectLocalRedactionSlideSafety(
+  slide: Pick<LocalRedactionSlide, "slideIndex" | "inspectionStatus" | "regions">,
+): LocalRedactionSlideSafety {
+  const maxRegionCoverage = slide.regions.reduce(
+    (maximum, region) => Math.max(maximum, region.width * region.height),
+    0,
+  );
+  const unionCoverage = localRedactionUnionCoverage(slide.regions);
+  const hasFullSlideRegion = slide.regions.some((region) => (
+    region.x <= 0.000001
+    && region.y <= 0.000001
+    && region.x + region.width >= 0.999999
+    && region.y + region.height >= 0.999999
+  ));
+  const hasOversizedRegion = maxRegionCoverage > MAX_AUTOMATIC_REDACTION_REGION_COVERAGE
+    || unionCoverage > MAX_AUTOMATIC_REDACTION_UNION_COVERAGE;
+  return {
+    slideIndex: slide.slideIndex,
+    safeForAutomaticDesign: slide.inspectionStatus === "verified"
+      && !hasFullSlideRegion
+      && !hasOversizedRegion,
+    hasFullSlideRegion,
+    hasOversizedRegion,
+    maxRegionCoverage,
+    unionCoverage,
+  };
+}
+
+export function automaticDesignEligibleSlideIndexes(manifest: LocalRedactionManifest) {
+  return manifest.slides
+    .filter((slide) => inspectLocalRedactionSlideSafety(slide).safeForAutomaticDesign)
+    .map((slide) => slide.slideIndex);
 }
 
 function validRegion(
@@ -108,6 +194,11 @@ export function validateLocalRedactionManifest(
   if (value.method !== LOCAL_REDACTION_MANIFEST_METHOD) {
     return { ok: false, error: "Unsupported PowerPoint redaction manifest method." };
   }
+  if (!Number.isSafeInteger(value.sourceSlideCount)
+    || Number(value.sourceSlideCount) < expectedSlideCount
+    || Number(value.sourceSlideCount) > 10_000) {
+    return { ok: false, error: "PowerPoint redaction manifest source slide count is invalid." };
+  }
   if (value.slideCount !== expectedSlideCount || !Array.isArray(value.slides)) {
     return { ok: false, error: "PowerPoint redaction manifest slide count mismatch." };
   }
@@ -124,9 +215,10 @@ export function validateLocalRedactionManifest(
       || rawSlide.slideIndex !== slideIndex
       || !Number.isInteger(rawSlide.sourceSlideNumber)
       || Number(rawSlide.sourceSlideNumber) < 1
+      || Number(rawSlide.sourceSlideNumber) > Number(value.sourceSlideCount)
       || Number(rawSlide.sourceSlideNumber) <= previousSourceSlideNumber
+      || rawSlide.inspectionStatus !== "verified"
       || !Array.isArray(rawSlide.regions)
-      || rawSlide.regions.length < 1
       || rawSlide.regions.length > 2_000) {
       return { ok: false, error: `Invalid redaction data for exported slide ${slideIndex}.` };
     }
@@ -149,6 +241,7 @@ export function validateLocalRedactionManifest(
     slides.push({
       slideIndex,
       sourceSlideNumber: Number(rawSlide.sourceSlideNumber),
+      inspectionStatus: "verified",
       regions,
     });
     previousSourceSlideNumber = Number(rawSlide.sourceSlideNumber);
@@ -159,6 +252,7 @@ export function validateLocalRedactionManifest(
     manifest: {
       version: LOCAL_REDACTION_MANIFEST_VERSION,
       method: LOCAL_REDACTION_MANIFEST_METHOD,
+      sourceSlideCount: Number(value.sourceSlideCount),
       slideCount: expectedSlideCount,
       slides,
     },
