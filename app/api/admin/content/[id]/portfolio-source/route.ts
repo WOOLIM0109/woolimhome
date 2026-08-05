@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
 import { authenticatedAdmin, contentAdmin } from "@/lib/content-ops/data";
 
@@ -20,13 +20,24 @@ const EXTENSION_MIME_TYPES: Record<string, string> = {
 };
 
 type PortfolioSourceRequest = {
-  action?: "prepare" | "commit";
+  action?: "prepare" | "commit" | "connect_link";
   fileName?: string;
   fileSize?: number;
   mimeType?: string;
   uploadId?: string;
   fileHash?: string;
   signatureHex?: string;
+  shareUrl?: string;
+};
+
+type LinkedPowerPoint = {
+  bytes: Uint8Array;
+  fileName: string;
+  fileSize: number;
+  fingerprint: string;
+  mimeType: string;
+  shareUrl: string;
+  signatureHex: string;
 };
 
 function safeFileName(value: string) {
@@ -51,6 +62,87 @@ function hasPowerPointSignature(signatureHex: string, extension: string) {
     return signatureHex.startsWith("d0cf11e0");
   }
   return signatureHex.startsWith("504b0304");
+}
+
+async function downloadWorksPowerPoint(value: string): Promise<LinkedPowerPoint> {
+  const requestedUrl = new URL(value);
+  if (requestedUrl.protocol !== "https:" || !["works.do", "www.works.do"].includes(requestedUrl.hostname)) {
+    throw new Error("네이버웍스 공유 주소(https://works.do/...)만 연결할 수 있습니다.");
+  }
+
+  const redirectResponse = await fetch(requestedUrl, {
+    redirect: "manual",
+    signal: AbortSignal.timeout(20_000),
+  });
+  const location = redirectResponse.headers.get("location");
+  if (!location || redirectResponse.status < 300 || redirectResponse.status >= 400) {
+    throw new Error("네이버웍스 공유 주소를 열지 못했습니다.");
+  }
+  const landingUrl = new URL(location, requestedUrl);
+  if (landingUrl.protocol !== "https:" || landingUrl.hostname !== "kr1-link.drive.worksmobile.com") {
+    throw new Error("허용된 네이버웍스 공유 주소가 아닙니다.");
+  }
+  const shareMatch = landingUrl.pathname.match(/^\/shared-link\/web\/pubFLink\/([^/]+)$/);
+  if (!shareMatch) throw new Error("공개 파일 공유 주소 형식을 확인해주세요.");
+  const shareKey = shareMatch[1];
+  const resourceLocation = "24101";
+  const apiBase = `https://api.drive.worksmobile.com/rl/${resourceLocation}/v1/shared-links/${encodeURIComponent(shareKey)}`;
+
+  const linkResponse = await fetch(apiBase, {
+    headers: { Accept: "application/json" },
+    signal: AbortSignal.timeout(20_000),
+  });
+  if (!linkResponse.ok) throw new Error("네이버웍스 공유 파일 정보를 읽지 못했습니다.");
+  const linkData = await linkResponse.json() as { rootFileId?: string; useDownload?: boolean };
+  if (!linkData.rootFileId || linkData.useDownload === false) {
+    throw new Error("공유 파일의 다운로드 권한을 확인해주세요.");
+  }
+
+  const fileResponse = await fetch(`${apiBase}/files/${encodeURIComponent(linkData.rootFileId)}`, {
+    headers: { Accept: "application/json" },
+    signal: AbortSignal.timeout(20_000),
+  });
+  if (!fileResponse.ok) throw new Error("네이버웍스 공유 파일 메타데이터를 읽지 못했습니다.");
+  const fileData = await fileResponse.json() as {
+    downloadUrl?: string;
+    fileName?: string;
+    fileSize?: number;
+  };
+  const fileName = safeFileName(String(fileData.fileName || ""));
+  const extension = sourceExtension(fileName);
+  const fileSize = Number(fileData.fileSize || 0);
+  if (!Object.hasOwn(EXTENSION_MIME_TYPES, extension)) {
+    throw new Error("공유 파일은 PPT, PPTX 또는 PPTM 원본이어야 합니다.");
+  }
+  if (!Number.isSafeInteger(fileSize) || fileSize < 1 || fileSize > MAX_SOURCE_BYTES) {
+    throw new Error("공유 파일 크기가 허용 범위를 벗어났습니다.");
+  }
+  if (!fileData.downloadUrl) throw new Error("공유 파일 다운로드 주소가 없습니다.");
+  const downloadUrl = new URL(fileData.downloadUrl);
+  if (downloadUrl.protocol !== "https:" || downloadUrl.hostname !== "storage.worksmobile.com") {
+    throw new Error("공유 파일의 저장 위치를 확인할 수 없습니다.");
+  }
+
+  const downloadResponse = await fetch(downloadUrl, {
+    redirect: "follow",
+    signal: AbortSignal.timeout(60_000),
+  });
+  if (!downloadResponse.ok) throw new Error("네이버웍스 공유 원본을 내려받지 못했습니다.");
+  const bytes = new Uint8Array(await downloadResponse.arrayBuffer());
+  const signatureHex = Buffer.from(bytes.subarray(0, 8)).toString("hex");
+  if (bytes.byteLength !== fileSize || !hasPowerPointSignature(signatureHex, extension)) {
+    throw new Error("공유 원본의 크기 또는 PowerPoint 형식이 일치하지 않습니다.");
+  }
+
+  return {
+    bytes,
+    fileName,
+    fileSize,
+    fingerprint: createHash("sha256").update(bytes).digest("hex"),
+    mimeType: EXTENSION_MIME_TYPES[extension],
+    shareUrl: requestedUrl.toString(),
+    signatureHex,
+  };
 }
 
 async function ensureSourceBucket() {
@@ -79,7 +171,28 @@ export async function POST(
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const { id } = await context.params;
-  const body = await request.json().catch(() => ({})) as PortfolioSourceRequest;
+  let body = await request.json().catch(() => ({})) as PortfolioSourceRequest;
+  let linkedPowerPoint: LinkedPowerPoint | null = null;
+  if (body.action === "connect_link") {
+    if (typeof body.shareUrl !== "string" || !body.shareUrl.trim()) {
+      return NextResponse.json({ error: "네이버웍스 공유 주소를 입력해주세요." }, { status: 400 });
+    }
+    try {
+      linkedPowerPoint = await downloadWorksPowerPoint(body.shareUrl.trim());
+      body = {
+        ...body,
+        fileName: linkedPowerPoint.fileName,
+        fileSize: linkedPowerPoint.fileSize,
+        fileHash: linkedPowerPoint.fingerprint,
+        mimeType: linkedPowerPoint.mimeType,
+        signatureHex: linkedPowerPoint.signatureHex,
+      };
+    } catch (error) {
+      return NextResponse.json({
+        error: error instanceof Error ? error.message : "네이버웍스 공유 원본을 읽지 못했습니다.",
+      }, { status: 400 });
+    }
+  }
   const fileName = safeFileName(String(body.fileName || ""));
   const extension = sourceExtension(fileName);
   const fileSize = Number(body.fileSize || 0);
@@ -136,6 +249,21 @@ export async function POST(
     return NextResponse.json({ error: "이미 연결된 포트폴리오 변환 작업이 있습니다." }, { status: 409 });
   }
 
+  if (body.action === "connect_link" && linkedPowerPoint) {
+    await ensureSourceBucket();
+    const uploadId = randomUUID();
+    const path = sourcePath(id, uploadId, fileName);
+    const { error: uploadError } = await admin.storage.from(SOURCE_BUCKET).upload(path, linkedPowerPoint.bytes, {
+      cacheControl: "3600",
+      contentType: linkedPowerPoint.mimeType,
+      upsert: false,
+    });
+    if (uploadError) {
+      return NextResponse.json({ error: uploadError.message }, { status: 500 });
+    }
+    body = { ...body, action: "commit", uploadId };
+  }
+
   if (body.action === "prepare") {
     await ensureSourceBucket();
     const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -186,7 +314,9 @@ export async function POST(
   try {
     const { data: driveFile, error: driveFileError } = await admin.from("naver_works_drive_files").insert({
       root_id: null,
-      external_file_id: `local-admin:${id}:${fingerprint}`,
+      external_file_id: linkedPowerPoint
+        ? `works-share:${id}:${fingerprint}`
+        : `local-admin:${id}:${fingerprint}`,
       parent_file_id: null,
       file_path: `관리자 직접 연결/${fileName}`,
       file_name: fileName,
@@ -202,6 +332,7 @@ export async function POST(
         workItemId: id,
         uploadId: body.uploadId,
         uploadedBy: user.email,
+        sharedLink: linkedPowerPoint?.shareUrl || null,
       },
       last_seen_at: now,
       updated_at: now,
@@ -228,6 +359,7 @@ export async function POST(
         sourceStorageBucket: SOURCE_BUCKET,
         sourceStoragePath: path,
         uploadId: body.uploadId,
+        sharedLink: linkedPowerPoint?.shareUrl || null,
         selectedAt: now,
       },
       updated_at: now,
@@ -285,6 +417,7 @@ export async function POST(
           fileSize,
           connectedAt: now,
           connectedBy: user.email,
+          sharedLink: linkedPowerPoint?.shareUrl || null,
         },
       },
       updated_at: now,
