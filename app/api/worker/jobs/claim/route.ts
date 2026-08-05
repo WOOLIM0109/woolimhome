@@ -9,6 +9,7 @@ import {
   supportsLocalRedactionClaims,
 } from "@/lib/pc-worker/capabilities";
 import { sharedDriveDownloadAuthorization } from "@/lib/naver-works/client";
+import { portfolioPublicVisualOverrides } from "@/lib/portfolio/public-visual-overrides";
 
 export const runtime = "nodejs";
 
@@ -268,6 +269,7 @@ export async function POST(request: Request) {
       sourceUrl,
       sourceAuthorization,
       sourceDelivery: source.delivery || "supabase",
+      publicVisualOverrides: portfolioPublicVisualOverrides(job.candidate_id),
     },
   });
 }
