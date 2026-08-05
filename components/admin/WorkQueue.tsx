@@ -415,12 +415,13 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
 
   async function update(
     id: string,
-    patch: { action?: "regenerate" | "replace_topic" | "release_to_partner" | "retry_missing_fonts" | "retry_portfolio_conversion"; status?: WorkflowStatus; review_note?: string },
+    patch: { action?: "regenerate" | "replace_topic" | "release_to_partner" | "retry_missing_fonts" | "retry_portfolio_conversion" | "restore_portfolio_draft"; status?: WorkflowStatus; review_note?: string },
   ) {
     const regenerating = patch.action === "regenerate"
       || patch.action === "replace_topic"
       || patch.action === "retry_missing_fonts"
       || patch.action === "retry_portfolio_conversion"
+      || patch.action === "restore_portfolio_draft"
       || patch.status === "creating";
     if (regenerating) setRegeneratingId(id);
     setError("");
@@ -935,6 +936,16 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
                     >
                       <RotateCcw size={15} className={regeneratingId === item.id ? "animate-spin" : ""} />
                       {regeneratingId === item.id ? "글꼴 확인 후 재요청 중" : "글꼴 설치 후 다시 처리"}
+                    </button>
+                  )}
+                  {!item.metadata?.generated?.bodyHtml && (
+                    <button
+                      onClick={() => void update(item.id, { action: "restore_portfolio_draft" })}
+                      disabled={regeneratingId === item.id || rebuildingId === item.id || mockupRebuildingId === item.id}
+                      className="inline-flex items-center gap-2 rounded-xl border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-950 hover:bg-emerald-100 disabled:cursor-wait disabled:opacity-60"
+                    >
+                      <RotateCcw size={15} className={regeneratingId === item.id ? "animate-spin" : ""} />
+                      {regeneratingId === item.id ? "기존 본문 복구 중…" : "기존 본문 복구"}
                     </button>
                   )}
                   <button
