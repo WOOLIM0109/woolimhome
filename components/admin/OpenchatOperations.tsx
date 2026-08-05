@@ -186,6 +186,39 @@ export default function OpenchatOperations() {
     }
   }
 
+  async function publishDeferredPost() {
+    if (!deferredPostPrograms.length) return;
+    if (!window.confirm(`현재 이월 배포글 ${deferredPostPrograms.length}건을 게시 완료로 처리할까요?`)) return;
+    setBusy("publish-deferred-post");
+    setError("");
+    setMessage("");
+    try {
+      const publishedPrograms = await Promise.all(deferredPostPrograms.map(async (program) => {
+        const response = await fetch("/api/admin/openchat/programs", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ...program, status: "published" }),
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(`${program.title}: ${data.error || "게시 완료로 처리하지 못했습니다."}`);
+        return data as OpenchatProgram;
+      }));
+      const publishedIds = new Set(publishedPrograms.map((program) => program.id));
+      setDeferredPrograms((current) => current.filter((program) => !publishedIds.has(program.id)));
+      setPrograms((current) => current.map((program) => (
+        publishedIds.has(program.id)
+          ? publishedPrograms.find((published) => published.id === program.id) || program
+          : program
+      )));
+      setMessage(`이월 배포글 ${publishedPrograms.length}건을 게시 완료로 처리했습니다.`);
+    } catch (publishError) {
+      setError(publishError instanceof Error ? publishError.message : "이월 배포글을 게시 완료로 처리하지 못했습니다.");
+      await load();
+    } finally {
+      setBusy("");
+    }
+  }
+
   async function saveDraft(status?: OpenchatContentDraft["status"]) {
     if (!draft) return;
     setBusy(draft.id);
@@ -320,8 +353,12 @@ export default function OpenchatOperations() {
             ) : (
               <>
                 <pre className="mt-5 max-h-[720px] overflow-auto whitespace-pre-wrap rounded-xl bg-[#fff7f1] p-5 text-sm leading-7">{formatMorningPost(deferredPostPrograms, deferredPostDate)}</pre>
-                <div className="mt-4 flex justify-end">
-                  <button onClick={() => void copy(formatMorningPost(deferredPostPrograms, deferredPostDate))} className="inline-flex items-center gap-2 rounded-xl bg-stone-800 px-4 py-2 text-sm font-bold text-white"><Clipboard size={16} /> 이월 배포글 복사</button>
+                <div className="mt-4 flex flex-wrap justify-end gap-2">
+                  <button onClick={() => void copy(formatMorningPost(deferredPostPrograms, deferredPostDate))} disabled={Boolean(busy)} className="inline-flex items-center gap-2 rounded-xl bg-stone-800 px-4 py-2 text-sm font-bold text-white disabled:opacity-50"><Clipboard size={16} /> 이월 배포글 복사</button>
+                  <button onClick={() => void publishDeferredPost()} disabled={Boolean(busy)} className="inline-flex items-center gap-2 rounded-xl bg-emerald-700 px-4 py-2 text-sm font-bold text-white disabled:opacity-50">
+                    {busy === "publish-deferred-post" ? <LoaderCircle size={16} className="animate-spin" /> : <Check size={16} />}
+                    {busy === "publish-deferred-post" ? "게시 완료 처리 중" : "게시 완료"}
+                  </button>
                 </div>
               </>
             )}
