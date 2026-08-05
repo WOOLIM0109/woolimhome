@@ -674,6 +674,12 @@ export async function processNextPortfolioMockup(candidateId?: string) {
   if (!job) return null;
   let attempts = Number(job.attempts || 0);
   let result = (job.result || {}) as Record<string, unknown>;
+  for (const duplicatedCheckpointField of [
+    "slideAssessmentsProgress",
+    "confidentialRegions",
+    "confidentialRegionsProgress",
+    "localRedactionManifest",
+  ]) delete result[duplicatedCheckpointField];
   const recoverableJsonFailure = /Unexpected non-whitespace|AI JSON|JSON 객체|AI_STEP_TIMEOUT/i
     .test(String(job.error_message || ""));
   const recoveryField = /AI_STEP_TIMEOUT/i.test(String(job.error_message || ""))
@@ -877,7 +883,6 @@ export async function processNextPortfolioMockup(candidateId?: string) {
     console.info(`[portfolio-mockup] review ready candidate=${job.candidate_id}`);
     await checkpoint({
       visualReview: review,
-      slideAssessmentsProgress: review.slideAssessments,
       visualReviewCompletedAt: new Date().toISOString(),
       visualReviewMethod: "local_image_metrics_v1",
     });
@@ -909,12 +914,9 @@ export async function processNextPortfolioMockup(candidateId?: string) {
       );
     }
     await checkpoint({
-      confidentialRegions,
-      confidentialRegionsProgress: confidentialRegions,
       confidentialRegionsCompletedIndexes: mockupPlan.indexes,
       redactionVerification,
       redactionMethod: localManifest.method,
-      localRedactionManifest: localManifest,
       confidentialRegionsCompletedAt: new Date().toISOString(),
     });
 
