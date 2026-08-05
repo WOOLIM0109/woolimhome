@@ -153,9 +153,9 @@ async function loadSlides(input: {
   sensitiveRegions: SensitiveRegion[];
 }) {
   const values: LoadedSlide[] = [];
-  for (const index of input.indexes) {
+  const loadOne = async (index: number): Promise<LoadedSlide | null> => {
     const path = input.slidePaths[index];
-    if (!path) continue;
+    if (!path) return null;
     const { data, error } = await contentAdmin().storage.from(input.bucket).download(path);
     if (error || !data) throw new Error(error?.message || `슬라이드 ${index + 1}을 읽지 못했습니다.`);
     const bytes = Buffer.from(await data.arrayBuffer());
@@ -170,7 +170,7 @@ async function loadSlides(input: {
     if (!metadata.width || !metadata.height) {
       throw new Error(`슬라이드 ${index + 1}의 비율을 불러오지 못했습니다.`);
     }
-    values.push({
+    return {
       index,
       buffer,
       aspectRatio: metadata.width / metadata.height,
@@ -183,7 +183,12 @@ async function loadSlides(input: {
         regionCount: redacted.appliedRegionCount,
         changedPixelRatio: pixelChange,
       },
-    });
+    };
+  };
+  const concurrency = 3;
+  for (let offset = 0; offset < input.indexes.length; offset += concurrency) {
+    const batch = await Promise.all(input.indexes.slice(offset, offset + concurrency).map(loadOne));
+    values.push(...batch.filter((slide): slide is LoadedSlide => Boolean(slide)));
   }
   return values;
 }
