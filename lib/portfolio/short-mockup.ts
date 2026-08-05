@@ -67,11 +67,16 @@ type CardSlot = {
   z: number;
 };
 
+type Point = {
+  x: number;
+  y: number;
+};
+
 type TemplateMainSlot = {
-  left: number;
-  top: number;
-  right: number;
-  bottom: number;
+  /** Exact Photoshop smart-object corner order: top-left, top-right, bottom-right, bottom-left. */
+  quad: [Point, Point, Point, Point];
+  sourceWidth: number;
+  sourceHeight: number;
   z: number;
 };
 
@@ -98,17 +103,107 @@ const templateAssetCache = new Map<string, Promise<Buffer>>();
 
 const TEMPLATE_MAIN_SLOTS: Record<"16:9" | "4:3", TemplateMainSlot[]> = {
   "16:9": [
-    { left: 93, top: 300, right: 1834, bottom: 1685, z: 5 },
-    { left: -461, top: -7, right: 982, bottom: 571, z: 4 },
-    { left: 1133, top: -7, right: 2443, bottom: 1317, z: 3 },
-    { left: -461, top: 564, right: 607, bottom: 1847, z: 2 },
-    { left: 783, top: 1309, right: 2443, bottom: 1929, z: 1 },
+    {
+      quad: [
+        { x: 431.776526091558, y: 298.581333579507 },
+        { x: 1835.43678108631, y: 890.85659953286 },
+        { x: 1502.24621661248, y: 1686.8499973935 },
+        { x: 89.9941587551383, y: 1085.06159091672 },
+      ],
+      sourceWidth: 1920,
+      sourceHeight: 1080,
+      z: 5,
+    },
+    {
+      quad: [
+        { x: -363.050793804126, y: -614.744468503333 },
+        { x: 1018.90396001652, y: -89.2766596343548 },
+        { x: 671.552825297408, y: 723.573179446508 },
+        { x: -720.631549874383, y: 137.115564415295 },
+      ],
+      sourceWidth: 1920,
+      sourceHeight: 1080,
+      z: 4,
+    },
+    {
+      quad: [
+        { x: 1400.00869363833, y: -35.028454962057 },
+        { x: 2787.71306130281, y: 545.414167234811 },
+        { x: 2465.3453351941, y: 1327.40014150105 },
+        { x: 1071.06124843036, y: 737.340867309569 },
+      ],
+      sourceWidth: 1920,
+      sourceHeight: 1080,
+      z: 3,
+    },
+    {
+      quad: [
+        { x: -669.560901838942, y: 475.322249564231 },
+        { x: 719.131274048473, y: 1058.1248803899 },
+        { x: 375.606790915314, y: 1848.95012823353 },
+        { x: -996.173317755546, y: 1265.09281023894 },
+      ],
+      sourceWidth: 1920,
+      sourceHeight: 1080,
+      z: 2,
+    },
+    {
+      quad: [
+        { x: 1110.79847534423, y: 1077.7089939884 },
+        { x: 2510.88101081293, y: 1670.128214362 },
+        { x: 2185.92010639911, y: 2472.27159192145 },
+        { x: 782.239622466352, y: 1863.18991042379 },
+      ],
+      sourceWidth: 1920,
+      sourceHeight: 1080,
+      z: 1,
+    },
   ],
   "4:3": [
-    { left: 759, top: -23, right: 1935, bottom: 1012, z: 5 },
-    { left: -255, top: 385, right: 953, bottom: 1444, z: 4 },
-    { left: 834, top: 800, right: 1935, bottom: 1861, z: 2 },
-    { left: -220, top: 1252, right: 984, bottom: 1977, z: 1 },
+    {
+      quad: [
+        { x: 759.017314487709, y: 349.069210899718 },
+        { x: 1698.09994932432, y: -59.2928529037284 },
+        { x: 1982.19914261062, y: 604.892818684409 },
+        { x: 1043.28059445042, y: 1010.90173846867 },
+      ],
+      sourceWidth: 1748,
+      sourceHeight: 1240,
+      z: 5,
+    },
+    {
+      quad: [
+        { x: -254.912277357436, y: 789.860045631124 },
+        { x: 669.061303529236, y: 385.658163439083 },
+        { x: 953.177891346973, y: 1048.60582886046 },
+        { x: 29.5602184937884, y: 1443.43807917504 },
+      ],
+      sourceWidth: 1748,
+      sourceHeight: 1240,
+      z: 4,
+    },
+    {
+      quad: [
+        { x: 833.798392268207, y: 1201.1511531385 },
+        { x: 1771.08269229614, y: 801.185699894781 },
+        { x: 2055.77189581607, y: 1465.8156365933 },
+        { x: 1116.83417375557, y: 1860.96771989251 },
+      ],
+      sourceWidth: 1748,
+      sourceHeight: 1240,
+      z: 2,
+    },
+    {
+      quad: [
+        { x: -220.037179134823, y: 1645.49105898018 },
+        { x: 698.620420363765, y: 1252.68013241094 },
+        { x: 983.405863288002, y: 1910.44715676418 },
+        { x: 61.3417353202326, y: 2289.54117159896 },
+      ],
+      sourceWidth: 1748,
+      sourceHeight: 1240,
+      z: 1,
+    },
   ],
 };
 
@@ -435,50 +530,158 @@ async function clippedPlacement(input: Buffer, options: {
   };
 }
 
+function solveLinearSystem(rows: number[][]) {
+  const size = rows.length;
+  const matrix = rows.map((row) => [...row]);
+  for (let pivot = 0; pivot < size; pivot += 1) {
+    let best = pivot;
+    for (let row = pivot + 1; row < size; row += 1) {
+      if (Math.abs(matrix[row][pivot]) > Math.abs(matrix[best][pivot])) best = row;
+    }
+    if (Math.abs(matrix[best][pivot]) < 1e-10) {
+      throw new Error("PSD 목업 원근 좌표를 계산할 수 없습니다.");
+    }
+    [matrix[pivot], matrix[best]] = [matrix[best], matrix[pivot]];
+    const divisor = matrix[pivot][pivot];
+    for (let column = pivot; column <= size; column += 1) {
+      matrix[pivot][column] /= divisor;
+    }
+    for (let row = 0; row < size; row += 1) {
+      if (row === pivot) continue;
+      const factor = matrix[row][pivot];
+      for (let column = pivot; column <= size; column += 1) {
+        matrix[row][column] -= factor * matrix[pivot][column];
+      }
+    }
+  }
+  return matrix.map((row) => row[size]);
+}
+
+function homography(
+  sourceWidth: number,
+  sourceHeight: number,
+  quad: [Point, Point, Point, Point],
+) {
+  const source = [
+    { x: 0, y: 0 },
+    { x: sourceWidth - 1, y: 0 },
+    { x: sourceWidth - 1, y: sourceHeight - 1 },
+    { x: 0, y: sourceHeight - 1 },
+  ];
+  const rows: number[][] = [];
+  for (let index = 0; index < source.length; index += 1) {
+    const { x, y } = source[index];
+    const { x: outputX, y: outputY } = quad[index];
+    rows.push([x, y, 1, 0, 0, 0, -outputX * x, -outputX * y, outputX]);
+    rows.push([0, 0, 0, x, y, 1, -outputY * x, -outputY * y, outputY]);
+  }
+  const values = solveLinearSystem(rows);
+  return [
+    values[0], values[1], values[2],
+    values[3], values[4], values[5],
+    values[6], values[7], 1,
+  ];
+}
+
+function invertMatrix3(values: number[]) {
+  const [a, b, c, d, e, f, g, h, i] = values;
+  const determinant = a * (e * i - f * h)
+    - b * (d * i - f * g)
+    + c * (d * h - e * g);
+  if (Math.abs(determinant) < 1e-10) {
+    throw new Error("PSD 목업 원근 좌표의 역행렬을 계산할 수 없습니다.");
+  }
+  return [
+    (e * i - f * h) / determinant,
+    (c * h - b * i) / determinant,
+    (b * f - c * e) / determinant,
+    (f * g - d * i) / determinant,
+    (a * i - c * g) / determinant,
+    (c * d - a * f) / determinant,
+    (d * h - e * g) / determinant,
+    (b * g - a * h) / determinant,
+    (a * e - b * d) / determinant,
+  ];
+}
+
+async function perspectivePlacement(
+  slide: PreparedSlide,
+  slot: TemplateMainSlot,
+) {
+  const scale = MAIN_CANVAS.width / PSD_SOURCE_MAIN_SIZE;
+  const quad = slot.quad.map((point) => ({
+    x: point.x * scale,
+    y: point.y * scale,
+  })) as [Point, Point, Point, Point];
+  const left = Math.max(0, Math.floor(Math.min(...quad.map((point) => point.x))));
+  const top = Math.max(0, Math.floor(Math.min(...quad.map((point) => point.y))));
+  const right = Math.min(MAIN_CANVAS.width, Math.ceil(Math.max(...quad.map((point) => point.x))));
+  const bottom = Math.min(MAIN_CANVAS.height, Math.ceil(Math.max(...quad.map((point) => point.y))));
+  if (right <= left || bottom <= top) return null;
+
+  const source = await sharp(slide.buffer)
+    .resize({
+      width: slot.sourceWidth,
+      height: slot.sourceHeight,
+      fit: "contain",
+      background: "#ffffff",
+    })
+    .flatten({ background: "#ffffff" })
+    .ensureAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+  const inverse = invertMatrix3(homography(source.info.width, source.info.height, quad));
+  const width = right - left;
+  const height = bottom - top;
+  const output = Buffer.alloc(width * height * 4);
+
+  for (let outputY = 0; outputY < height; outputY += 1) {
+    const canvasY = top + outputY + 0.5;
+    for (let outputX = 0; outputX < width; outputX += 1) {
+      const canvasX = left + outputX + 0.5;
+      const divisor = inverse[6] * canvasX + inverse[7] * canvasY + inverse[8];
+      if (Math.abs(divisor) < 1e-10) continue;
+      const sourceX = (inverse[0] * canvasX + inverse[1] * canvasY + inverse[2]) / divisor;
+      const sourceY = (inverse[3] * canvasX + inverse[4] * canvasY + inverse[5]) / divisor;
+      if (sourceX < 0 || sourceY < 0
+        || sourceX > source.info.width - 1
+        || sourceY > source.info.height - 1) continue;
+
+      const x0 = Math.floor(sourceX);
+      const y0 = Math.floor(sourceY);
+      const x1 = Math.min(source.info.width - 1, x0 + 1);
+      const y1 = Math.min(source.info.height - 1, y0 + 1);
+      const weightX = sourceX - x0;
+      const weightY = sourceY - y0;
+      const outputOffset = (outputY * width + outputX) * 4;
+      for (let channel = 0; channel < 4; channel += 1) {
+        const topLeft = source.data[(y0 * source.info.width + x0) * 4 + channel];
+        const topRight = source.data[(y0 * source.info.width + x1) * 4 + channel];
+        const bottomLeft = source.data[(y1 * source.info.width + x0) * 4 + channel];
+        const bottomRight = source.data[(y1 * source.info.width + x1) * 4 + channel];
+        const topValue = topLeft + (topRight - topLeft) * weightX;
+        const bottomValue = bottomLeft + (bottomRight - bottomLeft) * weightX;
+        output[outputOffset + channel] = Math.round(topValue + (bottomValue - topValue) * weightY);
+      }
+    }
+  }
+
+  return {
+    input: await sharp(output, { raw: { width, height, channels: 4 } }).png().toBuffer(),
+    left,
+    top,
+    z: slot.z,
+  };
+}
+
 async function renderPsdMainBoard(
   slides: PreparedSlide[],
   aspectClass: "16:9" | "4:3",
 ) {
   const slots = TEMPLATE_MAIN_SLOTS[aspectClass].slice(0, slides.length);
-  const ratio = ASPECT_RATIOS[aspectClass];
-  const scale = MAIN_CANVAS.width / PSD_SOURCE_MAIN_SIZE;
-  const placements = await Promise.all(slides.map(async (slide, index) => {
-    const slot = slots[index];
-    const boundingWidth = (slot.right - slot.left) * scale;
-    const boundingHeight = (slot.bottom - slot.top) * scale;
-    const boundingRatio = boundingWidth / boundingHeight;
-    const tangent = (ratio - boundingRatio) / Math.max(0.0001, boundingRatio * ratio - 1);
-    const angle = Math.atan(tangent);
-    const sine = Math.abs(Math.sin(angle));
-    const cosine = Math.abs(Math.cos(angle));
-    const fittedHeight = Math.min(
-      boundingWidth / Math.max(0.0001, ratio * cosine + sine),
-      boundingHeight / Math.max(0.0001, ratio * sine + cosine),
-    );
-    const inset = 0.91;
-    const height = Math.max(1, Math.round(fittedHeight * inset));
-    const width = Math.max(1, Math.round(height * ratio));
-    const rendered = await sharp(slide.buffer)
-      .resize({ width, height, fit: "contain", background: "#ffffff" })
-      .flatten({ background: "#ffffff" })
-      .ensureAlpha()
-      .rotate(angle * 180 / Math.PI, {
-        background: { r: 0, g: 0, b: 0, alpha: 0 },
-      })
-      .png()
-      .toBuffer({ resolveWithObject: true });
-    const centerX = ((slot.left + slot.right) / 2) * scale;
-    const centerY = ((slot.top + slot.bottom) / 2) * scale;
-    const placement = await clippedPlacement(rendered.data, {
-      width: rendered.info.width,
-      height: rendered.info.height,
-      left: Math.round(centerX - rendered.info.width / 2),
-      top: Math.round(centerY - rendered.info.height / 2),
-      canvasWidth: MAIN_CANVAS.width,
-      canvasHeight: MAIN_CANVAS.height,
-    });
-    return placement ? { ...placement, z: slot.z } : null;
-  }));
+  const placements = await Promise.all(slides.map((slide, index) => (
+    perspectivePlacement(slide, slots[index])
+  )));
   return sharp(await templateAsset(aspectClass, 0))
     .composite(placements
       .filter((placement): placement is NonNullable<typeof placement> => Boolean(placement))

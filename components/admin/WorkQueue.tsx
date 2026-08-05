@@ -359,6 +359,7 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
   const [error, setError] = useState("");
   const [notes, setNotes] = useState<Record<string, string>>({});
   const [rebuildingId, setRebuildingId] = useState<string | null>(null);
+  const [mockupRebuildingId, setMockupRebuildingId] = useState<string | null>(null);
   const [regeneratingId, setRegeneratingId] = useState<string | null>(null);
   const [sourceUploadingId, setSourceUploadingId] = useState<string | null>(null);
   const [sourceLinks, setSourceLinks] = useState<Record<string, string>>({});
@@ -482,6 +483,26 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
       await load();
     } finally {
       setRebuildingId(null);
+    }
+  }
+
+  async function rebuildMockupsOnly(item: WorkItem) {
+    setMockupRebuildingId(item.id);
+    setError("");
+    try {
+      const response = await fetch(`/api/admin/content/${item.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "rebuild_portfolio_mockups" }),
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        setError(data.error || "본문은 유지하고 목업 이미지만 다시 만들지 못했습니다.");
+        return;
+      }
+      await load();
+    } finally {
+      setMockupRebuildingId(null);
     }
   }
 
@@ -899,7 +920,7 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
                   {isPortfolioConversionHold(item) && (
                     <button
                       onClick={() => void update(item.id, { action: "retry_portfolio_conversion" })}
-                      disabled={regeneratingId === item.id || rebuildingId === item.id}
+                      disabled={regeneratingId === item.id || rebuildingId === item.id || mockupRebuildingId === item.id}
                       className="inline-flex items-center gap-2 rounded-xl border border-blue-300 bg-blue-50 px-3 py-2 text-xs font-bold text-blue-950 hover:bg-blue-100 disabled:cursor-wait disabled:opacity-60"
                     >
                       <RotateCcw size={15} className={regeneratingId === item.id ? "animate-spin" : ""} />
@@ -917,8 +938,18 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
                     </button>
                   )}
                   <button
+                    onClick={() => void rebuildMockupsOnly(item)}
+                    disabled={regeneratingId === item.id || rebuildingId === item.id || mockupRebuildingId === item.id}
+                    className="inline-flex items-center gap-2 rounded-xl border border-sky-200 bg-sky-50 px-3 py-2 text-xs font-bold text-sky-950 hover:bg-sky-100 disabled:cursor-wait disabled:opacity-60"
+                  >
+                    <RotateCcw size={15} className={mockupRebuildingId === item.id ? "animate-spin" : ""} />
+                    {mockupRebuildingId === item.id
+                      ? "본문 유지·목업 이미지만 재생성 중…"
+                      : "본문 유지·목업 이미지만 재생성"}
+                  </button>
+                  <button
                     onClick={() => void rebuild(item)}
-                    disabled={regeneratingId === item.id || rebuildingId === item.id}
+                    disabled={regeneratingId === item.id || rebuildingId === item.id || mockupRebuildingId === item.id}
                     className="inline-flex items-center gap-2 rounded-xl border border-violet-200 bg-violet-50 px-3 py-2 text-xs font-bold text-violet-950 hover:bg-violet-100 disabled:cursor-wait disabled:opacity-60"
                   >
                     <RotateCcw size={15} className={rebuildingId === item.id ? "animate-spin" : ""} />
