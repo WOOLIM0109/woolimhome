@@ -348,7 +348,9 @@ function isPortfolioConversionHold(item: WorkItem) {
   if (item.format !== "portfolio" || item.status !== "on_hold") return false;
   if (item.review_note?.includes("MISSING_FONTS:")) return false;
   const failureContext = `${item.summary || ""} ${item.review_note || ""}`.toLowerCase();
-  return failureContext.includes("pc worker retry limit reached");
+  return failureContext.includes("pc worker retry limit reached")
+    || failureContext.includes("insufficient_usable_slides")
+    || failureContext.includes("shape_geometry_inspection_failed");
 }
 
 export default function WorkQueue({ channel, reviewMode = false }: { channel?: ContentChannel; reviewMode?: boolean }) {
