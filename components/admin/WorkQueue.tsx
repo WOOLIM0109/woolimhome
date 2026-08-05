@@ -378,29 +378,27 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
       const next: WorkItem[] = reviewMode
         ? activeItems.filter((item: WorkItem) => item.status === "review_required")
         : activeItems;
-      const displayItems = reviewMode
-        ? next.map((item) => {
-            const generated = item.metadata?.generated;
-            if (!generated) return item;
-            return {
-              ...item,
-              metadata: {
-                ...item.metadata,
-                generated: {
-                  ...generated,
-                  bodyHtml: generated.bodyHtml
-                    ? formatSentenceLineBreaks(generated.bodyHtml)
-                    : generated.bodyHtml,
-                  faq: generated.faq?.map((faq) => ({
-                    ...faq,
-                    displayQuestionHtml: formatSentenceLineBreaks(faqQuestionHtml(faq.question)),
-                    displayAnswerHtml: formatSentenceLineBreaks(faqAnswerHtml(faq.answer)),
-                  })),
-                },
-              },
-            };
-          })
-        : next;
+      const displayItems = next.map((item) => {
+        const generated = item.metadata?.generated;
+        if (!generated || item.status === "published") return item;
+        return {
+          ...item,
+          metadata: {
+            ...item.metadata,
+            generated: {
+              ...generated,
+              bodyHtml: generated.bodyHtml
+                ? formatSentenceLineBreaks(generated.bodyHtml)
+                : generated.bodyHtml,
+              faq: generated.faq?.map((faq) => ({
+                ...faq,
+                displayQuestionHtml: formatSentenceLineBreaks(faqQuestionHtml(faq.question)),
+                displayAnswerHtml: formatSentenceLineBreaks(faqAnswerHtml(faq.answer)),
+              })),
+            },
+          },
+        };
+      });
       setItems(displayItems);
       setNotes(Object.fromEntries(displayItems.map((item) => [item.id, item.review_note || ""])));
       setError("");
@@ -415,13 +413,14 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
 
   async function update(
     id: string,
-    patch: { action?: "regenerate" | "replace_topic" | "release_to_partner" | "retry_missing_fonts" | "retry_portfolio_conversion" | "restore_portfolio_draft"; status?: WorkflowStatus; review_note?: string },
+    patch: { action?: "regenerate" | "replace_topic" | "release_to_partner" | "retry_missing_fonts" | "retry_portfolio_conversion" | "restore_portfolio_draft" | "reflow_portfolio_images"; status?: WorkflowStatus; review_note?: string },
   ) {
     const regenerating = patch.action === "regenerate"
       || patch.action === "replace_topic"
       || patch.action === "retry_missing_fonts"
       || patch.action === "retry_portfolio_conversion"
       || patch.action === "restore_portfolio_draft"
+      || patch.action === "reflow_portfolio_images"
       || patch.status === "creating";
     if (regenerating) setRegeneratingId(id);
     setError("");
@@ -946,6 +945,16 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
                     >
                       <RotateCcw size={15} className={regeneratingId === item.id ? "animate-spin" : ""} />
                       {regeneratingId === item.id ? "기존 본문 복구 중…" : "기존 본문 복구"}
+                    </button>
+                  )}
+                  {item.metadata?.generated?.bodyHtml && (
+                    <button
+                      onClick={() => void update(item.id, { action: "reflow_portfolio_images" })}
+                      disabled={regeneratingId === item.id || rebuildingId === item.id || mockupRebuildingId === item.id}
+                      className="inline-flex items-center gap-2 rounded-xl border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-950 hover:bg-emerald-100 disabled:cursor-wait disabled:opacity-60"
+                    >
+                      <RotateCcw size={15} className={regeneratingId === item.id ? "animate-spin" : ""} />
+                      {regeneratingId === item.id ? "본문 이미지 배치 정리 중…" : "본문 이미지 균등 배치"}
                     </button>
                   )}
                   <button

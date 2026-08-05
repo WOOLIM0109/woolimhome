@@ -487,8 +487,22 @@ export default function PartnerQueue({ onUnauthorized }: { onUnauthorized: () =>
                         <h4 className="text-xl font-bold">자주 묻는 질문</h4>
                         {item.faq.map((faq) => (
                           <div key={faq.question} className="mt-5 rounded-xl border border-[var(--line)] p-4">
-                            <p className="font-bold" dangerouslySetInnerHTML={{ __html: faqQuestionHtml(faq.question) }} />
-                            <p className="mt-2 text-sm leading-7 text-[var(--muted)]" dangerouslySetInnerHTML={{ __html: faqAnswerHtml(faq.answer) }} />
+                            <p
+                              className="font-bold"
+                              dangerouslySetInnerHTML={{
+                                __html: isPublished
+                                  ? faqQuestionHtml(faq.question)
+                                  : formatSentenceLineBreaks(faqQuestionHtml(faq.question)),
+                              }}
+                            />
+                            <p
+                              className="mt-2 text-sm leading-7 text-[var(--muted)]"
+                              dangerouslySetInnerHTML={{
+                                __html: isPublished
+                                  ? faqAnswerHtml(faq.answer)
+                                  : formatSentenceLineBreaks(faqAnswerHtml(faq.answer)),
+                              }}
+                            />
                           </div>
                         ))}
                       </section>

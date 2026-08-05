@@ -49,6 +49,7 @@ import {
   ownsPortfolioTerminalHold,
   type PortfolioTerminalHoldOwner,
 } from "./pipeline-generation";
+import { reflowPortfolioBodyFigures } from "./body-layout";
 
 class PortfolioClaimLost extends Error {
   constructor() {
@@ -2040,10 +2041,12 @@ export async function restorePortfolioDraft(
   const bodyAssets = options.bodyAssets || [];
   const generated = {
     ...recovered,
-    bodyHtml: sanitizeGeneratedHtml(replaceRecoveredDraftFigures(
-      recovered.bodyHtml,
-      bodyAssets,
-      recovered.imageCaptions,
+    bodyHtml: sanitizeGeneratedHtml(reflowPortfolioBodyFigures(
+      replaceRecoveredDraftFigures(
+        recovered.bodyHtml,
+        bodyAssets,
+        recovered.imageCaptions,
+      ),
     )),
   };
   const previousAssets = Array.isArray(metadata.portfolioAssets)
@@ -2125,6 +2128,63 @@ export async function restorePortfolioDraft(
     bodyLength: generated.bodyHtml.replace(/<[^>]+>/g, " ").replace(/\s/g, "").length,
     bodyAssetCount: bodyAssets.length,
   };
+}
+
+export async function reflowPortfolioDraftImages(workItemId: string) {
+  const admin = contentAdmin();
+  const { data: workItem, error: workItemError } = await admin.from("content_work_items")
+    .select("id,format,status,metadata,updated_at")
+    .eq("id", workItemId)
+    .single();
+  if (workItemError) throw new Error(workItemError.message);
+  if (workItem.format !== "portfolio" || workItem.status === "published") {
+    throw new Error("발행 전 포트폴리오 본문만 이미지 배치를 정리할 수 있습니다.");
+  }
+  const metadata = (workItem.metadata || {}) as Record<string, unknown>;
+  const generated = recoverablePortfolioDraft(metadata.generated);
+  if (!generated) throw new PortfolioDraftRecoveryUnavailable();
+
+  const bodyHtml = sanitizeGeneratedHtml(reflowPortfolioBodyFigures(generated.bodyHtml));
+  const figureCount = (bodyHtml.match(/<figure\b/gi) || []).length;
+  if (!figureCount) throw new Error("본문에서 재배치할 이미지를 찾지 못했습니다.");
+  const now = new Date().toISOString();
+  const nextGenerated = { ...generated, bodyHtml };
+  const { data: updated, error: updateError } = await admin.from("content_work_items")
+    .update({
+      metadata: {
+        ...metadata,
+        generated: nextGenerated,
+        bodyImageReflowAt: now,
+      },
+      updated_at: now,
+    })
+    .eq("id", workItemId)
+    .eq("updated_at", workItem.updated_at)
+    .select("id")
+    .maybeSingle();
+  if (updateError) throw new Error(updateError.message);
+  if (!updated) throw new PortfolioRebuildConflict();
+
+  const { data: draftJob, error: jobReadError } = await admin.from("content_jobs")
+    .select("id,result")
+    .eq("work_item_id", workItemId)
+    .eq("job_type", "draft")
+    .order("updated_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (jobReadError) throw new Error(jobReadError.message);
+  if (draftJob) {
+    const result = draftJob.result && typeof draftJob.result === "object"
+      ? draftJob.result as Record<string, unknown>
+      : {};
+    const { error: jobUpdateError } = await admin.from("content_jobs").update({
+      result: { ...result, generated: nextGenerated, bodyImageReflowAt: now },
+      updated_at: now,
+    }).eq("id", draftJob.id);
+    if (jobUpdateError) throw new Error(jobUpdateError.message);
+  }
+
+  return { workItemId, figureCount, reflowedAt: now };
 }
 
 export async function retryPortfolioDraft(workItemId: string) {

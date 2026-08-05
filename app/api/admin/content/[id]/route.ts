@@ -12,6 +12,7 @@ import {
   PortfolioRebuildConflict,
   rebuildPortfolioDraft,
   rebuildPortfolioMockupsOnly,
+  reflowPortfolioDraftImages,
   restorePortfolioDraft,
   retryPortfolioConversion,
   retryPortfolioDraft,
@@ -206,6 +207,15 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
       }, {
         status: error instanceof PortfolioDraftRecoveryUnavailable ? 409 : 500,
       });
+    }
+  }
+  if (body.action === "reflow_portfolio_images") {
+    try {
+      return NextResponse.json(await reflowPortfolioDraftImages(id));
+    } catch (error) {
+      return NextResponse.json({
+        error: error instanceof Error ? error.message : "본문 이미지 배치를 정리하지 못했습니다.",
+      }, { status: error instanceof PortfolioDraftRecoveryUnavailable ? 409 : 500 });
     }
   }
   if (body.action === "rebuild_portfolio_mockups") {
