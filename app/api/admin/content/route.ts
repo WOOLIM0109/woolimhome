@@ -15,6 +15,79 @@ const PORTFOLIO_JOB_STATUSES = new Set([
   "queued", "running", "completed", "failed", "on_hold",
 ]);
 
+const TOURISM_MARKETING_WORK_ITEM_ID = "6579c77c-86fd-4b6a-9e65-654394597c8f";
+const TOURISM_MARKETING_MANUAL_ASSETS = [
+  { name: "short-main.jpg", slideIndexes: [2, 4, 5, 9, 10], width: 1600, height: 1600 },
+  { name: "short-detail-1.jpg", slideIndexes: [0, 1, 3], width: 1600, height: 900 },
+  { name: "short-detail-2.jpg", slideIndexes: [6, 7, 8], width: 1600, height: 900 },
+  { name: "short-detail-3.jpg", slideIndexes: [11, 12, 13], width: 1600, height: 900 },
+] as const;
+
+function applyManualTourismMockups(item: Record<string, unknown>, origin: string) {
+  if (item.id !== TOURISM_MARKETING_WORK_ITEM_ID) return item;
+  const metadata = item.metadata && typeof item.metadata === "object"
+    ? item.metadata as Record<string, unknown>
+    : {};
+  const existingPortfolioAssets = Array.isArray(metadata.portfolioAssets)
+    ? metadata.portfolioAssets.filter((asset) => (
+      asset && typeof asset === "object" && (asset as Record<string, unknown>).kind !== "body_image"
+    ))
+    : [];
+  const existingReviewAssets = Array.isArray(item.content_review_assets)
+    ? item.content_review_assets.filter((asset) => (
+      asset && typeof asset === "object" && (asset as Record<string, unknown>).asset_type !== "body_image"
+    ))
+    : [];
+  const manualAssets = TOURISM_MARKETING_MANUAL_ASSETS.map((asset, index) => {
+    const url = `${origin}/portfolio/manual/tourism-marketing/${asset.name}`;
+    return {
+      kind: "body_image",
+      name: asset.name,
+      url,
+      caption: "원본 PowerPoint 폰트를 보존한 무가림 수동 확정 목업",
+      slideIndexes: [...asset.slideIndexes],
+      slideAspectRatio: 16 / 9,
+      width: asset.width,
+      height: asset.height,
+      mockupMode: "short_psd",
+      aspectClass: "16:9",
+    };
+  });
+  return {
+    ...item,
+    content_review_assets: [
+      ...existingReviewAssets,
+      ...manualAssets.map((asset, index) => ({
+        id: `manual-tourism-${index + 1}`,
+        work_item_id: TOURISM_MARKETING_WORK_ITEM_ID,
+        asset_type: "body_image",
+        public_url: asset.url,
+        sort_order: index + 1,
+        approved: false,
+        review_note: `${asset.caption} · 원본 슬라이드 ${asset.slideIndexes.map((value) => value + 1).join(", ")}`,
+      })),
+    ],
+    metadata: {
+      ...metadata,
+      portfolioAssets: [...existingPortfolioAssets, ...manualAssets],
+      portfolioMockup: {
+        ...(metadata.portfolioMockup && typeof metadata.portfolioMockup === "object"
+          ? metadata.portfolioMockup as Record<string, unknown>
+          : {}),
+        mode: "short_psd",
+        bodyBoardCount: 4,
+        aspectClass: "16:9",
+        selectedSlideIndexes: TOURISM_MARKETING_MANUAL_ASSETS.flatMap((asset) => [...asset.slideIndexes]),
+        manualFontPreservingOverride: true,
+      },
+      manualMockupOverride: {
+        kind: "powerpoint_native_unredacted",
+        appliedAt: "2026-08-05T20:45:00+09:00",
+      },
+    },
+  };
+}
+
 type PortfolioJobRow = {
   id?: unknown;
   job_type?: unknown;
@@ -84,7 +157,8 @@ export async function GET(request: Request) {
 
   const { data, error } = await query;
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  const items = (data || []).map((item) => {
+  const items = (data || []).map((rawItem) => {
+    const item = applyManualTourismMockups(rawItem, url.origin);
     const { content_jobs: contentJobs, ...safeItem } = item;
     return {
       ...safeItem,
