@@ -1,11 +1,12 @@
 ﻿param(
   [switch]$Once,
   [switch]$Check,
-  [switch]$HeartbeatOnly
+  [switch]$HeartbeatOnly,
+  [switch]$LibraryOnly
 )
 
 $ErrorActionPreference = "Stop"
-$WorkerVersion = "2.4.3"
+$WorkerVersion = "2.5.0"
 
 function Get-WorkerSetting {
   param(
@@ -550,27 +551,62 @@ function New-LocalRedactionRegion {
     if ($null -eq $rawLeft -or $null -eq $rawTop -or $null -eq $rawWidth -or $null -eq $rawHeight) {
       throw "PowerPoint returned an empty shape boundary."
     }
-    $paddingX = [Math]::Max(1.5, $SlideWidth * 0.004)
-    $paddingY = [Math]::Max(1.5, $SlideHeight * 0.004)
-    $left = [Math]::Max(0.0, [double]$rawLeft - $paddingX)
-    $top = [Math]::Max(0.0, [double]$rawTop - $paddingY)
-    $right = [Math]::Min($SlideWidth, [double]$rawLeft + [double]$rawWidth + $paddingX)
-    $bottom = [Math]::Min($SlideHeight, [double]$rawTop + [double]$rawHeight + $paddingY)
-    if ($right -le $left -or $bottom -le $top) { return $null }
-
-    return [PSCustomObject]@{
-      slideIndex = $SlideIndex
-      type = $Type
-      label = $Label
-      x = [double]($left / $SlideWidth)
-      y = [double]($top / $SlideHeight)
-      width = [double](($right - $left) / $SlideWidth)
-      height = [double](($bottom - $top) / $SlideHeight)
-    }
+    return New-LocalRedactionRegionFromBounds `
+      -Left ([double]$rawLeft) `
+      -Top ([double]$rawTop) `
+      -Width ([double]$rawWidth) `
+      -Height ([double]$rawHeight) `
+      -SlideIndex $SlideIndex `
+      -SlideWidth $SlideWidth `
+      -SlideHeight $SlideHeight `
+      -Type $Type `
+      -Label $Label
   } catch {
     # A partial manifest is unsafe when a sensitive shape cannot be mapped to
     # pixels. The caller excludes this slide instead of blurring the full page.
     throw "SHAPE_GEOMETRY_INSPECTION_FAILED: $($_.Exception.Message)"
+  }
+}
+
+function New-LocalRedactionRegionFromBounds {
+  param(
+    [Parameter(Mandatory = $true)][double]$Left,
+    [Parameter(Mandatory = $true)][double]$Top,
+    [Parameter(Mandatory = $true)][double]$Width,
+    [Parameter(Mandatory = $true)][double]$Height,
+    [Parameter(Mandatory = $true)][int]$SlideIndex,
+    [Parameter(Mandatory = $true)][double]$SlideWidth,
+    [Parameter(Mandatory = $true)][double]$SlideHeight,
+    [Parameter(Mandatory = $true)][string]$Type,
+    [Parameter(Mandatory = $true)][string]$Label
+  )
+
+  if ([double]::IsNaN($Left) -or [double]::IsInfinity($Left) -or
+      [double]::IsNaN($Top) -or [double]::IsInfinity($Top) -or
+      [double]::IsNaN($Width) -or [double]::IsInfinity($Width) -or
+      [double]::IsNaN($Height) -or [double]::IsInfinity($Height) -or
+      $Width -le 0 -or $Height -le 0) {
+    throw "PowerPoint returned invalid redaction bounds."
+  }
+
+  # TextRange2 bounds already fit the rendered glyph line. Keep padding tight
+  # so a small confidential label does not wash out its entire card or diagram.
+  $paddingX = [Math]::Max(0.9, $SlideWidth * 0.0015)
+  $paddingY = [Math]::Max(0.7, $SlideHeight * 0.0015)
+  $clippedLeft = [Math]::Max(0.0, $Left - $paddingX)
+  $clippedTop = [Math]::Max(0.0, $Top - $paddingY)
+  $right = [Math]::Min($SlideWidth, $Left + $Width + $paddingX)
+  $bottom = [Math]::Min($SlideHeight, $Top + $Height + $paddingY)
+  if ($right -le $clippedLeft -or $bottom -le $clippedTop) { return $null }
+
+  return [PSCustomObject]@{
+    slideIndex = $SlideIndex
+    type = $Type
+    label = $Label
+    x = [double]($clippedLeft / $SlideWidth)
+    y = [double]($clippedTop / $SlideHeight)
+    width = [double](($right - $clippedLeft) / $SlideWidth)
+    height = [double](($bottom - $clippedTop) / $SlideHeight)
   }
 }
 
@@ -760,6 +796,189 @@ function Get-ShapeTextClassification {
   }
 }
 
+function Get-ShapeTextRedactionRegions {
+  param(
+    [Parameter(Mandatory = $true)]$Shape,
+    [Parameter(Mandatory = $true)][int]$SlideIndex,
+    [Parameter(Mandatory = $true)][double]$SlideWidth,
+    [Parameter(Mandatory = $true)][double]$SlideHeight,
+    [string[]]$SensitiveSourceTokens = @(),
+    [switch]$ForceIdentifier,
+    [switch]$BoundsRelativeToShape
+  )
+
+  $regions = New-Object System.Collections.Generic.List[object]
+  if (-not (Test-ShapeHasText -Shape $Shape)) { return $regions.ToArray() }
+  try {
+    $rawShapeName = $Shape.Name
+    # Table cell shapes can legitimately expose no Name through COM.
+    $shapeName = if ($null -eq $rawShapeName) { "" } else { [string]$rawShapeName }
+
+    $placeholderType = 0
+    if ([int]$Shape.Type -eq 14) {
+      $rawPlaceholderType = $Shape.PlaceholderFormat.Type
+      if ($null -eq $rawPlaceholderType) { throw "PowerPoint returned no placeholder type." }
+      $placeholderType = [int]$rawPlaceholderType
+    }
+    $isFooter = $placeholderType -in @(13, 14, 15, 16)
+
+    $textRange = $Shape.TextFrame2.TextRange
+    if ($null -eq $textRange) { throw "PowerPoint returned no TextFrame2 range." }
+    $allLines = $textRange.Lines()
+    if ($null -eq $allLines) { throw "PowerPoint returned no text line collection." }
+    $lineCount = [int]$allLines.Count
+    if ($lineCount -lt 1 -or $lineCount -gt 400) {
+      throw "PowerPoint returned an invalid text line count."
+    }
+
+    $fullText = ([string]$textRange.Text).Trim()
+    for ($lineIndex = 1; $lineIndex -le $lineCount; $lineIndex++) {
+      $line = $null
+      try {
+        $line = $textRange.Lines($lineIndex, 1)
+        if ($null -eq $line) { throw "PowerPoint returned no text line at index $lineIndex." }
+        $lineText = ([string]$line.Text).Trim()
+        if ([string]::IsNullOrWhiteSpace($lineText)) { continue }
+
+        $rawFontSize = $line.Font.Size
+        if ($null -eq $rawFontSize) { throw "PowerPoint returned no line font size." }
+        $fontSize = [double]$rawFontSize
+        if ($fontSize -le 0) {
+          # Mixed formatting reports -2. Use the rendered line height only to
+          # avoid guessing that a mixed confidential line is a public heading.
+          $fontSize = 0
+        }
+
+        $containsIdentifier = $ForceIdentifier.IsPresent -or (Test-TextContainsIdentifierSignal `
+          -Text $lineText `
+          -ShapeName $shapeName `
+          -SensitiveSourceTokens $SensitiveSourceTokens)
+        $looksLikeShortHeading = (
+          $fontSize -ge 16.0 -and
+          $fullText.Length -le 96 -and
+          $lineCount -le 3 -and
+          $lineText.Length -le 52 -and
+          $lineText -notmatch '[.!?。？！]\s*$'
+        )
+        $isPublicHeading = -not $containsIdentifier -and (
+          $fontSize -ge 18.0 -or
+          $looksLikeShortHeading -or
+          (($placeholderType -in @(1, 3, 5)) -and $fontSize -ge 16.0)
+        )
+        if ($isPublicHeading) { continue }
+
+        $regionType = if ($containsIdentifier) {
+          "client_identifier"
+        } elseif ($isFooter) {
+          "footer"
+        } elseif ($fontSize -gt 0 -and $fontSize -lt 18.0) {
+          "small_text"
+        } else {
+          "body_text"
+        }
+        $regionLabel = switch ($regionType) {
+          "client_identifier" { "local_identifier" }
+          "footer" { "local_footer" }
+          "small_text" { "local_small_text" }
+          default { "local_body_text" }
+        }
+
+        $rawLeft = $line.BoundLeft
+        $rawTop = $line.BoundTop
+        $rawWidth = $line.BoundWidth
+        $rawHeight = $line.BoundHeight
+        if ($null -eq $rawLeft -or $null -eq $rawTop -or $null -eq $rawWidth -or $null -eq $rawHeight) {
+          throw "PowerPoint returned incomplete text line bounds."
+        }
+        $redactionLeft = [double]$rawLeft
+        $redactionTop = [double]$rawTop
+        if ($BoundsRelativeToShape.IsPresent) {
+          # TextRange2 bounds for table-cell shapes use the cell as their
+          # horizontal origin and the cell's vertical center as their vertical
+          # origin. Convert them back to slide coordinates before masking.
+          $redactionLeft = [double]$Shape.Left + $redactionLeft
+          $redactionTop = [double]$Shape.Top + ([double]$Shape.Height / 2.0) + $redactionTop
+        }
+        $region = New-LocalRedactionRegionFromBounds `
+          -Left $redactionLeft `
+          -Top $redactionTop `
+          -Width ([double]$rawWidth) `
+          -Height ([double]$rawHeight) `
+          -SlideIndex $SlideIndex `
+          -SlideWidth $SlideWidth `
+          -SlideHeight $SlideHeight `
+          -Type $regionType `
+          -Label $regionLabel
+        if (-not $region) {
+          throw "A confidential text line could not be mapped to visible pixels."
+        }
+        $regions.Add($region)
+      } finally {
+        if ($line) {
+          try { [System.Runtime.InteropServices.Marshal]::FinalReleaseComObject($line) | Out-Null } catch {}
+        }
+      }
+    }
+    return $regions.ToArray()
+  } catch {
+    throw "SHAPE_TEXT_LINE_INSPECTION_FAILED: $($_.Exception.Message)"
+  }
+}
+
+function Get-TableRedactionRegions {
+  param(
+    [Parameter(Mandatory = $true)]$Shape,
+    [Parameter(Mandatory = $true)][int]$SlideIndex,
+    [Parameter(Mandatory = $true)][double]$SlideWidth,
+    [Parameter(Mandatory = $true)][double]$SlideHeight,
+    [string[]]$SensitiveSourceTokens = @(),
+    [switch]$ForceIdentifier
+  )
+
+  $regions = New-Object System.Collections.Generic.List[object]
+  try {
+    $table = $Shape.Table
+    if ($null -eq $table) { throw "PowerPoint returned no table object." }
+    $rowCount = [int]$table.Rows.Count
+    $columnCount = [int]$table.Columns.Count
+    if ($rowCount -lt 1 -or $columnCount -lt 1 -or ($rowCount * $columnCount) -gt 5000) {
+      throw "PowerPoint returned invalid table dimensions."
+    }
+    for ($row = 1; $row -le $rowCount; $row++) {
+      for ($column = 1; $column -le $columnCount; $column++) {
+        $cell = $null
+        $cellShape = $null
+        try {
+          $cell = $table.Cell($row, $column)
+          if ($null -eq $cell) { throw "PowerPoint returned no table cell at $row,$column." }
+          $cellShape = $cell.Shape
+          if ($null -eq $cellShape) { throw "PowerPoint returned no shape for table cell $row,$column." }
+          foreach ($region in @(Get-ShapeTextRedactionRegions `
+            -Shape $cellShape `
+            -SlideIndex $SlideIndex `
+            -SlideWidth $SlideWidth `
+            -SlideHeight $SlideHeight `
+            -SensitiveSourceTokens $SensitiveSourceTokens `
+            -ForceIdentifier:$ForceIdentifier.IsPresent `
+            -BoundsRelativeToShape)) {
+            if ($region) { $regions.Add($region) }
+          }
+        } finally {
+          if ($cellShape) {
+            try { [System.Runtime.InteropServices.Marshal]::FinalReleaseComObject($cellShape) | Out-Null } catch {}
+          }
+          if ($cell) {
+            try { [System.Runtime.InteropServices.Marshal]::FinalReleaseComObject($cell) | Out-Null } catch {}
+          }
+        }
+      }
+    }
+    return $regions.ToArray()
+  } catch {
+    throw "TABLE_CELL_INSPECTION_FAILED: $($_.Exception.Message)"
+  }
+}
+
 function Test-ShapeHasPictureFill {
   param([Parameter(Mandatory = $true)]$Shape)
 
@@ -852,6 +1071,25 @@ function Test-ShapeCoversSlide {
   }
 }
 
+function Test-ShapeGeometryMatches {
+  param(
+    [Parameter(Mandatory = $true)]$First,
+    [Parameter(Mandatory = $true)]$Second
+  )
+
+  try {
+    $tolerance = 2.0
+    return (
+      [Math]::Abs([double]$First.Left - [double]$Second.Left) -le $tolerance -and
+      [Math]::Abs([double]$First.Top - [double]$Second.Top) -le $tolerance -and
+      [Math]::Abs([double]$First.Width - [double]$Second.Width) -le $tolerance -and
+      [Math]::Abs([double]$First.Height - [double]$Second.Height) -le $tolerance
+    )
+  } catch {
+    throw "SHAPE_GEOMETRY_COMPARISON_FAILED: $($_.Exception.Message)"
+  }
+}
+
 function Get-ShapeRedactionRegions {
   param(
     [Parameter(Mandatory = $true)]$Shape,
@@ -860,7 +1098,8 @@ function Get-ShapeRedactionRegions {
     [Parameter(Mandatory = $true)][double]$SlideHeight,
     [string[]]$SensitiveSourceTokens = @(),
     [ValidateSet("slide", "layout", "master")][string]$Scope = "slide",
-    [switch]$ForceIdentifier
+    [switch]$ForceIdentifier,
+    [switch]$AllowDecorativePictureFill
   )
 
   $regions = New-Object System.Collections.Generic.List[object]
@@ -920,6 +1159,33 @@ function Get-ShapeRedactionRegions {
             -SlideWidth $SlideWidth `
             -SlideHeight $SlideHeight
           if (-not $hasVisibleGeometry) { continue }
+          $allowChildPictureFill = $false
+          if ([int]$child.Type -in @(1, 5, 14, 17) -and (Test-ShapeHasPictureFill -Shape $child)) {
+            # A photo used as a clipped content asset remains confidential. A
+            # picture fill paired with a same-size solid/gradient overlay is a
+            # decorative background treatment; its public headings are layered
+            # separately and must not be destroyed by a group-wide blur.
+            for ($siblingIndex = 1; $siblingIndex -le [int]$rawGroupCount; $siblingIndex++) {
+              if ($siblingIndex -eq $childIndex) { continue }
+              $sibling = $null
+              try {
+                $sibling = $groupItems.Item($siblingIndex)
+                if ($null -eq $sibling) { continue }
+                $siblingType = [int]$sibling.Type
+                if ($siblingType -notin @(1, 5, 14, 17)) { continue }
+                if (Test-ShapeHasPictureFill -Shape $sibling) { continue }
+                if ([int]$sibling.Fill.Visible -eq 0) { continue }
+                if (Test-ShapeGeometryMatches -First $child -Second $sibling) {
+                  $allowChildPictureFill = $true
+                  break
+                }
+              } finally {
+                if ($sibling) {
+                  try { [System.Runtime.InteropServices.Marshal]::FinalReleaseComObject($sibling) | Out-Null } catch {}
+                }
+              }
+            }
+          }
           $childRegions = @(Get-ShapeRedactionRegions `
             -Shape $child `
             -SlideIndex $SlideIndex `
@@ -927,7 +1193,8 @@ function Get-ShapeRedactionRegions {
             -SlideHeight $SlideHeight `
             -SensitiveSourceTokens $SensitiveSourceTokens `
             -Scope $Scope `
-            -ForceIdentifier:$forceChildIdentifier)
+            -ForceIdentifier:$forceChildIdentifier `
+            -AllowDecorativePictureFill:$allowChildPictureFill)
           foreach ($childRegion in $childRegions) {
             if ($childRegion) { $regions.Add($childRegion) }
           }
@@ -945,6 +1212,45 @@ function Get-ShapeRedactionRegions {
     return $regions.ToArray()
   }
 
+  $hasPictureFill = Test-ShapeHasPictureFill -Shape $Shape
+  if ($hasPictureFill -and -not $AllowDecorativePictureFill.IsPresent) {
+    if (Test-ShapeCoversSlide -Shape $Shape -SlideWidth $SlideWidth -SlideHeight $SlideHeight) {
+      throw "SLIDE_FULL_BACKGROUND_PICTURE_UNSUPPORTED: A picture or texture shape in the $Scope scope covers the full slide."
+    }
+    $pictureFillType = if ($ForceIdentifier.IsPresent) {
+      "client_identifier"
+    } elseif ($shapeIdentityIsSensitive) {
+      "logo"
+    } else {
+      "embedded_photo"
+    }
+    $pictureFillLabel = switch ($pictureFillType) {
+      "client_identifier" { "local_identifier" }
+      "logo" { "local_logo" }
+      default { "local_picture_fill" }
+    }
+    $pictureFillRegion = New-LocalRedactionRegion -Shape $Shape -SlideIndex $SlideIndex `
+      -SlideWidth $SlideWidth -SlideHeight $SlideHeight `
+      -Type $pictureFillType -Label $pictureFillLabel
+    if ($pictureFillRegion) { $regions.Add($pictureFillRegion) }
+    return $regions.ToArray()
+  }
+
+  # Text is redacted by rendered line bounds, never by the outer text-box
+  # rectangle. This preserves the card, diagram, and spacing around the line.
+  if (Test-ShapeHasText -Shape $Shape) {
+    foreach ($textRegion in @(Get-ShapeTextRedactionRegions `
+      -Shape $Shape `
+      -SlideIndex $SlideIndex `
+      -SlideWidth $SlideWidth `
+      -SlideHeight $SlideHeight `
+      -SensitiveSourceTokens $SensitiveSourceTokens `
+      -ForceIdentifier:($ForceIdentifier.IsPresent -or $shapeIdentityIsSensitive))) {
+      if ($textRegion) { $regions.Add($textRegion) }
+    }
+    return $regions.ToArray()
+  }
+
   $regionType = $null
   $regionLabel = $null
   if ($ForceIdentifier.IsPresent) {
@@ -953,6 +1259,18 @@ function Get-ShapeRedactionRegions {
   } elseif ($shapeIdentityIsSensitive) {
     $regionType = "logo"
     $regionLabel = "local_logo"
+  }
+
+  if (-not $regionType -and $shapeType -eq 19) {
+    foreach ($tableRegion in @(Get-TableRedactionRegions `
+      -Shape $Shape `
+      -SlideIndex $SlideIndex `
+      -SlideWidth $SlideWidth `
+      -SlideHeight $SlideHeight `
+      -SensitiveSourceTokens $SensitiveSourceTokens)) {
+      if ($tableRegion) { $regions.Add($tableRegion) }
+    }
+    return $regions.ToArray()
   }
 
   $placeholderContainedType = $null
@@ -972,12 +1290,10 @@ function Get-ShapeRedactionRegions {
     }
   }
 
-  $hasPictureFill = Test-ShapeHasPictureFill -Shape $Shape
-  $pictureContentTypes = @(11, 13, 16, 26, 28, 29)
+  $pictureContentTypes = @(11, 13, 16, 26, 29)
   $isPictureContent = (
     $shapeType -in $pictureContentTypes -or
-    ($shapeType -eq 14 -and $placeholderContainedType -in $pictureContentTypes) -or
-    $hasPictureFill
+    ($shapeType -eq 14 -and $placeholderContainedType -in $pictureContentTypes)
   )
   if ($isPictureContent -and (Test-ShapeCoversSlide `
     -Shape $Shape `
@@ -1009,9 +1325,8 @@ function Get-ShapeRedactionRegions {
       24 { $regionType = "screenshot"; $regionLabel = "local_smartart" }
       25 { $regionType = "screenshot"; $regionLabel = "local_slicer" }
       26 { $regionType = "embedded_photo"; $regionLabel = "local_web_media" }
-      28 { $regionType = "embedded_photo"; $regionLabel = "local_picture" }
       29 { $regionType = "embedded_photo"; $regionLabel = "local_linked_picture" }
-      { $_ -in @(1, 2, 5, 9, 14, 17) } {
+      { $_ -in @(1, 2, 5, 9, 14, 17, 28) } {
         # Ordinary/text placeholders continue through the existing text and
         # font-size classification below. An empty one needs no blur.
       }
@@ -1043,10 +1358,9 @@ function Get-ShapeRedactionRegions {
     26 { if (-not $regionType) { $regionType = "embedded_photo"; $regionLabel = "local_web_media" } }
   }
 
-  if (-not $regionType -and $hasPictureFill) {
-    $regionType = "embedded_photo"
-    $regionLabel = "local_picture_fill"
-  }
+  # A picture fill reaches this point only when its group contains a same-size
+  # vector overlay proving that it is decorative. Standalone picture/media and
+  # unpaired picture-fill shapes are redacted above.
   if (-not $regionType -and $shapeType -eq 15) {
     $classification = Get-ShapeTextEffectClassification `
       -Shape $Shape `
@@ -1057,22 +1371,9 @@ function Get-ShapeRedactionRegions {
       default { $regionType = "body_text"; $regionLabel = "local_body_text" }
     }
   }
-  if (-not $regionType -and (Test-ShapeHasText -Shape $Shape)) {
-    $classification = Get-ShapeTextClassification `
-      -Shape $Shape `
-      -SensitiveSourceTokens $SensitiveSourceTokens
-    switch ($classification) {
-      "public_large_title" { return $regions.ToArray() }
-      "identifier" { $regionType = "client_identifier"; $regionLabel = "local_identifier" }
-      "footer" { $regionType = "footer"; $regionLabel = "local_footer" }
-      "small_text" { $regionType = "small_text"; $regionLabel = "local_small_text" }
-      default { $regionType = "body_text"; $regionLabel = "local_body_text" }
-    }
-  }
-
   # Known vector-only primitives are safe when they contain no text or image
   # fill. Every other unreadable shape is ambiguous and is redacted.
-  $knownVectorOnlyType = $shapeType -in @(1, 2, 5, 9, 14, 17)
+  $knownVectorOnlyType = $shapeType -in @(1, 2, 5, 9, 14, 17, 28)
   if (-not $regionType -and -not $knownVectorOnlyType) {
     $regionType = "screenshot"
     $regionLabel = "local_ambiguous"
@@ -1544,6 +1845,8 @@ if ($Check) {
   if ($checkFailed) { exit 3 }
   exit 0
 }
+
+if ($LibraryOnly) { return }
 
 $mutex = New-Object System.Threading.Mutex($false, "Local\WoolimWorker-$WorkerId")
 $ownsMutex = $false

@@ -80,7 +80,10 @@ function assetUrl(bucket: string, path: string) {
 }
 
 function clampRegion(region: SensitiveRegion, width: number, height: number) {
-  const padding = Math.max(10, Math.round(Math.min(width, height) * 0.009));
+  // PowerPoint text regions are already glyph-line bounds. A compact safety
+  // margin keeps the text unreadable without washing out the surrounding card,
+  // diagram, or table cell.
+  const padding = Math.max(5, Math.round(Math.min(width, height) * 0.005));
   const left = Math.max(0, Math.floor(region.x * width) - padding);
   const top = Math.max(0, Math.floor(region.y * height) - padding);
   const regionWidth = Math.min(width - left, Math.ceil(region.width * width) + padding * 2);
@@ -109,8 +112,8 @@ async function redact(buffer: Buffer, regions: SensitiveRegion[]) {
     appliedRegionCount: 0,
   };
   const blurred = await sharp(oriented.data)
-    .blur(34)
-    .modulate({ brightness: 0.97, saturation: 0.56 })
+    .blur(24)
+    .modulate({ brightness: 0.98, saturation: 0.72 })
     .png()
     .toBuffer();
   const mask = Buffer.from(
