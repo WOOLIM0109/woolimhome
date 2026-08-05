@@ -512,19 +512,26 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
         setError("원본 업로드 주소 또는 인증 정보를 받지 못했습니다.");
         return;
       }
+      const uploadBody = new FormData();
+      uploadBody.append("cacheControl", "3600");
+      uploadBody.append("", file);
       const uploadResponse = await fetch(uploadUrl, {
         method: "PUT",
         headers: {
           Authorization: authorization,
           apikey: apiKey,
-          "Content-Type": String(prepared.contentType || file.type || "application/octet-stream"),
           "x-upsert": "false",
-          "cache-control": "max-age=3600",
         },
-        body: file,
+        body: uploadBody,
       });
       if (!uploadResponse.ok) {
-        setError(`원본 파일 업로드에 실패했습니다. (HTTP ${uploadResponse.status})`);
+        const uploadFailure = await readJsonResponse(uploadResponse);
+        const message = typeof uploadFailure.message === "string"
+          ? uploadFailure.message
+          : typeof uploadFailure.error === "string"
+            ? uploadFailure.error
+            : `HTTP ${uploadResponse.status}`;
+        setError(`원본 파일 업로드에 실패했습니다. (${message})`);
         return;
       }
 
