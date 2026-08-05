@@ -6,7 +6,7 @@
 )
 
 $ErrorActionPreference = "Stop"
-$WorkerVersion = "2.5.1"
+$WorkerVersion = "2.5.3"
 
 function Get-WorkerSetting {
   param(
@@ -910,7 +910,26 @@ function Get-ShapeTextRedactionRegions {
           -Type $regionType `
           -Label $regionLabel
         if (-not $region) {
-          throw "A confidential text line could not be mapped to visible pixels."
+          # Some PowerPoint files report rendered TextRange2 bounds outside the
+          # owning shape even though the shape geometry itself is valid. Fall
+          # back to that one text box, never to the slide, so confidential text
+          # stays hidden without discarding an otherwise usable design page.
+          if (Test-ShapeCoversSlide -Shape $Shape -SlideWidth $SlideWidth -SlideHeight $SlideHeight) {
+            throw "A confidential text line could not be mapped and its text box covers the slide."
+          }
+          $fallbackRegion = New-LocalRedactionRegion `
+            -Shape $Shape `
+            -SlideIndex $SlideIndex `
+            -SlideWidth $SlideWidth `
+            -SlideHeight $SlideHeight `
+            -Type $regionType `
+            -Label $regionLabel
+          if (-not $fallbackRegion) {
+            throw "A confidential text line and its text box could not be mapped to visible pixels."
+          }
+          $regions.Clear()
+          $regions.Add($fallbackRegion)
+          return $regions.ToArray()
         }
         $regions.Add($region)
       } finally {
@@ -1090,6 +1109,24 @@ function Test-ShapeGeometryMatches {
   }
 }
 
+function Test-CanKeepFullSlideTemplatePicture {
+  param(
+    [ValidateSet("slide", "layout", "master")][string]$Scope,
+    [bool]$ShapeIdentityIsSensitive,
+    [bool]$ForceIdentifier
+  )
+
+  # A full-canvas picture placed in a layout or master is a reusable template
+  # background, not slide-authored customer content. Preserve it only when its
+  # own identity metadata has no customer/logo signal. Full-slide pictures on
+  # the slide itself remain unsupported and are never silently exposed.
+  return (
+    $Scope -in @("layout", "master") -and
+    -not $ShapeIdentityIsSensitive -and
+    -not $ForceIdentifier
+  )
+}
+
 function Get-ShapeRedactionRegions {
   param(
     [Parameter(Mandatory = $true)]$Shape,
@@ -1228,6 +1265,12 @@ function Get-ShapeRedactionRegions {
   }
   if ($hasPictureFill -and -not $AllowDecorativePictureFill.IsPresent) {
     if (Test-ShapeCoversSlide -Shape $Shape -SlideWidth $SlideWidth -SlideHeight $SlideHeight) {
+      if (Test-CanKeepFullSlideTemplatePicture `
+        -Scope $Scope `
+        -ShapeIdentityIsSensitive $shapeIdentityIsSensitive `
+        -ForceIdentifier $ForceIdentifier.IsPresent) {
+        return $regions.ToArray()
+      }
       throw "SLIDE_FULL_BACKGROUND_PICTURE_UNSUPPORTED: A picture or texture shape in the $Scope scope covers the full slide."
     }
     $pictureFillType = if ($ForceIdentifier.IsPresent) {
@@ -1315,6 +1358,12 @@ function Get-ShapeRedactionRegions {
     -Shape $Shape `
     -SlideWidth $SlideWidth `
     -SlideHeight $SlideHeight)) {
+    if (Test-CanKeepFullSlideTemplatePicture `
+      -Scope $Scope `
+      -ShapeIdentityIsSensitive $shapeIdentityIsSensitive `
+      -ForceIdentifier $ForceIdentifier.IsPresent) {
+      return $regions.ToArray()
+    }
     throw "SLIDE_FULL_BACKGROUND_PICTURE_UNSUPPORTED: A picture or texture shape in the $Scope scope covers the full slide."
   }
 

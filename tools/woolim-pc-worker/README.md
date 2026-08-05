@@ -135,7 +135,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\setup.ps1 `
 - 유휴 상태에서는 60초마다 heartbeat를 보내고 작업을 확인합니다.
 - 변환 중에는 별도 백그라운드 heartbeat가 45초마다 이어집니다.
 - 서버가 한 작업을 한 PC에 선점시킨 뒤 해당 PC만 완료 또는 실패를 보고합니다.
-- 워커 `2.4.1`은 `powerpoint_selective_redaction_manifest_v2` 기능을 서버에 알리며, 그룹 안의 0폭 연결선과 슬라이드 밖 비표시 도형은 가림 영역이 없는 요소로 안전하게 건너뜁니다.
+- 워커 `2.5.3`은 `powerpoint_selective_redaction_manifest_v2` 기능을 서버에 알리며, 그룹 안의 0폭 연결선과 슬라이드 밖 비표시 도형은 가림 영역이 없는 요소로 안전하게 건너뜁니다.
 - PPT는 PowerPoint와 설치 글꼴로 최대 100장의 대표 슬라이드를 PNG로 만듭니다.
 - PDF는 `pdftoppm`으로 최대 100페이지를 렌더링하며, 16:9·4:3·A4 가로·A4 세로를 지원합니다.
 - 작업이 끝나거나 실패하면 내려받은 원본과 생성 이미지가 로컬에서 삭제됩니다.
@@ -147,9 +147,10 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\setup.ps1 `
 - 이메일·URL·전화번호·주소·사업자번호·회사명·고객사·프로젝트명·담당자·로고 등 식별 신호가 있으면 글자 크기와 관계없이 블러 대상으로 분류합니다.
 - 원본 파일명에서는 확장자와 `최종`, `제안서`, `발표본`, `PPT`, `연구개발` 같은 일반어를 제거해 2자 이상의 고객 식별 토큰을 로컬에서 추출합니다. 파일명 토큰과 문구를 한글·영문·숫자만 남긴 로컬 canonical 형식으로 비교하므로 `HPC컨설팅`/`HPC 컨설팅`, `현대자동차`/`현대 자동차`처럼 공백·구두점이 달라도 식별합니다. 짧은 영문 약어는 더 긴 영단어의 일부와 일치하지 않도록 경계를 확인합니다. 해당 토큰이 제목에 있으면 큰 글자도 블러하며, 토큰 원문과 판독 문구는 manifest에 넣지 않습니다.
 - `msoPlaceholder`도 `PlaceholderFormat.ContainedType`을 필수로 판독합니다. picture·table·chart·SmartArt·media·OLE 등 비텍스트 콘텐츠가 들어 있으면 placeholder 영역을 블러하고, 일반 텍스트 placeholder만 기존 글자 크기 규칙으로 판정합니다. 내부 형식 판독 실패 시 해당 슬라이드를 제외하며, 모호한 형식은 검증된 placeholder 경계만 안전하게 블러합니다.
+- PowerPoint가 기밀 텍스트 줄의 렌더링 좌표를 잘못 반환하면 해당 줄이 속한 텍스트 상자만 보수적으로 가립니다. 텍스트 상자가 장표 전체를 덮거나 상자 좌표도 검증할 수 없을 때만 그 원본 장표를 제외합니다.
 - 그룹은 모든 child와 그 좌표를 재귀적으로 판독하고, 민감한 child의 영역만 요소별로 블러합니다. 부모 그룹의 이름·대체 텍스트·제목에서 고객사·프로젝트·로고 같은 식별 신호가 발견되면 중첩 그룹을 포함한 모든 자식에 그 신호를 전파해 각 자식 영역을 따로 블러합니다. 그룹 전체 경계 fallback은 사용하지 않으며 child 좌표나 내용 판독이 실패하면 해당 슬라이드를 제외합니다.
 - 모든 배경과 shape를 완전히 판독했고 민감 영역이 없는 슬라이드는 `regions=[]`로 내보내며 원본 화면을 유지합니다.
-- 슬라이드 전용 배경은 `FollowMasterBackground=false`일 때만 별도로 판독합니다. 다만 슬라이드·CustomLayout·Master 중 어느 범위든 picture/texture Background가 있거나 picture shape가 슬라이드 전체를 덮으면 무가림 장식 예외를 두지 않고 해당 원본 슬라이드를 변환 결과에서 제외합니다. 판독할 수 없는 그룹·shape·배경도 같은 방식으로 제외하며, 전체 블러로 대체하지 않습니다. 작은 picture·logo·식별 텍스트는 요소 영역별로 블러하고, 제외한 원본 슬라이드 번호와 사유는 로컬 로그에 기록합니다.
+- 슬라이드 전용 배경은 `FollowMasterBackground=false`일 때만 별도로 판독합니다. 실제 슬라이드에 놓인 전체 화면 picture/texture와 picture Background는 원본 장표를 제외하지만, CustomLayout·Master의 반복 템플릿 picture shape는 고객사·로고 식별 신호가 없을 때 디자인 배경으로 유지합니다. 판독할 수 없는 그룹·shape·배경은 원본 슬라이드를 제외하며 전체 블러로 대체하지 않습니다. 작은 picture·logo·식별 텍스트는 요소 영역별로 블러하고, 제외한 원본 슬라이드 번호와 사유는 로컬 로그에 기록합니다.
 - full-slide fallback region은 만들거나 사용하지 않습니다.
 - manifest는 `version=2`, `method=powerpoint_com_shapes_v2`이며 원본 장수 `sourceSlideCount`와 usable 장수 `slideCount`를 따로 기록합니다. 포함된 각 슬라이드는 `inspectionStatus=verified`를 가집니다. 따라서 일부 슬라이드가 제외되어도 원본이 20장 이상이었다면 서버가 6장 구조 규칙을 유지할 수 있습니다.
 - 완전 판독·내보내기에 성공한 usable slide가 5개 미만이면 `INSUFFICIENT_USABLE_SLIDES`로 작업을 명확하게 실패 처리합니다.
