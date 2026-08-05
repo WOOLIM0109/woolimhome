@@ -90,7 +90,11 @@ function clampRegion(region: SensitiveRegion, width: number, height: number) {
 }
 
 async function redact(buffer: Buffer, regions: SensitiveRegion[]) {
-  const oriented = await sharp(buffer).rotate().png().toBuffer({ resolveWithObject: true });
+  const oriented = await sharp(buffer)
+    .rotate()
+    .resize({ width: 1400, fit: "inside", withoutEnlargement: true })
+    .png()
+    .toBuffer({ resolveWithObject: true });
   if (!regions.length) return {
     sourceBuffer: oriented.data,
     buffer: oriented.data,
