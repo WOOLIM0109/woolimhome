@@ -90,6 +90,11 @@ export default function OpenchatOperations() {
     .sort((left, right) => left.priority - right.priority)
     .slice(0, MORNING_PROGRAM_LIMIT), [programs]);
 
+  const deferredPostPrograms = useMemo(() => [...deferredPrograms]
+    .sort((left, right) => left.priority - right.priority)
+    .slice(0, MORNING_PROGRAM_LIMIT), [deferredPrograms]);
+  const deferredPostDate = deferredPostPrograms[0]?.draft_for || date;
+
   const cutoffRun = useMemo(() => sources.runs.find((run) => (
     run.task === "morning-cutoff" && run.summary?.date === date
   )), [date, sources.runs]);
@@ -308,35 +313,17 @@ export default function OpenchatOperations() {
           )}
           <details className="mt-5 rounded-2xl border border-stone-300 bg-white p-5">
             <summary className="cursor-pointer font-bold text-stone-900">
-              이월 공고 따로 보기 · {deferredPrograms.length}건
+              이월된 오전 배포글 보기 · {deferredPostPrograms.length}건 (이월 후보 {deferredPrograms.length}건 중) · 상담 문구 포함
             </summary>
-            {deferredPrograms.length === 0 ? (
-              <p className="mt-4 rounded-xl bg-stone-50 p-5 text-sm text-stone-600">현재 이월 대기 중인 공고가 없습니다.</p>
+            {deferredPostPrograms.length === 0 ? (
+              <p className="mt-4 rounded-xl bg-stone-50 p-5 text-sm text-stone-600">현재 이월된 오전 배포글이 없습니다.</p>
             ) : (
-              <div className="mt-4 space-y-3">
-                {deferredPrograms.map((program, index) => (
-                  <article key={program.id} className="rounded-xl border border-stone-200 bg-stone-50 p-4">
-                    <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                      <div className="min-w-0">
-                        <p className="text-sm font-bold text-stone-900">{index + 1}. {program.title}</p>
-                        <p className="mt-1 text-xs font-bold text-amber-800">검토 예정일 {program.draft_for}</p>
-                      </div>
-                      <div className="flex shrink-0 flex-wrap gap-2">
-                        <button onClick={() => void saveProgram(program, "approved")} disabled={Boolean(busy)} className="rounded-xl bg-emerald-700 px-3 py-2 text-xs font-bold text-white disabled:opacity-50">승인</button>
-                        <button onClick={() => void saveProgram(program, "excluded")} disabled={Boolean(busy)} className="rounded-xl bg-red-50 px-3 py-2 text-xs font-bold text-red-700 disabled:opacity-50">제외</button>
-                      </div>
-                    </div>
-                    <div className="mt-3 grid gap-3 text-sm leading-6 md:grid-cols-2">
-                      <div><p className="text-xs font-bold text-stone-500">신청대상</p><p className="whitespace-pre-wrap">{program.applicant_summary}</p></div>
-                      <div><p className="text-xs font-bold text-stone-500">지원내용</p><p className="whitespace-pre-wrap">{program.support_summary}</p></div>
-                    </div>
-                    <div className="mt-3 flex flex-col gap-1 text-sm">
-                      <p><span className="font-bold">신청기간</span> {program.application_period_text}</p>
-                      <a href={program.source_url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 break-all font-bold text-[var(--primary)]">원문 열기 <ExternalLink size={14} /></a>
-                    </div>
-                  </article>
-                ))}
-              </div>
+              <>
+                <pre className="mt-5 max-h-[720px] overflow-auto whitespace-pre-wrap rounded-xl bg-[#fff7f1] p-5 text-sm leading-7">{formatMorningPost(deferredPostPrograms, deferredPostDate)}</pre>
+                <div className="mt-4 flex justify-end">
+                  <button onClick={() => void copy(formatMorningPost(deferredPostPrograms, deferredPostDate))} className="inline-flex items-center gap-2 rounded-xl bg-stone-800 px-4 py-2 text-sm font-bold text-white"><Clipboard size={16} /> 이월 배포글 복사</button>
+                </div>
+              </>
             )}
           </details>
           {reviewPrograms.length > 0 && (
