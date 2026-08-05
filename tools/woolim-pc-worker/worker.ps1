@@ -6,7 +6,7 @@
 )
 
 $ErrorActionPreference = "Stop"
-$WorkerVersion = "2.5.3"
+$WorkerVersion = "2.5.4"
 
 function Get-WorkerSetting {
   param(
@@ -1151,6 +1151,15 @@ function Get-ShapeRedactionRegions {
   } catch {
     throw "SHAPE_TYPE_INSPECTION_FAILED: $($_.Exception.Message)"
   }
+
+  # Top-level slide, layout, and master collections can all retain zero-sized
+  # connectors or text boxes wholly outside the canvas. They occupy no visible
+  # pixel and therefore need neither classification nor a redaction region.
+  $hasVisibleShapeGeometry = Assert-ShapeGeometryWithinSlide `
+    -Shape $Shape `
+    -SlideWidth $SlideWidth `
+    -SlideHeight $SlideHeight
+  if (-not $hasVisibleShapeGeometry) { return $regions.ToArray() }
 
   $shapeIdentity = ""
   try {
