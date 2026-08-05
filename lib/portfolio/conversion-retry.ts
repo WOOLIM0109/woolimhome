@@ -19,7 +19,7 @@ export function portfolioConversionRecoveryState(input: {
   if (input.status === "pc_waiting" || input.status === "pc_running") return "active";
   if (
     input.status === "failed"
-    && /PC worker retry limit reached/i.test(input.errorMessage || "")
+    && /(PC worker retry limit reached|INSUFFICIENT_USABLE_SLIDES|SHAPE_GEOMETRY_INSPECTION_FAILED)/i.test(input.errorMessage || "")
   ) return "retryable";
   return "unavailable";
 }
