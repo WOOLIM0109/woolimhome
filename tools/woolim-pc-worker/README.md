@@ -135,7 +135,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\setup.ps1 `
 - 유휴 상태에서는 60초마다 heartbeat를 보내고 작업을 확인합니다.
 - 변환 중에는 별도 백그라운드 heartbeat가 45초마다 이어집니다.
 - 서버가 한 작업을 한 PC에 선점시킨 뒤 해당 PC만 완료 또는 실패를 보고합니다.
-- 워커 `2.4.0`은 `powerpoint_selective_redaction_manifest_v2` 기능을 서버에 알립니다.
+- 워커 `2.4.1`은 `powerpoint_selective_redaction_manifest_v2` 기능을 서버에 알리며, 그룹 안의 0폭 연결선과 슬라이드 밖 비표시 도형은 가림 영역이 없는 요소로 안전하게 건너뜁니다.
 - PPT는 PowerPoint와 설치 글꼴로 최대 100장의 대표 슬라이드를 PNG로 만듭니다.
 - PDF는 `pdftoppm`으로 최대 100페이지를 렌더링하며, 16:9·4:3·A4 가로·A4 세로를 지원합니다.
 - 작업이 끝나거나 실패하면 내려받은 원본과 생성 이미지가 로컬에서 삭제됩니다.

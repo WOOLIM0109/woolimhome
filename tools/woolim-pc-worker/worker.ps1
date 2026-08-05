@@ -5,7 +5,7 @@
 )
 
 $ErrorActionPreference = "Stop"
-$WorkerVersion = "2.4.0"
+$WorkerVersion = "2.4.1"
 
 function Get-WorkerSetting {
   param(
@@ -506,19 +506,27 @@ function Assert-ShapeGeometryWithinSlide {
     $top = [double]$rawTop
     $width = [double]$rawWidth
     $height = [double]$rawHeight
-    if ($width -le 0 -or $height -le 0) {
-      throw "PowerPoint returned a non-positive shape boundary."
+    if ([double]::IsNaN($left) -or [double]::IsInfinity($left) -or
+        [double]::IsNaN($top) -or [double]::IsInfinity($top) -or
+        [double]::IsNaN($width) -or [double]::IsInfinity($width) -or
+        [double]::IsNaN($height) -or [double]::IsInfinity($height)) {
+      throw "PowerPoint returned non-finite shape geometry."
     }
-    $edgeToleranceX = [Math]::Max(2.0, $SlideWidth * 0.02)
-    $edgeToleranceY = [Math]::Max(2.0, $SlideHeight * 0.02)
-    if (
-      $left -lt (-1 * $edgeToleranceX) -or
-      $top -lt (-1 * $edgeToleranceY) -or
-      ($left + $width) -gt ($SlideWidth + $edgeToleranceX) -or
-      ($top + $height) -gt ($SlideHeight + $edgeToleranceY)
-    ) {
-      throw "Shape coordinates cannot be verified against slide geometry."
+    if ($width -lt 0 -or $height -lt 0) {
+      throw "PowerPoint returned a negative shape boundary."
     }
+    # Straight connectors legitimately report zero width or height, and some
+    # grouped templates retain text boxes wholly outside the slide canvas.
+    # Neither occupies a redaction-sized visible pixel region. Partially
+    # visible shapes remain inspectable because region creation clips them to
+    # the slide boundary.
+    if ($width -eq 0 -or $height -eq 0) { return $false }
+    $right = $left + $width
+    $bottom = $top + $height
+    if ($right -le 0 -or $bottom -le 0 -or $left -ge $SlideWidth -or $top -ge $SlideHeight) {
+      return $false
+    }
+    return $true
   } catch {
     throw "SHAPE_GEOMETRY_INSPECTION_FAILED: $($_.Exception.Message)"
   }
@@ -815,10 +823,11 @@ function Test-ShapeCoversSlide {
   )
 
   try {
-    Assert-ShapeGeometryWithinSlide `
+    $hasVisibleGeometry = Assert-ShapeGeometryWithinSlide `
       -Shape $Shape `
       -SlideWidth $SlideWidth `
       -SlideHeight $SlideHeight
+    if (-not $hasVisibleGeometry) { return $false }
     $rawLeft = $Shape.Left
     $rawTop = $Shape.Top
     $rawWidth = $Shape.Width
@@ -906,10 +915,11 @@ function Get-ShapeRedactionRegions {
           if ($null -eq $child) {
             throw "PowerPoint returned no grouped child at index $childIndex."
           }
-          Assert-ShapeGeometryWithinSlide `
+          $hasVisibleGeometry = Assert-ShapeGeometryWithinSlide `
             -Shape $child `
             -SlideWidth $SlideWidth `
             -SlideHeight $SlideHeight
+          if (-not $hasVisibleGeometry) { continue }
           $childRegions = @(Get-ShapeRedactionRegions `
             -Shape $child `
             -SlideIndex $SlideIndex `
