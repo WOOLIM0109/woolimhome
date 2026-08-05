@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
 import { authenticatedAdmin, contentAdmin } from "@/lib/content-ops/data";
 
@@ -25,6 +25,8 @@ type PortfolioSourceRequest = {
   fileSize?: number;
   mimeType?: string;
   uploadId?: string;
+  fileHash?: string;
+  signatureHex?: string;
 };
 
 function safeFileName(value: string) {
@@ -44,19 +46,11 @@ function isUuid(value: string) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 }
 
-function hasPowerPointSignature(bytes: Uint8Array, extension: string) {
+function hasPowerPointSignature(signatureHex: string, extension: string) {
   if (extension === "ppt") {
-    return bytes.length >= 8
-      && bytes[0] === 0xd0
-      && bytes[1] === 0xcf
-      && bytes[2] === 0x11
-      && bytes[3] === 0xe0;
+    return signatureHex.startsWith("d0cf11e0");
   }
-  return bytes.length >= 4
-    && bytes[0] === 0x50
-    && bytes[1] === 0x4b
-    && bytes[2] === 0x03
-    && bytes[3] === 0x04;
+  return signatureHex.startsWith("504b0304");
 }
 
 async function ensureSourceBucket() {
@@ -168,21 +162,25 @@ export async function POST(
     return NextResponse.json({ error: "원본 연결 요청이 올바르지 않습니다." }, { status: 400 });
   }
 
+  const fingerprint = String(body.fileHash || "").toLowerCase();
+  const signatureHex = String(body.signatureHex || "").toLowerCase();
+  if (!/^[0-9a-f]{64}$/.test(fingerprint) || !/^[0-9a-f]{8,16}$/.test(signatureHex)) {
+    return NextResponse.json({ error: "원본 파일 검증 정보가 올바르지 않습니다." }, { status: 400 });
+  }
+
   const path = sourcePath(id, body.uploadId, fileName);
-  const { data: sourceBlob, error: sourceError } = await admin.storage
+  const { data: sourceInfo, error: sourceError } = await admin.storage
     .from(SOURCE_BUCKET)
-    .download(path);
-  if (sourceError || !sourceBlob) {
+    .info(path);
+  if (sourceError || !sourceInfo) {
     return NextResponse.json({ error: sourceError?.message || "업로드한 원본을 확인하지 못했습니다." }, { status: 409 });
   }
-  const bytes = new Uint8Array(await sourceBlob.arrayBuffer());
-  if (bytes.byteLength !== fileSize || !hasPowerPointSignature(bytes, extension)) {
+  if (sourceInfo.size !== fileSize || !hasPowerPointSignature(signatureHex, extension)) {
     await admin.storage.from(SOURCE_BUCKET).remove([path]);
     return NextResponse.json({ error: "업로드한 파일이 원본 PowerPoint와 일치하지 않습니다." }, { status: 409 });
   }
 
   const now = new Date().toISOString();
-  const fingerprint = createHash("sha256").update(bytes).digest("hex");
   let driveFileId: string | null = null;
   let workItemUpdated = false;
   try {
@@ -194,7 +192,7 @@ export async function POST(
       file_name: fileName,
       file_extension: extension,
       file_type: "file",
-      file_size: bytes.byteLength,
+      file_size: fileSize,
       modified_at: now,
       fingerprint,
       supported: true,
@@ -256,7 +254,7 @@ export async function POST(
         bucket: SOURCE_BUCKET,
         storagePath: path,
         originalFileName: fileName,
-        byteLength: bytes.byteLength,
+        byteLength: fileSize,
         fingerprint,
       } : {},
       completed_at: jobType === "download" ? now : null,
@@ -284,7 +282,7 @@ export async function POST(
           path,
           fingerprint,
           fileName,
-          fileSize: bytes.byteLength,
+          fileSize,
           connectedAt: now,
           connectedBy: user.email,
         },
@@ -315,7 +313,7 @@ export async function POST(
       candidateId: candidate.id,
       status: "pc_waiting",
       fileName,
-      fileSize: bytes.byteLength,
+      fileSize,
     });
   } catch (error) {
     if (workItemUpdated) {
