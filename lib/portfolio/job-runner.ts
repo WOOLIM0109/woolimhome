@@ -757,17 +757,6 @@ export async function processNextPortfolioMockup(candidateId?: string) {
     throw new Error(lastError || "새 디자인 자산 정리에 실패했습니다.");
   };
 
-  const assertClaim = async () => {
-    const { data, error } = await admin.from("content_jobs")
-      .select("id")
-      .eq("id", job.id)
-      .eq("status", "running")
-      .eq("started_at", claimStartedAt)
-      .maybeSingle();
-    if (error) throw new Error(error.message);
-    if (!data) throw new PortfolioClaimLost();
-  };
-
   try {
     const { data: conversion, error: conversionError } = await admin.from("content_jobs")
       .select("result,updated_at")
@@ -928,7 +917,6 @@ export async function processNextPortfolioMockup(candidateId?: string) {
     let assets = cachedAssets.length >= 4 && redactionProof ? cachedAssets : [];
     if (!assets.length || !redactionProof) {
       yieldPortfolioCheckpointIfNeeded(shouldYield);
-      await assertClaim();
       let slideProof = Array.isArray(result.redactionSlideProofProgress)
         ? result.redactionSlideProofProgress.filter(isPortfolioSlideRedactionProof)
         : [];
@@ -986,7 +974,6 @@ export async function processNextPortfolioMockup(candidateId?: string) {
 
     // The job CAS is the durable winner election. No candidate, work-item, or
     // review asset is made visible until this exact runner owns completion.
-    await assertClaim();
     const { data: completedJob, error: completedJobError } = await admin.from("content_jobs").update({
       status: "completed",
       completed_at: completedAt,
