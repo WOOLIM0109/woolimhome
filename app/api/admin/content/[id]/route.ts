@@ -11,6 +11,7 @@ import {
   PortfolioRebuildConflict,
   rebuildPortfolioDraft,
   retryPortfolioConversion,
+  retryPortfolioDraft,
 } from "@/lib/portfolio/job-runner";
 import { EDITORIAL_SLOTS } from "@/lib/content-ops/config";
 import { generateContentWorkItem } from "@/lib/content-ops/generate";
@@ -155,6 +156,19 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
       return NextResponse.json({
         error: error instanceof Error ? error.message : "원본 PPT 변환을 다시 요청하지 못했습니다.",
       }, { status: error instanceof PortfolioConversionRetryConflict ? 409 : 500 });
+    }
+  }
+  if (body.action === "retry_portfolio_draft") {
+    try {
+      const result = await retryPortfolioDraft(id);
+      if (!result) {
+        return NextResponse.json({ error: "다시 생성할 포트폴리오 본문 작업을 찾지 못했습니다." }, { status: 409 });
+      }
+      return NextResponse.json(result);
+    } catch (error) {
+      return NextResponse.json({
+        error: error instanceof Error ? error.message : "포트폴리오 본문을 다시 만들지 못했습니다.",
+      }, { status: 500 });
     }
   }
   if (body.action === "rebuild_portfolio_mockups") {

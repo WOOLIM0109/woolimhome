@@ -462,11 +462,14 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
     setRebuildingId(item.id);
     setError("");
     try {
+      const draftOnly = item.metadata?.portfolioStage === "draft_failed";
       for (let attempt = 0; attempt < 6; attempt += 1) {
         const response = await fetch(`/api/admin/content/${item.id}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ action: "rebuild_portfolio" }),
+          body: JSON.stringify({
+            action: draftOnly ? "retry_portfolio_draft" : "rebuild_portfolio",
+          }),
         });
         const data = await response.json();
         if (!response.ok) {
@@ -920,8 +923,12 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
                   >
                     <RotateCcw size={15} className={rebuildingId === item.id ? "animate-spin" : ""} />
                     {rebuildingId === item.id
-                      ? "기밀 검수·목업·본문 전체 재생성 중…"
-                      : "기밀 검수·목업·본문 전체 재생성"}
+                      ? item.metadata?.portfolioStage === "draft_failed"
+                        ? "본문만 다시 생성 중…"
+                        : "기밀 검수·목업·본문 전체 재생성 중…"
+                      : item.metadata?.portfolioStage === "draft_failed"
+                        ? "본문만 다시 생성"
+                        : "기밀 검수·목업·본문 전체 재생성"}
                   </button>
                 </>
               )}
