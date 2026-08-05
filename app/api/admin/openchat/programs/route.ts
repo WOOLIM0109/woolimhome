@@ -17,9 +17,14 @@ export async function GET(request: Request) {
   const url = new URL(request.url);
   const date = url.searchParams.get("date") || kstDate();
   const includeExcluded = url.searchParams.get("includeExcluded") === "true";
+  const deferredOnly = url.searchParams.get("deferredOnly") === "true";
   let query = contentAdmin().from("openchat_programs")
-    .select("*, source:openchat_sources(name,category,source_key)")
-    .eq("draft_for", date)
+    .select("*, source:openchat_sources(name,category,source_key)");
+  query = deferredOnly
+    ? query.eq("status", "deferred")
+    : query.eq("draft_for", date);
+  query = query
+    .order("draft_for", { ascending: true })
     .order("priority")
     .order("deadline_at", { ascending: true, nullsFirst: false })
     .order("created_at", { ascending: false });

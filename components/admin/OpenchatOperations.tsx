@@ -37,6 +37,7 @@ export default function OpenchatOperations() {
   const [tab, setTab] = useState<Tab>("morning");
   const [date, setDate] = useState(todayKst);
   const [programs, setPrograms] = useState<OpenchatProgram[]>([]);
+  const [deferredPrograms, setDeferredPrograms] = useState<OpenchatProgram[]>([]);
   const [draft, setDraft] = useState<OpenchatContentDraft | null>(null);
   const [sources, setSources] = useState<SourcePayload>({ sources: [], runs: [] });
   const [loading, setLoading] = useState(true);
@@ -49,18 +50,21 @@ export default function OpenchatOperations() {
     setLoading(true);
     setError("");
     try {
-      const [programResponse, contentResponse, sourceResponse] = await Promise.all([
+      const [programResponse, deferredResponse, contentResponse, sourceResponse] = await Promise.all([
         fetch(`/api/admin/openchat/programs?date=${date}`, { cache: "no-store" }),
+        fetch("/api/admin/openchat/programs?deferredOnly=true", { cache: "no-store" }),
         fetch(`/api/admin/openchat/content?date=${date}`, { cache: "no-store" }),
         fetch("/api/admin/openchat/sources", { cache: "no-store" }),
       ]);
-      const [programData, contentData, sourceData] = await Promise.all([
-        programResponse.json(), contentResponse.json(), sourceResponse.json(),
+      const [programData, deferredData, contentData, sourceData] = await Promise.all([
+        programResponse.json(), deferredResponse.json(), contentResponse.json(), sourceResponse.json(),
       ]);
       if (!programResponse.ok) throw new Error(programData.error || "공고를 불러오지 못했습니다.");
+      if (!deferredResponse.ok) throw new Error(deferredData.error || "이월 공고를 불러오지 못했습니다.");
       if (!contentResponse.ok) throw new Error(contentData.error || "콘텐츠를 불러오지 못했습니다.");
       if (!sourceResponse.ok) throw new Error(sourceData.error || "출처 현황을 불러오지 못했습니다.");
       setPrograms(programData);
+      setDeferredPrograms(deferredData);
       setDraft(contentData);
       setEditingAfternoon(false);
       setSources(sourceData);
@@ -85,9 +89,6 @@ export default function OpenchatOperations() {
     .filter((program) => !["deferred", "excluded"].includes(program.status))
     .sort((left, right) => left.priority - right.priority)
     .slice(0, MORNING_PROGRAM_LIMIT), [programs]);
-
-  const deferredPrograms = useMemo(() => programs
-    .filter((program) => program.status === "deferred"), [programs]);
 
   const cutoffRun = useMemo(() => sources.runs.find((run) => (
     run.task === "morning-cutoff" && run.summary?.date === date
@@ -119,7 +120,7 @@ export default function OpenchatOperations() {
   }
 
   async function saveProgram(program: OpenchatProgram, status?: OpenchatProgram["status"]) {
-    if (status === "approved" && selectedPrograms.length >= MORNING_PROGRAM_LIMIT && program.status !== "approved") {
+    if (status === "approved" && program.draft_for === date && selectedPrograms.length >= MORNING_PROGRAM_LIMIT && program.status !== "approved") {
       setError(`하루 승인 상한은 ${MORNING_PROGRAM_LIMIT}건입니다.`);
       return;
     }
@@ -131,7 +132,16 @@ export default function OpenchatOperations() {
     });
     const data = await response.json();
     if (!response.ok) setError(data.error || "공고를 저장하지 못했습니다.");
-    else setPrograms((current) => current.map((item) => item.id === program.id ? data : item));
+    else {
+      setPrograms((current) => {
+        const remaining = current.filter((item) => item.id !== program.id);
+        return data.draft_for === date && data.status !== "excluded" ? [...remaining, data] : remaining;
+      });
+      setDeferredPrograms((current) => {
+        const remaining = current.filter((item) => item.id !== program.id);
+        return data.status === "deferred" ? [...remaining, data] : remaining;
+      });
+    }
     setBusy("");
   }
 
@@ -292,10 +302,43 @@ export default function OpenchatOperations() {
           )}
           {deferredPrograms.length > 0 && cutoffDeferred === 0 && (
             <div className="mt-5 rounded-2xl border border-stone-300 bg-stone-50 p-5 text-sm text-stone-800">
-              <p className="font-bold">이 날짜로 이월 대기 중인 공고 {deferredPrograms.length}건</p>
-              <p className="mt-2">오전 8시 정기 수집 때 자동으로 검토 후보 상태로 전환됩니다.</p>
+              <p className="font-bold">전체 이월 대기 공고 {deferredPrograms.length}건</p>
+              <p className="mt-2">아래 이월 공고 목록에서 내용과 검토 예정일을 확인할 수 있습니다.</p>
             </div>
           )}
+          <details className="mt-5 rounded-2xl border border-stone-300 bg-white p-5">
+            <summary className="cursor-pointer font-bold text-stone-900">
+              이월 공고 따로 보기 · {deferredPrograms.length}건
+            </summary>
+            {deferredPrograms.length === 0 ? (
+              <p className="mt-4 rounded-xl bg-stone-50 p-5 text-sm text-stone-600">현재 이월 대기 중인 공고가 없습니다.</p>
+            ) : (
+              <div className="mt-4 space-y-3">
+                {deferredPrograms.map((program, index) => (
+                  <article key={program.id} className="rounded-xl border border-stone-200 bg-stone-50 p-4">
+                    <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                      <div className="min-w-0">
+                        <p className="text-sm font-bold text-stone-900">{index + 1}. {program.title}</p>
+                        <p className="mt-1 text-xs font-bold text-amber-800">검토 예정일 {program.draft_for}</p>
+                      </div>
+                      <div className="flex shrink-0 flex-wrap gap-2">
+                        <button onClick={() => void saveProgram(program, "approved")} disabled={Boolean(busy)} className="rounded-xl bg-emerald-700 px-3 py-2 text-xs font-bold text-white disabled:opacity-50">승인</button>
+                        <button onClick={() => void saveProgram(program, "excluded")} disabled={Boolean(busy)} className="rounded-xl bg-red-50 px-3 py-2 text-xs font-bold text-red-700 disabled:opacity-50">제외</button>
+                      </div>
+                    </div>
+                    <div className="mt-3 grid gap-3 text-sm leading-6 md:grid-cols-2">
+                      <div><p className="text-xs font-bold text-stone-500">신청대상</p><p className="whitespace-pre-wrap">{program.applicant_summary}</p></div>
+                      <div><p className="text-xs font-bold text-stone-500">지원내용</p><p className="whitespace-pre-wrap">{program.support_summary}</p></div>
+                    </div>
+                    <div className="mt-3 flex flex-col gap-1 text-sm">
+                      <p><span className="font-bold">신청기간</span> {program.application_period_text}</p>
+                      <a href={program.source_url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 break-all font-bold text-[var(--primary)]">원문 열기 <ExternalLink size={14} /></a>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            )}
+          </details>
           {reviewPrograms.length > 0 && (
             <details className="mt-5 rounded-2xl border border-[var(--line)] bg-white p-5">
               <summary className="cursor-pointer font-bold">검토용 게시문 통합 미리보기 · {reviewPrograms.length}건 · 상담 문구 포함</summary>
