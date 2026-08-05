@@ -50,7 +50,9 @@ function sourceExtension(fileName: string) {
 }
 
 function sourcePath(workItemId: string, uploadId: string, fileName: string) {
-  return `legacy-sources/${workItemId}/${uploadId}/${safeFileName(fileName)}`;
+  const extension = sourceExtension(fileName);
+  const storageName = createHash("sha256").update(fileName).digest("hex").slice(0, 20);
+  return `legacy-sources/${workItemId}/${uploadId}/source-${storageName}.${extension}`;
 }
 
 function isUuid(value: string) {
