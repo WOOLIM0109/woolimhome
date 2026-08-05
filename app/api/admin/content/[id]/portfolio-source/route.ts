@@ -6,7 +6,7 @@ export const runtime = "nodejs";
 export const maxDuration = 300;
 
 const SOURCE_BUCKET = "portfolio-sources";
-const MAX_SOURCE_BYTES = 200 * 1024 * 1024;
+const MAX_SOURCE_BYTES = 50 * 1024 * 1024;
 const SOURCE_MIME_TYPES = [
   "application/vnd.ms-powerpoint",
   "application/vnd.openxmlformats-officedocument.presentationml.presentation",
