@@ -96,32 +96,37 @@ async function redact(buffer: Buffer, regions: SensitiveRegion[]) {
     buffer: oriented.data,
     appliedRegionCount: 0,
   };
-  const composites: SharpOverlayOptions[] = [];
-  for (const region of regions) {
-    const box = clampRegion(region, oriented.info.width, oriented.info.height);
-    if (!box) continue;
-    const blurStrength = ["body_text", "small_text", "table_content", "chart_label"].includes(region.type)
-      ? 30
-      : region.type === "footer"
-        ? 32
-        : 38;
-    const blurred = await sharp(oriented.data)
-      .extract(box)
-      .blur(blurStrength)
-      .modulate({
-        brightness: ["embedded_photo", "screenshot"].includes(region.type) ? 0.98 : 0.96,
-        saturation: ["embedded_photo", "screenshot"].includes(region.type) ? 0.68 : 0.48,
-      })
-      .png()
-      .toBuffer();
-    composites.push({ input: blurred, left: box.left, top: box.top });
-  }
+  const boxes = regions
+    .map((region) => clampRegion(region, oriented.info.width, oriented.info.height))
+    .filter((box): box is NonNullable<typeof box> => Boolean(box));
+  if (!boxes.length) return {
+    sourceBuffer: oriented.data,
+    buffer: oriented.data,
+    appliedRegionCount: 0,
+  };
+  const blurred = await sharp(oriented.data)
+    .blur(34)
+    .modulate({ brightness: 0.97, saturation: 0.56 })
+    .png()
+    .toBuffer();
+  const mask = Buffer.from(
+    `<svg width="${oriented.info.width}" height="${oriented.info.height}" xmlns="http://www.w3.org/2000/svg">`
+    + boxes.map((box) => (
+      `<rect x="${box.left}" y="${box.top}" width="${box.width}" height="${box.height}" rx="4" fill="#fff"/>`
+    )).join("")
+    + "</svg>",
+  );
+  const maskedBlur = await sharp(blurred)
+    .composite([{ input: mask, blend: "dest-in" }])
+    .png()
+    .toBuffer();
   return {
     sourceBuffer: oriented.data,
-    buffer: composites.length
-      ? await sharp(oriented.data).composite(composites).png().toBuffer()
-      : oriented.data,
-    appliedRegionCount: composites.length,
+    buffer: await sharp(oriented.data)
+      .composite([{ input: maskedBlur, left: 0, top: 0 }])
+      .png()
+      .toBuffer(),
+    appliedRegionCount: boxes.length,
   };
 }
 
