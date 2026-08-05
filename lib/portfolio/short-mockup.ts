@@ -777,12 +777,12 @@ function detailSlots(count: number, variant: number): CardSlot[] {
 }
 
 function boardSlideCounts(slideCount: number, aspectClass: SupportedShortMockupAspectClass) {
-  const counts = [2, 1, 1, 1];
   const capacity = [aspectClass === "4:3" ? 4 : 5, 3, 3, 3];
-  let remaining = slideCount - counts.reduce((sum, value) => sum + value, 0);
-  let cursor = 0;
+  const counts = [Math.min(slideCount, capacity[0]), 0, 0, 0];
+  let remaining = slideCount - counts[0];
+  let cursor = 1;
   while (remaining > 0) {
-    const board = cursor % counts.length;
+    const board = 1 + ((cursor - 1) % (counts.length - 1));
     if (counts[board] < capacity[board]) {
       counts[board] += 1;
       remaining -= 1;
