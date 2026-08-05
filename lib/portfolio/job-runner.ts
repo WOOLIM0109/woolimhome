@@ -673,13 +673,22 @@ export async function processNextPortfolioMockup(candidateId?: string) {
   const job = jobs?.[0];
   if (!job) return null;
   let attempts = Number(job.attempts || 0);
-  let result = (job.result || {}) as Record<string, unknown>;
-  for (const duplicatedCheckpointField of [
-    "slideAssessmentsProgress",
-    "confidentialRegions",
-    "confidentialRegionsProgress",
-    "localRedactionManifest",
-  ]) delete result[duplicatedCheckpointField];
+  const previousResult = (job.result || {}) as Record<string, unknown>;
+  let result: Record<string, unknown> = {};
+  for (const checkpointField of [
+    "rebuildRequestedAt",
+    "jsonFormatRecoveryAttemptedAt",
+    "timeoutRecoveryAttemptedAt",
+    "sourceCheckpointResetAt",
+    "sourceFingerprint",
+  ]) {
+    if (typeof previousResult[checkpointField] === "string") {
+      result[checkpointField] = previousResult[checkpointField];
+    }
+  }
+  if (previousResult.visualReview && typeof previousResult.visualReview === "object") {
+    result.visualReview = previousResult.visualReview;
+  }
   const recoverableJsonFailure = /Unexpected non-whitespace|AI JSON|JSON 객체|AI_STEP_TIMEOUT/i
     .test(String(job.error_message || ""));
   const recoveryField = /AI_STEP_TIMEOUT/i.test(String(job.error_message || ""))
