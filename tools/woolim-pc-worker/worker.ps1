@@ -5,7 +5,7 @@
 )
 
 $ErrorActionPreference = "Stop"
-$WorkerVersion = "2.4.1"
+$WorkerVersion = "2.4.2"
 
 function Get-WorkerSetting {
   param(
@@ -749,7 +749,7 @@ function Get-ShapeTextClassification {
       throw "SHAPE_FONT_INSPECTION_FAILED: $($_.Exception.Message)"
     }
     $isTitlePlaceholder = $placeholderType -in @(1, 3, 5)
-    $largeEnough = ($isTitlePlaceholder -and $fontSize -ge 26.0) -or $fontSize -ge 32.0
+    $largeEnough = ($isTitlePlaceholder -and $fontSize -ge 22.0) -or $fontSize -ge 24.0
     if ($largeEnough) { return "public_large_title" }
     if ($fontSize -gt 0 -and $fontSize -lt 18.0) { return "small_text" }
     return "body_text"
@@ -808,7 +808,7 @@ function Get-ShapeTextEffectClassification {
     }
     $rawFontSize = $textEffect.FontSize
     if ($null -eq $rawFontSize) { throw "PowerPoint returned no TextEffect.FontSize value." }
-    if ([double]$rawFontSize -ge 32.0) { return "public_large_title" }
+    if ([double]$rawFontSize -ge 24.0) { return "public_large_title" }
     return "body_text"
   } catch {
     throw "SHAPE_TEXT_EFFECT_CLASSIFICATION_FAILED: $($_.Exception.Message)"

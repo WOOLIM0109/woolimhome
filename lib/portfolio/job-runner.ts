@@ -32,6 +32,7 @@ import {
   PortfolioCheckpointYield,
   yieldPortfolioCheckpointIfNeeded,
 } from "./checkpoint";
+import { isCurrentLocalRedactionWorkerVersion } from "../pc-worker/capabilities";
 import {
   isCompletePortfolioSourceDownload,
   portfolioConversionRecoveryState,
@@ -2158,11 +2159,13 @@ export async function retryPortfolioConversion(workItemId: string) {
     result: (conversion.result || {}) as JobResult,
     errorMessage: conversion.error_message,
   });
-  const needsLocalManifestRefresh = conversionState === "ready" && !parseLocalRedactionManifest(
-    (conversion.result as JobResult | null)?.localRedactionManifest,
-    Array.isArray((conversion.result as JobResult | null)?.slidePaths)
-      ? ((conversion.result as JobResult).slidePaths || []).length
-      : 0,
+  const conversionResult = (conversion.result || {}) as JobResult;
+  const needsLocalManifestRefresh = conversionState === "ready" && (
+    !isCurrentLocalRedactionWorkerVersion(conversionResult.workerVersion)
+    || !parseLocalRedactionManifest(
+      conversionResult.localRedactionManifest,
+      Array.isArray(conversionResult.slidePaths) ? conversionResult.slidePaths.length : 0,
+    )
   );
   if (needsLocalManifestRefresh && isPdfPortfolioSource(conversion.result)) {
     throw new PortfolioConversionRetryConflict(
@@ -2406,10 +2409,11 @@ export async function rebuildPortfolioDraft(workItemId: string) {
   const convertedSlidePaths = Array.isArray(conversionResult.slidePaths)
     ? conversionResult.slidePaths
     : [];
-  if (!parseLocalRedactionManifest(
-    conversionResult.localRedactionManifest,
-    convertedSlidePaths.length,
-  )) {
+  if (!isCurrentLocalRedactionWorkerVersion(conversionResult.workerVersion)
+    || !parseLocalRedactionManifest(
+      conversionResult.localRedactionManifest,
+      convertedSlidePaths.length,
+    )) {
     if (isPdfPortfolioSource(conversionResult)) {
       throw new PortfolioConversionRetryConflict(
         `${PDF_LOCAL_REDACTION_ERROR_CODE}: ${PDF_LOCAL_REDACTION_MESSAGE}`,

@@ -1,5 +1,5 @@
 export const LOCAL_REDACTION_WORKER_CAPABILITY = "powerpoint_selective_redaction_manifest_v2";
-export const MIN_LOCAL_REDACTION_WORKER_VERSION = "2.4.0";
+export const MIN_LOCAL_REDACTION_WORKER_VERSION = "2.4.2";
 
 function numericVersion(value: unknown) {
   if (typeof value !== "string") return null;
@@ -19,10 +19,14 @@ function versionAtLeast(value: unknown, minimum: string) {
   return true;
 }
 
+export function isCurrentLocalRedactionWorkerVersion(value: unknown) {
+  return versionAtLeast(value, MIN_LOCAL_REDACTION_WORKER_VERSION);
+}
+
 export function supportsLocalRedactionClaims(value: unknown) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const claim = value as { workerVersion?: unknown; capabilities?: unknown };
-  return versionAtLeast(claim.workerVersion, MIN_LOCAL_REDACTION_WORKER_VERSION)
+  return isCurrentLocalRedactionWorkerVersion(claim.workerVersion)
     && Array.isArray(claim.capabilities)
     && claim.capabilities.includes(LOCAL_REDACTION_WORKER_CAPABILITY);
 }
