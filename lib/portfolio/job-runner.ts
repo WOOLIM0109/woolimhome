@@ -757,39 +757,6 @@ export async function processNextPortfolioMockup(candidateId?: string) {
     throw new Error(lastError || "새 디자인 자산 정리에 실패했습니다.");
   };
 
-  const checkpoint = async (values: Record<string, unknown>) => {
-    result = { ...result, ...values };
-    const writeCheckpoint = () => admin.from("content_jobs").update({
-        result,
-        updated_at: new Date().toISOString(),
-      }).eq("id", job.id)
-        .eq("status", "running")
-        .eq("started_at", claimStartedAt)
-        .select("id")
-        .maybeSingle();
-    let lastCheckpointError: unknown = null;
-    for (let attempt = 1; attempt <= 3; attempt += 1) {
-      try {
-        const { data: checkpointedJob, error } = await Promise.race([
-          writeCheckpoint(),
-          new Promise<never>((_, reject) => setTimeout(
-            () => reject(new Error(`CHECKPOINT_TIMEOUT: attempt ${attempt}/3`)),
-            20_000,
-          )),
-        ]);
-        if (error) throw new Error(error.message);
-        if (!checkpointedJob) throw new PortfolioClaimLost();
-        return;
-      } catch (error) {
-        if (error instanceof PortfolioClaimLost) throw error;
-        lastCheckpointError = error;
-      }
-    }
-    throw lastCheckpointError instanceof Error
-      ? lastCheckpointError
-      : new Error("CHECKPOINT_FAILED");
-  };
-
   const assertClaim = async () => {
     const { data, error } = await admin.from("content_jobs")
       .select("id")
@@ -874,7 +841,7 @@ export async function processNextPortfolioMockup(candidateId?: string) {
         sourceCheckpointResetAt: new Date().toISOString(),
       };
     }
-    await checkpoint({ sourceFingerprint });
+    result = { ...result, sourceFingerprint };
 
     const localManifest = parseLocalRedactionManifest(
       conversionResult.localRedactionManifest || payload.localRedactionManifest,
@@ -909,11 +876,11 @@ export async function processNextPortfolioMockup(candidateId?: string) {
         sourceHint: `${candidate.project_name || ""} ${conversionResult.originalFileName || ""}`,
       });
     console.info(`[portfolio-mockup] review ready candidate=${job.candidate_id}`);
-    await checkpoint({
+    result = { ...result,
       visualReview: review,
       visualReviewCompletedAt: new Date().toISOString(),
       visualReviewMethod: "local_image_metrics_v1",
-    });
+    };
     if (!review.suitable || review.confidence < 0.72 || review.recommendedSlideIndexes.length < 5) {
       await rejectCandidate({
         jobId: job.id,
@@ -941,12 +908,12 @@ export async function processNextPortfolioMockup(candidateId?: string) {
         `안전한 장표 ${mockupPlan.selectedIndexes.length}개, 필요 장표 ${minimumSelectedSlides}개`,
       );
     }
-    await checkpoint({
+    result = { ...result,
       confidentialRegionsCompletedIndexes: mockupPlan.indexes,
       redactionVerification,
       redactionMethod: localManifest.method,
       confidentialRegionsCompletedAt: new Date().toISOString(),
-    });
+    };
 
     const cachedAssets = Array.isArray(result.portfolioAssetsProgress)
       ? result.portfolioAssetsProgress.filter(isGeneratedPortfolioAsset)
@@ -973,7 +940,7 @@ export async function processNextPortfolioMockup(candidateId?: string) {
         localRedactionManifest: localManifest,
         onRedactionProof: async (proof) => {
           slideProof = proof;
-          await checkpoint({ redactionSlideProofProgress: proof });
+          result = { ...result, redactionSlideProofProgress: proof };
         },
       });
       const renderedIndexes = renderedPortfolioSlideIndexes(assets);
@@ -987,11 +954,11 @@ export async function processNextPortfolioMockup(candidateId?: string) {
         selectedSlideIndexes: renderedIndexes,
         slides: slideProof.filter((proof) => renderedIndexSet.has(proof.slideIndex)),
       });
-      await checkpoint({
+      result = { ...result,
         portfolioAssetsProgress: assets,
         redactionProof,
         portfolioAssetsCompletedAt: new Date().toISOString(),
-      });
+      };
     }
     if (!redactionProof) {
       throw new Error("로컬 기밀 블러 증명을 만들지 못해 디자인 저장을 중단했습니다.");
