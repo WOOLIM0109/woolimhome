@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { RotateCcw, Sparkles, Trash2 } from "lucide-react";
+import { RotateCcw, Sparkles, Trash2, Upload } from "lucide-react";
 import StatusBadge from "./StatusBadge";
 import type { ContentChannel, WorkflowStatus } from "@/lib/content-ops/types";
 import { faqAnswerHtml, faqQuestionHtml } from "@/lib/content-ops/editorial-style";
@@ -47,6 +47,7 @@ type WorkItem = {
   scheduled_at: string | null;
   review_note: string | null;
   metadata?: {
+    candidateId?: string;
     generated?: {
       bodyHtml?: string;
       faq?: {
@@ -347,6 +348,7 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
   const [notes, setNotes] = useState<Record<string, string>>({});
   const [rebuildingId, setRebuildingId] = useState<string | null>(null);
   const [regeneratingId, setRegeneratingId] = useState<string | null>(null);
+  const [sourceUploadingId, setSourceUploadingId] = useState<string | null>(null);
   const [rewritingStyle, setRewritingStyle] = useState(false);
   const [styleResult, setStyleResult] = useState("");
 
@@ -464,6 +466,68 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
       await load();
     } finally {
       setRebuildingId(null);
+    }
+  }
+
+  async function connectPortfolioSource(item: WorkItem, file: File) {
+    setSourceUploadingId(item.id);
+    setError("");
+    try {
+      const fileDetails = {
+        fileName: file.name,
+        fileSize: file.size,
+        mimeType: file.type,
+      };
+      const prepareResponse = await fetch(`/api/admin/content/${item.id}/portfolio-source`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "prepare", ...fileDetails }),
+      });
+      const prepared = await prepareResponse.json();
+      if (!prepareResponse.ok) {
+        setError(prepared.error || "원본 업로드를 준비하지 못했습니다.");
+        return;
+      }
+
+      const authorization = String(prepared.uploadAuthorization || "");
+      const apiKey = authorization.replace(/^Bearer\s+/i, "");
+      const uploadResponse = await fetch(prepared.uploadUrl, {
+        method: "PUT",
+        headers: {
+          Authorization: authorization,
+          apikey: apiKey,
+          "Content-Type": prepared.contentType || file.type || "application/octet-stream",
+          "x-upsert": "false",
+          "cache-control": "max-age=3600",
+        },
+        body: file,
+      });
+      if (!uploadResponse.ok) {
+        setError(`원본 파일 업로드에 실패했습니다. (HTTP ${uploadResponse.status})`);
+        return;
+      }
+
+      const commitResponse = await fetch(`/api/admin/content/${item.id}/portfolio-source`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "commit",
+          uploadId: prepared.uploadId,
+          ...fileDetails,
+        }),
+      });
+      const committed = await commitResponse.json();
+      if (!commitResponse.ok) {
+        setError(committed.error || "업로드한 원본을 작업물에 연결하지 못했습니다.");
+        return;
+      }
+      await load();
+    } catch (uploadError) {
+      setError(uploadError instanceof Error
+        ? uploadError.message
+        : "원본 연결 중 네트워크 오류가 발생했습니다.");
+    } finally {
+      setSourceUploadingId(null);
     }
   }
 
@@ -725,6 +789,28 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
             <div className="mt-5 flex flex-wrap justify-end gap-2 border-t border-[var(--line)] pt-4">
               {item.format === "portfolio" && (
                 <>
+                  {!item.metadata?.candidateId && (
+                    <label
+                      className="inline-flex cursor-pointer items-center gap-2 rounded-xl border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-950 hover:bg-emerald-100 has-[:disabled]:cursor-wait has-[:disabled]:opacity-60"
+                      aria-disabled={sourceUploadingId === item.id}
+                    >
+                      <input
+                        type="file"
+                        accept=".ppt,.pptx,.pptm,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation"
+                        className="sr-only"
+                        disabled={sourceUploadingId === item.id}
+                        onChange={(event) => {
+                          const file = event.currentTarget.files?.[0];
+                          event.currentTarget.value = "";
+                          if (file) void connectPortfolioSource(item, file);
+                        }}
+                      />
+                      <Upload size={15} />
+                      {sourceUploadingId === item.id
+                        ? "원본 연결·재생성 요청 중…"
+                        : "원본 PPT 연결 후 재생성"}
+                    </label>
+                  )}
                   {isPortfolioConversionHold(item) && (
                     <button
                       onClick={() => void update(item.id, { action: "retry_portfolio_conversion" })}
