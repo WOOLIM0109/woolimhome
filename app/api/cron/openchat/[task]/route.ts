@@ -5,7 +5,7 @@ import type { OpenchatCronTask } from "@/lib/openchat/types";
 export const maxDuration = 300;
 
 const TASKS: OpenchatCronTask[] = [
-  "morning-collect", "morning-draft-notify", "morning-cutoff", "morning-ready",
+  "morning-collect", "morning-draft-notify", "morning-approval-reminder", "morning-cutoff", "morning-ready",
   "afternoon-draft", "afternoon-cutoff", "afternoon-ready",
 ];
 
@@ -24,4 +24,3 @@ export async function GET(request: Request, context: { params: Promise<{ task: s
     return NextResponse.json({ error: error instanceof Error ? error.message : "작업 실패" }, { status: 500 });
   }
 }
-

@@ -9,7 +9,7 @@ export async function GET() {
   const admin = contentAdmin();
   const [{ data: sources, error }, { data: runs }] = await Promise.all([
     admin.from("openchat_sources").select("*").order("priority"),
-    admin.from("openchat_run_logs").select("*").order("started_at", { ascending: false }).limit(20),
+    admin.from("openchat_run_logs").select("*").order("started_at", { ascending: false }).limit(100),
   ]);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ sources, runs }, { headers: { "Cache-Control": "private, no-store" } });
@@ -28,4 +28,3 @@ export async function PATCH(request: Request) {
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json(data);
 }
-

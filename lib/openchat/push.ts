@@ -11,6 +11,12 @@ const NOTIFICATIONS: Record<OpenchatCronTask, { title: string; body: (summary: R
     title: "오전 공고 초안 준비",
     body: (summary) => `검토가 필요한 공고 ${Number(summary.reviewRequired || 0)}건이 있습니다.`,
   },
+  "morning-approval-reminder": {
+    title: "오전 공고 승인 마감 15분 전",
+    body: (summary) => Number(summary.reviewRequired || 0)
+      ? `미승인 공고 ${Number(summary.reviewRequired || 0)}건이 있습니다. 오전 10시 15분까지 승인하지 않으면 다음 영업일로 이월됩니다.`
+      : "승인 대기 중인 오전 공고가 없습니다.",
+  },
   "morning-cutoff": {
     title: "오전 공고 승인 마감",
     body: (summary) => `미승인 ${Number(summary.deferred || 0)}건을 다음 영업일로 이월했습니다.`,

@@ -86,6 +86,17 @@ export default function OpenchatOperations() {
     .sort((left, right) => left.priority - right.priority)
     .slice(0, MORNING_PROGRAM_LIMIT), [programs]);
 
+  const deferredPrograms = useMemo(() => programs
+    .filter((program) => program.status === "deferred"), [programs]);
+
+  const cutoffRun = useMemo(() => sources.runs.find((run) => (
+    run.task === "morning-cutoff" && run.summary?.date === date
+  )), [date, sources.runs]);
+  const cutoffDeferred = Number(cutoffRun?.summary?.deferred || 0);
+  const cutoffCarryDate = typeof cutoffRun?.summary?.carryDate === "string"
+    ? cutoffRun.summary.carryDate
+    : null;
+
   async function run(task: string) {
     setBusy(task);
     setError("");
@@ -269,6 +280,22 @@ export default function OpenchatOperations() {
               <button onClick={() => void copy(formatMorningPost(selectedPrograms, date))} disabled={!selectedPrograms.length} className="inline-flex items-center gap-2 rounded-xl border border-orange-300 bg-white px-4 py-3 text-sm font-bold disabled:opacity-50"><Clipboard size={16} /> 게시문 복사</button>
             </div>
           </div>
+          {cutoffDeferred > 0 && (
+            <div className="mt-5 rounded-2xl border border-amber-300 bg-amber-50 p-5 text-sm text-amber-950">
+              <p className="font-bold">수집 오류가 아닙니다 · 승인 마감으로 {cutoffDeferred}건 이월</p>
+              <p className="mt-2 leading-6">
+                {date}에 수집된 검토 후보 {cutoffDeferred}건이 오전 10:15까지 승인되지 않아
+                {cutoffCarryDate ? ` ${cutoffCarryDate}로` : " 다음 영업일로"} 이월되었습니다.
+                다음 영업일 오전 8시 수집 때 다시 검토 후보로 전환됩니다.
+              </p>
+            </div>
+          )}
+          {deferredPrograms.length > 0 && cutoffDeferred === 0 && (
+            <div className="mt-5 rounded-2xl border border-stone-300 bg-stone-50 p-5 text-sm text-stone-800">
+              <p className="font-bold">이 날짜로 이월 대기 중인 공고 {deferredPrograms.length}건</p>
+              <p className="mt-2">오전 8시 정기 수집 때 자동으로 검토 후보 상태로 전환됩니다.</p>
+            </div>
+          )}
           {reviewPrograms.length > 0 && (
             <details className="mt-5 rounded-2xl border border-[var(--line)] bg-white p-5">
               <summary className="cursor-pointer font-bold">검토용 게시문 통합 미리보기 · {reviewPrograms.length}건 · 상담 문구 포함</summary>
@@ -303,7 +330,7 @@ export default function OpenchatOperations() {
               </div>
             </details>
           )}
-          {!programs.length && <p className="mt-5 rounded-xl border border-dashed border-[var(--line)] bg-white p-8 text-center text-sm text-[var(--muted)]">이 날짜의 수집 공고가 없습니다.</p>}
+          {!programs.length && cutoffDeferred === 0 && <p className="mt-5 rounded-xl border border-dashed border-[var(--line)] bg-white p-8 text-center text-sm text-[var(--muted)]">이 날짜의 수집 공고가 없습니다.</p>}
         </section>
       )}
 

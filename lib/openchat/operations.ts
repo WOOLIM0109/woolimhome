@@ -298,6 +298,15 @@ export async function executeOpenchatTask(task: OpenchatCronTask, requestedDate?
         summary = { reviewRequired: count || 0 };
         break;
       }
+      case "morning-approval-reminder": {
+        const { count, error } = await createAdminClient().from("openchat_programs")
+          .select("id", { count: "exact", head: true })
+          .eq("draft_for", date)
+          .eq("status", "review_required");
+        if (error) throw new Error(error.message);
+        summary = { reviewRequired: count || 0, cutoffAt: "10:15" };
+        break;
+      }
       case "morning-cutoff":
         summary = await finalizeMorningCutoff(date);
         break;
