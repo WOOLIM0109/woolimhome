@@ -6,7 +6,12 @@ import {
 import { GeminiRequestError, geminiRetryDecision } from "@/lib/gemini/client";
 import { createPortfolioDraft } from "./draft";
 import type { PortfolioDraftProgress } from "./draft";
-import { createPortfolioMockups, portfolioMockupIndexes } from "./mockup";
+import {
+  createPortfolioMockups,
+  PORTFOLIO_REDACTION_SELECTION_ERROR_CODE,
+  PortfolioRedactionSelectionBlocked,
+  portfolioMockupIndexes,
+} from "./mockup";
 import type { GeneratedPortfolioAsset } from "./mockup";
 import { createLocalPortfolioReview } from "./local-review";
 import {
@@ -14,6 +19,8 @@ import {
   isVerifiedPortfolioRedactionProof,
   localRedactionRegions,
   parseLocalRedactionManifest,
+  verifyLocalRedactionSelection,
+  type LocalRedactionManifest,
   type PortfolioRedactionProof,
   type PortfolioSlideRedactionProof,
 } from "./redaction-proof";
@@ -34,6 +41,12 @@ import {
   PDF_LOCAL_REDACTION_ERROR_CODE,
   PDF_LOCAL_REDACTION_MESSAGE,
 } from "./source-policy";
+import {
+  createPortfolioGenerationId,
+  ownsPortfolioGeneration,
+  ownsPortfolioTerminalHold,
+  type PortfolioTerminalHoldOwner,
+} from "./pipeline-generation";
 
 class PortfolioClaimLost extends Error {
   constructor() {
@@ -95,10 +108,10 @@ function isPortfolioSlideRedactionProof(value: unknown): value is PortfolioSlide
   return Number.isInteger(proof.slideIndex)
     && Number(proof.slideIndex) >= 0
     && Number.isInteger(proof.regionCount)
-    && Number(proof.regionCount) > 0
+    && Number(proof.regionCount) >= 0
     && typeof proof.changedPixelRatio === "number"
     && Number.isFinite(proof.changedPixelRatio)
-    && proof.changedPixelRatio > 0
+    && proof.changedPixelRatio >= 0
     && typeof proof.sourceHash === "string"
     && typeof proof.redactedHash === "string";
 }
@@ -135,14 +148,18 @@ function hasBlockingPortfolioDraftIssue(issues: string[]) {
 type CompletedPortfolioMockup = {
   sourceFingerprint: string;
   portfolioRuleVersion: string;
+  portfolioGenerationId: string;
   review: PortfolioVisualReview;
   assets: GeneratedPortfolioAsset[];
   redactionMode: string;
   confidentialRegions: SensitiveRegion[];
   portfolioMockup: ReturnType<typeof portfolioMockupMetadata>;
   redactionProof: PortfolioRedactionProof;
+  localRedactionManifest: LocalRedactionManifest;
   legacyDraftProgress?: PortfolioDraftProgress;
 };
+
+export const PORTFOLIO_REDACTION_UPGRADE_ERROR_CODE = "PORTFOLIO_REDACTION_UPGRADE_REQUIRED";
 
 function completedPortfolioMockup(value: unknown): CompletedPortfolioMockup | null {
   if (!value || typeof value !== "object") return null;
@@ -153,24 +170,34 @@ function completedPortfolioMockup(value: unknown): CompletedPortfolioMockup | nu
     : [];
   const portfolioMockup = result.portfolioMockup;
   const renderedSlideIndexes = renderedPortfolioSlideIndexes(assets);
+  const rawManifest = result.localRedactionManifest;
+  const manifestSlideCount = rawManifest && typeof rawManifest === "object" && !Array.isArray(rawManifest)
+    ? Number((rawManifest as { slideCount?: unknown }).slideCount)
+    : 0;
+  const localRedactionManifest = parseLocalRedactionManifest(rawManifest, manifestSlideCount);
   if (
     typeof result.sourceFingerprint !== "string"
     || !result.sourceFingerprint
     || typeof result.portfolioRuleVersion !== "string"
+    || typeof result.portfolioGenerationId !== "string"
+    || !result.portfolioGenerationId
     || !review?.suitable
     || assets.length < 2
     || !renderedSlideIndexes?.length
     || !portfolioMockup
     || typeof portfolioMockup !== "object"
+    || !localRedactionManifest
     || !isVerifiedPortfolioRedactionProof(
       result.redactionProof,
       result.sourceFingerprint,
       renderedSlideIndexes,
+      localRedactionManifest,
     )
   ) return null;
   return {
     sourceFingerprint: result.sourceFingerprint,
     portfolioRuleVersion: result.portfolioRuleVersion,
+    portfolioGenerationId: result.portfolioGenerationId,
     review,
     assets,
     redactionMode: typeof result.redactionMode === "string" ? result.redactionMode : "confidential",
@@ -179,11 +206,309 @@ function completedPortfolioMockup(value: unknown): CompletedPortfolioMockup | nu
       : [],
     portfolioMockup: portfolioMockup as ReturnType<typeof portfolioMockupMetadata>,
     redactionProof: result.redactionProof as PortfolioRedactionProof,
+    localRedactionManifest,
     legacyDraftProgress: result.portfolioDraftProgress
       && typeof result.portfolioDraftProgress === "object"
       ? result.portfolioDraftProgress as PortfolioDraftProgress
       : undefined,
   };
+}
+
+type PortfolioTerminalHoldInput = {
+  candidateId: string;
+  workItemId: string;
+  sourceJobId: string;
+  code: string;
+  message: string;
+  stage: string;
+  summary: string;
+  heldAt: string;
+  owner: PortfolioTerminalHoldOwner;
+};
+
+function terminalDependentMatchesOwner(
+  metadataValue: unknown,
+  owner: PortfolioTerminalHoldOwner,
+) {
+  const metadata = metadataValue && typeof metadataValue === "object" && !Array.isArray(metadataValue)
+    ? metadataValue as Record<string, unknown>
+    : {};
+  const hasGenerationToken = typeof metadata.portfolioGenerationId === "string"
+    || typeof metadata.portfolioConversionGenerationId === "string";
+  return hasGenerationToken
+    ? ownsPortfolioTerminalHold(metadata, owner)
+    : true;
+}
+
+const PROTECTED_PORTFOLIO_STATUSES = new Set([
+  "published",
+  "scheduled",
+  "naver_ready",
+  "approved",
+  "review_required",
+]);
+
+async function updatePortfolioWorkItemIfOwned(
+  admin: ReturnType<typeof contentAdmin>,
+  input: {
+    workItemId: string;
+    owns: (metadata: unknown) => boolean;
+    requiredMetadata?: Record<string, string>;
+    values: (metadata: Record<string, unknown>) => Record<string, unknown>;
+  },
+) {
+  const { data: workItem, error: readError } = await admin.from("content_work_items")
+    .select("id,status,metadata,updated_at")
+    .eq("id", input.workItemId)
+    .maybeSingle();
+  if (readError) throw new Error(readError.message);
+  if (!workItem
+    || PROTECTED_PORTFOLIO_STATUSES.has(workItem.status)
+    || !input.owns(workItem.metadata)) return false;
+  const metadata = workItem.metadata && typeof workItem.metadata === "object"
+    ? workItem.metadata as Record<string, unknown>
+    : {};
+  let update = admin.from("content_work_items")
+    .update(input.values(metadata))
+    .eq("id", workItem.id)
+    .eq("status", workItem.status)
+    .eq("updated_at", workItem.updated_at);
+  if (input.requiredMetadata && Object.keys(input.requiredMetadata).length) {
+    update = update.contains("metadata", input.requiredMetadata);
+  }
+  const { data: updated, error: updateError } = await update.select("id").maybeSingle();
+  if (updateError) throw new Error(updateError.message);
+  return Boolean(updated);
+}
+
+async function holdPortfolioTerminalDependents(
+  admin: ReturnType<typeof contentAdmin>,
+  input: PortfolioTerminalHoldInput,
+) {
+  const [sourceJobResult, draftResult, candidateResult, workItemResult] = await Promise.all([
+    admin.from("content_jobs")
+      .select("id,status,last_error_code,updated_at")
+      .eq("id", input.sourceJobId)
+      .maybeSingle(),
+    admin.from("content_jobs")
+      .select("id,status,payload,updated_at")
+      .eq("candidate_id", input.candidateId)
+      .eq("job_type", "draft")
+      .maybeSingle(),
+    admin.from("portfolio_candidates")
+      .select("id,status,metadata,updated_at")
+      .eq("id", input.candidateId)
+      .maybeSingle(),
+    admin.from("content_work_items")
+      .select("id,status,metadata,updated_at")
+      .eq("id", input.workItemId)
+      .maybeSingle(),
+  ]);
+  const readError = sourceJobResult.error
+    || draftResult.error
+    || candidateResult.error
+    || workItemResult.error;
+  if (readError) throw new Error(readError.message);
+
+  const sourceJob = sourceJobResult.data;
+  const workItem = workItemResult.data;
+  const sourceStillTerminal = sourceJob?.status === "on_hold"
+    && sourceJob.last_error_code === input.code
+    && sourceJob.updated_at === input.heldAt;
+  if (!sourceStillTerminal
+    || !workItem
+    || !ownsPortfolioTerminalHold(workItem.metadata, input.owner)) {
+    return { stateConflict: true };
+  }
+
+  const protectedStatuses = new Set(["published", "scheduled", "naver_ready", "approved", "review_required"]);
+  if (protectedStatuses.has(workItem.status)) return { stateConflict: false };
+  const metadata = workItem.metadata && typeof workItem.metadata === "object"
+    ? workItem.metadata as Record<string, unknown>
+    : {};
+  const { data: heldWorkItem, error: workItemHoldError } = await admin
+    .from("content_work_items")
+    .update({
+    status: "on_hold",
+    summary: input.summary,
+    review_note: input.message,
+    metadata: {
+      ...metadata,
+      portfolioStage: input.stage,
+      portfolioTerminalErrorCode: input.code,
+      portfolioTerminalHeldAt: input.heldAt,
+    },
+    updated_at: input.heldAt,
+  }).eq("id", workItem.id)
+    .eq("status", workItem.status)
+    .eq("updated_at", workItem.updated_at)
+    .select("id")
+    .maybeSingle();
+  if (workItemHoldError) throw new Error(workItemHoldError.message);
+  if (!heldWorkItem) return { stateConflict: true };
+
+  const terminalOwnerStillCurrent = async () => {
+    const [source, heldItem] = await Promise.all([
+      admin.from("content_jobs")
+        .select("id")
+        .eq("id", input.sourceJobId)
+        .eq("status", "on_hold")
+        .eq("last_error_code", input.code)
+        .eq("updated_at", input.heldAt)
+        .maybeSingle(),
+      admin.from("content_work_items")
+        .select("id")
+        .eq("id", input.workItemId)
+        .eq("status", "on_hold")
+        .eq("updated_at", input.heldAt)
+        .maybeSingle(),
+    ]);
+    const ownershipError = source.error || heldItem.error;
+    if (ownershipError) throw new Error(ownershipError.message);
+    return Boolean(source.data && heldItem.data);
+  };
+
+  let stateConflict = false;
+  const draft = draftResult.data;
+  if (draft
+    && draft.id !== input.sourceJobId
+    && ["queued", "failed", "on_hold"].includes(draft.status)) {
+    if (!terminalDependentMatchesOwner(draft.payload, input.owner)
+      || !await terminalOwnerStillCurrent()) {
+      stateConflict = true;
+    } else {
+      const { data, error } = await admin.from("content_jobs").update({
+        status: "on_hold",
+        next_retry_at: null,
+        last_error_code: input.code,
+        error_message: input.message,
+        updated_at: input.heldAt,
+      }).eq("id", draft.id)
+        .eq("status", draft.status)
+        .eq("updated_at", draft.updated_at)
+        .select("id")
+        .maybeSingle();
+      if (error) throw new Error(error.message);
+      if (!data) stateConflict = true;
+    }
+  }
+
+  const candidate = candidateResult.data;
+  if (candidate && candidate.status !== "excluded") {
+    if (!terminalDependentMatchesOwner(candidate.metadata, input.owner)
+      || !await terminalOwnerStillCurrent()) {
+      stateConflict = true;
+    } else {
+      const { data, error } = await admin.from("portfolio_candidates").update({
+        status: "on_hold",
+        updated_at: input.heldAt,
+      }).eq("id", candidate.id)
+        .eq("status", candidate.status)
+        .eq("updated_at", candidate.updated_at)
+        .select("id")
+        .maybeSingle();
+      if (error) throw new Error(error.message);
+      if (!data) stateConflict = true;
+    }
+  }
+
+  return { stateConflict };
+}
+
+async function holdDraftForRedactionUpgrade(
+  admin: ReturnType<typeof contentAdmin>,
+  input: {
+    job: {
+      id: string;
+      candidate_id: string;
+      work_item_id: string;
+      status: string;
+      updated_at: string;
+      result: unknown;
+    };
+  },
+) {
+  const heldAt = new Date().toISOString();
+  const message = "현재 완료된 디자인은 선택적 기밀 가림 v2 증명을 통과하지 못했습니다. 기존 이미지와 글은 유지됩니다. 자동 재생성하지 않으므로 관리자에서 이 작업물만 다시 만들기를 실행해 주세요.";
+  const previousResult = input.job.result && typeof input.job.result === "object"
+    ? input.job.result as Record<string, unknown>
+    : {};
+  const { data: heldDraft, error: holdError } = await admin.from("content_jobs").update({
+    status: "on_hold",
+    next_retry_at: null,
+    last_error_code: PORTFOLIO_REDACTION_UPGRADE_ERROR_CODE,
+    error_message: message,
+    completed_at: heldAt,
+    result: {
+      ...previousResult,
+      terminalReason: PORTFOLIO_REDACTION_UPGRADE_ERROR_CODE,
+    },
+    updated_at: heldAt,
+  }).eq("id", input.job.id)
+    .eq("status", input.job.status)
+    .eq("updated_at", input.job.updated_at)
+    .select("id")
+    .maybeSingle();
+  if (holdError) throw new Error(holdError.message);
+  if (!heldDraft) return false;
+
+  await holdPortfolioTerminalDependents(admin, {
+    candidateId: input.job.candidate_id,
+    workItemId: input.job.work_item_id,
+    sourceJobId: input.job.id,
+    code: PORTFOLIO_REDACTION_UPGRADE_ERROR_CODE,
+    message,
+    stage: "redaction_upgrade_required",
+    summary: "기존 디자인은 유지했습니다. 선택적 기밀 가림 규칙으로 다시 만들 작업물을 관리자가 하나씩 선택해 주세요.",
+    heldAt,
+    owner: {},
+  });
+  return true;
+}
+
+async function markOwnedGenerationOnHold(
+  admin: ReturnType<typeof contentAdmin>,
+  input: {
+    workItemId: string;
+    generationId: string;
+    sourceFingerprint: string;
+    ruleVersion: string;
+    message: string;
+    stage: string;
+    failedAt: string;
+  },
+) {
+  const { data: workItem, error: readError } = await admin.from("content_work_items")
+    .select("id,status,metadata,updated_at")
+    .eq("id", input.workItemId)
+    .maybeSingle();
+  if (readError) throw new Error(readError.message);
+  if (!workItem || !ownsPortfolioGeneration(
+    workItem.metadata,
+    input.generationId,
+    input.sourceFingerprint,
+    input.ruleVersion,
+  )) return false;
+  const protectedStatuses = new Set(["published", "scheduled", "naver_ready", "approved", "review_required"]);
+  if (protectedStatuses.has(workItem.status)) return false;
+  const metadata = workItem.metadata as Record<string, unknown>;
+  const { data: heldWorkItem, error: holdError } = await admin.from("content_work_items").update({
+    status: "on_hold",
+    review_note: input.message,
+    metadata: {
+      ...metadata,
+      portfolioStage: input.stage,
+      portfolioPostCommitError: input.message,
+      portfolioPostCommitFailedAt: input.failedAt,
+    },
+    updated_at: input.failedAt,
+  }).eq("id", workItem.id)
+    .eq("status", workItem.status)
+    .eq("updated_at", workItem.updated_at)
+    .select("id")
+    .maybeSingle();
+  if (holdError) throw new Error(holdError.message);
+  return Boolean(heldWorkItem);
 }
 
 async function rejectCandidate(input: {
@@ -192,6 +517,7 @@ async function rejectCandidate(input: {
   candidateId: string;
   workItemId: string;
   review: PortfolioVisualReview;
+  owner: PortfolioTerminalHoldOwner;
 }) {
   const admin = contentAdmin();
   const now = new Date().toISOString();
@@ -201,7 +527,13 @@ async function rejectCandidate(input: {
   const { data: rejectedJob, error: rejectedJobError } = await admin.from("content_jobs").update({
     status: "completed",
     completed_at: now,
-    result: { visualReview: input.review, rejected: true },
+    result: {
+      visualReview: input.review,
+      rejected: true,
+      ...(input.owner.conversionGenerationId
+        ? { portfolioConversionGenerationId: input.owner.conversionGenerationId }
+        : {}),
+    },
     error_message: null,
     updated_at: now,
   }).eq("id", input.jobId)
@@ -211,39 +543,103 @@ async function rejectCandidate(input: {
     .maybeSingle();
   if (rejectedJobError) throw new Error(rejectedJobError.message);
   if (!rejectedJob) throw new PortfolioClaimLost();
-  await admin.from("content_jobs").update({
-    status: "on_hold",
-    error_message: "시각 적합성 판정에서 제외됨",
-    updated_at: now,
-  }).eq("candidate_id", input.candidateId).eq("job_type", "draft");
-  const { data: candidate } = await admin.from("portfolio_candidates")
-    .select("metadata")
-    .eq("id", input.candidateId)
-    .single();
-  await admin.from("portfolio_candidates").update({
-    status: "excluded",
-    exclusion_reasons: reasons,
-    metadata: {
-      ...(candidate?.metadata || {}),
-      visualReview: input.review,
-      rejectedAt: now,
-    },
-    updated_at: now,
-  }).eq("id", input.candidateId);
-  const { data: workItem } = await admin.from("content_work_items")
-    .select("metadata")
-    .eq("id", input.workItemId)
-    .single();
-  await admin.from("content_work_items").update({
+
+  const [draftResult, candidateResult, workItemResult] = await Promise.all([
+    admin.from("content_jobs")
+      .select("id,status,payload,updated_at")
+      .eq("candidate_id", input.candidateId)
+      .eq("job_type", "draft")
+      .maybeSingle(),
+    admin.from("portfolio_candidates")
+      .select("id,status,metadata,updated_at")
+      .eq("id", input.candidateId)
+      .maybeSingle(),
+    admin.from("content_work_items")
+      .select("id,status,metadata,updated_at")
+      .eq("id", input.workItemId)
+      .maybeSingle(),
+  ]);
+  const snapshotError = draftResult.error || candidateResult.error || workItemResult.error;
+  if (snapshotError) throw new Error(snapshotError.message);
+  const workItem = workItemResult.data;
+  const protectedStatuses = new Set(["published", "scheduled", "naver_ready", "approved", "review_required"]);
+  if (!workItem
+    || protectedStatuses.has(workItem.status)
+    || !ownsPortfolioTerminalHold(workItem.metadata, input.owner)) return;
+
+  const { data: heldWorkItem, error: workItemError } = await admin.from("content_work_items").update({
     status: "on_hold",
     summary: "실제 페이지를 확인한 결과 포트폴리오로 사용하지 않기로 자동 제외했습니다.",
     review_note: `시각 판정 제외: ${reasons.join(" · ")}`,
     metadata: {
-      ...(workItem?.metadata || {}),
+      ...(workItem.metadata || {}),
       portfolioReview: input.review,
     },
     updated_at: now,
-  }).eq("id", input.workItemId);
+  }).eq("id", input.workItemId)
+    .eq("status", workItem.status)
+    .eq("updated_at", workItem.updated_at)
+    .select("id")
+    .maybeSingle();
+  if (workItemError) throw new Error(workItemError.message);
+  if (!heldWorkItem) return;
+
+  const rejectionOwnerStillCurrent = async () => {
+    const [source, heldItem] = await Promise.all([
+      admin.from("content_jobs")
+        .select("id")
+        .eq("id", input.jobId)
+        .eq("status", "completed")
+        .eq("completed_at", now)
+        .eq("updated_at", now)
+        .contains("result", { rejected: true })
+        .maybeSingle(),
+      admin.from("content_work_items")
+        .select("id")
+        .eq("id", input.workItemId)
+        .eq("status", "on_hold")
+        .eq("updated_at", now)
+        .maybeSingle(),
+    ]);
+    const ownerError = source.error || heldItem.error;
+    if (ownerError) throw new Error(ownerError.message);
+    return Boolean(source.data && heldItem.data);
+  };
+
+  const draft = draftResult.data;
+  if (draft
+    && ["queued", "failed", "on_hold"].includes(draft.status)
+    && terminalDependentMatchesOwner(draft.payload, input.owner)
+    && await rejectionOwnerStillCurrent()) {
+    const { error } = await admin.from("content_jobs").update({
+      status: "on_hold",
+      error_message: "시각 적합성 판정에서 제외됨",
+      updated_at: now,
+    }).eq("id", draft.id)
+      .eq("status", draft.status)
+      .eq("updated_at", draft.updated_at);
+    if (error) throw new Error(error.message);
+  }
+
+  const candidate = candidateResult.data;
+  if (candidate
+    && candidate.status !== "excluded"
+    && terminalDependentMatchesOwner(candidate.metadata, input.owner)
+    && await rejectionOwnerStillCurrent()) {
+    const { error } = await admin.from("portfolio_candidates").update({
+      status: "excluded",
+      exclusion_reasons: reasons,
+      metadata: {
+        ...(candidate.metadata || {}),
+        visualReview: input.review,
+        rejectedAt: now,
+      },
+      updated_at: now,
+    }).eq("id", candidate.id)
+      .eq("status", candidate.status)
+      .eq("updated_at", candidate.updated_at);
+    if (error) throw new Error(error.message);
+  }
 }
 
 export async function processNextPortfolioMockup(candidateId?: string) {
@@ -314,7 +710,37 @@ export async function processNextPortfolioMockup(candidateId?: string) {
   if (claimJobError) throw new Error(claimJobError.message);
   if (!claimedJob) return null;
   const claimStartedAt = now;
+  const claimedPayload = job.payload && typeof job.payload === "object"
+    ? job.payload as Record<string, unknown>
+    : {};
+  const terminalOwner: PortfolioTerminalHoldOwner = {
+    conversionGenerationId: typeof claimedPayload.portfolioConversionGenerationId === "string"
+      ? claimedPayload.portfolioConversionGenerationId
+      : null,
+  };
+  const terminalRequiredMetadata = terminalOwner.conversionGenerationId
+    ? { portfolioConversionGenerationId: terminalOwner.conversionGenerationId }
+    : undefined;
   let committedJobAt: string | null = null;
+  let committedGeneration: { id: string; sourceFingerprint: string } | null = null;
+  let pendingInsertedAssetIds: string[] = [];
+
+  const cleanupPendingInsertedAssets = async () => {
+    if (!pendingInsertedAssetIds.length) return;
+    const ids = [...pendingInsertedAssetIds];
+    let lastError: string | null = null;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const { error } = await admin.from("content_review_assets")
+        .delete()
+        .in("id", ids);
+      if (!error) {
+        pendingInsertedAssetIds = [];
+        return;
+      }
+      lastError = error.message;
+    }
+    throw new Error(lastError || "새 디자인 자산 정리에 실패했습니다.");
+  };
 
   const checkpoint = async (values: Record<string, unknown>) => {
     result = { ...result, ...values };
@@ -377,6 +803,7 @@ export async function processNextPortfolioMockup(candidateId?: string) {
         candidateId: job.candidate_id,
         workItemId: job.work_item_id,
         review,
+        owner: terminalOwner,
       });
       return {
         candidateId: job.candidate_id,
@@ -459,6 +886,7 @@ export async function processNextPortfolioMockup(candidateId?: string) {
         candidateId: job.candidate_id,
         workItemId: job.work_item_id,
         review,
+        owner: terminalOwner,
       });
       return {
         candidateId: job.candidate_id,
@@ -468,31 +896,16 @@ export async function processNextPortfolioMockup(candidateId?: string) {
       };
     }
 
-    const mockupPlan = portfolioMockupIndexes(slidePaths.length, review);
+    const mockupPlan = portfolioMockupIndexes(slidePaths.length, review, localManifest);
     const confidentialRegions = localRedactionRegions(localManifest, mockupPlan.indexes);
-    const regionCountBySlide = new Map<number, number>();
-    const coverageBySlide = new Map<number, number>();
-    confidentialRegions.forEach((region) => {
-      regionCountBySlide.set(region.slideIndex, (regionCountBySlide.get(region.slideIndex) || 0) + 1);
-      coverageBySlide.set(
-        region.slideIndex,
-        Math.min(1, (coverageBySlide.get(region.slideIndex) || 0) + region.width * region.height),
+    const redactionVerification = verifyLocalRedactionSelection(localManifest, mockupPlan.indexes);
+    const minimumSelectedSlides = mockupPlan.mode === "long" ? 18 : 5;
+    if (!redactionVerification.verified
+      || mockupPlan.selectedIndexes.length < minimumSelectedSlides) {
+      throw new PortfolioRedactionSelectionBlocked(
+        `안전한 장표 ${mockupPlan.selectedIndexes.length}개, 필요 장표 ${minimumSelectedSlides}개`,
       );
-    });
-    const localRegionsComplete = mockupPlan.indexes.every((index) => (
-      (regionCountBySlide.get(index) || 0) > 0
-    ));
-    if (!localRegionsComplete) {
-      throw new Error("LOCAL_REDACTION_MANIFEST_INCOMPLETE: 선정 장표 중 로컬 기밀 좌표가 없는 페이지가 있습니다.");
     }
-    const redactionVerification = {
-      verified: true,
-      regionCount: confidentialRegions.length,
-      coverage: mockupPlan.indexes.reduce(
-        (sum, index) => sum + (coverageBySlide.get(index) || 0),
-        0,
-      ) / mockupPlan.indexes.length,
-    };
     await checkpoint({
       confidentialRegions,
       confidentialRegionsProgress: confidentialRegions,
@@ -511,6 +924,7 @@ export async function processNextPortfolioMockup(candidateId?: string) {
       result.redactionProof,
       sourceFingerprint,
       cachedRenderedIndexes,
+      localManifest,
     ) ? result.redactionProof as PortfolioRedactionProof : null;
     let assets = cachedAssets.length >= 4 && redactionProof ? cachedAssets : [];
     if (!assets.length || !redactionProof) {
@@ -524,7 +938,7 @@ export async function processNextPortfolioMockup(candidateId?: string) {
         bucket,
         slidePaths,
         review,
-        extraSensitiveRegions: confidentialRegions,
+        localRedactionManifest: localManifest,
         onRedactionProof: async (proof) => {
           slideProof = proof;
           await checkpoint({ redactionSlideProofProgress: proof });
@@ -556,6 +970,11 @@ export async function processNextPortfolioMockup(candidateId?: string) {
       verification: redactionVerification,
     });
     const completedAt = new Date().toISOString();
+    const generationId = createPortfolioGenerationId({
+      jobId: job.id,
+      completedAt,
+      sourceFingerprint,
+    });
     const { data: workItem, error: workItemError } = await admin.from("content_work_items")
       .select("metadata,status,updated_at")
       .eq("id", job.work_item_id)
@@ -578,11 +997,13 @@ export async function processNextPortfolioMockup(candidateId?: string) {
       result: {
         sourceFingerprint,
         portfolioRuleVersion: PORTFOLIO_RULE_VERSION,
+        portfolioGenerationId: generationId,
         visualReview: review,
         assets,
         redactionMode: "confidential",
         confidentialRegions,
         redactionProof,
+        localRedactionManifest: localManifest,
         portfolioMockup: mockupMetadata,
         ...(result.portfolioDraftProgress && typeof result.portfolioDraftProgress === "object"
           ? { portfolioDraftProgress: result.portfolioDraftProgress }
@@ -597,6 +1018,7 @@ export async function processNextPortfolioMockup(candidateId?: string) {
     if (completedJobError) throw new Error(completedJobError.message);
     if (!completedJob) throw new PortfolioClaimLost();
     committedJobAt = completedAt;
+    committedGeneration = { id: generationId, sourceFingerprint };
 
     // Bind the visible result to the work-item snapshot that existed while the
     // job was running. A rebuild/source invalidation changes updated_at and
@@ -612,6 +1034,7 @@ export async function processNextPortfolioMockup(candidateId?: string) {
         portfolioAssets: assets,
         portfolioSourceFingerprint: sourceFingerprint,
         portfolioRuleVersion: PORTFOLIO_RULE_VERSION,
+        portfolioGenerationId: generationId,
         redactionMode: "confidential",
         confidentialRegions,
         redactionProof,
@@ -643,6 +1066,7 @@ export async function processNextPortfolioMockup(candidateId?: string) {
           confidentialRegions,
           redactionProof,
           portfolioMockup: mockupMetadata,
+          portfolioGenerationId: generationId,
           designCompletedAt: completedAt,
         },
         updated_at: completedAt,
@@ -652,13 +1076,33 @@ export async function processNextPortfolioMockup(candidateId?: string) {
       .select("id")
       .maybeSingle();
     if (candidateUpdateError) throw new Error(candidateUpdateError.message);
-    if (!committedCandidate) throw new PortfolioClaimLost();
+    // Candidate metadata is a derived summary. A concurrent scanner update may
+    // win this CAS; the work-item generation check below remains authoritative.
+    void committedCandidate;
 
-    const { error: deleteAssetsError } = await admin.from("content_review_assets")
-      .delete()
+    const assertGenerationOwnership = async () => {
+      const { data: ownedWorkItem, error: ownershipError } = await admin
+        .from("content_work_items")
+        .select("id,metadata")
+        .eq("id", job.work_item_id)
+        .maybeSingle();
+      if (ownershipError) throw new Error(ownershipError.message);
+      if (!ownedWorkItem || !ownsPortfolioGeneration(
+        ownedWorkItem.metadata,
+        generationId,
+        sourceFingerprint,
+        PORTFOLIO_RULE_VERSION,
+      )) throw new PortfolioClaimLost();
+    };
+
+    await assertGenerationOwnership();
+    const { data: previousAssets, error: previousAssetsError } = await admin
+      .from("content_review_assets")
+      .select("id")
       .eq("work_item_id", job.work_item_id);
-    if (deleteAssetsError) throw new Error(deleteAssetsError.message);
-    const { error: assetsError } = await admin.from("content_review_assets").insert(
+    if (previousAssetsError) throw new Error(previousAssetsError.message);
+    await assertGenerationOwnership();
+    const { data: insertedAssets, error: assetsError } = await admin.from("content_review_assets").insert(
       assets.map((asset, index) => ({
         work_item_id: job.work_item_id,
         asset_type: asset.kind,
@@ -667,13 +1111,45 @@ export async function processNextPortfolioMockup(candidateId?: string) {
         approved: false,
         review_note: `${asset.caption} · 원본 슬라이드 ${asset.slideIndexes.map((value) => value + 1).join(", ")}`,
       })),
-    );
+    ).select("id");
     if (assetsError) throw new Error(assetsError.message);
+    pendingInsertedAssetIds = (insertedAssets || []).map((asset) => asset.id);
+    const insertedAssetIds = pendingInsertedAssetIds;
+    if (insertedAssetIds.length !== assets.length) {
+      await cleanupPendingInsertedAssets();
+      throw new Error("새 디자인 자산의 세대 소유권을 확인하지 못했습니다.");
+    }
+    try {
+      await assertGenerationOwnership();
+    } catch (ownershipError) {
+      await cleanupPendingInsertedAssets();
+      throw ownershipError;
+    }
+    const previousAssetIds = (previousAssets || []).map((asset) => asset.id);
+    if (previousAssetIds.length) {
+      const { error: deleteAssetsError } = await admin.from("content_review_assets")
+        .delete()
+        .in("id", previousAssetIds);
+      if (deleteAssetsError) throw new Error(deleteAssetsError.message);
+    }
 
     const legacyDraftProgress = result.portfolioDraftProgress
       && typeof result.portfolioDraftProgress === "object"
       ? result.portfolioDraftProgress as PortfolioDraftProgress
       : undefined;
+    await assertGenerationOwnership();
+    const { data: pendingDraft, error: pendingDraftError } = await admin.from("content_jobs")
+      .select("id,status,payload,updated_at")
+      .eq("candidate_id", job.candidate_id)
+      .eq("job_type", "draft")
+      .in("status", ["on_hold", "failed"])
+      .maybeSingle();
+    if (pendingDraftError) throw new Error(pendingDraftError.message);
+    if (!pendingDraft) throw new PortfolioClaimLost();
+    await assertGenerationOwnership();
+    const pendingDraftPayload = pendingDraft.payload && typeof pendingDraft.payload === "object"
+      ? pendingDraft.payload as Record<string, unknown>
+      : {};
     const { data: queuedDraft, error: draftQueueError } = await admin.from("content_jobs").update({
       status: "queued",
       attempts: 0,
@@ -682,15 +1158,23 @@ export async function processNextPortfolioMockup(candidateId?: string) {
       next_retry_at: null,
       last_error_code: null,
       error_message: null,
+      payload: {
+        ...pendingDraftPayload,
+        portfolioGenerationId: generationId,
+        portfolioSourceFingerprint: sourceFingerprint,
+        portfolioRuleVersion: PORTFOLIO_RULE_VERSION,
+      },
       result: legacyDraftProgress ? { portfolioDraftProgress: legacyDraftProgress } : {},
       updated_at: completedAt,
-    }).eq("candidate_id", job.candidate_id)
-      .eq("job_type", "draft")
-      .in("status", ["on_hold", "failed"])
+    }).eq("id", pendingDraft.id)
+      .eq("status", pendingDraft.status)
+      .eq("updated_at", pendingDraft.updated_at)
       .select("id")
       .maybeSingle();
     if (draftQueueError) throw new Error(draftQueueError.message);
-    if (!queuedDraft) throw new Error("본문 작업을 디자인 완료 뒤 대기열로 전환하지 못했습니다.");
+    if (!queuedDraft) throw new PortfolioClaimLost();
+    await assertGenerationOwnership();
+    pendingInsertedAssetIds = [];
 
     return {
       candidateId: job.candidate_id,
@@ -700,25 +1184,22 @@ export async function processNextPortfolioMockup(candidateId?: string) {
       assetCount: assets.length,
     };
   } catch (error) {
-    if (committedJobAt) {
-      const failedAt = new Date().toISOString();
-      const message = error instanceof Error ? error.message : "포트폴리오 디자인 결과 저장 실패";
-      const { error: rollbackError } = await admin.from("content_jobs").update({
-        status: "failed",
-        completed_at: failedAt,
-        error_message: message,
-        updated_at: failedAt,
-      }).eq("id", job.id)
-        .eq("status", "completed")
-        .eq("completed_at", committedJobAt);
-      if (rollbackError) throw new Error(rollbackError.message);
-      await admin.from("content_work_items").update({
-        status: "on_hold",
-        review_note: `디자인 결과 저장 보류: ${message}`,
-        updated_at: failedAt,
-      }).eq("id", job.work_item_id)
-        .eq("status", "creating")
-        .eq("updated_at", committedJobAt);
+    try {
+      await cleanupPendingInsertedAssets();
+    } catch (cleanupError) {
+      if (committedGeneration) {
+        const failedAt = new Date().toISOString();
+        await markOwnedGenerationOnHold(admin, {
+          workItemId: job.work_item_id,
+          generationId: committedGeneration.id,
+          sourceFingerprint: committedGeneration.sourceFingerprint,
+          ruleVersion: PORTFOLIO_RULE_VERSION,
+          message: `새 디자인 자산 정리 보류: ${cleanupError instanceof Error ? cleanupError.message : String(cleanupError)}`,
+          stage: "design_asset_cleanup_failed",
+          failedAt,
+        });
+      }
+      throw cleanupError;
     }
     if (error instanceof PortfolioClaimLost) {
       return {
@@ -726,6 +1207,69 @@ export async function processNextPortfolioMockup(candidateId?: string) {
         workItemId: job.work_item_id,
         status: "creating",
         claimLost: true,
+      };
+    }
+    if (committedJobAt) {
+      const failedAt = new Date().toISOString();
+      const message = error instanceof Error ? error.message : "포트폴리오 디자인 결과 저장 실패";
+      const { error: completionNoteError } = await admin.from("content_jobs").update({
+        error_message: message,
+        updated_at: failedAt,
+      }).eq("id", job.id)
+        .eq("status", "completed")
+        .eq("completed_at", committedJobAt);
+      if (completionNoteError) throw new Error(completionNoteError.message);
+      if (committedGeneration) {
+        await markOwnedGenerationOnHold(admin, {
+          workItemId: job.work_item_id,
+          generationId: committedGeneration.id,
+          sourceFingerprint: committedGeneration.sourceFingerprint,
+          ruleVersion: PORTFOLIO_RULE_VERSION,
+          message: `디자인 결과 저장 보류: ${message}`,
+          stage: "design_side_effect_failed",
+          failedAt,
+        });
+      }
+      throw error;
+    }
+    if (error instanceof PortfolioRedactionSelectionBlocked) {
+      const heldAt = new Date().toISOString();
+      const { data: heldJob, error: holdError } = await admin.from("content_jobs").update({
+        status: "on_hold",
+        next_retry_at: null,
+        last_error_code: PORTFOLIO_REDACTION_SELECTION_ERROR_CODE,
+        error_message: error.message,
+        completed_at: heldAt,
+        result: {
+          ...result,
+          terminalReason: PORTFOLIO_REDACTION_SELECTION_ERROR_CODE,
+        },
+        updated_at: heldAt,
+      }).eq("id", job.id)
+        .eq("status", "running")
+        .eq("started_at", claimStartedAt)
+        .select("id")
+        .maybeSingle();
+      if (holdError) throw new Error(holdError.message);
+      if (!heldJob) return null;
+      const dependentHold = await holdPortfolioTerminalDependents(admin, {
+        candidateId: job.candidate_id,
+        workItemId: job.work_item_id,
+        sourceJobId: job.id,
+        code: PORTFOLIO_REDACTION_SELECTION_ERROR_CODE,
+        message: error.message,
+        stage: "redaction_selection_blocked",
+        summary: "기밀 블러 범위가 과대한 장표를 제외한 뒤 디자인에 필요한 장표가 부족해 보류했습니다.",
+        heldAt,
+        owner: terminalOwner,
+      });
+      return {
+        candidateId: job.candidate_id,
+        workItemId: job.work_item_id,
+        status: "on_hold",
+        stage: "redaction_selection_blocked",
+        errorCode: PORTFOLIO_REDACTION_SELECTION_ERROR_CODE,
+        ...(dependentHold.stateConflict ? { stateChangedDuringHold: true } : {}),
       };
     }
     if (error instanceof PortfolioPdfLocalRedactionUnsupported) {
@@ -748,29 +1292,24 @@ export async function processNextPortfolioMockup(candidateId?: string) {
         .maybeSingle();
       if (holdError) throw new Error(holdError.message);
       if (!heldJob) return null;
-      await admin.from("content_jobs").update({
-        status: "on_hold",
-        next_retry_at: null,
-        last_error_code: PDF_LOCAL_REDACTION_ERROR_CODE,
-        error_message: error.message,
-        updated_at: heldAt,
-      }).eq("candidate_id", job.candidate_id).eq("job_type", "draft");
-      await admin.from("portfolio_candidates").update({
-        status: "on_hold",
-        updated_at: heldAt,
-      }).eq("id", job.candidate_id);
-      await admin.from("content_work_items").update({
-        status: "on_hold",
+      const dependentHold = await holdPortfolioTerminalDependents(admin, {
+        candidateId: job.candidate_id,
+        workItemId: job.work_item_id,
+        sourceJobId: job.id,
+        code: PDF_LOCAL_REDACTION_ERROR_CODE,
+        message: error.message,
+        stage: "pdf_redaction_unsupported",
         summary: "PDF 원본은 안전한 로컬 기밀 좌표를 증명할 수 없어 디자인 생성을 중단했습니다.",
-        review_note: error.message,
-        updated_at: heldAt,
-      }).eq("id", job.work_item_id);
+        heldAt,
+        owner: terminalOwner,
+      });
       return {
         candidateId: job.candidate_id,
         workItemId: job.work_item_id,
         status: "on_hold",
         stage: "pdf_redaction_unsupported",
         errorCode: PDF_LOCAL_REDACTION_ERROR_CODE,
+        ...(dependentHold.stateConflict ? { stateChangedDuringHold: true } : {}),
       };
     }
     if (error instanceof PortfolioCheckpointYield) {
@@ -791,12 +1330,17 @@ export async function processNextPortfolioMockup(candidateId?: string) {
         .maybeSingle();
       if (yieldError) throw new Error(yieldError.message);
       if (!yieldedJob) return null;
-      await admin.from("content_work_items").update({
-        status: "creating",
-        summary: "AI 실행 제한 시간 전에 진행 상황을 저장했습니다. 다음 자동 실행에서 이어서 제작합니다.",
-        review_note: null,
-        updated_at: checkpointedAt,
-      }).eq("id", job.work_item_id);
+      await updatePortfolioWorkItemIfOwned(admin, {
+        workItemId: job.work_item_id,
+        owns: (metadata) => ownsPortfolioTerminalHold(metadata, terminalOwner),
+        requiredMetadata: terminalRequiredMetadata,
+        values: () => ({
+          status: "creating",
+          summary: "AI 실행 제한 시간 전에 진행 상황을 저장했습니다. 다음 자동 실행에서 이어서 제작합니다.",
+          review_note: null,
+          updated_at: checkpointedAt,
+        }),
+      });
       return {
         candidateId: job.candidate_id,
         workItemId: job.work_item_id,
@@ -824,13 +1368,18 @@ export async function processNextPortfolioMockup(candidateId?: string) {
         .maybeSingle();
       if (retryUpdateError) throw new Error(retryUpdateError.message);
       if (!retriedJob) return null;
-      await admin.from("content_work_items").update({
-        status: retry.retryable ? "creating" : "on_hold",
-        review_note: retry.retryable
-          ? `Gemini 일시 오류로 자동 재시도 예정: ${retry.nextRetryAt}`
-          : `자동 제작 보류: ${error.message}`,
-        updated_at: retryAt,
-      }).eq("id", job.work_item_id);
+      await updatePortfolioWorkItemIfOwned(admin, {
+        workItemId: job.work_item_id,
+        owns: (metadata) => ownsPortfolioTerminalHold(metadata, terminalOwner),
+        requiredMetadata: terminalRequiredMetadata,
+        values: () => ({
+          status: retry.retryable ? "creating" : "on_hold",
+          review_note: retry.retryable
+            ? `Gemini 일시 오류로 자동 재시도 예정: ${retry.nextRetryAt}`
+            : `자동 제작 보류: ${error.message}`,
+          updated_at: retryAt,
+        }),
+      });
       return {
         candidateId: job.candidate_id,
         workItemId: job.work_item_id,
@@ -852,11 +1401,16 @@ export async function processNextPortfolioMockup(candidateId?: string) {
       .maybeSingle();
     if (failedJobError) throw new Error(failedJobError.message);
     if (!failedJob) return null;
-    await admin.from("content_work_items").update({
-      status: "on_hold",
-      review_note: `자동 제작 보류: ${message}`,
-      updated_at: failedAt,
-    }).eq("id", job.work_item_id);
+    await updatePortfolioWorkItemIfOwned(admin, {
+      workItemId: job.work_item_id,
+      owns: (metadata) => ownsPortfolioTerminalHold(metadata, terminalOwner),
+      requiredMetadata: terminalRequiredMetadata,
+      values: () => ({
+        status: "on_hold",
+        review_note: `자동 제작 보류: ${message}`,
+        updated_at: failedAt,
+      }),
+    });
     throw error;
   }
 }
@@ -880,7 +1434,7 @@ export async function processNextPortfolioDraft(candidateId?: string) {
   if (staleError) throw new Error(staleError.message);
 
   let query = admin.from("content_jobs")
-    .select("id,candidate_id,work_item_id,status,result,attempts,max_attempts,error_message,next_retry_at,created_at")
+    .select("id,candidate_id,work_item_id,status,result,payload,attempts,max_attempts,error_message,next_retry_at,created_at,updated_at")
     .eq("job_type", "draft")
     .in("status", ["queued", "failed"])
     .or(`next_retry_at.is.null,next_retry_at.lte.${new Date().toISOString()}`)
@@ -921,14 +1475,35 @@ export async function processNextPortfolioDraft(candidateId?: string) {
       pendingJob.result = pendingResult;
     }
     const { data: mockupJob, error: mockupError } = await admin.from("content_jobs")
-      .select("result")
+      .select("id,result")
       .eq("candidate_id", pendingJob.candidate_id)
       .eq("job_type", "mockup")
       .eq("status", "completed")
       .maybeSingle();
     if (mockupError) throw new Error(mockupError.message);
     const frozenMockup = completedPortfolioMockup(mockupJob?.result);
-    if (!frozenMockup) continue;
+    if (!frozenMockup) {
+      if (mockupJob) {
+        await holdDraftForRedactionUpgrade(admin, {
+          job: {
+            id: pendingJob.id,
+            candidate_id: pendingJob.candidate_id,
+            work_item_id: pendingJob.work_item_id,
+            status: pendingJob.status,
+            updated_at: pendingJob.updated_at,
+            result: pendingJob.result,
+          },
+        });
+      }
+      continue;
+    }
+    const pendingPayload = pendingJob.payload && typeof pendingJob.payload === "object"
+      ? pendingJob.payload as Record<string, unknown>
+      : {};
+    if (typeof pendingPayload.portfolioGenerationId === "string"
+      && pendingPayload.portfolioGenerationId !== frozenMockup.portfolioGenerationId) {
+      continue;
+    }
     selected = { job: pendingJob, mockup: frozenMockup };
     break;
   }
@@ -1019,9 +1594,12 @@ export async function processNextPortfolioDraft(candidateId?: string) {
       .eq("id", job.work_item_id)
       .single();
     if (workItemError) throw new Error(workItemError.message);
-    const workItemMetadata = (workItem.metadata || {}) as Record<string, unknown>;
-    if (workItemMetadata.portfolioSourceFingerprint !== mockup.sourceFingerprint
-      || workItemMetadata.portfolioRuleVersion !== mockup.portfolioRuleVersion) {
+    if (!ownsPortfolioGeneration(
+      workItem.metadata,
+      mockup.portfolioGenerationId,
+      mockup.sourceFingerprint,
+      mockup.portfolioRuleVersion,
+    )) {
       throw new PortfolioClaimLost();
     }
 
@@ -1031,6 +1609,7 @@ export async function processNextPortfolioDraft(candidateId?: string) {
       ...result,
       sourceFingerprint: mockup.sourceFingerprint,
       portfolioRuleVersion: mockup.portfolioRuleVersion,
+      portfolioGenerationId: mockup.portfolioGenerationId,
       redactionProof: mockup.redactionProof,
       generated: draft,
       validation,
@@ -1069,6 +1648,7 @@ export async function processNextPortfolioDraft(candidateId?: string) {
         portfolioAssets: mockup.assets,
         portfolioSourceFingerprint: mockup.sourceFingerprint,
         portfolioRuleVersion: mockup.portfolioRuleVersion,
+        portfolioGenerationId: mockup.portfolioGenerationId,
         redactionMode: mockup.redactionMode,
         confidentialRegions: mockup.confidentialRegions,
         redactionProof: mockup.redactionProof,
@@ -1084,6 +1664,11 @@ export async function processNextPortfolioDraft(candidateId?: string) {
     }).eq("id", job.work_item_id)
       .eq("status", workItem.status)
       .eq("updated_at", workItem.updated_at)
+      .contains("metadata", {
+        portfolioGenerationId: mockup.portfolioGenerationId,
+        portfolioSourceFingerprint: mockup.sourceFingerprint,
+        portfolioRuleVersion: mockup.portfolioRuleVersion,
+      })
       .select("id")
       .maybeSingle();
     if (workUpdateError) throw new Error(workUpdateError.message);
@@ -1116,26 +1701,6 @@ export async function processNextPortfolioDraft(candidateId?: string) {
       validation,
     };
   } catch (error) {
-    if (committedJobAt) {
-      const failedAt = new Date().toISOString();
-      const message = error instanceof Error ? error.message : "포트폴리오 본문 결과 저장 실패";
-      const { error: rollbackError } = await admin.from("content_jobs").update({
-        status: "failed",
-        completed_at: failedAt,
-        error_message: message,
-        updated_at: failedAt,
-      }).eq("id", job.id)
-        .eq("status", "completed")
-        .eq("completed_at", committedJobAt);
-      if (rollbackError) throw new Error(rollbackError.message);
-      await admin.from("content_work_items").update({
-        status: "on_hold",
-        summary: "포트폴리오 디자인은 유지했지만 본문 결과 저장을 다시 확인해야 합니다.",
-        review_note: `본문 결과 저장 보류: ${message}`,
-        updated_at: failedAt,
-      }).eq("id", job.work_item_id)
-        .eq("updated_at", committedJobAt);
-    }
     if (error instanceof PortfolioClaimLost) {
       return {
         candidateId: job.candidate_id,
@@ -1144,6 +1709,27 @@ export async function processNextPortfolioDraft(candidateId?: string) {
         stage: "design_completed",
         claimLost: true,
       };
+    }
+    if (committedJobAt) {
+      const failedAt = new Date().toISOString();
+      const message = error instanceof Error ? error.message : "포트폴리오 본문 결과 저장 실패";
+      const { error: completionNoteError } = await admin.from("content_jobs").update({
+        error_message: message,
+        updated_at: failedAt,
+      }).eq("id", job.id)
+        .eq("status", "completed")
+        .eq("completed_at", committedJobAt);
+      if (completionNoteError) throw new Error(completionNoteError.message);
+      await markOwnedGenerationOnHold(admin, {
+        workItemId: job.work_item_id,
+        generationId: mockup.portfolioGenerationId,
+        sourceFingerprint: mockup.sourceFingerprint,
+        ruleVersion: mockup.portfolioRuleVersion,
+        message: `본문 결과 저장 보류: ${message}`,
+        stage: "draft_side_effect_failed",
+        failedAt,
+      });
+      throw error;
     }
     if (error instanceof PortfolioCheckpointYield) {
       const checkpointedAt = new Date().toISOString();
@@ -1163,20 +1749,27 @@ export async function processNextPortfolioDraft(candidateId?: string) {
         .maybeSingle();
       if (yieldError) throw new Error(yieldError.message);
       if (!yieldedJob) return null;
-      const { data: item } = await admin.from("content_work_items")
-        .select("metadata")
-        .eq("id", job.work_item_id)
-        .maybeSingle();
-      await admin.from("content_work_items").update({
-        status: "creating",
-        summary: "포트폴리오 디자인은 완료되었습니다. 저장된 단계부터 본문 작성을 이어서 진행합니다.",
-        review_note: null,
-        metadata: {
-          ...(item?.metadata || {}),
-          portfolioStage: "design_completed",
+      await updatePortfolioWorkItemIfOwned(admin, {
+        workItemId: job.work_item_id,
+        owns: (metadata) => ownsPortfolioGeneration(
+          metadata,
+          mockup.portfolioGenerationId,
+          mockup.sourceFingerprint,
+          mockup.portfolioRuleVersion,
+        ),
+        requiredMetadata: {
+          portfolioGenerationId: mockup.portfolioGenerationId,
+          portfolioSourceFingerprint: mockup.sourceFingerprint,
+          portfolioRuleVersion: mockup.portfolioRuleVersion,
         },
-        updated_at: checkpointedAt,
-      }).eq("id", job.work_item_id);
+        values: (metadata) => ({
+          status: "creating",
+          summary: "포트폴리오 디자인은 완료되었습니다. 저장된 단계부터 본문 작성을 이어서 진행합니다.",
+          review_note: null,
+          metadata: { ...metadata, portfolioStage: "design_completed" },
+          updated_at: checkpointedAt,
+        }),
+      });
       return {
         candidateId: job.candidate_id,
         workItemId: job.work_item_id,
@@ -1205,26 +1798,36 @@ export async function processNextPortfolioDraft(candidateId?: string) {
         .maybeSingle();
       if (retryUpdateError) throw new Error(retryUpdateError.message);
       if (!retriedJob) return null;
-      const { data: item } = await admin.from("content_work_items")
-        .select("metadata")
-        .eq("id", job.work_item_id)
-        .maybeSingle();
-      await admin.from("content_work_items").update({
-        status: retry.retryable ? "creating" : "on_hold",
-        summary: retry.retryable
-          ? "포트폴리오 디자인은 완료되었습니다. Gemini 글쓰기만 자동 재시도합니다."
-          : "포트폴리오 디자인은 완료되었지만 본문 생성은 관리자 확인이 필요합니다.",
-        review_note: retry.retryable
-          ? `Gemini 글쓰기 일시 오류로 자동 재시도 예정: ${retry.nextRetryAt}`
-          : `본문 자동 생성 보류: ${error.message}`,
-        metadata: {
-          ...(item?.metadata || {}),
-          portfolioStage: retry.retryable ? "draft_retry_wait" : "draft_failed",
-          draftRetryAt: retry.nextRetryAt,
-          draftLastErrorCode: retry.code,
+      await updatePortfolioWorkItemIfOwned(admin, {
+        workItemId: job.work_item_id,
+        owns: (metadata) => ownsPortfolioGeneration(
+          metadata,
+          mockup.portfolioGenerationId,
+          mockup.sourceFingerprint,
+          mockup.portfolioRuleVersion,
+        ),
+        requiredMetadata: {
+          portfolioGenerationId: mockup.portfolioGenerationId,
+          portfolioSourceFingerprint: mockup.sourceFingerprint,
+          portfolioRuleVersion: mockup.portfolioRuleVersion,
         },
-        updated_at: retryAt,
-      }).eq("id", job.work_item_id);
+        values: (metadata) => ({
+          status: retry.retryable ? "creating" : "on_hold",
+          summary: retry.retryable
+            ? "포트폴리오 디자인은 완료되었습니다. Gemini 글쓰기만 자동 재시도합니다."
+            : "포트폴리오 디자인은 완료되었지만 본문 생성은 관리자 확인이 필요합니다.",
+          review_note: retry.retryable
+            ? `Gemini 글쓰기 일시 오류로 자동 재시도 예정: ${retry.nextRetryAt}`
+            : `본문 자동 생성 보류: ${error.message}`,
+          metadata: {
+            ...metadata,
+            portfolioStage: retry.retryable ? "draft_retry_wait" : "draft_failed",
+            draftRetryAt: retry.nextRetryAt,
+            draftLastErrorCode: retry.code,
+          },
+          updated_at: retryAt,
+        }),
+      });
       return {
         candidateId: job.candidate_id,
         workItemId: job.work_item_id,
@@ -1248,20 +1851,27 @@ export async function processNextPortfolioDraft(candidateId?: string) {
       .maybeSingle();
     if (failedJobError) throw new Error(failedJobError.message);
     if (!failedJob) return null;
-    const { data: item } = await admin.from("content_work_items")
-      .select("metadata")
-      .eq("id", job.work_item_id)
-      .maybeSingle();
-    await admin.from("content_work_items").update({
-      status: "on_hold",
-      summary: "포트폴리오 디자인은 완료되었지만 본문 생성은 관리자 확인이 필요합니다.",
-      review_note: `본문 자동 생성 보류: ${message}`,
-      metadata: {
-        ...(item?.metadata || {}),
-        portfolioStage: "draft_failed",
+    await updatePortfolioWorkItemIfOwned(admin, {
+      workItemId: job.work_item_id,
+      owns: (metadata) => ownsPortfolioGeneration(
+        metadata,
+        mockup.portfolioGenerationId,
+        mockup.sourceFingerprint,
+        mockup.portfolioRuleVersion,
+      ),
+      requiredMetadata: {
+        portfolioGenerationId: mockup.portfolioGenerationId,
+        portfolioSourceFingerprint: mockup.sourceFingerprint,
+        portfolioRuleVersion: mockup.portfolioRuleVersion,
       },
-      updated_at: failedAt,
-    }).eq("id", job.work_item_id);
+      values: (metadata) => ({
+        status: "on_hold",
+        summary: "포트폴리오 디자인은 완료되었지만 본문 생성은 관리자 확인이 필요합니다.",
+        review_note: `본문 자동 생성 보류: ${message}`,
+        metadata: { ...metadata, portfolioStage: "draft_failed" },
+        updated_at: failedAt,
+      }),
+    });
     throw error;
   }
 }
@@ -1622,6 +2232,8 @@ export async function retryPortfolioConversion(workItemId: string) {
   for (const key of [
     "portfolioSourceFingerprint",
     "portfolioRuleVersion",
+    "portfolioGenerationId",
+    "portfolioConversionGenerationId",
     "generated",
     "portfolioAssets",
     "portfolioMockup",
@@ -1892,6 +2504,8 @@ export async function rebuildPortfolioDraft(workItemId: string) {
   for (const key of [
     "portfolioSourceFingerprint",
     "portfolioRuleVersion",
+    "portfolioGenerationId",
+    "portfolioConversionGenerationId",
     "generated",
     "portfolioAssets",
     "portfolioMockup",

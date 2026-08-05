@@ -68,6 +68,9 @@ export type SlideSelectionInput = {
   assessments?: readonly SlideSelectionAssessment[] | null;
   shortLimit?: number;
   longLimit?: number;
+  eligibleSlideIndexes?: readonly number[] | null;
+  excludedSlideIndexes?: readonly number[] | null;
+  modeOverride?: Exclude<PortfolioMockupMode, "insufficient">;
 };
 
 const ASPECT_TARGETS: ReadonlyArray<{ aspect: Exclude<SlideAspect, "unknown">; ratio: number }> = [
@@ -426,18 +429,35 @@ function fallbackDiversityForSelection(alreadySelectedInSection: number) {
 
 export function selectPortfolioSlides(input: SlideSelectionInput): SlideSelectionResult {
   const slideCount = Number.isFinite(input.slideCount) ? Math.max(0, Math.floor(input.slideCount)) : 0;
-  const mode = portfolioMockupMode(slideCount);
+  const mode = slideCount < 5
+    ? "insufficient"
+    : input.modeOverride || portfolioMockupMode(slideCount);
   if (mode === "insufficient") {
     return { mode, selectedSlideIndexes: [], selectedSlides: [], excludedDuplicates: [] };
   }
 
+  const eligibleInput = input.eligibleSlideIndexes == null
+    ? null
+    : new Set(input.eligibleSlideIndexes.filter((index) => (
+      Number.isInteger(index) && index >= 0 && index < slideCount
+    )));
+  const excluded = new Set((input.excludedSlideIndexes || []).filter((index) => (
+    Number.isInteger(index) && index >= 0 && index < slideCount
+  )));
+  const assessments = canonicalAssessments(slideCount, input.assessments || [])
+    .filter((assessment) => (
+      (eligibleInput === null || eligibleInput.has(assessment.slideIndex))
+      && !excluded.has(assessment.slideIndex)
+    ));
   const defaultLimit = SLIDE_SELECTION_LIMITS[mode];
   const requestedLimit = mode === "short" ? input.shortLimit : input.longLimit;
   const limit = Math.min(
-    slideCount,
+    assessments.length,
     Math.max(1, Math.floor(Number.isFinite(requestedLimit) ? Number(requestedLimit) : defaultLimit)),
   );
-  const assessments = canonicalAssessments(slideCount, input.assessments || []);
+  if (!limit) {
+    return { mode, selectedSlideIndexes: [], selectedSlides: [], excludedDuplicates: [] };
+  }
   const { kept, excludedDuplicates } = deduplicateAssessments(assessments);
   const remaining = [...kept];
   const ranked: ScoredSlide[] = [];

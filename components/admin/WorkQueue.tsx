@@ -294,27 +294,30 @@ function PortfolioMockupDetails({ metadata }: { metadata?: WorkItem["metadata"] 
         )}
         {redactionRegionCount !== undefined && (
           <span className="rounded-full bg-white px-3 py-1 text-xs font-bold text-sky-900">
-            블러 {redactionRegionCount}곳
+            가림 영역 {redactionRegionCount}곳
           </span>
         )}
         {redactionCoverage !== undefined && (
-          <span className="rounded-full bg-white px-3 py-1 text-xs font-bold text-sky-900">
-            블러 범위 {Math.round(redactionCoverage * 100)}%
+          <span
+            className="rounded-full bg-white px-3 py-1 text-xs font-bold text-sky-900"
+            title="선정 장표에서 겹치는 가림 영역을 한 번만 계산한 평균 면적입니다."
+          >
+            실제 가림 면적 {Math.round(redactionCoverage * 100)}%
           </span>
         )}
         {redactionStatus === "verified" && (
           <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-bold text-emerald-800">
-            기밀 검수 통과
+            기밀 검수 상태: 통과
           </span>
         )}
         {redactionStatus === "blocked" && (
           <span className="rounded-full bg-red-100 px-3 py-1 text-xs font-bold text-red-800">
-            기밀 검수 보류
+            기밀 검수 상태: 차단
           </span>
         )}
         {hasLegacyRedaction && (
           <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-bold text-amber-900">
-            기존 기밀 블러 적용
+            기밀 검수 상태: 재검수 필요
           </span>
         )}
       </div>

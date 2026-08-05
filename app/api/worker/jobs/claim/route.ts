@@ -100,7 +100,7 @@ export async function POST(request: Request) {
   const now = new Date().toISOString();
 
   if (!supportsLocalRedactionClaims(body)) {
-    const upgradeMessage = `WORKER_UPGRADE_REQUIRED: ${MIN_LOCAL_REDACTION_WORKER_VERSION} 이상과 ${LOCAL_REDACTION_WORKER_CAPABILITY} 기능이 필요합니다.`;
+    const upgradeMessage = `WORKER_UPGRADE_REQUIRED: 선택적 기밀 가림을 지원하는 ${MIN_LOCAL_REDACTION_WORKER_VERSION} 이상과 ${LOCAL_REDACTION_WORKER_CAPABILITY} 기능이 필요합니다.`;
     const { error: upgradeStatusError } = await admin.from("content_workers").upsert({
       id: worker.id,
       display_name: worker.displayName,

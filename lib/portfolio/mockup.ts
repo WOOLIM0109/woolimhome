@@ -21,7 +21,15 @@ import {
   findDuplicatePortfolioImage,
   fingerprintPortfolioImage,
 } from "./image-fingerprint";
-import type { PortfolioSlideRedactionProof } from "./redaction-proof";
+import {
+  isPortfolioSlideRedactionProofForManifest,
+  localRedactionRegions,
+  type PortfolioSlideRedactionProof,
+} from "./redaction-proof";
+import {
+  automaticDesignEligibleSlideIndexes,
+  type LocalRedactionManifest,
+} from "../pc-worker/redaction-manifest";
 
 type SharpOverlayOptions = Parameters<ReturnType<typeof sharp>["composite"]>[0][number];
 
@@ -45,6 +53,17 @@ export type GeneratedPortfolioAsset = {
   mockupMode?: "short_psd" | "six_grid";
   aspectClass?: SlideAspect | "mixed";
 };
+
+export const PORTFOLIO_REDACTION_SELECTION_ERROR_CODE = "PORTFOLIO_REDACTION_SELECTION_BLOCKED";
+
+export class PortfolioRedactionSelectionBlocked extends Error {
+  readonly code = PORTFOLIO_REDACTION_SELECTION_ERROR_CODE;
+
+  constructor(message = "안전한 선택 블러 장표가 부족해 자동 디자인을 보류했습니다.") {
+    super(`${PORTFOLIO_REDACTION_SELECTION_ERROR_CODE}: ${message}`);
+    this.name = "PortfolioRedactionSelectionBlocked";
+  }
+}
 
 const CANVAS = { width: 1600, height: 1000 };
 const thumbnailTitleFontPath = path.join(process.cwd(), "public", "fonts", "Paperlogy-7Bold.ttf");
@@ -159,7 +178,7 @@ async function loadSlides(input: {
       visualHash,
       redactionProof: {
         slideIndex: index,
-        sourceHash: contentHash,
+        sourceHash: createHash("sha256").update(redacted.sourceBuffer).digest("hex"),
         redactedHash: createHash("sha256").update(buffer).digest("hex"),
         regionCount: redacted.appliedRegionCount,
         changedPixelRatio: pixelChange,
@@ -450,17 +469,51 @@ async function multiPageBoard(slides: LoadedSlide[], variant: number) {
     .toBuffer();
 }
 
-export function portfolioMockupIndexes(slideCount: number, review?: PortfolioVisualReview) {
-  const selection = review?.selection || selectPortfolioSlides({
-    slideCount,
-    assessments: review?.slideAssessments || [],
-  });
+export function portfolioMockupIndexes(
+  slideCount: number,
+  review?: PortfolioVisualReview,
+  localManifest?: LocalRedactionManifest,
+) {
+  const eligibleSlideIndexes = localManifest
+    ? automaticDesignEligibleSlideIndexes(localManifest)
+    : Array.from({ length: slideCount }, (_, index) => index);
+  const eligible = new Set(eligibleSlideIndexes);
+  const mode = localManifest
+    ? portfolioMockupMode(localManifest.sourceSlideCount)
+    : portfolioMockupMode(slideCount);
+  const selection = localManifest
+    ? selectPortfolioSlides({
+      slideCount,
+      assessments: review?.slideAssessments || [],
+      eligibleSlideIndexes,
+      modeOverride: mode === "insufficient" ? undefined : mode,
+    })
+    : review?.selection || selectPortfolioSlides({
+      slideCount,
+      assessments: review?.slideAssessments || [],
+    });
   const selectedIndexes = selection.selectedSlideIndexes
-    .filter((index) => index >= 0 && index < slideCount);
-  const mode = portfolioMockupMode(slideCount);
+    .filter((index) => index >= 0 && index < slideCount && eligible.has(index));
   const groups = mode === "long" ? buildSixGridGroups(selectedIndexes) : [];
-  const indexes = [...new Set([0, ...selectedIndexes])];
-  return { mode, groups, indexes, selectedIndexes, selection };
+  const coverIndex = eligible.has(0) ? 0 : selectedIndexes[0];
+  const indexes = [...new Set([
+    ...(coverIndex === undefined ? [] : [coverIndex]),
+    ...selectedIndexes,
+  ])];
+  return {
+    mode,
+    groups,
+    indexes,
+    selectedIndexes,
+    selection,
+    coverIndex,
+    eligibleSlideIndexes,
+    blockedSlideIndexes: localManifest
+      ? localManifest.slides
+        .map((slide) => slide.slideIndex)
+        .filter((index) => !eligible.has(index))
+      : [],
+  };
 }
 
 function aggregateAspectClass(slides: LoadedSlide[]) {
@@ -491,18 +544,32 @@ export async function createPortfolioMockups(input: {
   bucket: string;
   slidePaths: string[];
   review: PortfolioVisualReview;
-  extraSensitiveRegions?: SensitiveRegion[];
+  localRedactionManifest: LocalRedactionManifest;
   onRedactionProof?: (proof: PortfolioSlideRedactionProof[]) => Promise<void> | void;
 }) {
-  const plan = portfolioMockupIndexes(input.slidePaths.length, input.review);
+  const plan = portfolioMockupIndexes(
+    input.slidePaths.length,
+    input.review,
+    input.localRedactionManifest,
+  );
   if (plan.mode === "insufficient") {
     throw new Error("포트폴리오 목업은 최소 5장인 문서에서 만들 수 있습니다.");
   }
+  const minimumSelectedSlides = plan.mode === "long" ? 18 : 5;
+  if (plan.selectedIndexes.length < minimumSelectedSlides || plan.indexes.length < 1) {
+    throw new PortfolioRedactionSelectionBlocked(
+      `사용 가능한 장표 ${plan.selectedIndexes.length}개, 필요 장표 ${minimumSelectedSlides}개`,
+    );
+  }
+  const manifestSlides = new Map(input.localRedactionManifest.slides.map((slide) => [
+    slide.slideIndex,
+    slide,
+  ]));
   const slides = await loadSlides({
     bucket: input.bucket,
     slidePaths: input.slidePaths,
     indexes: plan.indexes,
-    sensitiveRegions: [...input.review.sensitiveRegions, ...(input.extraSensitiveRegions || [])],
+    sensitiveRegions: localRedactionRegions(input.localRedactionManifest, plan.indexes),
   });
   if (slides.length < 5) throw new Error("다중 페이지 목업을 만들 장표가 5장 미만입니다.");
   const slideMap = new Map(slides.map((slide) => [slide.index, slide]));
@@ -516,10 +583,11 @@ export async function createPortfolioMockups(input: {
     .map((index) => slideMap.get(index)?.redactionProof)
     .filter((proof): proof is PortfolioSlideRedactionProof => Boolean(proof));
   if (redactionProof.length !== plan.indexes.length
-    || redactionProof.some((proof) => (
-      proof.regionCount < 1 || proof.sourceHash === proof.redactedHash
-      || proof.changedPixelRatio <= 0
-    ))) {
+    || redactionProof.some((proof) => {
+      const manifestSlide = manifestSlides.get(proof.slideIndex);
+      return !manifestSlide
+        || !isPortfolioSlideRedactionProofForManifest(proof, manifestSlide);
+    })) {
     throw new Error("모든 선정 장표의 로컬 기밀 블러가 실제 이미지에 적용되었는지 확인하지 못했습니다.");
   }
   if (input.onRedactionProof) await input.onRedactionProof(redactionProof);
@@ -533,7 +601,9 @@ export async function createPortfolioMockups(input: {
   )) {
     throw new Error("긴 문서 목업에 필요한 중복 없는 6장 묶음 3~5개를 완성하지 못했습니다.");
   }
-  const thumbnailSlide = slideMap.get(0) || selectedSlides[0];
+  const thumbnailSlide = plan.coverIndex === undefined
+    ? selectedSlides[0]
+    : slideMap.get(plan.coverIndex) || selectedSlides[0];
   if (!thumbnailSlide) throw new Error("대표 썸네일에 사용할 표지 장표가 없습니다.");
   const aspect = aggregateAspectClass(selectedSlides);
   const rankedShortSlides = plan.mode === "short"

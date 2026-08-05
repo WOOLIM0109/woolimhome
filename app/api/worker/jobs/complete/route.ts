@@ -21,6 +21,8 @@ function invalidatePortfolioMetadata(value: unknown, invalidatedAt: string) {
     "portfolioReview",
     "portfolioSourceFingerprint",
     "portfolioRuleVersion",
+    "portfolioGenerationId",
+    "portfolioConversionGenerationId",
     "validation",
     "redactionMode",
     "confidentialRegions",
@@ -54,7 +56,7 @@ export async function POST(request: Request) {
 
   const admin = contentAdmin();
   const { data: job, error: jobError } = await admin.from("content_jobs")
-    .select("id,candidate_id,work_item_id,status,result")
+    .select("id,candidate_id,work_item_id,status,result,updated_at")
     .eq("id", body.jobId)
     .eq("job_type", "convert")
     .in("status", ["pc_running", "completed"])
@@ -108,20 +110,77 @@ export async function POST(request: Request) {
   const previousSlidePaths = Array.isArray(previousResult.slidePaths)
     ? previousResult.slidePaths.map(String)
     : [];
-  if (job.status === "completed" && (
+  if (job.status === "completed") {
+    const sameOutput = previousResult.bucket === body.bucket
+      && JSON.stringify(previousSlidePaths) === JSON.stringify(slidePaths)
+      && previousResult.pcWorkerId === worker.id
+      && JSON.stringify(previousResult.localRedactionManifest ?? null)
+        === JSON.stringify(localRedactionManifest);
+    if (!sameOutput) {
+      return NextResponse.json({
+        error: "A completed conversion can only replay its exact original output.",
+      }, { status: 409 });
+    }
+    return NextResponse.json({
+      ok: true,
+      replayed: true,
+      slideCount: slidePaths.length,
+    });
+  }
+  const existingCompletionGenerationId = typeof previousResult.completionGenerationId === "string"
+    ? previousResult.completionGenerationId
+    : null;
+  if (existingCompletionGenerationId && (
     previousResult.bucket !== body.bucket
     || JSON.stringify(previousSlidePaths) !== JSON.stringify(slidePaths)
     || previousResult.pcWorkerId !== worker.id
-    || (previousResult.localRedactionManifest !== undefined
-      && JSON.stringify(previousResult.localRedactionManifest) !== JSON.stringify(localRedactionManifest))
+    || JSON.stringify(previousResult.localRedactionManifest ?? null)
+      !== JSON.stringify(localRedactionManifest)
   )) {
     return NextResponse.json({
-      error: "A completed conversion can only resume with its original output.",
+      error: "A staged conversion can only resume with its exact original output.",
     }, { status: 409 });
   }
+  const completionGenerationId = existingCompletionGenerationId || `${job.id}:${now}`;
+  const pcCompletedAt = typeof previousResult.pcCompletedAt === "string"
+    ? previousResult.pcCompletedAt
+    : now;
+  const completedResult = {
+    ...(job.result || {}),
+    bucket: body.bucket,
+    slidePaths,
+    slideCount: slidePaths.length,
+    pcWorkerId: worker.id,
+    pcWorkerName: worker.displayName,
+    pcCompletedAt,
+    powerPointVersion: body.powerPointVersion || null,
+    workerVersion: body.workerVersion || null,
+    localRedactionManifest,
+    completionGenerationId,
+  };
+  if (!existingCompletionGenerationId) {
+    const { data: stagedJob, error: stagingError } = await admin.from("content_jobs").update({
+      result: completedResult,
+      updated_at: now,
+    })
+      .eq("id", job.id)
+      .eq("status", "pc_running")
+      .eq("claimed_by_worker_id", worker.id)
+      .eq("updated_at", job.updated_at)
+      .select("id")
+      .maybeSingle();
+    if (stagingError) return NextResponse.json({ error: stagingError.message }, { status: 500 });
+    if (!stagedJob) {
+      return NextResponse.json(
+        { error: "This job was reassigned before completion staging." },
+        { status: 409 },
+      );
+    }
+  }
+
   const { data: currentWorkItem, error: workItemReadError } = await admin
     .from("content_work_items")
-    .select("metadata")
+    .select("metadata,status,updated_at")
     .eq("id", job.work_item_id)
     .maybeSingle();
   if (workItemReadError) {
@@ -130,79 +189,156 @@ export async function POST(request: Request) {
   if (!currentWorkItem) {
     return NextResponse.json({ error: "The portfolio work item could not be found." }, { status: 409 });
   }
-  const invalidatedMetadata = invalidatePortfolioMetadata(currentWorkItem.metadata, now);
-  const { data: preInvalidatedWorkItem, error: preInvalidationError } = await admin
-    .from("content_work_items")
-    .update({
-      status: "creating",
-      review_note: null,
-      metadata: invalidatedMetadata,
-      updated_at: now,
-    })
-    .eq("id", job.work_item_id)
-    .select("id")
-    .maybeSingle();
-  if (preInvalidationError) {
-    return NextResponse.json({ error: preInvalidationError.message }, { status: 500 });
+  const currentMetadata = currentWorkItem.metadata && typeof currentWorkItem.metadata === "object"
+    ? currentWorkItem.metadata as Record<string, unknown>
+    : {};
+  const alreadyOwnsCompletion = currentMetadata.portfolioConversionGenerationId
+    === completionGenerationId;
+  const protectedStatuses = new Set(["published", "scheduled", "naver_ready", "approved", "review_required"]);
+  if (protectedStatuses.has(currentWorkItem.status)) {
+    return NextResponse.json({
+      error: "The completed conversion was preserved, but review or publication state changed. No downstream data was reset.",
+    }, { status: 409 });
   }
-  if (!preInvalidatedWorkItem) {
-    return NextResponse.json({ error: "The portfolio work item could not be invalidated." }, { status: 409 });
-  }
-  const completedResult = {
-    ...(job.result || {}),
-    bucket: body.bucket,
-    slidePaths,
-    slideCount: slidePaths.length,
-    pcWorkerId: worker.id,
-    pcWorkerName: worker.displayName,
-    pcCompletedAt: now,
-    powerPointVersion: body.powerPointVersion || null,
-    workerVersion: body.workerVersion || null,
-    localRedactionManifest,
+  const invalidatedMetadata = alreadyOwnsCompletion ? currentMetadata : {
+    ...invalidatePortfolioMetadata(currentMetadata, now),
+    portfolioConversionGenerationId: completionGenerationId,
   };
-  const needsCompletedManifestBackfill = job.status === "completed"
-    && previousResult.localRedactionManifest === undefined;
-  const completion = job.status === "completed" && !needsCompletedManifestBackfill
-    ? { data: { id: job.id }, error: null }
-    : await admin.from("content_jobs").update({
-    status: "completed",
-    completed_at: now,
-    lease_expires_at: null,
-    error_message: null,
-    result: completedResult,
-    updated_at: now,
-    })
-      .eq("id", job.id)
-      .eq("status", job.status)
-      .eq("claimed_by_worker_id", worker.id)
+  if (!alreadyOwnsCompletion) {
+    const { data: invalidatedWorkItem, error: invalidationError } = await admin
+      .from("content_work_items")
+      .update({
+        status: "creating",
+        summary: `문서 변환 PC에서 원본 구성을 유지한 ${slidePaths.length}장의 페이지 이미지를 만들었습니다. 페이지 적합성 검토와 목업 제작을 이어서 진행합니다.`,
+        review_note: null,
+        metadata: invalidatedMetadata,
+        updated_at: now,
+      })
+      .eq("id", job.work_item_id)
+      .eq("status", currentWorkItem.status)
+      .eq("updated_at", currentWorkItem.updated_at)
       .select("id")
       .maybeSingle();
-  const completedJob = completion.data;
-  const completionError = completion.error;
-  if (completionError) {
-    return NextResponse.json({ error: completionError.message }, { status: 500 });
-  }
-  if (!completedJob) {
-    return NextResponse.json(
-      { error: "This job was reassigned before completion." },
-      { status: 409 },
-    );
+    if (invalidationError) {
+      return NextResponse.json({ error: invalidationError.message }, { status: 500 });
+    }
+    if (!invalidatedWorkItem) {
+      return NextResponse.json({
+        error: "The work item changed after conversion staging. No downstream data was reset.",
+      }, { status: 409 });
+    }
   }
 
-  await admin.from("portfolio_candidates").update({
-    status: "processed",
-    font_status: "ready",
-    updated_at: now,
-  }).eq("id", job.candidate_id);
-  await admin.from("content_jobs").update({
-    status: "completed",
-    completed_at: now,
-    result: { completedBy: "pc_powerpoint_worker", completedAt: now },
-    updated_at: now,
-  }).eq("candidate_id", job.candidate_id)
-    .in("job_type", ["font_check", "privacy_check"])
-    .in("status", ["queued", "on_hold"]);
-  const { data: resetMockupJob, error: resetMockupError } = await admin.from("content_jobs").update({
+  const assertCompletionOwnership = async () => {
+    const { data, error } = await admin.from("content_work_items")
+      .select("metadata,status")
+      .eq("id", job.work_item_id)
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+    const metadata = data?.metadata && typeof data.metadata === "object"
+      ? data.metadata as Record<string, unknown>
+      : {};
+    return metadata.portfolioConversionGenerationId === completionGenerationId
+      && !protectedStatuses.has(String(data?.status || ""));
+  };
+
+  const [candidateSnapshot, downstreamSnapshot, auxiliarySnapshot, assetSnapshot] = await Promise.all([
+    admin.from("portfolio_candidates")
+      .select("id,status,metadata,updated_at")
+      .eq("id", job.candidate_id)
+      .maybeSingle(),
+    admin.from("content_jobs")
+      .select("id,job_type,status,payload,updated_at")
+      .eq("candidate_id", job.candidate_id)
+      .in("job_type", ["mockup", "draft"]),
+    admin.from("content_jobs")
+      .select("id,status,result,updated_at")
+      .eq("candidate_id", job.candidate_id)
+      .in("job_type", ["font_check", "privacy_check"])
+      .in("status", ["queued", "on_hold"]),
+    admin.from("content_review_assets")
+      .select("id")
+      .eq("work_item_id", job.work_item_id),
+  ]);
+  const snapshotError = candidateSnapshot.error
+    || downstreamSnapshot.error
+    || auxiliarySnapshot.error
+    || assetSnapshot.error;
+  if (snapshotError) return NextResponse.json({ error: snapshotError.message }, { status: 500 });
+  if (!await assertCompletionOwnership()) {
+    return NextResponse.json({
+      error: "The work item changed after conversion completed. No downstream data was reset.",
+    }, { status: 409 });
+  }
+
+  const downstream = downstreamSnapshot.data || [];
+  const mockupJob = downstream.filter((item) => item.job_type === "mockup");
+  const draftJob = downstream.filter((item) => item.job_type === "draft");
+  if (mockupJob.length !== 1 || draftJob.length !== 1) {
+    return NextResponse.json({
+      error: "The portfolio mockup and draft jobs must each have one generation owner.",
+    }, { status: 409 });
+  }
+
+  const completionWarnings: string[] = [];
+  const candidate = candidateSnapshot.data;
+  const candidateMetadata = candidate?.metadata && typeof candidate.metadata === "object"
+    ? candidate.metadata as Record<string, unknown>
+    : {};
+  if (candidate && candidateMetadata.portfolioConversionGenerationId !== completionGenerationId) {
+    const { data, error } = await admin.from("portfolio_candidates").update({
+      status: "processed",
+      font_status: "ready",
+      metadata: {
+        ...candidateMetadata,
+        portfolioConversionGenerationId: completionGenerationId,
+      },
+      updated_at: now,
+    }).eq("id", candidate.id)
+      .eq("status", candidate.status)
+      .eq("updated_at", candidate.updated_at)
+      .select("id")
+      .maybeSingle();
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    if (!data) completionWarnings.push("The portfolio candidate changed and was not overwritten.");
+  }
+
+  for (const auxiliaryJob of auxiliarySnapshot.data || []) {
+    const auxiliaryResult = auxiliaryJob.result && typeof auxiliaryJob.result === "object"
+      ? auxiliaryJob.result as Record<string, unknown>
+      : {};
+    if (auxiliaryJob.status === "completed"
+      && auxiliaryResult.completionGenerationId === completionGenerationId) continue;
+    const { data, error } = await admin.from("content_jobs").update({
+      status: "completed",
+      completed_at: now,
+      result: {
+        completedBy: "pc_powerpoint_worker",
+        completedAt: now,
+        completionGenerationId,
+      },
+      updated_at: now,
+    }).eq("id", auxiliaryJob.id)
+      .eq("status", auxiliaryJob.status)
+      .eq("updated_at", auxiliaryJob.updated_at)
+      .select("id")
+      .maybeSingle();
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    if (!data) completionWarnings.push("An auxiliary job changed and was not overwritten.");
+  }
+
+  if (!await assertCompletionOwnership()) {
+    return NextResponse.json({ error: "A newer portfolio generation owns this work item." }, { status: 409 });
+  }
+  const mockupSnapshot = mockupJob[0];
+  const mockupPayload = mockupSnapshot.payload && typeof mockupSnapshot.payload === "object"
+    ? mockupSnapshot.payload as Record<string, unknown>
+    : {};
+  const mockupAlreadyPrepared = mockupPayload.portfolioConversionGenerationId === completionGenerationId
+    && mockupSnapshot.status === "queued";
+  const resetMockup = mockupAlreadyPrepared
+    ? { data: { id: mockupSnapshot.id }, error: null }
+    : await admin.from("content_jobs").update({
     status: "queued",
     attempts: 0,
     next_retry_at: null,
@@ -212,73 +348,79 @@ export async function POST(request: Request) {
       slidePaths,
       bucket: body.bucket,
       localRedactionManifest,
+      portfolioConversionGenerationId: completionGenerationId,
     },
     result: {},
     started_at: null,
     completed_at: null,
     error_message: null,
     updated_at: now,
-  }).eq("candidate_id", job.candidate_id)
-    .eq("job_type", "mockup")
-    .in("status", ["queued", "running", "completed", "on_hold", "failed"])
+  }).eq("id", mockupSnapshot.id)
+    .eq("status", mockupSnapshot.status)
+    .eq("updated_at", mockupSnapshot.updated_at)
     .select("id")
     .maybeSingle();
+  const resetMockupJob = resetMockup.data;
+  const resetMockupError = resetMockup.error;
   if (resetMockupError) {
-    if (job.status === "pc_running") {
-      await admin.from("content_jobs").update({
-        status: "pc_running",
-        completed_at: null,
-        updated_at: new Date().toISOString(),
-      }).eq("id", job.id).eq("status", "completed").eq("claimed_by_worker_id", worker.id);
-    }
     return NextResponse.json({ error: resetMockupError.message }, { status: 500 });
   }
   if (!resetMockupJob) {
-    if (job.status === "pc_running") {
-      await admin.from("content_jobs").update({
-        status: "pc_running",
-        completed_at: null,
-        updated_at: new Date().toISOString(),
-      }).eq("id", job.id).eq("status", "completed").eq("claimed_by_worker_id", worker.id);
-    }
     return NextResponse.json({ error: "The portfolio mockup job could not be reset." }, { status: 409 });
   }
-  const { error: resetDraftError } = await admin.from("content_jobs").update({
+  if (!await assertCompletionOwnership()) {
+    return NextResponse.json({ error: "A newer portfolio generation owns this work item." }, { status: 409 });
+  }
+  const draftSnapshot = draftJob[0];
+  const draftPayload = draftSnapshot.payload && typeof draftSnapshot.payload === "object"
+    ? draftSnapshot.payload as Record<string, unknown>
+    : {};
+  const draftAlreadyPrepared = draftPayload.portfolioConversionGenerationId === completionGenerationId
+    && draftSnapshot.status === "on_hold";
+  const resetDraft = draftAlreadyPrepared
+    ? { data: { id: draftSnapshot.id }, error: null }
+    : await admin.from("content_jobs").update({
     status: "on_hold",
     attempts: 0,
     next_retry_at: null,
     last_error_code: null,
-    payload: { waitsFor: "mockup" },
+    payload: {
+      waitsFor: "mockup",
+      portfolioConversionGenerationId: completionGenerationId,
+    },
     result: {},
     started_at: null,
     completed_at: null,
     error_message: null,
     updated_at: now,
-  }).eq("candidate_id", job.candidate_id)
-    .eq("job_type", "draft")
-    .in("status", ["queued", "running", "completed", "on_hold", "failed"]);
+  }).eq("id", draftSnapshot.id)
+    .eq("status", draftSnapshot.status)
+    .eq("updated_at", draftSnapshot.updated_at)
+    .select("id")
+    .maybeSingle();
+  const resetDraftJob = resetDraft.data;
+  const resetDraftError = resetDraft.error;
   if (resetDraftError) {
     return NextResponse.json({ error: resetDraftError.message }, { status: 500 });
   }
+  if (!resetDraftJob) {
+    return NextResponse.json({ error: "The portfolio draft job changed and was not reset." }, { status: 409 });
+  }
 
-  const { error: reviewAssetsError } = await admin
-    .from("content_review_assets")
-    .delete()
-    .eq("work_item_id", job.work_item_id);
-  const completionWarnings: string[] = [];
-  if (reviewAssetsError) completionWarnings.push(reviewAssetsError.message);
-  const { data: invalidatedWorkItem, error: workItemError } = await admin.from("content_work_items").update({
-    status: "creating",
-    summary: `문서 변환 PC에서 원본 구성을 유지한 ${slidePaths.length}장의 페이지 이미지를 만들었습니다. 페이지 적합성 검토와 목업 제작을 이어서 진행합니다.`,
-    review_note: null,
-    metadata: invalidatedMetadata,
-    updated_at: now,
-  }).eq("id", job.work_item_id)
-    .select("id")
-    .maybeSingle();
-  if (workItemError) completionWarnings.push(workItemError.message);
-  if (!invalidatedWorkItem) completionWarnings.push("The portfolio work item summary could not be refreshed.");
-  await admin.from("content_workers").update({
+  const assetIds = (assetSnapshot.data || []).map((asset) => asset.id);
+  if (assetIds.length) {
+    if (!await assertCompletionOwnership()) {
+      return NextResponse.json({ error: "A newer portfolio generation owns this work item." }, { status: 409 });
+    }
+    const { error: reviewAssetsError } = await admin
+      .from("content_review_assets")
+      .delete()
+      .in("id", assetIds);
+    if (reviewAssetsError) {
+      return NextResponse.json({ error: reviewAssetsError.message }, { status: 500 });
+    }
+  }
+  const { error: workerUpdateError } = await admin.from("content_workers").update({
     display_name: worker.displayName,
     status: "online",
     current_job_id: null,
@@ -288,6 +430,35 @@ export async function POST(request: Request) {
   })
     .eq("id", worker.id)
     .eq("current_job_id", job.id);
+  if (workerUpdateError) completionWarnings.push(workerUpdateError.message);
+
+  if (!await assertCompletionOwnership()) {
+    return NextResponse.json({
+      error: "A newer portfolio generation owns this work item. Conversion completion was not finalized.",
+    }, { status: 409 });
+  }
+  const finalizedAt = new Date().toISOString();
+  const { data: completedJob, error: completionError } = await admin.from("content_jobs").update({
+    status: "completed",
+    completed_at: finalizedAt,
+    lease_expires_at: null,
+    error_message: null,
+    result: completedResult,
+    updated_at: finalizedAt,
+  }).eq("id", job.id)
+    .eq("status", "pc_running")
+    .eq("claimed_by_worker_id", worker.id)
+    .contains("result", { completionGenerationId })
+    .select("id")
+    .maybeSingle();
+  if (completionError) {
+    return NextResponse.json({ error: completionError.message }, { status: 500 });
+  }
+  if (!completedJob) {
+    return NextResponse.json({
+      error: "The conversion completion owner changed before finalization.",
+    }, { status: 409 });
+  }
 
   try {
     const draft = await processNextPortfolioMockup(job.candidate_id);
