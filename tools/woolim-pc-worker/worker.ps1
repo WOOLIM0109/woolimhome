@@ -6,7 +6,7 @@
 )
 
 $ErrorActionPreference = "Stop"
-$WorkerVersion = "2.5.0"
+$WorkerVersion = "2.5.1"
 
 function Get-WorkerSetting {
   param(
@@ -1097,6 +1097,7 @@ function Get-ShapeRedactionRegions {
     [Parameter(Mandatory = $true)][double]$SlideWidth,
     [Parameter(Mandatory = $true)][double]$SlideHeight,
     [string[]]$SensitiveSourceTokens = @(),
+    [int[]]$PublicVisualShapeIds = @(),
     [ValidateSet("slide", "layout", "master")][string]$Scope = "slide",
     [switch]$ForceIdentifier,
     [switch]$AllowDecorativePictureFill
@@ -1132,6 +1133,14 @@ function Get-ShapeRedactionRegions {
     -Text $shapeIdentity `
     -ShapeName $shapeIdentity `
     -SensitiveSourceTokens $SensitiveSourceTokens
+  $shapeId = -1
+  try { $shapeId = [int]$Shape.Id } catch {}
+  $isApprovedPublicVisual = (
+    $Scope -eq "slide" -and
+    -not $ForceIdentifier.IsPresent -and
+    -not $shapeIdentityIsSensitive -and
+    $PublicVisualShapeIds -contains $shapeId
+  )
 
   if ($shapeType -eq 6) {
     # Inspect every child recursively and keep the child-level regions. A
@@ -1192,6 +1201,7 @@ function Get-ShapeRedactionRegions {
             -SlideWidth $SlideWidth `
             -SlideHeight $SlideHeight `
             -SensitiveSourceTokens $SensitiveSourceTokens `
+            -PublicVisualShapeIds $PublicVisualShapeIds `
             -Scope $Scope `
             -ForceIdentifier:$forceChildIdentifier `
             -AllowDecorativePictureFill:$allowChildPictureFill)
@@ -1213,6 +1223,9 @@ function Get-ShapeRedactionRegions {
   }
 
   $hasPictureFill = Test-ShapeHasPictureFill -Shape $Shape
+  if ($hasPictureFill -and $isApprovedPublicVisual) {
+    return $regions.ToArray()
+  }
   if ($hasPictureFill -and -not $AllowDecorativePictureFill.IsPresent) {
     if (Test-ShapeCoversSlide -Shape $Shape -SlideWidth $SlideWidth -SlideHeight $SlideHeight) {
       throw "SLIDE_FULL_BACKGROUND_PICTURE_UNSUPPORTED: A picture or texture shape in the $Scope scope covers the full slide."
@@ -1295,6 +1308,9 @@ function Get-ShapeRedactionRegions {
     $shapeType -in $pictureContentTypes -or
     ($shapeType -eq 14 -and $placeholderContainedType -in $pictureContentTypes)
   )
+  if ($isPictureContent -and $isApprovedPublicVisual) {
+    return $regions.ToArray()
+  }
   if ($isPictureContent -and (Test-ShapeCoversSlide `
     -Shape $Shape `
     -SlideWidth $SlideWidth `
@@ -1396,7 +1412,8 @@ function Get-SlideRedactionRegions {
     [Parameter(Mandatory = $true)][int]$SlideIndex,
     [Parameter(Mandatory = $true)][double]$SlideWidth,
     [Parameter(Mandatory = $true)][double]$SlideHeight,
-    [string[]]$SensitiveSourceTokens = @()
+    [string[]]$SensitiveSourceTokens = @(),
+    [int[]]$PublicVisualShapeIds = @()
   )
 
   $regions = New-Object System.Collections.Generic.List[object]
@@ -1502,6 +1519,7 @@ function Get-SlideRedactionRegions {
             -SlideWidth $SlideWidth `
             -SlideHeight $SlideHeight `
             -SensitiveSourceTokens $SensitiveSourceTokens `
+            -PublicVisualShapeIds $PublicVisualShapeIds `
             -Scope $shapeSource.scope)) {
             if ($region) { $regions.Add($region) }
           }
@@ -1530,7 +1548,8 @@ function Convert-Document {
     [string]$JobId,
     [string]$SourceUrl,
     [string]$FileName,
-    [string]$SourceAuthorization
+    [string]$SourceAuthorization,
+    [object[]]$PublicVisualOverrides = @()
   )
 
   $parsedJobId = [Guid]::Empty
@@ -1645,6 +1664,9 @@ function Convert-Document {
       $excludedSlideDetails = New-Object System.Collections.Generic.List[string]
       foreach ($zeroBasedIndex in $representativeIndexes) {
         $slideNumber = $zeroBasedIndex + 1
+        $publicVisualShapeIds = @($PublicVisualOverrides | Where-Object {
+          [int]$_.sourceSlideNumber -eq $slideNumber
+        } | ForEach-Object { [int]$_.shapeId })
         $slide = $null
         try {
           $slide = $presentation.Slides.Item($slideNumber)
@@ -1657,7 +1679,8 @@ function Convert-Document {
               -SlideIndex $exportedSlideIndex `
               -SlideWidth $slideWidth `
               -SlideHeight $slideHeight `
-              -SensitiveSourceTokens $sensitiveSourceTokens)
+              -SensitiveSourceTokens $sensitiveSourceTokens `
+              -PublicVisualShapeIds $publicVisualShapeIds)
           } catch {
             $inspectionReason = ($_.Exception.Message -replace '[\r\n]+', ' ').Trim()
             $excludedSlideDetails.Add("$slideNumber ($inspectionReason)")
@@ -1894,7 +1917,8 @@ do {
           -JobId ([string]$claim.job.id) `
           -SourceUrl ([string]$claim.job.sourceUrl) `
           -FileName ([string]$claim.job.fileName) `
-          -SourceAuthorization $sourceAuthorizationHeader
+          -SourceAuthorization $sourceAuthorizationHeader `
+          -PublicVisualOverrides @($claim.job.publicVisualOverrides)
       } catch {
         $message = $_.Exception.Message
         Write-WorkerLog "Failed job $($claim.job.id): $message"
