@@ -14,23 +14,26 @@ function invalidatePortfolioMetadata(value: unknown, invalidatedAt: string) {
   const metadata = value && typeof value === "object" && !Array.isArray(value)
     ? { ...(value as Record<string, unknown>) }
     : {};
+  const preserveDraft = metadata.preservePortfolioDraftDuringConversion === true;
   for (const key of [
-    "generated",
-    "portfolioAssets",
     "portfolioMockup",
     "portfolioReview",
     "portfolioSourceFingerprint",
     "portfolioRuleVersion",
     "portfolioGenerationId",
     "portfolioConversionGenerationId",
-    "validation",
     "redactionMode",
     "confidentialRegions",
     "redactionProof",
-    "portfolioStage",
-    "generatedAt",
     "mockupOnlyRebuiltAt",
     "draftRetryCompletedAt",
+    ...(preserveDraft ? [] : [
+      "generated",
+      "portfolioAssets",
+      "validation",
+      "portfolioStage",
+      "generatedAt",
+    ]),
   ]) {
     delete metadata[key];
   }
@@ -349,6 +352,7 @@ export async function POST(request: Request) {
       bucket: body.bucket,
       localRedactionManifest,
       portfolioConversionGenerationId: completionGenerationId,
+      ...(mockupPayload.mockupOnly === true ? { mockupOnly: true } : {}),
     },
     result: {},
     started_at: null,
@@ -375,9 +379,13 @@ export async function POST(request: Request) {
   const draftPayload = draftSnapshot.payload && typeof draftSnapshot.payload === "object"
     ? draftSnapshot.payload as Record<string, unknown>
     : {};
+  const preserveExistingDraft = mockupPayload.mockupOnly === true
+    && draftSnapshot.status === "completed";
   const draftAlreadyPrepared = draftPayload.portfolioConversionGenerationId === completionGenerationId
     && draftSnapshot.status === "on_hold";
-  const resetDraft = draftAlreadyPrepared
+  const resetDraft = preserveExistingDraft
+    ? { data: { id: draftSnapshot.id }, error: null }
+    : draftAlreadyPrepared
     ? { data: { id: draftSnapshot.id }, error: null }
     : await admin.from("content_jobs").update({
     status: "on_hold",

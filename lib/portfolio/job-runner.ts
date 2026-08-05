@@ -33,6 +33,7 @@ import {
   yieldPortfolioCheckpointIfNeeded,
 } from "./checkpoint";
 import { isCurrentLocalRedactionWorkerVersion } from "../pc-worker/capabilities";
+import { automaticDesignEligibleSlideIndexes } from "../pc-worker/redaction-manifest";
 import { sanitizeGeneratedHtml, sanitizeInlineHtml } from "../security/html";
 import {
   isCompletePortfolioSourceDownload,
@@ -103,6 +104,45 @@ function renderedPortfolioSlideIndexes(assets: GeneratedPortfolioAsset[]) {
   ))) return null;
   return [...new Set(assets.flatMap((asset) => asset.slideIndexes))]
     .sort((left, right) => left - right);
+}
+
+function minimumAutomaticDesignSlideCount(manifest: LocalRedactionManifest) {
+  return manifest.sourceSlideCount >= 20 ? 18 : 5;
+}
+
+function hasEnoughAutomaticDesignSlides(manifest: LocalRedactionManifest) {
+  return automaticDesignEligibleSlideIndexes(manifest).length
+    >= minimumAutomaticDesignSlideCount(manifest);
+}
+
+function replaceGeneratedPortfolioBodyAssets(
+  generated: unknown,
+  previousAssets: GeneratedPortfolioAsset[],
+  nextAssets: GeneratedPortfolioAsset[],
+) {
+  if (!generated || typeof generated !== "object" || Array.isArray(generated)) return null;
+  const value = generated as Record<string, unknown>;
+  if (typeof value.bodyHtml !== "string" || !value.bodyHtml.trim()) return null;
+  const previousBodyAssets = previousAssets.filter((asset) => asset.kind === "body_image");
+  const nextBodyAssets = nextAssets.filter((asset) => asset.kind === "body_image");
+  if (!previousBodyAssets.length || previousBodyAssets.length !== nextBodyAssets.length) return null;
+
+  const replacements = new Map(previousBodyAssets.map((asset, index) => [
+    asset.url.replaceAll("&amp;", "&"),
+    nextBodyAssets[index].url,
+  ]));
+  let replacementCount = 0;
+  const bodyHtml = value.bodyHtml.replace(
+    /(<img\b[^>]*\bsrc\s*=\s*["'])([^"']+)(["'][^>]*>)/gi,
+    (match, prefix: string, rawUrl: string, suffix: string) => {
+      const nextUrl = replacements.get(rawUrl.replaceAll("&amp;", "&"));
+      if (!nextUrl) return match;
+      replacementCount += 1;
+      return `${prefix}${nextUrl}${suffix}`;
+    },
+  );
+  if (replacementCount !== previousBodyAssets.length) return null;
+  return { ...value, bodyHtml: sanitizeGeneratedHtml(reflowPortfolioBodyFigures(bodyHtml)) };
 }
 
 function isPortfolioSlideRedactionProof(value: unknown): value is PortfolioSlideRedactionProof {
@@ -677,7 +717,10 @@ export async function processNextPortfolioMockup(candidateId?: string) {
   if (!job) return null;
   let attempts = Number(job.attempts || 0);
   const previousResult = (job.result || {}) as Record<string, unknown>;
-  const mockupOnly = previousResult.mockupOnly === true;
+  const jobPayload = job.payload && typeof job.payload === "object"
+    ? job.payload as Record<string, unknown>
+    : {};
+  const mockupOnly = previousResult.mockupOnly === true || jobPayload.mockupOnly === true;
   let result: Record<string, unknown> = {};
   if (mockupOnly) result.mockupOnly = true;
   for (const checkpointField of [
@@ -730,9 +773,7 @@ export async function processNextPortfolioMockup(candidateId?: string) {
   if (claimJobError) throw new Error(claimJobError.message);
   if (!claimedJob) return null;
   const claimStartedAt = now;
-  const claimedPayload = job.payload && typeof job.payload === "object"
-    ? job.payload as Record<string, unknown>
-    : {};
+  const claimedPayload = jobPayload;
   const terminalOwner: PortfolioTerminalHoldOwner = {
     conversionGenerationId: typeof claimedPayload.portfolioConversionGenerationId === "string"
       ? claimedPayload.portfolioConversionGenerationId
@@ -976,10 +1017,37 @@ export async function processNextPortfolioMockup(candidateId?: string) {
       .single();
     if (workItemError) throw new Error(workItemError.message);
     const workItemMetadata = { ...(workItem?.metadata || {}) } as Record<string, unknown>;
+    const previousPortfolioAssets = Array.isArray(workItemMetadata.portfolioAssets)
+      ? workItemMetadata.portfolioAssets.filter(isGeneratedPortfolioAsset)
+      : [];
+    const restoreState = mockupOnly
+      && workItemMetadata.mockupOnlyRestoreState
+      && typeof workItemMetadata.mockupOnlyRestoreState === "object"
+      ? workItemMetadata.mockupOnlyRestoreState as {
+        status?: unknown;
+        summary?: unknown;
+        reviewNote?: unknown;
+      }
+      : null;
+    const refreshedGenerated = mockupOnly
+      ? replaceGeneratedPortfolioBodyAssets(
+        workItemMetadata.generated,
+        previousPortfolioAssets,
+        assets,
+      )
+      : null;
+    if (mockupOnly && !refreshedGenerated) {
+      throw new Error("기존 본문의 이미지와 새 목업을 안전하게 일대일 교체하지 못했습니다.");
+    }
     if (!mockupOnly) {
       for (const key of ["generated", "validation", "generatedAt", "draftCompletedAt"]) {
         delete workItemMetadata[key];
       }
+    } else {
+      workItemMetadata.generated = refreshedGenerated;
+      delete workItemMetadata.preservePortfolioDraftDuringConversion;
+      delete workItemMetadata.mockupOnlyRestoreState;
+      delete workItemMetadata.portfolioSourceInvalidatedAt;
     }
     const reusableGenerationId = mockupOnly
       && workItemMetadata.portfolioSourceFingerprint === sourceFingerprint
@@ -991,6 +1059,27 @@ export async function processNextPortfolioMockup(candidateId?: string) {
       completedAt,
       sourceFingerprint,
     });
+    const { data: preservedDraftJob, error: preservedDraftError } = mockupOnly
+      ? await admin.from("content_jobs")
+        .select("id,status,result,payload,updated_at")
+        .eq("candidate_id", job.candidate_id)
+        .eq("job_type", "draft")
+        .maybeSingle()
+      : { data: null, error: null };
+    if (preservedDraftError) throw new Error(preservedDraftError.message);
+    if (mockupOnly && (!preservedDraftJob || preservedDraftJob.status !== "completed")) {
+      throw new Error("본문을 유지할 수 있는 완료된 초안 작업을 찾지 못했습니다.");
+    }
+    const restoredStatus = typeof restoreState?.status === "string"
+      && ["review_required", "approved", "on_hold"].includes(restoreState.status)
+      ? restoreState.status
+      : workItem.status;
+    const restoredSummary = typeof restoreState?.summary === "string"
+      ? restoreState.summary
+      : workItem.summary;
+    const restoredReviewNote = typeof restoreState?.reviewNote === "string"
+      ? restoreState.reviewNote
+      : workItem.review_note;
 
     // The job CAS is the durable winner election. No candidate, work-item, or
     // review asset is made visible until this exact runner owns completion.
@@ -1032,14 +1121,14 @@ export async function processNextPortfolioMockup(candidateId?: string) {
     // therefore prevents a stale runner from publishing its metadata.
     const { data: committedWorkItem, error: workUpdateError } = await admin.from("content_work_items").update({
       summary: mockupOnly
-        ? workItem.summary
+        ? restoredSummary
         : "포트폴리오 디자인 목업을 완성했습니다. Gemini 글쓰기 작업은 별도 대기열에서 이어서 처리합니다.",
-      status: mockupOnly ? workItem.status : "creating",
+      status: mockupOnly ? restoredStatus : "creating",
       source_label: mockupOnly
         ? workItem.source_label
         : "NAVER WORKS 실제 프로젝트 · 로컬 시각 분석",
       review_note: mockupOnly
-        ? workItem.review_note
+        ? restoredReviewNote
         : "디자인 목업은 저장되었습니다. 본문 초안 생성을 이어서 진행합니다.",
       metadata: {
         ...workItemMetadata,
@@ -1149,11 +1238,47 @@ export async function processNextPortfolioMockup(candidateId?: string) {
     }
 
     if (mockupOnly) {
+      const preservedDraftResult = preservedDraftJob?.result
+        && typeof preservedDraftJob.result === "object"
+        ? preservedDraftJob.result as Record<string, unknown>
+        : {};
+      const preservedDraftPayload = preservedDraftJob?.payload
+        && typeof preservedDraftJob.payload === "object"
+        ? preservedDraftJob.payload as Record<string, unknown>
+        : {};
+      const { data: synchronizedDraft, error: synchronizeDraftError } = await admin
+        .from("content_jobs")
+        .update({
+          status: "completed",
+          result: {
+            ...preservedDraftResult,
+            generated: refreshedGenerated,
+            sourceFingerprint,
+            portfolioRuleVersion: PORTFOLIO_RULE_VERSION,
+            portfolioGenerationId: generationId,
+            redactionProof,
+            mockupOnlyRebuiltAt: completedAt,
+          },
+          payload: {
+            ...preservedDraftPayload,
+            portfolioSourceFingerprint: sourceFingerprint,
+            portfolioRuleVersion: PORTFOLIO_RULE_VERSION,
+            portfolioGenerationId: generationId,
+          },
+          updated_at: completedAt,
+        })
+        .eq("id", preservedDraftJob!.id)
+        .eq("status", preservedDraftJob!.status)
+        .eq("updated_at", preservedDraftJob!.updated_at)
+        .select("id")
+        .maybeSingle();
+      if (synchronizeDraftError) throw new Error(synchronizeDraftError.message);
+      if (!synchronizedDraft) throw new PortfolioClaimLost();
       pendingInsertedAssetIds = [];
       return {
         candidateId: job.candidate_id,
         workItemId: job.work_item_id,
-        status: workItem.status,
+        status: restoredStatus,
         stage: workItemMetadata.portfolioStage || "design_completed",
         assetCount: assets.length,
         mockupOnly: true,
@@ -2435,11 +2560,14 @@ export async function rebuildPortfolioMockupsOnly(
   */
 }
 
-export async function retryPortfolioConversion(workItemId: string) {
+export async function retryPortfolioConversion(
+  workItemId: string,
+  options: { preserveDraft?: boolean } = {},
+) {
   const admin = contentAdmin();
   const { data: workItem, error: workItemError } = await admin
     .from("content_work_items")
-    .select("id,format,status,metadata,updated_at")
+    .select("id,format,status,summary,review_note,metadata,updated_at")
     .eq("id", workItemId)
     .maybeSingle();
   if (workItemError) throw new Error(workItemError.message);
@@ -2477,12 +2605,17 @@ export async function retryPortfolioConversion(workItemId: string) {
     errorMessage: conversion.error_message,
   });
   const conversionResult = (conversion.result || {}) as JobResult;
+  const convertedSlidePaths = Array.isArray(conversionResult.slidePaths)
+    ? conversionResult.slidePaths
+    : [];
+  const localManifest = parseLocalRedactionManifest(
+    conversionResult.localRedactionManifest,
+    convertedSlidePaths.length,
+  );
   const needsLocalManifestRefresh = conversionState === "ready" && (
     !isCurrentLocalRedactionWorkerVersion(conversionResult.workerVersion)
-    || !parseLocalRedactionManifest(
-      conversionResult.localRedactionManifest,
-      Array.isArray(conversionResult.slidePaths) ? conversionResult.slidePaths.length : 0,
-    )
+    || !localManifest
+    || !hasEnoughAutomaticDesignSlides(localManifest)
   );
   if (needsLocalManifestRefresh && isPdfPortfolioSource(conversion.result)) {
     throw new PortfolioConversionRetryConflict(
@@ -2513,7 +2646,7 @@ export async function retryPortfolioConversion(workItemId: string) {
       .order("created_at", { ascending: false })
       .limit(2),
     admin.from("content_jobs")
-      .select("id,job_type")
+      .select("id,job_type,status,result,payload,updated_at")
       .eq("candidate_id", conversion.candidate_id)
       .eq("work_item_id", workItemId)
       .in("job_type", ["mockup", "draft"]),
@@ -2542,26 +2675,29 @@ export async function retryPortfolioConversion(workItemId: string) {
 
   const now = new Date().toISOString();
   const preservedMetadata: Record<string, unknown> = { ...metadata };
-  for (const key of [
+  const invalidatedKeys = [
     "portfolioSourceFingerprint",
     "portfolioRuleVersion",
     "portfolioGenerationId",
     "portfolioConversionGenerationId",
-    "generated",
-    "portfolioAssets",
     "portfolioMockup",
     "portfolioReview",
-    "validation",
     "redactionMode",
     "confidentialRegions",
     "redactionProof",
-    "portfolioStage",
     "designCompletedAt",
-    "generatedAt",
     "mockupOnlyRebuiltAt",
     "draftRetryCompletedAt",
     "rebuildRequestedAt",
-  ]) delete preservedMetadata[key];
+    ...(options.preserveDraft ? [] : [
+      "generated",
+      "portfolioAssets",
+      "validation",
+      "portfolioStage",
+      "generatedAt",
+    ]),
+  ];
+  for (const key of invalidatedKeys) delete preservedMetadata[key];
 
   // This optimistic write is the retry mutex. Concurrent requests validated
   // against the same snapshot cannot both proceed to reset downstream state.
@@ -2580,6 +2716,14 @@ export async function retryPortfolioConversion(workItemId: string) {
         candidateId: conversion.candidate_id,
         conversionRetryRequestedAt: now,
         portfolioSourceInvalidatedAt: now,
+        ...(options.preserveDraft ? {
+          preservePortfolioDraftDuringConversion: true,
+          mockupOnlyRestoreState: {
+            status: workItem.status,
+            summary: workItem.summary,
+            reviewNote: workItem.review_note,
+          },
+        } : {}),
       },
       updated_at: now,
     })
@@ -2594,8 +2738,16 @@ export async function retryPortfolioConversion(workItemId: string) {
     throw new PortfolioConversionRetryConflict("작업 상태가 바뀌어 변환을 다시 요청하지 않았습니다. 새로고침 후 확인해 주세요.");
   }
 
-  const downstreamIds = (downstreamResult.data || []).map((job) => job.id);
-  const { error: downstreamResetError } = await admin.from("content_jobs").update({
+  const downstreamJobs = downstreamResult.data || [];
+  const mockupDownstream = downstreamJobs.find((job) => job.job_type === "mockup");
+  const draftDownstream = downstreamJobs.find((job) => job.job_type === "draft");
+  if (!mockupDownstream || !draftDownstream) {
+    throw new PortfolioConversionRetryConflict("연결된 목업 또는 본문 작업을 찾지 못했습니다.");
+  }
+  const mockupPayload = mockupDownstream.payload && typeof mockupDownstream.payload === "object"
+    ? mockupDownstream.payload as Record<string, unknown>
+    : {};
+  const { error: mockupResetError } = await admin.from("content_jobs").update({
     status: "on_hold",
     attempts: 0,
     next_retry_at: null,
@@ -2603,10 +2755,31 @@ export async function retryPortfolioConversion(workItemId: string) {
     started_at: null,
     completed_at: null,
     error_message: null,
-    result: { conversionRetryRequestedAt: now },
+    payload: {
+      ...mockupPayload,
+      ...(options.preserveDraft ? { mockupOnly: true } : {}),
+    },
+    result: {
+      conversionRetryRequestedAt: now,
+      ...(options.preserveDraft ? { mockupOnly: true } : {}),
+    },
     updated_at: now,
-  }).in("id", downstreamIds);
-  if (downstreamResetError) throw new Error(downstreamResetError.message);
+  }).eq("id", mockupDownstream.id);
+  if (mockupResetError) throw new Error(mockupResetError.message);
+  if (!options.preserveDraft) {
+    const { error: draftResetError } = await admin.from("content_jobs").update({
+      status: "on_hold",
+      attempts: 0,
+      next_retry_at: null,
+      last_error_code: null,
+      started_at: null,
+      completed_at: null,
+      error_message: null,
+      result: { conversionRetryRequestedAt: now },
+      updated_at: now,
+    }).eq("id", draftDownstream.id);
+    if (draftResetError) throw new Error(draftResetError.message);
+  }
 
   const { error: assetsError } = await admin.from("content_review_assets")
     .delete()
@@ -2710,12 +2883,21 @@ async function rebuildPortfolioMockupsOnlyClaimed(workItemId: string) {
   const convertedSlidePaths = Array.isArray(conversionResult.slidePaths)
     ? conversionResult.slidePaths
     : [];
-  if (conversionState !== "ready"
-    || !isCurrentLocalRedactionWorkerVersion(conversionResult.workerVersion)
-    || !parseLocalRedactionManifest(
-      conversionResult.localRedactionManifest,
-      convertedSlidePaths.length,
-    )) {
+  const localManifest = parseLocalRedactionManifest(
+    conversionResult.localRedactionManifest,
+    convertedSlidePaths.length,
+  );
+  if (conversionState === "active") {
+    return { workItemId, candidateId, status: conversion?.status, conversionActive: true };
+  }
+  if (conversionState === "retryable" || (conversionState === "ready" && (
+    !isCurrentLocalRedactionWorkerVersion(conversionResult.workerVersion)
+    || !localManifest
+    || !hasEnoughAutomaticDesignSlides(localManifest)
+  ))) {
+    return retryPortfolioConversion(workItemId, { preserveDraft: true });
+  }
+  if (conversionState !== "ready" || !localManifest) {
     throw new Error("변환과 기밀 검수가 끝난 최신 PPT 원본이 없어 목업 이미지만 다시 만들 수 없습니다.");
   }
 
@@ -2846,11 +3028,13 @@ export async function rebuildPortfolioDraft(workItemId: string) {
   const convertedSlidePaths = Array.isArray(conversionResult.slidePaths)
     ? conversionResult.slidePaths
     : [];
+  const localManifest = parseLocalRedactionManifest(
+    conversionResult.localRedactionManifest,
+    convertedSlidePaths.length,
+  );
   if (!isCurrentLocalRedactionWorkerVersion(conversionResult.workerVersion)
-    || !parseLocalRedactionManifest(
-      conversionResult.localRedactionManifest,
-      convertedSlidePaths.length,
-    )) {
+    || !localManifest
+    || !hasEnoughAutomaticDesignSlides(localManifest)) {
     if (isPdfPortfolioSource(conversionResult)) {
       throw new PortfolioConversionRetryConflict(
         `${PDF_LOCAL_REDACTION_ERROR_CODE}: ${PDF_LOCAL_REDACTION_MESSAGE}`,
