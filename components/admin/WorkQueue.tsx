@@ -195,6 +195,16 @@ function safeReasons(value: unknown) {
   return value.filter((reason): reason is string => typeof reason === "string" && reason.trim().length > 0);
 }
 
+async function readJsonResponse(response: Response): Promise<Record<string, unknown>> {
+  const body = await response.text();
+  if (!body) return {};
+  try {
+    return JSON.parse(body) as Record<string, unknown>;
+  } catch {
+    return {};
+  }
+}
+
 function classifyAspectRatio(ratio: number): Exclude<PortfolioAspectClass, "mixed"> {
   if (Math.abs(ratio - 16 / 9) <= 0.08) return "16:9";
   if (Math.abs(ratio - 4 / 3) <= 0.06) return "4:3";
@@ -473,30 +483,41 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
     setSourceUploadingId(item.id);
     setError("");
     try {
+      const fileBytes = await file.arrayBuffer();
+      const digest = await window.crypto.subtle.digest("SHA-256", fileBytes);
+      const fileHash = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+      const signatureHex = Array.from(new Uint8Array(fileBytes.slice(0, 8)), (byte) => byte.toString(16).padStart(2, "0")).join("");
       const fileDetails = {
         fileName: file.name,
         fileSize: file.size,
         mimeType: file.type,
+        fileHash,
+        signatureHex,
       };
       const prepareResponse = await fetch(`/api/admin/content/${item.id}/portfolio-source`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "prepare", ...fileDetails }),
       });
-      const prepared = await prepareResponse.json();
+      const prepared = await readJsonResponse(prepareResponse);
       if (!prepareResponse.ok) {
-        setError(prepared.error || "원본 업로드를 준비하지 못했습니다.");
+        setError(typeof prepared.error === "string" ? prepared.error : "원본 업로드를 준비하지 못했습니다.");
         return;
       }
 
       const authorization = String(prepared.uploadAuthorization || "");
       const apiKey = authorization.replace(/^Bearer\s+/i, "");
-      const uploadResponse = await fetch(prepared.uploadUrl, {
+      const uploadUrl = String(prepared.uploadUrl || "");
+      if (!uploadUrl || !authorization || !apiKey) {
+        setError("원본 업로드 주소 또는 인증 정보를 받지 못했습니다.");
+        return;
+      }
+      const uploadResponse = await fetch(uploadUrl, {
         method: "PUT",
         headers: {
           Authorization: authorization,
           apikey: apiKey,
-          "Content-Type": prepared.contentType || file.type || "application/octet-stream",
+          "Content-Type": String(prepared.contentType || file.type || "application/octet-stream"),
           "x-upsert": "false",
           "cache-control": "max-age=3600",
         },
@@ -516,9 +537,9 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
           ...fileDetails,
         }),
       });
-      const committed = await commitResponse.json();
+      const committed = await readJsonResponse(commitResponse);
       if (!commitResponse.ok) {
-        setError(committed.error || "업로드한 원본을 작업물에 연결하지 못했습니다.");
+        setError(typeof committed.error === "string" ? committed.error : "업로드한 원본을 작업물에 연결하지 못했습니다.");
         return;
       }
       await load();
