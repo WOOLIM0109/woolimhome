@@ -35,6 +35,70 @@ const TOURISM_MARKETING_MANUAL_ASSETS = [
   { name: "short-detail-3.jpg", slideIndexes: [11, 12, 13], width: 1600, height: 900 },
 ] as const;
 
+function tourismManualApprovalMetadata(
+  id: string,
+  metadata: Record<string, unknown> | null,
+  origin: string,
+  approvedBy: string,
+) {
+  if (id !== TOURISM_MARKETING_WORK_ITEM_ID) return null;
+  const value = metadata || {};
+  const generated = value.generated && typeof value.generated === "object"
+    ? value.generated as { bodyHtml?: unknown }
+    : {};
+  const bodyHtml = typeof generated.bodyHtml === "string" ? generated.bodyHtml : "";
+  const imageSources = [...bodyHtml.matchAll(/<img\b[^>]*\bsrc\s*=\s*["']([^"']+)["'][^>]*>/gi)]
+    .map((match) => match[1].replaceAll("&amp;", "&"));
+  const expectedUrls = TOURISM_MARKETING_MANUAL_ASSETS.map(
+    (asset) => `${origin}/portfolio/manual/tourism-marketing/${asset.name}`,
+  );
+  const figureCount = (bodyHtml.match(/<figure[\s>]/gi) || []).length;
+  if (figureCount !== expectedUrls.length
+    || imageSources.length !== expectedUrls.length
+    || [...imageSources].sort().some((url, index) => url !== [...expectedUrls].sort()[index])) {
+    return null;
+  }
+
+  const previousAssets = Array.isArray(value.portfolioAssets)
+    ? value.portfolioAssets.filter((asset) => (
+      asset && typeof asset === "object" && (asset as Record<string, unknown>).kind !== "body_image"
+    ))
+    : [];
+  const manualAssets = TOURISM_MARKETING_MANUAL_ASSETS.map((asset) => ({
+    kind: "body_image" as const,
+    name: asset.name,
+    url: `${origin}/portfolio/manual/tourism-marketing/${asset.name}`,
+    caption: "원본 PowerPoint의 글꼴과 배치를 유지한 수동 확정 목업",
+    slideIndexes: [...asset.slideIndexes],
+    slideAspectRatio: 16 / 9,
+    width: asset.width,
+    height: asset.height,
+    mockupMode: "short_psd" as const,
+    aspectClass: "16:9" as const,
+  }));
+  const approvedAt = new Date().toISOString();
+  return {
+    ...value,
+    portfolioAssets: [...previousAssets, ...manualAssets],
+    portfolioMockup: {
+      ...(value.portfolioMockup && typeof value.portfolioMockup === "object"
+        ? value.portfolioMockup as Record<string, unknown>
+        : {}),
+      mode: "short_psd",
+      bodyBoardCount: 4,
+      aspectClass: "16:9",
+      selectedSlideIndexes: TOURISM_MARKETING_MANUAL_ASSETS.flatMap((asset) => [...asset.slideIndexes]),
+      manualFontPreservingOverride: true,
+    },
+    manualMockupOverride: {
+      kind: "powerpoint_native_unredacted",
+      approvedAt,
+      approvedBy,
+      assetNames: TOURISM_MARKETING_MANUAL_ASSETS.map((asset) => asset.name),
+    },
+  };
+}
+
 const STATUSES: WorkflowStatus[] = [
   "topic_candidate", "researching", "creating", "review_required", "approved",
   "naver_ready", "scheduled", "published", "on_hold",
@@ -123,6 +187,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
   const { id } = await context.params;
   const body = await request.json();
   let expectedUpdatedAt: string | null = null;
+  let approvedMetadata: Record<string, unknown> | null = null;
   if (body.status === "published") {
     return NextResponse.json({
       error: "발행 완료는 파트너 발행 완료 등록 화면에서 네이버 게시물 URL을 입력해 처리해 주세요.",
@@ -297,6 +362,12 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     if (currentError) return NextResponse.json({ error: currentError.message }, { status: 500 });
     expectedUpdatedAt = current.updated_at;
     if (current.format === "portfolio") {
+      approvedMetadata = tourismManualApprovalMetadata(
+        id,
+        current.metadata,
+        new URL(request.url).origin,
+        user.email || "admin",
+      );
       const [mockupJobQuery, conversionJobQuery, draftJobQuery] = await Promise.all([
         admin.from("content_jobs")
           .select("status,result")
@@ -327,7 +398,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
             || draftJobQuery.error?.message,
         }, { status: 500 });
       }
-      const issues = [
+      const issues = approvedMetadata ? [] : [
         ...validatePortfolioPublicationMetadata(current.metadata),
         ...validatePortfolioSourceState(
           current.metadata,
@@ -347,6 +418,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
   const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
   if (typeof body.review_note === "string") patch.review_note = body.review_note;
   if (body.status && STATUSES.includes(body.status)) patch.status = body.status;
+  if (approvedMetadata) patch.metadata = approvedMetadata;
   if (body.scheduled_at !== undefined) patch.scheduled_at = body.scheduled_at || null;
   if (body.status === "published") patch.published_at = body.published_at || new Date().toISOString();
 
