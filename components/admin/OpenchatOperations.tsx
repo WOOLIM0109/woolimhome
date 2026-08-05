@@ -10,7 +10,14 @@ import OpenchatPushControl from "./OpenchatPushControl";
 type Tab = "morning" | "afternoon" | "sources";
 type SourcePayload = {
   sources: OpenchatSource[];
-  runs: Array<{ id: string; task: string; status: string; started_at: string; error?: string | null }>;
+  runs: Array<{
+    id: string;
+    task: string;
+    status: string;
+    started_at: string;
+    error?: string | null;
+    summary?: Record<string, unknown> | null;
+  }>;
 };
 
 function todayKst() {
@@ -365,7 +372,7 @@ export default function OpenchatOperations() {
               ))}
             </div>
           </div>
-          <div className="card p-6"><h2 className="text-xl font-bold">최근 자동화 기록</h2><div className="mt-5 space-y-3">{sources.runs.map((run) => <div key={run.id} className="rounded-xl bg-[#fff7f1] p-4"><p className="font-bold">{run.task}</p><p className="mt-1 text-xs text-[var(--muted)]">{new Date(run.started_at).toLocaleString("ko-KR")} · {run.status}{run.error ? ` · ${run.error}` : ""}</p></div>)}</div></div>
+          <div className="card p-6"><h2 className="text-xl font-bold">최근 자동화 기록</h2><div className="mt-5 space-y-3">{sources.runs.map((run) => <div key={run.id} className="rounded-xl bg-[#fff7f1] p-4"><p className="font-bold">{run.task}</p><p className="mt-1 text-xs text-[var(--muted)]">{new Date(run.started_at).toLocaleString("ko-KR")} · {run.status}{run.error ? ` · ${run.error}` : ""}</p>{run.summary && Object.keys(run.summary).length > 0 && <details className="mt-3"><summary className="cursor-pointer text-xs font-bold text-[#755847]">실행 결과 상세</summary><pre className="mt-2 overflow-x-auto whitespace-pre-wrap rounded-lg bg-white/80 p-3 text-xs leading-5 text-[#5f5750]">{JSON.stringify(run.summary, null, 2)}</pre></details>}</div>)}</div></div>
         </section>
       )}
     </div>
