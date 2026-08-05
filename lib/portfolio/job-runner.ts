@@ -51,6 +51,10 @@ import {
   type PortfolioTerminalHoldOwner,
 } from "./pipeline-generation";
 import { reflowPortfolioBodyFigures } from "./body-layout";
+import {
+  completedMockupOnlyState,
+  preserveMockupOnlyRestoreState,
+} from "./mockup-only-state";
 
 class PortfolioClaimLost extends Error {
   constructor() {
@@ -1020,15 +1024,7 @@ export async function processNextPortfolioMockup(candidateId?: string) {
     const previousPortfolioAssets = Array.isArray(workItemMetadata.portfolioAssets)
       ? workItemMetadata.portfolioAssets.filter(isGeneratedPortfolioAsset)
       : [];
-    const restoreState = mockupOnly
-      && workItemMetadata.mockupOnlyRestoreState
-      && typeof workItemMetadata.mockupOnlyRestoreState === "object"
-      ? workItemMetadata.mockupOnlyRestoreState as {
-        status?: unknown;
-        summary?: unknown;
-        reviewNote?: unknown;
-      }
-      : null;
+    const restoreState = mockupOnly ? workItemMetadata.mockupOnlyRestoreState : null;
     const refreshedGenerated = mockupOnly
       ? replaceGeneratedPortfolioBodyAssets(
         workItemMetadata.generated,
@@ -1070,16 +1066,14 @@ export async function processNextPortfolioMockup(candidateId?: string) {
     if (mockupOnly && (!preservedDraftJob || preservedDraftJob.status !== "completed")) {
       throw new Error("본문을 유지할 수 있는 완료된 초안 작업을 찾지 못했습니다.");
     }
-    const restoredStatus = typeof restoreState?.status === "string"
-      && ["review_required", "approved", "on_hold"].includes(restoreState.status)
-      ? restoreState.status
-      : workItem.status;
-    const restoredSummary = typeof restoreState?.summary === "string"
-      ? restoreState.summary
-      : workItem.summary;
-    const restoredReviewNote = typeof restoreState?.reviewNote === "string"
-      ? restoreState.reviewNote
-      : workItem.review_note;
+    const completedMockupState = completedMockupOnlyState({
+      restoreState,
+      currentStatus: workItem.status,
+      currentReviewNote: workItem.review_note,
+    });
+    const restoredStatus = completedMockupState.status;
+    const restoredSummary = completedMockupState.summary;
+    const restoredReviewNote = completedMockupState.reviewNote;
 
     // The job CAS is the durable winner election. No candidate, work-item, or
     // review asset is made visible until this exact runner owns completion.
@@ -2718,11 +2712,12 @@ export async function retryPortfolioConversion(
         portfolioSourceInvalidatedAt: now,
         ...(options.preserveDraft ? {
           preservePortfolioDraftDuringConversion: true,
-          mockupOnlyRestoreState: {
+          mockupOnlyRestoreState: preserveMockupOnlyRestoreState({
+            existing: metadata.mockupOnlyRestoreState,
             status: workItem.status,
             summary: workItem.summary,
             reviewNote: workItem.review_note,
-          },
+          }),
         } : {}),
       },
       updated_at: now,
