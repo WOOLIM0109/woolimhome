@@ -750,16 +750,35 @@ export async function processNextPortfolioMockup(candidateId?: string) {
 
   const checkpoint = async (values: Record<string, unknown>) => {
     result = { ...result, ...values };
-    const { data: checkpointedJob, error } = await admin.from("content_jobs").update({
-      result,
-      updated_at: new Date().toISOString(),
-    }).eq("id", job.id)
-      .eq("status", "running")
-      .eq("started_at", claimStartedAt)
-      .select("id")
-      .maybeSingle();
-    if (error) throw new Error(error.message);
-    if (!checkpointedJob) throw new PortfolioClaimLost();
+    const writeCheckpoint = () => admin.from("content_jobs").update({
+        result,
+        updated_at: new Date().toISOString(),
+      }).eq("id", job.id)
+        .eq("status", "running")
+        .eq("started_at", claimStartedAt)
+        .select("id")
+        .maybeSingle();
+    let lastCheckpointError: unknown = null;
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      try {
+        const { data: checkpointedJob, error } = await Promise.race([
+          writeCheckpoint(),
+          new Promise<never>((_, reject) => setTimeout(
+            () => reject(new Error(`CHECKPOINT_TIMEOUT: attempt ${attempt}/3`)),
+            20_000,
+          )),
+        ]);
+        if (error) throw new Error(error.message);
+        if (!checkpointedJob) throw new PortfolioClaimLost();
+        return;
+      } catch (error) {
+        if (error instanceof PortfolioClaimLost) throw error;
+        lastCheckpointError = error;
+      }
+    }
+    throw lastCheckpointError instanceof Error
+      ? lastCheckpointError
+      : new Error("CHECKPOINT_FAILED");
   };
 
   const assertClaim = async () => {
