@@ -359,6 +359,7 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
   const [rebuildingId, setRebuildingId] = useState<string | null>(null);
   const [regeneratingId, setRegeneratingId] = useState<string | null>(null);
   const [sourceUploadingId, setSourceUploadingId] = useState<string | null>(null);
+  const [sourceLinks, setSourceLinks] = useState<Record<string, string>>({});
   const [rewritingStyle, setRewritingStyle] = useState(false);
   const [styleResult, setStyleResult] = useState("");
 
@@ -554,6 +555,32 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
       setError(uploadError instanceof Error
         ? uploadError.message
         : "원본 연결 중 네트워크 오류가 발생했습니다.");
+    } finally {
+      setSourceUploadingId(null);
+    }
+  }
+
+  async function connectPortfolioSourceLink(item: WorkItem) {
+    const shareUrl = sourceLinks[item.id]?.trim();
+    if (!shareUrl) {
+      setError("네이버웍스 공유 주소를 입력해주세요.");
+      return;
+    }
+    setSourceUploadingId(item.id);
+    setError("");
+    try {
+      const response = await fetch(`/api/admin/content/${item.id}/portfolio-source`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "connect_link", shareUrl }),
+      });
+      const data = await readJsonResponse(response);
+      if (!response.ok) {
+        setError(typeof data.error === "string" ? data.error : "공유 원본을 연결하지 못했습니다.");
+        return;
+      }
+      setSourceLinks((current) => ({ ...current, [item.id]: "" }));
+      await load();
     } finally {
       setSourceUploadingId(null);
     }
@@ -818,26 +845,51 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
               {item.format === "portfolio" && (
                 <>
                   {!item.metadata?.candidateId && (
-                    <label
-                      className="inline-flex cursor-pointer items-center gap-2 rounded-xl border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-950 hover:bg-emerald-100 has-[:disabled]:cursor-wait has-[:disabled]:opacity-60"
-                      aria-disabled={sourceUploadingId === item.id}
-                    >
-                      <input
-                        type="file"
-                        accept=".ppt,.pptx,.pptm,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation"
-                        className="sr-only"
-                        disabled={sourceUploadingId === item.id}
-                        onChange={(event) => {
-                          const file = event.currentTarget.files?.[0];
-                          event.currentTarget.value = "";
-                          if (file) void connectPortfolioSource(item, file);
-                        }}
-                      />
-                      <Upload size={15} />
-                      {sourceUploadingId === item.id
-                        ? "원본 연결·재생성 요청 중…"
-                        : "원본 PPT 연결 후 재생성"}
-                    </label>
+                    <>
+                      <div className="flex min-w-[320px] flex-1 flex-wrap justify-end gap-2">
+                        <input
+                          type="url"
+                          aria-label={`${item.title} 네이버웍스 공유 주소`}
+                          className="min-w-[250px] flex-1 rounded-xl border border-emerald-200 bg-white px-3 py-2 text-xs"
+                          placeholder="https://works.do/..."
+                          value={sourceLinks[item.id] || ""}
+                          disabled={sourceUploadingId === item.id}
+                          onChange={(event) => setSourceLinks((current) => ({
+                            ...current,
+                            [item.id]: event.target.value,
+                          }))}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => void connectPortfolioSourceLink(item)}
+                          disabled={sourceUploadingId === item.id}
+                          className="inline-flex items-center gap-2 rounded-xl border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-950 hover:bg-emerald-100 disabled:cursor-wait disabled:opacity-60"
+                        >
+                          <Upload size={15} />
+                          {sourceUploadingId === item.id ? "공유 원본 연결 중…" : "공유 주소로 원본 연결"}
+                        </button>
+                      </div>
+                      <label
+                        className="inline-flex cursor-pointer items-center gap-2 rounded-xl border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-950 hover:bg-emerald-100 has-[:disabled]:cursor-wait has-[:disabled]:opacity-60"
+                        aria-disabled={sourceUploadingId === item.id}
+                      >
+                        <input
+                          type="file"
+                          accept=".ppt,.pptx,.pptm,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation"
+                          className="sr-only"
+                          disabled={sourceUploadingId === item.id}
+                          onChange={(event) => {
+                            const file = event.currentTarget.files?.[0];
+                            event.currentTarget.value = "";
+                            if (file) void connectPortfolioSource(item, file);
+                          }}
+                        />
+                        <Upload size={15} />
+                        {sourceUploadingId === item.id
+                          ? "원본 연결·재생성 요청 중…"
+                          : "원본 PPT 연결 후 재생성"}
+                      </label>
+                    </>
                   )}
                   {isPortfolioConversionHold(item) && (
                     <button
