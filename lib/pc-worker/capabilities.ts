@@ -1,5 +1,5 @@
 export const LOCAL_REDACTION_WORKER_CAPABILITY = "powerpoint_selective_redaction_manifest_v2";
-export const MIN_LOCAL_REDACTION_WORKER_VERSION = "2.5.3";
+export const MIN_LOCAL_REDACTION_WORKER_VERSION = "2.5.4";
 
 function numericVersion(value: unknown) {
   if (typeof value !== "string") return null;
