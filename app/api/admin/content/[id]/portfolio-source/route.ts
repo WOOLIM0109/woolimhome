@@ -82,7 +82,7 @@ async function downloadWorksPowerPoint(value: string): Promise<LinkedPowerPoint>
   if (landingUrl.protocol !== "https:" || landingUrl.hostname !== "kr1-link.drive.worksmobile.com") {
     throw new Error("허용된 네이버웍스 공유 주소가 아닙니다.");
   }
-  const shareMatch = landingUrl.pathname.match(/^\/shared-link\/web\/pubFLink\/([^/]+)$/);
+  const shareMatch = landingUrl.pathname.match(/^\/shared-link\/web\/pubFLink\/([^/]+)\/?$/);
   if (!shareMatch) throw new Error("공개 파일 공유 주소 형식을 확인해주세요.");
   const shareKey = shareMatch[1];
   const resourceLocation = "24101";
