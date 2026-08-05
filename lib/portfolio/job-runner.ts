@@ -866,6 +866,7 @@ export async function processNextPortfolioMockup(candidateId?: string) {
         || (cachedReview.selection
           && cachedReview.slideAssessments?.length >= slidePaths.length)),
     );
+    console.info(`[portfolio-mockup] review cache ${cachedReviewComplete ? "hit" : "miss"} candidate=${job.candidate_id}`);
     const review = cachedReviewComplete
       ? cachedReview as PortfolioVisualReview
       : await createLocalPortfolioReview({
@@ -873,6 +874,7 @@ export async function processNextPortfolioMockup(candidateId?: string) {
         slidePaths,
         sourceHint: `${candidate.project_name || ""} ${conversionResult.originalFileName || ""}`,
       });
+    console.info(`[portfolio-mockup] review ready candidate=${job.candidate_id}`);
     await checkpoint({
       visualReview: review,
       slideAssessmentsProgress: review.slideAssessments,

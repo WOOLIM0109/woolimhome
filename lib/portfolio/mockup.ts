@@ -198,6 +198,7 @@ async function loadSlides(input: {
   for (let offset = 0; offset < input.indexes.length; offset += concurrency) {
     const batch = await Promise.all(input.indexes.slice(offset, offset + concurrency).map(loadOne));
     values.push(...batch.filter((slide): slide is LoadedSlide => Boolean(slide)));
+    console.info(`[portfolio-mockup] loaded ${values.length}/${input.indexes.length} slide(s)`);
   }
   return values;
 }
@@ -561,6 +562,7 @@ export async function createPortfolioMockups(input: {
   localRedactionManifest: LocalRedactionManifest;
   onRedactionProof?: (proof: PortfolioSlideRedactionProof[]) => Promise<void> | void;
 }) {
+  console.info(`[portfolio-mockup] starting candidate=${input.candidateId} slides=${input.slidePaths.length}`);
   const plan = portfolioMockupIndexes(
     input.slidePaths.length,
     input.review,
@@ -585,6 +587,7 @@ export async function createPortfolioMockups(input: {
     indexes: plan.indexes,
     sensitiveRegions: localRedactionRegions(input.localRedactionManifest, plan.indexes),
   });
+  console.info(`[portfolio-mockup] redacted and loaded ${slides.length} slide(s)`);
   if (slides.length < 5) throw new Error("다중 페이지 목업을 만들 장표가 5장 미만입니다.");
   const slideMap = new Map(slides.map((slide) => [slide.index, slide]));
   const selectedSlides = plan.selectedIndexes
@@ -605,6 +608,7 @@ export async function createPortfolioMockups(input: {
     throw new Error("모든 선정 장표의 로컬 기밀 블러가 실제 이미지에 적용되었는지 확인하지 못했습니다.");
   }
   if (input.onRedactionProof) await input.onRedactionProof(redactionProof);
+  console.info(`[portfolio-mockup] persisted redaction proof for ${redactionProof.length} slide(s)`);
   const groupSlides = plan.groups.map((group) => group
     .map((index) => slideMap.get(index))
     .filter((slide): slide is LoadedSlide => Boolean(slide)));
@@ -660,6 +664,7 @@ export async function createPortfolioMockups(input: {
       mockupMode: "six_grid" as const,
       aspectClass: aspect.aspectClass,
     })));
+  console.info(`[portfolio-mockup] rendered ${bodyOutputs.length} body board(s)`);
   const outputs = [
     {
       kind: "thumbnail" as const,
@@ -682,6 +687,7 @@ export async function createPortfolioMockups(input: {
   for (const output of outputs) {
     const path = `${base}/${output.name}`;
     await uploadAsset(input.bucket, path, output.bytes);
+    console.info(`[portfolio-mockup] uploaded ${output.name}`);
     assets.push({
       kind: output.kind,
       bucket: input.bucket,
