@@ -2428,14 +2428,41 @@ export async function rebuildPortfolioDraft(workItemId: string) {
   if (workItem.status === "creating") {
     const { data: activeJobs, error: activeJobsError } = await admin
       .from("content_jobs")
-      .select("id,job_type,status,attempts,next_retry_at,error_message")
+      .select("id,job_type,status,attempts,next_retry_at,error_message,started_at,updated_at")
       .eq("candidate_id", candidateId)
       .in("job_type", ["mockup", "draft"]);
     if (activeJobsError) throw new Error(activeJobsError.message);
     const activeMockup = activeJobs?.find((job) => job.job_type === "mockup");
     const activeDraft = activeJobs?.find((job) => job.job_type === "draft");
     if (activeMockup?.status === "running") {
-      return { workItemId, candidateId, status: "creating", alreadyRunning: true };
+      const activeUpdatedAt = Date.parse(activeMockup.updated_at || activeMockup.started_at || "");
+      const manuallyRecoverable = Number.isFinite(activeUpdatedAt)
+        && activeUpdatedAt <= Date.now() - 5 * 60 * 1000;
+      if (!manuallyRecoverable) {
+        return { workItemId, candidateId, status: "creating", alreadyRunning: true };
+      }
+      const recoveredAt = new Date().toISOString();
+      const { data: recoveredMockup, error: recoverMockupError } = await admin
+        .from("content_jobs")
+        .update({
+          status: "failed",
+          attempts: 0,
+          started_at: null,
+          completed_at: null,
+          next_retry_at: null,
+          error_message: "ADMIN_STALE_MOCKUP_RECOVERY: 관리자 요청으로 5분 이상 멈춘 목업 작업을 다시 시작합니다.",
+          updated_at: recoveredAt,
+        })
+        .eq("id", activeMockup.id)
+        .eq("status", "running")
+        .eq("updated_at", activeMockup.updated_at)
+        .select("id")
+        .maybeSingle();
+      if (recoverMockupError) throw new Error(recoverMockupError.message);
+      if (!recoveredMockup) throw new PortfolioRebuildConflict();
+      const resumed = await processNextPortfolioMockup(candidateId);
+      if (resumed) return resumed;
+      throw new Error("멈춘 포트폴리오 목업 작업을 다시 시작하지 못했습니다.");
     }
     if (activeMockup?.status === "queued" || activeMockup?.status === "failed") {
       if (activeMockup.next_retry_at && new Date(activeMockup.next_retry_at).getTime() > Date.now()) {
