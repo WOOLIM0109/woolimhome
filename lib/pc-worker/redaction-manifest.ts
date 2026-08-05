@@ -139,9 +139,11 @@ export function inspectLocalRedactionSlideSafety(
     || unionCoverage > MAX_AUTOMATIC_REDACTION_UNION_COVERAGE;
   return {
     slideIndex: slide.slideIndex,
+    // Large photos and dense body layouts can legitimately require a large
+    // selective mask. Only a true full-slide mask would reproduce the old
+    // blanket-blur failure and must block automatic design.
     safeForAutomaticDesign: slide.inspectionStatus === "verified"
-      && !hasFullSlideRegion
-      && !hasOversizedRegion,
+      && !hasFullSlideRegion,
     hasFullSlideRegion,
     hasOversizedRegion,
     maxRegionCoverage,
