@@ -8,9 +8,11 @@ import type { WorkflowStatus } from "@/lib/content-ops/types";
 import { parseStoredAssetUrl } from "@/lib/partner-portal";
 import {
   PortfolioConversionRetryConflict,
+  PortfolioDraftRecoveryUnavailable,
   PortfolioRebuildConflict,
   rebuildPortfolioDraft,
   rebuildPortfolioMockupsOnly,
+  restorePortfolioDraft,
   retryPortfolioConversion,
   retryPortfolioDraft,
 } from "@/lib/portfolio/job-runner";
@@ -23,6 +25,14 @@ import { geminiRetryDecision } from "@/lib/gemini/client";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
+
+const TOURISM_MARKETING_WORK_ITEM_ID = "6579c77c-86fd-4b6a-9e65-654394597c8f";
+const TOURISM_MARKETING_MANUAL_ASSETS = [
+  { name: "short-main.jpg", slideIndexes: [2, 4, 5, 9, 10], width: 1600, height: 1600 },
+  { name: "short-detail-1.jpg", slideIndexes: [0, 1, 3], width: 1600, height: 900 },
+  { name: "short-detail-2.jpg", slideIndexes: [6, 7, 8], width: 1600, height: 900 },
+  { name: "short-detail-3.jpg", slideIndexes: [11, 12, 13], width: 1600, height: 900 },
+] as const;
 
 const STATUSES: WorkflowStatus[] = [
   "topic_candidate", "researching", "creating", "review_required", "approved",
@@ -170,6 +180,32 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
       return NextResponse.json({
         error: error instanceof Error ? error.message : "포트폴리오 본문을 다시 만들지 못했습니다.",
       }, { status: 500 });
+    }
+  }
+  if (body.action === "restore_portfolio_draft") {
+    try {
+      const origin = new URL(request.url).origin;
+      const bodyAssets = id === TOURISM_MARKETING_WORK_ITEM_ID
+        ? TOURISM_MARKETING_MANUAL_ASSETS.map((asset) => ({
+          kind: "body_image" as const,
+          name: asset.name,
+          url: `${origin}/portfolio/manual/tourism-marketing/${asset.name}`,
+          caption: "원본 PowerPoint의 글꼴과 배치를 유지한 수동 확정 목업",
+          slideIndexes: [...asset.slideIndexes],
+          slideAspectRatio: 16 / 9,
+          width: asset.width,
+          height: asset.height,
+          mockupMode: "short_psd" as const,
+          aspectClass: "16:9" as const,
+        }))
+        : undefined;
+      return NextResponse.json(await restorePortfolioDraft(id, { bodyAssets }));
+    } catch (error) {
+      return NextResponse.json({
+        error: error instanceof Error ? error.message : "기존 포트폴리오 본문을 복구하지 못했습니다.",
+      }, {
+        status: error instanceof PortfolioDraftRecoveryUnavailable ? 409 : 500,
+      });
     }
   }
   if (body.action === "rebuild_portfolio_mockups") {

@@ -33,6 +33,7 @@ import {
   yieldPortfolioCheckpointIfNeeded,
 } from "./checkpoint";
 import { isCurrentLocalRedactionWorkerVersion } from "../pc-worker/capabilities";
+import { sanitizeGeneratedHtml, sanitizeInlineHtml } from "../security/html";
 import {
   isCompletePortfolioSourceDownload,
   portfolioConversionRecoveryState,
@@ -1899,6 +1900,231 @@ export async function processNextPortfolioDraft(candidateId?: string) {
     });
     throw error;
   }
+}
+
+type RecoverablePortfolioDraft = {
+  title: string;
+  summary: string;
+  bodyHtml: string;
+  faq: { question: string; answer: string }[];
+  tags: string[];
+  imageCaptions: string[];
+};
+
+type PortfolioDraftRecoveryAsset = {
+  kind: "body_image";
+  name: string;
+  url: string;
+  caption: string;
+  slideIndexes: number[];
+  slideAspectRatio: number;
+  width: number;
+  height: number;
+  mockupMode: "short_psd";
+  aspectClass: "16:9";
+};
+
+export class PortfolioDraftRecoveryUnavailable extends Error {
+  constructor() {
+    super("복구할 수 있는 기존 본문 저장본을 찾지 못했습니다. 현재 데이터는 변경하지 않았습니다.");
+    this.name = "PortfolioDraftRecoveryUnavailable";
+  }
+}
+
+function recoverablePortfolioDraft(value: unknown): RecoverablePortfolioDraft | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const candidate = value as Record<string, unknown>;
+  if (typeof candidate.bodyHtml !== "string" || !candidate.bodyHtml.trim()) return null;
+  const faq = Array.isArray(candidate.faq)
+    ? candidate.faq.flatMap((entry) => {
+      if (!entry || typeof entry !== "object" || Array.isArray(entry)) return [];
+      const item = entry as Record<string, unknown>;
+      if (typeof item.question !== "string" || typeof item.answer !== "string") return [];
+      return [{
+        question: sanitizeInlineHtml(item.question),
+        answer: sanitizeInlineHtml(item.answer),
+      }];
+    })
+    : [];
+  return {
+    title: typeof candidate.title === "string" ? candidate.title : "",
+    summary: typeof candidate.summary === "string" ? candidate.summary : "",
+    bodyHtml: sanitizeGeneratedHtml(candidate.bodyHtml),
+    faq,
+    tags: Array.isArray(candidate.tags)
+      ? candidate.tags.filter((tag): tag is string => typeof tag === "string")
+      : [],
+    imageCaptions: Array.isArray(candidate.imageCaptions)
+      ? candidate.imageCaptions.filter((caption): caption is string => typeof caption === "string")
+      : [],
+  };
+}
+
+function replaceRecoveredDraftFigures(
+  bodyHtml: string,
+  assets: PortfolioDraftRecoveryAsset[],
+  fallbackCaptions: string[],
+) {
+  if (!assets.length) return bodyHtml;
+  let index = 0;
+  const replaced = bodyHtml.replace(/<figure\b[^>]*>[\s\S]*?<\/figure>/gi, (figure) => {
+    const asset = assets[index];
+    if (!asset) return "";
+    const previousCaption = figure.match(/<figcaption\b[^>]*>([\s\S]*?)<\/figcaption>/i)?.[1]
+      ?.replace(/<[^>]+>/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+    const caption = sanitizeInlineHtml(
+      previousCaption || fallbackCaptions[index] || asset.caption,
+    );
+    index += 1;
+    return `<figure><img src="${asset.url}" alt="${caption}" loading="lazy" /><figcaption>${caption}</figcaption></figure>`;
+  });
+  if (index >= assets.length) return replaced;
+  const missing = assets.slice(index).map((asset, offset) => {
+    const caption = sanitizeInlineHtml(fallbackCaptions[index + offset] || asset.caption);
+    return `<figure><img src="${asset.url}" alt="${caption}" loading="lazy" /><figcaption>${caption}</figcaption></figure>`;
+  }).join("");
+  return `${replaced}${missing}`;
+}
+
+export async function restorePortfolioDraft(
+  workItemId: string,
+  options: { bodyAssets?: PortfolioDraftRecoveryAsset[] } = {},
+) {
+  const admin = contentAdmin();
+  const { data: workItem, error: workItemError } = await admin.from("content_work_items")
+    .select("id,title,summary,format,status,metadata,updated_at")
+    .eq("id", workItemId)
+    .single();
+  if (workItemError) throw new Error(workItemError.message);
+  if (workItem.format !== "portfolio") throw new PortfolioDraftRecoveryUnavailable();
+  if (workItem.status === "published") {
+    throw new Error("이미 발행된 포트폴리오 본문은 자동 복구로 변경할 수 없습니다.");
+  }
+
+  const metadata = (workItem.metadata || {}) as Record<string, unknown>;
+  const currentDraft = recoverablePortfolioDraft(metadata.generated);
+  if (currentDraft) {
+    return { workItemId, status: workItem.status, alreadyPresent: true, restored: false };
+  }
+
+  const { data: jobs, error: jobsError } = await admin.from("content_jobs")
+    .select("id,status,result,updated_at")
+    .eq("work_item_id", workItemId)
+    .eq("job_type", "draft")
+    .order("updated_at", { ascending: false });
+  if (jobsError) throw new Error(jobsError.message);
+
+  let recovered: RecoverablePortfolioDraft | null = null;
+  let recoveredValidation: unknown = null;
+  let recoveredJob: NonNullable<typeof jobs>[number] | null = null;
+  for (const job of jobs || []) {
+    const result = job.result && typeof job.result === "object" && !Array.isArray(job.result)
+      ? job.result as Record<string, unknown>
+      : {};
+    const progress = result.portfolioDraftProgress
+      && typeof result.portfolioDraftProgress === "object"
+      && !Array.isArray(result.portfolioDraftProgress)
+      ? result.portfolioDraftProgress as Record<string, unknown>
+      : null;
+    recovered = recoverablePortfolioDraft(result.generated)
+      || recoverablePortfolioDraft(progress?.generated);
+    if (!recovered) continue;
+    recoveredValidation = result.validation || progress?.validation || metadata.validation || null;
+    recoveredJob = job;
+    break;
+  }
+  if (!recovered || !recoveredJob) throw new PortfolioDraftRecoveryUnavailable();
+
+  const bodyAssets = options.bodyAssets || [];
+  const generated = {
+    ...recovered,
+    bodyHtml: sanitizeGeneratedHtml(replaceRecoveredDraftFigures(
+      recovered.bodyHtml,
+      bodyAssets,
+      recovered.imageCaptions,
+    )),
+  };
+  const previousAssets = Array.isArray(metadata.portfolioAssets)
+    ? metadata.portfolioAssets.filter((asset) => (
+      asset && typeof asset === "object" && (asset as Record<string, unknown>).kind !== "body_image"
+    ))
+    : [];
+  const now = new Date().toISOString();
+  const nextMetadata = {
+    ...metadata,
+    generated,
+    ...(recoveredValidation ? { validation: recoveredValidation } : {}),
+    ...(bodyAssets.length ? { portfolioAssets: [...previousAssets, ...bodyAssets] } : {}),
+    portfolioStage: "draft_completed",
+    draftRetryAt: null,
+    draftLastErrorCode: null,
+    draftRecoveredAt: now,
+    draftRecoverySourceJobId: recoveredJob.id,
+  };
+
+  const { data: updatedWorkItem, error: updateError } = await admin.from("content_work_items")
+    .update({
+      title: generated.title || workItem.title,
+      summary: generated.summary || workItem.summary,
+      status: "review_required",
+      review_note: "기존 저장 본문을 그대로 복구하고 현재 목업 이미지만 적용했습니다.",
+      metadata: nextMetadata,
+      updated_at: now,
+    })
+    .eq("id", workItemId)
+    .eq("updated_at", workItem.updated_at)
+    .select("id")
+    .maybeSingle();
+  if (updateError) throw new Error(updateError.message);
+  if (!updatedWorkItem) throw new PortfolioRebuildConflict();
+
+  if (bodyAssets.length) {
+    const { error: deleteAssetError } = await admin.from("content_review_assets")
+      .delete()
+      .eq("work_item_id", workItemId)
+      .eq("asset_type", "body_image");
+    if (deleteAssetError) throw new Error(deleteAssetError.message);
+    const { error: insertAssetError } = await admin.from("content_review_assets").insert(
+      bodyAssets.map((asset, index) => ({
+        work_item_id: workItemId,
+        asset_type: "body_image",
+        public_url: asset.url,
+        sort_order: index + 1,
+        approved: false,
+        review_note: `${asset.caption} · 원본 슬라이드 ${asset.slideIndexes.map((value) => value + 1).join(", ")}`,
+      })),
+    );
+    if (insertAssetError) throw new Error(insertAssetError.message);
+  }
+
+  const recoveredResult = recoveredJob.result && typeof recoveredJob.result === "object"
+    ? recoveredJob.result as Record<string, unknown>
+    : {};
+  const { error: jobUpdateError } = await admin.from("content_jobs").update({
+    status: "completed",
+    completed_at: now,
+    next_retry_at: null,
+    last_error_code: null,
+    error_message: null,
+    result: {
+      ...recoveredResult,
+      generated,
+      ...(recoveredValidation ? { validation: recoveredValidation } : {}),
+      recoveredAt: now,
+    },
+    updated_at: now,
+  }).eq("id", recoveredJob.id);
+  if (jobUpdateError) throw new Error(jobUpdateError.message);
+
+  return {
+    workItemId,
+    status: "review_required" as const,
+    restored: true,
+    bodyLength: generated.bodyHtml.replace(/<[^>]+>/g, " ").replace(/\s/g, "").length,
+    bodyAssetCount: bodyAssets.length,
+  };
 }
 
 export async function retryPortfolioDraft(workItemId: string) {
