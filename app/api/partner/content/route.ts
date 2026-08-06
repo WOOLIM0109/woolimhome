@@ -18,6 +18,7 @@ type GeneratedContent = {
   bodyHtml?: string;
   faq?: { question: string; answer: string }[];
   tags?: string[];
+  sourceUrls?: string[];
 };
 
 type ReviewAsset = {
@@ -113,6 +114,7 @@ export async function GET(request: Request) {
         copyHtml: replaceFiguresWithMarkers(originalBodyHtml),
         faq: Array.isArray(generated.faq) ? generated.faq : [],
         tags: Array.isArray(generated.tags) ? generated.tags : [],
+        sourceUrls: Array.isArray(generated.sourceUrls) ? generated.sourceUrls : [],
         assets: uploadableAssets.map((asset) => {
           const order = asset.asset_type === "thumbnail"
             ? ++thumbnailNumber

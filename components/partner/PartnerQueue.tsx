@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { faqAnswerHtml, faqQuestionHtml } from "@/lib/content-ops/editorial-style";
 import { formatSentenceLineBreaks } from "@/lib/content-ops/sentence-line-breaks";
+import { sourceSectionHtml } from "@/lib/content-ops/source-section";
 
 type PartnerChannel = "naver_consulting" | "naver_design";
 type PartnerStatusView = "pending" | "published";
@@ -35,6 +36,7 @@ type PartnerItem = {
   copyHtml: string;
   faq: { question: string; answer: string }[];
   tags: string[];
+  sourceUrls: string[];
   assets: {
     id: string;
     type: "thumbnail" | "body_image" | "article_preview";
@@ -383,7 +385,8 @@ export default function PartnerQueue({ onUnauthorized }: { onUnauthorized: () =>
         <div className="mt-6 space-y-6">
           {visibleItems.map((item) => {
             const faqHtml = buildFaqHtml(item.faq);
-            const fullHtml = `${item.copyHtml}${faqHtml}`;
+            const sourcesHtml = sourceSectionHtml(item.sourceUrls);
+            const fullHtml = `${item.copyHtml}${faqHtml}${sourcesHtml}`;
             const tags = item.tags.map((tag) => `#${tag.replace(/^#/, "")}`).join(" ");
             const isPublished = item.status === "published";
 
@@ -506,6 +509,12 @@ export default function PartnerQueue({ onUnauthorized }: { onUnauthorized: () =>
                           </div>
                         ))}
                       </section>
+                    )}
+                    {sourcesHtml && (
+                      <div
+                        className="column-body mt-8 border-t border-[var(--line)] pt-6"
+                        dangerouslySetInnerHTML={{ __html: sourcesHtml }}
+                      />
                     )}
                   </details>
 

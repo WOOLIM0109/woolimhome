@@ -1,4 +1,5 @@
 const SENTENCE_END = /([.!?。？！](?:["'”’」』)\]]*)?)(?:[ \t\r\n]+|$)/g;
+const SENTENCE_BREAK_COUNT = 2;
 
 function addBreaksToTextNodes(parsedDocument: Document, container: Element) {
   const walker = parsedDocument.createTreeWalker(container, NodeFilter.SHOW_TEXT);
@@ -20,7 +21,9 @@ function addBreaksToTextNodes(parsedDocument: Document, container: Element) {
         && /^[A-Z0-9]$/i.test(value[0]);
       if (isShortLabel) continue;
       fragment.append(parsedDocument.createTextNode(value.slice(cursor, match.index) + match[1]));
-      fragment.append(parsedDocument.createElement("br"));
+      for (let index = 0; index < SENTENCE_BREAK_COUNT; index += 1) {
+        fragment.append(parsedDocument.createElement("br"));
+      }
       cursor = match.index + match[0].length;
     }
     fragment.append(parsedDocument.createTextNode(value.slice(cursor)));

@@ -6,6 +6,7 @@ import StatusBadge from "./StatusBadge";
 import type { ContentChannel, WorkflowStatus } from "@/lib/content-ops/types";
 import { faqAnswerHtml, faqQuestionHtml } from "@/lib/content-ops/editorial-style";
 import { formatSentenceLineBreaks } from "@/lib/content-ops/sentence-line-breaks";
+import { sourceSectionHtml } from "@/lib/content-ops/source-section";
 
 type PortfolioMockupMode = "short_psd" | "six_grid";
 type PortfolioAspectClass = "16:9" | "4:3" | "a4_landscape" | "a4_portrait" | "mixed" | "unknown";
@@ -58,6 +59,7 @@ type WorkItem = {
         displayAnswerHtml?: string;
       }[];
       tags?: string[];
+      sourceUrls?: string[];
     };
     portfolioReview?: {
       suitable?: boolean;
@@ -849,6 +851,12 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
               <summary className="cursor-pointer font-bold">이미지가 배치된 글 전체 미리보기</summary>
               <div className="column-body mt-5" dangerouslySetInnerHTML={{ __html: item.metadata.generated.bodyHtml }} />
               {item.metadata.generated.faq?.length ? <section className="mt-7 border-t border-[var(--line)] pt-5"><h3 className="text-lg font-bold">FAQ</h3>{item.metadata.generated.faq.map((faq) => <div key={faq.question} className="mt-4"><p className="font-bold" dangerouslySetInnerHTML={{ __html: faq.displayQuestionHtml || faqQuestionHtml(faq.question) }} /><p className="mt-1 text-sm leading-6 text-[var(--muted)]" dangerouslySetInnerHTML={{ __html: faq.displayAnswerHtml || faqAnswerHtml(faq.answer) }} /></div>)}</section> : null}
+              {item.metadata.generated.sourceUrls?.length ? (
+                <div
+                  className="column-body mt-7 border-t border-[var(--line)] pt-5"
+                  dangerouslySetInnerHTML={{ __html: sourceSectionHtml(item.metadata.generated.sourceUrls) }}
+                />
+              ) : null}
             </details>
           )}
           {reviewMode && (

@@ -3,6 +3,7 @@ import { generateGeminiText, geminiRetryDecision } from "@/lib/gemini/client";
 import { parseGeminiJson } from "@/lib/gemini/json";
 import { researchOfficialFacts } from "@/lib/research/official";
 import { sanitizeGeneratedHtml, sanitizeInlineHtml } from "@/lib/security/html";
+import { conciseStyleIssues } from "@/lib/content-ops/editorial-style";
 import { stripVerificationControlText } from "./verification";
 import type { ColumnFaq, ColumnKind, ColumnSource } from "./types";
 
@@ -190,6 +191,8 @@ export async function generateColumn(input: {
 - [공식 확인 완료] 사실만 사용하고, [공식자료 미확인 · 본문 제외] 항목은 '확인 필요'라고 독자나 대표에게 넘기지 말고 본문에서 제외한다.
 - [외부 조사 불가 · 대표 확인 필요] 항목은 공개 동의가 확인된 승인 원천자료가 아니면 본문에 쓰지 않는다.
 - FAQ는 정확히 3~4개, 질문은 실제 기업 고객의 말로 쓴다.
+- 불필요한 비유와 수식어를 빼고 결론부터 쓴다. 한 문장에는 한 가지 판단이나 행동만 담고, 100자를 넘기기 전에 나눈다.
+- FAQ 답변은 결론부터 1~2문장으로 쓰고 공백 제외 180자를 넘기지 않는다.
 - 목표는 한글 가시문자 3,500자 이상이다. 불필요한 반복으로 늘리지 않는다.
 - HTML은 h2,h3,p,ul,ol,li,strong,blockquote,a 태그만 사용한다.
 - FAQ와 참고자료 섹션은 bodyHtml에 넣지 않는다(시스템이 붙인다).
@@ -281,6 +284,7 @@ ${JSON.stringify(generated)}
     if (charCount < 3000) issues.push(`본문이 짧습니다(${charCount}자).`);
     if (h2Count < 3) issues.push("H2가 3개 미만입니다.");
     if (generated.faqs.length < 3 || generated.faqs.length > 4) issues.push("FAQ는 3~4개여야 합니다.");
+    issues.push(...conciseStyleIssues(generated.bodyHtml, generated.faqs));
     if (usedSources.length < 2) issues.push("독립된 공식 출처가 2개 미만입니다.");
     if (generated.contentKind !== "informational" && !writingKnowledge.length) {
       issues.push("하이브리드·권위형에 필요한 승인된 원천자료가 없습니다.");
