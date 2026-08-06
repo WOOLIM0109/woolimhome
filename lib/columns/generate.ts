@@ -1,5 +1,6 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { generateGeminiText, geminiRetryDecision } from "@/lib/gemini/client";
+import { parseGeminiJson } from "@/lib/gemini/json";
 import { researchOfficialFacts } from "@/lib/research/official";
 import { sanitizeGeneratedHtml, sanitizeInlineHtml } from "@/lib/security/html";
 import { stripVerificationControlText } from "./verification";
@@ -86,10 +87,6 @@ async function suppliedCandidate(url: string): Promise<Candidate | null> {
   } catch {
     return null;
   }
-}
-
-function stripFence(text: string) {
-  return text.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
 }
 
 function visibleText(html: string) {
@@ -240,7 +237,7 @@ JSON만 반환:
       generationConfig: { responseMimeType: "application/json", maxOutputTokens: 32768 },
       timeoutMs: 120_000,
     });
-    return JSON.parse(stripFence(text)) as Generated;
+    return parseGeminiJson<Generated>(text);
   };
 
   try {
