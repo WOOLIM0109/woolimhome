@@ -17,7 +17,7 @@ import { isPartnerReleaseReady } from "@/lib/partner-portal";
 import { generateGeminiJson } from "@/lib/portfolio/gemini";
 import { sanitizeGeneratedHtml, sanitizeInlineHtml } from "@/lib/security/html";
 
-export const FRIENDLY_STYLE_VERSION = "friendly-partner-v1";
+export const FRIENDLY_STYLE_VERSION = "friendly-partner-v2-concise-sources";
 
 type PendingItem = {
   id: string;
@@ -149,7 +149,7 @@ ${JSON.stringify(numericChecklist)}${retry}
       if (nextLength > Math.ceil(originalLength * 1.25)) {
         throw new Error("본문이 원문보다 지나치게 길어졌습니다.");
       }
-      const issues = friendlyStyleIssues(restoredBody);
+      const issues = friendlyStyleIssues(restoredBody, restoredFaq);
       if (issues.length) throw new Error(issues.join(" "));
       return {
         ...generated,

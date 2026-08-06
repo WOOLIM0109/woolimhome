@@ -4,7 +4,7 @@ import { generateGeminiText } from "@/lib/gemini/client";
 import { stripVerificationControlText } from "@/lib/columns/verification";
 import { researchOfficialFacts } from "@/lib/research/official";
 import { PORTFOLIO_WRITING_RULES } from "./portfolio-rules";
-import { FRIENDLY_EDITORIAL_STYLE_RULES } from "./editorial-style";
+import { conciseStyleIssues, FRIENDLY_EDITORIAL_STYLE_RULES } from "./editorial-style";
 import type { EditorialSlot } from "./types";
 import {
   generationCancellationRequested,
@@ -127,7 +127,8 @@ usedKnowledgeIds에는 실제로 활용한 원천자료 id를 최소 1개 넣는
 대표가 무엇을 먼저 보고 무엇을 버리는지, 왜 그렇게 판단하는지, 독자가 어떻게 적용하는지가 드러나야 한다.` : `
 이 글은 정보형 또는 디자인 인사이트형이다. 한 가지 구체적인 고객 문제에 집중한다.
 여러 제도·사업을 한꺼번에 나열한 종합 안내문을 만들지 않는다.
-공식 출처는 실제로 본문에 사용한 2~4개만 sourceUrls에 넣는다.`;
+공식 출처는 실제로 본문에 사용한 2~4개만 sourceUrls에 넣는다.
+sourceUrls는 원고 하단의 출처 섹션으로 자동 표시되므로, 본문에 사용한 공개 공식 URL을 최소 2개 정확히 넣는다.`;
   const revisionRules = revision ? `
 이 작업은 기존 초안의 수정 요청을 반영하는 재작성이다.
 수정 요청: ${revision.note}
@@ -575,7 +576,8 @@ export async function generateContentWorkItem(
         ...(designForbidden ? ["디자인 채널에서 금지된 컨설팅 주제"] : []),
         ...(internalLabel ? ["제목에 내부 채널 표기"] : []),
         ...(authorityMissingKnowledge ? [`${knowledgeFormatLabel(slot)}에 승인된 원천자료가 사용되지 않음`] : []),
-        ...(generated.sourceUrls.length < 1 ? ["개별 조사에서 확인된 공식 출처가 본문에 연결되지 않음"] : []),
+        ...(generated.sourceUrls.length < 2 ? ["본문 하단에 표시할 공식 출처가 2개 미만임"] : []),
+        ...conciseStyleIssues(generated.bodyHtml, generated.faq),
       ];
       const issues = [
         ...structuralIssues,

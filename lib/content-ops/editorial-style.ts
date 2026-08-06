@@ -5,10 +5,15 @@ export const FRIENDLY_EDITORIAL_STYLE_RULES = `
 - 글 전체에서 느낌표는 1~4회, 독자에게 말을 거는 짧은 질문은 1~3회만 사용한다. 이모지는 사용하지 않는다.
 - "오늘날", "빠르게 변화하는", "살펴보겠습니다", "결론적으로", "단순한 A를 넘어 B", "A가 아니라 B입니다"처럼 AI가 반복해서 쓰는 상투적 문장을 피한다.
 - "중요합니다", "필수적입니다", "기대할 수 있습니다" 같은 추상적 종결을 연속으로 사용하지 않는다.
+- 독자의 이해에 필요하지 않은 비유, 수식어, 감탄, 같은 뜻의 반복 설명을 빼고 결론부터 쓴다.
+- 한 문장에는 한 가지 판단이나 행동만 담는다. 가능하면 35~70자 안에서 끝내고, 100자를 넘기기 전에 두 문장으로 나눈다.
+- 짧은 문장과 보통 길이 문장을 섞어 속도감 있게 쓴다. 모든 문장을 같은 길이와 문형으로 맞추지 않는다.
 - 의미 없는 도입과 요약을 줄이고, 구체적인 상황·판단 기준·실행 순서가 바로 드러나게 쓴다.
 - 각 본문 문단에서 독자가 찾아야 할 핵심어 1~2개만 <strong>으로 강조한다. 문장 전체나 문단 전체는 굵게 만들지 않는다.
 - FAQ 질문과 답변 데이터에는 Q. 또는 A. 접두어를 직접 넣지 않는다. 화면과 복사 원고에서 시스템이 한 번만 붙인다.
 - FAQ 답변에서도 꼭 필요한 핵심어만 <strong>으로 강조할 수 있다.
+- FAQ 질문은 한 문장으로 묻고, 답변은 결론부터 1~2문장으로 끝낸다. 예외나 주의사항이 꼭 필요할 때만 한 문장을 더한다.
+- FAQ 답변 하나는 공백 제외 180자를 넘기지 않는다.
 `;
 
 const FAQ_PREFIX = /^\s*(?:<strong>\s*)?[QA]\s*[.．:：]\s*(?:<\/strong>\s*)?/i;
@@ -53,7 +58,48 @@ export function faqAnswerHtml(value: string) {
   return `A. ${safeInlineStrongHtml(value)}`;
 }
 
-export function friendlyStyleIssues(bodyHtml: string) {
+function visibleText(value: string) {
+  return value
+    .replace(/<br\s*\/?>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&(?:nbsp|amp|lt|gt|quot|#39);/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function sentenceLengths(value: string) {
+  const text = visibleText(value);
+  if (!text) return [];
+  return text
+    .split(/[.!?。？！]+(?:["'”’」』)\]]*)?\s*/)
+    .map((sentence) => sentence.replace(/\s/g, "").length)
+    .filter((length) => length > 0);
+}
+
+export function conciseStyleIssues(
+  bodyHtml: string,
+  faq: { question?: string; answer?: string }[] = [],
+) {
+  const lengths = sentenceLengths(bodyHtml);
+  const longSentences = lengths.filter((length) => length > 110).length;
+  const issues: string[] = [];
+  if (longSentences >= Math.max(2, Math.ceil(lengths.length * 0.2))) {
+    issues.push("100자를 크게 넘는 긴 문장이 반복됩니다. 한 문장에 한 가지 내용만 남겨 나누세요.");
+  }
+  const verboseFaq = faq.filter((item) => {
+    const answer = visibleText(item.answer || "");
+    return answer.replace(/\s/g, "").length > 180 || sentenceLengths(answer).length > 3;
+  });
+  if (verboseFaq.length) {
+    issues.push("FAQ 답변이 깁니다. 결론부터 1~2문장, 최대 180자로 줄이세요.");
+  }
+  return issues;
+}
+
+export function friendlyStyleIssues(
+  bodyHtml: string,
+  faq: { question?: string; answer?: string }[] = [],
+) {
   const paragraphCount = (bodyHtml.match(/<p[\s>]/gi) || []).length;
   const strongCount = (bodyHtml.match(/<strong[\s>]/gi) || []).length;
   const plain = bodyHtml.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
@@ -75,5 +121,6 @@ export function friendlyStyleIssues(bodyHtml: string) {
     issues.push("본문 볼드가 너무 많습니다.");
   }
   if (clicheCount > 2) issues.push("AI 상투 표현이 반복됩니다.");
+  issues.push(...conciseStyleIssues(bodyHtml, faq));
   return issues;
 }
