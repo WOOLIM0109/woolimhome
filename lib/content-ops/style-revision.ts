@@ -80,7 +80,9 @@ async function rewriteGenerated(
     faq: faqLocks.map((faq) => ({ question: faq.question.value, answer: faq.answer.value })),
   };
   let lastError: unknown;
-  for (let attempt = 0; attempt < 2; attempt += 1) {
+  // Batch rewrites must finish within the 300-second server window. Each item
+  // gets one fact-preserving pass; failures stay untouched and are reported.
+  for (let attempt = 0; attempt < 1; attempt += 1) {
     const retry = attempt && lastError instanceof Error
       ? `\n직전 결과의 안전검사 문제: ${lastError.message}\n보호 마커와 원문의 사실을 그대로 유지해 다시 작성하세요.`
       : "";
@@ -111,7 +113,7 @@ ${JSON.stringify(input)}
 
 수치 체크리스트:
 ${JSON.stringify(numericChecklist)}${retry}
-` }], { maxOutputTokens: 30000, timeoutMs: 150_000 });
+` }], { maxOutputTokens: 30000, timeoutMs: 120_000 });
     try {
       if (!rewritten || typeof rewritten.summary !== "string" || typeof rewritten.bodyHtml !== "string") {
         throw new Error("말투 수정 결과의 필수 필드가 없습니다.");
