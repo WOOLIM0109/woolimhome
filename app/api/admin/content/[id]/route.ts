@@ -23,7 +23,12 @@ import { resolveRevisionNote } from "@/lib/content-ops/generated-content";
 import type { ContentChannel, ContentFormat, EditorialSlot } from "@/lib/content-ops/types";
 import { retryMissingFontCandidates } from "@/lib/pc-worker/font-retry";
 import { geminiRetryDecision } from "@/lib/gemini/client";
-import { hyundaiManualApprovalMetadata } from "@/lib/portfolio/hyundai-manual-mockups";
+import {
+  correctHyundaiManualContentMetadata,
+  HYUNDAI_MANUAL_MOCKUP_TITLE,
+  isHyundaiManualMockupTitle,
+  hyundaiManualApprovalMetadata,
+} from "@/lib/portfolio/hyundai-manual-mockups";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -349,6 +354,39 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
       status: "approved",
       metadata,
       updated_at: now,
+    }).eq("id", id).select().single();
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json(data);
+  }
+  if (body.action === "correct_hyundai_content") {
+    const admin = contentAdmin();
+    const { data: current, error: currentError } = await admin
+      .from("content_work_items")
+      .select("format,title,metadata,status")
+      .eq("id", id)
+      .single();
+    if (currentError) return NextResponse.json({ error: currentError.message }, { status: 500 });
+    if (current.format !== "portfolio" || !isHyundaiManualMockupTitle(current.title)) {
+      return NextResponse.json({ error: "해당 생활폐기물 입찰제안서 작업을 찾지 못했습니다." }, { status: 404 });
+    }
+    if (current.status === "published") {
+      return NextResponse.json({ error: "이미 발행한 글은 자동으로 수정할 수 없습니다." }, { status: 409 });
+    }
+    const correctedMetadata = correctHyundaiManualContentMetadata(
+      current.metadata,
+      new URL(request.url).origin,
+    );
+    if (!correctedMetadata) {
+      return NextResponse.json({ error: "생활폐기물 입찰제안서 본문을 정정하지 못했습니다." }, { status: 409 });
+    }
+    const generated = correctedMetadata.generated as { summary?: unknown };
+    const summary = typeof generated.summary === "string" ? generated.summary : "";
+    const { data, error } = await admin.from("content_work_items").update({
+      title: HYUNDAI_MANUAL_MOCKUP_TITLE,
+      summary,
+      review_note: "원본 PPT를 기준으로 생활폐기물 수집·운반 대행용역 입찰제안서 내용으로 정정했습니다.",
+      metadata: correctedMetadata,
+      updated_at: new Date().toISOString(),
     }).eq("id", id).select().single();
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     return NextResponse.json(data);

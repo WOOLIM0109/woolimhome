@@ -7,6 +7,7 @@ import type { ContentChannel, WorkflowStatus } from "@/lib/content-ops/types";
 import { faqAnswerHtml, faqQuestionHtml } from "@/lib/content-ops/editorial-style";
 import { formatSentenceLineBreaks } from "@/lib/content-ops/sentence-line-breaks";
 import { sourceSectionHtml } from "@/lib/content-ops/source-section";
+import { HYUNDAI_MANUAL_MOCKUP_LEGACY_TITLE } from "@/lib/portfolio/hyundai-manual-mockups";
 
 type PortfolioMockupMode = "short_psd" | "six_grid";
 type PortfolioAspectClass = "16:9" | "4:3" | "a4_landscape" | "a4_portrait" | "mixed" | "unknown";
@@ -425,7 +426,7 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
 
   async function update(
     id: string,
-    patch: { action?: "regenerate" | "replace_topic" | "release_to_partner" | "retry_missing_fonts" | "retry_portfolio_conversion" | "restore_portfolio_draft" | "reflow_portfolio_images"; status?: WorkflowStatus; review_note?: string },
+    patch: { action?: "regenerate" | "replace_topic" | "release_to_partner" | "retry_missing_fonts" | "retry_portfolio_conversion" | "restore_portfolio_draft" | "reflow_portfolio_images" | "correct_hyundai_content"; status?: WorkflowStatus; review_note?: string },
   ) {
     const regenerating = patch.action === "regenerate"
       || patch.action === "replace_topic"
@@ -433,6 +434,7 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
       || patch.action === "retry_portfolio_conversion"
       || patch.action === "restore_portfolio_draft"
       || patch.action === "reflow_portfolio_images"
+      || patch.action === "correct_hyundai_content"
       || patch.status === "creating";
     if (regenerating) setRegeneratingId(id);
     setError("");
@@ -973,6 +975,18 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
                     >
                       <RotateCcw size={15} className={regeneratingId === item.id ? "animate-spin" : ""} />
                       {regeneratingId === item.id ? "본문 이미지 배치 정리 중…" : "본문 이미지 균등 배치"}
+                    </button>
+                  )}
+                  {item.title === HYUNDAI_MANUAL_MOCKUP_LEGACY_TITLE && (
+                    <button
+                      onClick={() => void update(item.id, { action: "correct_hyundai_content" })}
+                      disabled={regeneratingId === item.id || rebuildingId === item.id || mockupRebuildingId === item.id}
+                      className="inline-flex items-center gap-2 rounded-xl border border-orange-300 bg-orange-50 px-3 py-2 text-xs font-bold text-orange-950 hover:bg-orange-100 disabled:cursor-wait disabled:opacity-60"
+                    >
+                      <Sparkles size={15} />
+                      {regeneratingId === item.id
+                        ? "생활폐기물 입찰 내용 정정 중…"
+                        : "생활폐기물 입찰 내용으로 정정"}
                     </button>
                   )}
                   <button
