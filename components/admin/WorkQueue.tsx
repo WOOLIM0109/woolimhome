@@ -20,6 +20,7 @@ type PortfolioMockupMetadata = {
   redactionRegionCount?: number;
   redactionCoverage?: number;
   redactionStatus?: PortfolioRedactionStatus;
+  manualSelectiveRedaction?: boolean;
 };
 
 type LegacyPortfolioAsset = {
@@ -251,16 +252,19 @@ function PortfolioMockupDetails({ metadata }: { metadata?: WorkItem["metadata"] 
   const aspectClass = isAspectClass(mockup?.aspectClass)
     ? mockup.aspectClass
     : legacyAspectClass(legacyAssets);
-  const canonicalRegionCount = typeof mockup?.redactionRegionCount === "number"
+  const manualSelectiveRedaction = mockup?.manualSelectiveRedaction === true;
+  const canonicalRegionCount = !manualSelectiveRedaction && typeof mockup?.redactionRegionCount === "number"
     && Number.isFinite(mockup.redactionRegionCount)
     && mockup.redactionRegionCount >= 0
     ? Math.floor(mockup.redactionRegionCount)
     : undefined;
-  const legacyRegionCount = Array.isArray(metadata.confidentialRegions)
+  const legacyRegionCount = !manualSelectiveRedaction && Array.isArray(metadata.confidentialRegions)
     ? metadata.confidentialRegions.length
     : undefined;
   const redactionRegionCount = canonicalRegionCount ?? legacyRegionCount;
-  const redactionCoverage = typeof mockup?.redactionCoverage === "number" && Number.isFinite(mockup.redactionCoverage)
+  const redactionCoverage = !manualSelectiveRedaction
+    && typeof mockup?.redactionCoverage === "number"
+    && Number.isFinite(mockup.redactionCoverage)
     ? Math.min(1, Math.max(0, mockup.redactionCoverage))
     : undefined;
   const redactionStatus = isRedactionStatus(mockup?.redactionStatus) ? mockup.redactionStatus : undefined;
@@ -274,6 +278,7 @@ function PortfolioMockupDetails({ metadata }: { metadata?: WorkItem["metadata"] 
     || redactionRegionCount !== undefined
     || redactionCoverage !== undefined
     || redactionStatus
+    || manualSelectiveRedaction
     || hasLegacyRedaction,
   );
 
@@ -301,6 +306,11 @@ function PortfolioMockupDetails({ metadata }: { metadata?: WorkItem["metadata"] 
         {bodyBoardCount !== undefined && (
           <span className="rounded-full bg-white px-3 py-1 text-xs font-bold text-sky-900">
             본문 목업 {bodyBoardCount}장
+          </span>
+        )}
+        {manualSelectiveRedaction && (
+          <span className="rounded-full bg-violet-100 px-3 py-1 text-xs font-bold text-violet-800">
+            관리자 수동 선택 블러
           </span>
         )}
         {redactionRegionCount !== undefined && (

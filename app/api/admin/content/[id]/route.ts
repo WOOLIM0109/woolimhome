@@ -23,6 +23,7 @@ import { resolveRevisionNote } from "@/lib/content-ops/generated-content";
 import type { ContentChannel, ContentFormat, EditorialSlot } from "@/lib/content-ops/types";
 import { retryMissingFontCandidates } from "@/lib/pc-worker/font-retry";
 import { geminiRetryDecision } from "@/lib/gemini/client";
+import { hyundaiManualApprovalMetadata } from "@/lib/portfolio/hyundai-manual-mockups";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -356,7 +357,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     const admin = contentAdmin();
     const { data: current, error: currentError } = await admin
       .from("content_work_items")
-      .select("format,metadata,updated_at")
+      .select("format,title,metadata,updated_at")
       .eq("id", id)
       .single();
     if (currentError) return NextResponse.json({ error: currentError.message }, { status: 500 });
@@ -364,6 +365,11 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     if (current.format === "portfolio") {
       approvedMetadata = tourismManualApprovalMetadata(
         id,
+        current.metadata,
+        new URL(request.url).origin,
+        user.email || "admin",
+      ) || hyundaiManualApprovalMetadata(
+        current.title,
         current.metadata,
         new URL(request.url).origin,
         user.email || "admin",

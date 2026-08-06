@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { authenticatedAdmin, contentAdmin } from "@/lib/content-ops/data";
 import { sanitizeWorkItemMetadata } from "@/lib/security/html";
 import type { WorkflowStatus } from "@/lib/content-ops/types";
+import { applyHyundaiManualMockups } from "@/lib/portfolio/hyundai-manual-mockups";
 
 export const dynamic = "force-dynamic";
 
@@ -38,7 +39,7 @@ function applyManualTourismMockups(item: Record<string, unknown>, origin: string
       asset && typeof asset === "object" && (asset as Record<string, unknown>).asset_type !== "body_image"
     ))
     : [];
-  const manualAssets = TOURISM_MARKETING_MANUAL_ASSETS.map((asset, index) => {
+  const manualAssets = TOURISM_MARKETING_MANUAL_ASSETS.map((asset) => {
     const url = `${origin}/portfolio/manual/tourism-marketing/${asset.name}`;
     return {
       kind: "body_image",
@@ -158,7 +159,10 @@ export async function GET(request: Request) {
   const { data, error } = await query;
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   const items = (data || []).map((rawItem) => {
-    const item = applyManualTourismMockups(rawItem, url.origin);
+    const item = applyHyundaiManualMockups(
+      applyManualTourismMockups(rawItem, url.origin),
+      url.origin,
+    );
     const { content_jobs: contentJobs, ...safeItem } = item;
     return {
       ...safeItem,
