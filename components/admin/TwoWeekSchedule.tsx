@@ -23,6 +23,7 @@ type ScheduleRow = {
   nextRetryAt: string | null;
   retryCount: number;
   lastErrorCode: string | null;
+  errorMessage: string | null;
 };
 
 type AutomationRun = {
@@ -112,6 +113,7 @@ export default function TwoWeekSchedule({
                       </small>
                     )}
                     {row.lastErrorCode && <small className="mt-1 block text-[var(--muted)]">{row.lastErrorCode}</small>}
+                    {row.errorMessage && <small className="mt-1 block max-w-md whitespace-pre-wrap text-red-700">{row.errorMessage}</small>}
                   </td>
                 </tr>
               );

@@ -73,7 +73,7 @@ export async function GET(request: Request) {
     workQuery,
     channelFilter.includes("homepage")
       ? admin.from("column_generation_runs")
-        .select("id,status,model,post_id,request_payload,retry_count,next_retry_at,last_error_code,created_at")
+        .select("id,status,model,post_id,request_payload,retry_count,next_retry_at,last_error_code,error_message,created_at")
         .gte("created_at", new Date(start.getTime() - 24 * 60 * 60 * 1000).toISOString())
         .lt("created_at", end.toISOString())
       : Promise.resolve({ data: [], error: null }),
@@ -112,6 +112,7 @@ export async function GET(request: Request) {
       nextRetryAt: columnRun?.next_retry_at || workItem?.next_retry_at || null,
       retryCount: columnRun?.retry_count || workItem?.retry_count || 0,
       lastErrorCode: columnRun?.last_error_code || workItem?.last_error_code || null,
+      errorMessage: columnRun?.error_message || null,
     };
   });
 
