@@ -76,14 +76,17 @@ async function repairIncompleteMorningPrograms(date: string) {
     .limit(100);
   if (error) throw new Error(error.message);
 
-  const incomplete = (data || []).filter((row) => programDetailIssue({
-    applicantSummary: row.applicant_summary,
-    supportSummary: row.support_summary,
-    applicationMethod: row.application_method,
-    applicationPeriodText: row.application_period_text,
-    startsAt: row.starts_at,
-    deadlineAt: row.deadline_at,
-  })).slice(0, MORNING_PROGRAM_LIMIT);
+  const incomplete = (data || [])
+    .filter((row) => programDetailIssue({
+      applicantSummary: row.applicant_summary,
+      supportSummary: row.support_summary,
+      applicationMethod: row.application_method,
+      applicationPeriodText: row.application_period_text,
+      startsAt: row.starts_at,
+      deadlineAt: row.deadline_at,
+    }))
+    .sort((left, right) => Number(!/k-startup\.go\.kr/i.test(left.source_url)) - Number(!/k-startup\.go\.kr/i.test(right.source_url)))
+    .slice(0, MORNING_PROGRAM_LIMIT);
   if (!incomplete.length) return { attempted: 0, repaired: 0, stillIncomplete: 0, excluded: 0 };
 
   const candidates: CollectedProgram[] = incomplete.map((row) => {
@@ -101,6 +104,11 @@ async function repairIncompleteMorningPrograms(date: string) {
     const message = program.sourcePayload?.detailFetchError;
     return typeof message === "string" ? [{ title: program.title, error: message }] : [];
   });
+  const sourceKeys = [...new Set(hydrated.map((program) => program.sourceKey))];
+  const structured = hydrated.filter((program) => (
+    program.applicantSummary && program.supportSummary && program.applicationMethod
+    && (program.applicationPeriodText || program.deadlineAt)
+  )).length;
   const analyzed = new Array<ReturnType<typeof analyzeProgramDeterministically> | undefined>(hydrated.length);
   const aiCandidates: CollectedProgram[] = [];
   const aiIndexes: number[] = [];
@@ -169,7 +177,7 @@ async function repairIncompleteMorningPrograms(date: string) {
     else if (detailIssue) stillIncomplete += 1;
     else excluded += 1;
   }
-  return { attempted: incomplete.length, repaired, stillIncomplete, excluded, detailFetchFailures };
+  return { attempted: incomplete.length, repaired, stillIncomplete, excluded, detailFetchFailures, sourceKeys, structured };
 }
 
 async function collectMorningPrograms(date: string) {

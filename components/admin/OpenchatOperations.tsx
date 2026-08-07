@@ -131,9 +131,9 @@ export default function OpenchatOperations() {
           : "작업 시간이 초과되었습니다. 한 번 더 실행하면 다음 공고부터 이어서 복구합니다.");
       }
       if (!response.ok) throw new Error(typeof data.error === "string" ? data.error : "작업을 실행하지 못했습니다.");
-      const repair = (task === "morning-repair" ? data : data.repair) as { attempted?: number; repaired?: number; stillIncomplete?: number; excluded?: number; detailFetchFailures?: unknown[] } | undefined;
+      const repair = (task === "morning-repair" ? data : data.repair) as { attempted?: number; repaired?: number; stillIncomplete?: number; excluded?: number; detailFetchFailures?: unknown[]; sourceKeys?: string[]; structured?: number } | undefined;
       setMessage(["morning-collect", "morning-repair"].includes(task) && repair?.attempted
-        ? `누락 공고 ${repair.attempted}건을 다시 확인해 ${repair.repaired || 0}건을 복구했습니다. 핵심정보 부족 ${repair.stillIncomplete || 0}건, 지역·기준 제외 ${repair.excluded || 0}건은 게시 후보에서 제외했습니다.${repair.detailFetchFailures?.length ? ` 원문 접속 실패 ${repair.detailFetchFailures.length}건.` : ""}`
+        ? `누락 공고 ${repair.attempted}건을 다시 확인해 ${repair.repaired || 0}건을 복구했습니다. 구조화 추출 ${repair.structured || 0}건 · 수집처 ${repair.sourceKeys?.join(", ") || "미확인"}. 핵심정보 부족 ${repair.stillIncomplete || 0}건, 지역·기준 제외 ${repair.excluded || 0}건은 게시 후보에서 제외했습니다.${repair.detailFetchFailures?.length ? ` 원문 접속 실패 ${repair.detailFetchFailures.length}건.` : ""}`
         : "작업이 완료되었습니다.");
       await load();
     } catch (runError) {
