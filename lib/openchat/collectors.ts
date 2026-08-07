@@ -128,6 +128,66 @@ export function extractKStartupDetail(html: string) {
   };
 }
 
+function cleanMarkdownText(value: string) {
+  return value
+    .replace(/\[([^\]]+)]\([^)]+\)/g, "$1")
+    .replace(/^\s*[#>*]+\s*/gm, "")
+    .replace(/^\s*[-*]\s+/gm, "- ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function markdownBlock(markdown: string, startPattern: RegExp, stopPatterns: RegExp[]) {
+  const start = markdown.match(startPattern);
+  if (typeof start?.index !== "number") return "";
+  const contentStart = start.index + start[0].length;
+  const rest = markdown.slice(contentStart);
+  const stops = stopPatterns
+    .map((pattern) => rest.search(pattern))
+    .filter((index) => index >= 0);
+  return rest.slice(0, stops.length ? Math.min(...stops) : undefined).trim();
+}
+
+export function extractKStartupMarkdown(markdown: string) {
+  const applicationPeriodText = cleanMarkdownText(markdownBlock(
+    markdown,
+    /^\s*\*\s+신청기간\s*$/im,
+    [/^\s*\*\s+신청방법\s*$/im, /^\s*\*\s+신청대상\s*$/im],
+  ));
+  const methodBlock = cleanMarkdownText(markdownBlock(
+    markdown,
+    /^\s*\*\s+신청방법\s*$/im,
+    [/^\s*\*\s+신청대상\s*$/im, /^\s*\*\s+제외대상\s*$/im],
+  ));
+  const applicantSummary = cleanMarkdownText(markdownBlock(
+    markdown,
+    /^\s*\*\s+신청대상\s*$/im,
+    [/^\s*\*\s+제외대상\s*$/im, /^\s*\*\s+신청 시 요청/im, /^\s*제출서류\s*$/im],
+  ));
+  const supportSummary = cleanMarkdownText(markdownBlock(
+    markdown,
+    /^\s*지원내용\s*$/im,
+    [/^\s*문의처\s*$/im, /^\s*K-Startup에 공고되는 정보/im],
+  ));
+  const applicationMethod = /이메일\s*접수[^\n]*/i.test(methodBlock)
+    ? methodBlock.match(/이메일\s*접수[^\n]*/i)?.[0] || methodBlock
+    : methodBlock || "K-Startup 온라인 접수";
+  return {
+    applicantSummary,
+    supportSummary,
+    applicationMethod,
+    applicationPeriodText,
+    startsAt: kStartupIsoDate(applicationPeriodText, 0),
+    deadlineAt: kStartupIsoDate(applicationPeriodText, 1, true),
+    rawText: cleanMarkdownText(markdown).slice(0, 16_000),
+  };
+}
+
+function kStartupReaderUrl(sourceUrl: string) {
+  const url = new URL(sourceUrl);
+  return `https://r.jina.ai/http://${url.host}${url.pathname}${url.search}`;
+}
+
 function extractRelevantPageText(html: string) {
   const main = html.match(/<main\b[^>]*>([\s\S]*?)<\/main>/i)?.[1]
     || html.match(/<div\b[^>]*id=["'](?:content|contents|container)["'][^>]*>([\s\S]*?)<\/div>\s*(?:<footer|$)/i)?.[1];
@@ -322,7 +382,34 @@ async function hydrateCandidate(program: CollectedProgram) {
   try {
     const html = await fetchText(program.url);
     if (program.sourceKey === "kstartup") {
-      return { ...program, ...extractKStartupDetail(html) };
+      const detail = extractKStartupDetail(html);
+      if (detail.applicantSummary && detail.supportSummary && detail.applicationPeriodText) {
+        return { ...program, ...detail };
+      }
+      try {
+        const markdown = await fetchText(kStartupReaderUrl(program.url));
+        const readerDetail = extractKStartupMarkdown(markdown);
+        return {
+          ...program,
+          ...detail,
+          applicantSummary: detail.applicantSummary || readerDetail.applicantSummary,
+          supportSummary: detail.supportSummary || readerDetail.supportSummary,
+          applicationMethod: detail.applicationMethod || readerDetail.applicationMethod,
+          applicationPeriodText: detail.applicationPeriodText || readerDetail.applicationPeriodText,
+          startsAt: detail.startsAt || readerDetail.startsAt,
+          deadlineAt: detail.deadlineAt || readerDetail.deadlineAt,
+          rawText: detail.rawText || readerDetail.rawText,
+        };
+      } catch (readerError) {
+        return {
+          ...program,
+          ...detail,
+          sourcePayload: {
+            ...(program.sourcePayload || {}),
+            detailReaderError: readerError instanceof Error ? readerError.message : "보조 본문 확인 실패",
+          },
+        };
+      }
     }
     return { ...program, rawText: extractRelevantPageText(html) };
   } catch (error) {
