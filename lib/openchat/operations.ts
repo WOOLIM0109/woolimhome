@@ -101,8 +101,10 @@ async function repairIncompleteMorningPrograms(date: string) {
   });
   const hydrated = await hydratePrograms(candidates, MORNING_PROGRAM_LIMIT);
   const detailFetchFailures = hydrated.flatMap((program) => {
-    const message = program.sourcePayload?.detailFetchError;
-    return typeof message === "string" ? [{ title: program.title, error: message }] : [];
+    const directError = program.sourcePayload?.detailFetchError;
+    const readerError = program.sourcePayload?.detailReaderError;
+    const message = typeof directError === "string" ? directError : typeof readerError === "string" ? readerError : null;
+    return message ? [{ title: program.title, error: message }] : [];
   });
   const sourceKeys = [...new Set(hydrated.map((program) => program.sourceKey))];
   const structured = hydrated.filter((program) => (

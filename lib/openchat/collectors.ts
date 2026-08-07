@@ -188,6 +188,19 @@ function kStartupReaderUrl(sourceUrl: string) {
   return `https://r.jina.ai/http://${url.host}${url.pathname}${url.search}`;
 }
 
+async function fetchKStartupReader(sourceUrl: string) {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      return await fetchText(kStartupReaderUrl(sourceUrl));
+    } catch (error) {
+      lastError = error;
+      if (attempt === 0) await new Promise((resolve) => setTimeout(resolve, 1_500));
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error("보조 본문 확인 실패");
+}
+
 function extractRelevantPageText(html: string) {
   const main = html.match(/<main\b[^>]*>([\s\S]*?)<\/main>/i)?.[1]
     || html.match(/<div\b[^>]*id=["'](?:content|contents|container)["'][^>]*>([\s\S]*?)<\/div>\s*(?:<footer|$)/i)?.[1];
@@ -387,7 +400,7 @@ async function hydrateCandidate(program: CollectedProgram) {
         return { ...program, ...detail };
       }
       try {
-        const markdown = await fetchText(kStartupReaderUrl(program.url));
+        const markdown = await fetchKStartupReader(program.url);
         const readerDetail = extractKStartupMarkdown(markdown);
         return {
           ...program,
@@ -438,8 +451,9 @@ export async function collectSource(source: OpenchatSource) {
 export async function hydratePrograms(programs: CollectedProgram[], limit = 30) {
   const selected = programs.slice(0, limit);
   const hydrated: CollectedProgram[] = [];
-  for (let index = 0; index < selected.length; index += 5) {
-    hydrated.push(...await Promise.all(selected.slice(index, index + 5).map(hydrateCandidate)));
+  const batchSize = selected.some((program) => program.sourceKey === "kstartup") ? 2 : 5;
+  for (let index = 0; index < selected.length; index += batchSize) {
+    hydrated.push(...await Promise.all(selected.slice(index, index + batchSize).map(hydrateCandidate)));
   }
   return hydrated;
 }
