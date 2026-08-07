@@ -6,7 +6,7 @@ import type { OpenchatCronTask } from "@/lib/openchat/types";
 export const maxDuration = 300;
 
 const TASKS: OpenchatCronTask[] = [
-  "morning-collect", "morning-draft-notify", "morning-approval-reminder", "morning-cutoff", "morning-ready",
+  "morning-collect", "morning-repair", "morning-draft-notify", "morning-approval-reminder", "morning-cutoff", "morning-ready",
   "afternoon-draft", "afternoon-cutoff", "afternoon-ready",
 ];
 

@@ -399,6 +399,9 @@ export async function executeOpenchatTask(task: OpenchatCronTask, requestedDate?
     }
     let summary: Record<string, unknown>;
     switch (task) {
+      case "morning-repair":
+        summary = await repairIncompleteMorningPrograms(date);
+        break;
       case "morning-collect":
         summary = await collectMorningPrograms(date);
         break;

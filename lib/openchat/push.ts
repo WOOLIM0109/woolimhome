@@ -3,6 +3,10 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import type { OpenchatCronTask } from "./types";
 
 const NOTIFICATIONS: Record<OpenchatCronTask, { title: string; body: (summary: Record<string, unknown>) => string }> = {
+  "morning-repair": {
+    title: "지원사업 누락정보 복구 완료",
+    body: (summary) => `누락 공고 ${Number(summary.repaired || 0)}건을 복구했습니다.`,
+  },
   "morning-collect": {
     title: "지원사업 수집 완료",
     body: (summary) => `신규 검토 대상 ${Number(summary.newPrograms || 0)}건이 수집되었습니다.`,
@@ -49,7 +53,7 @@ function configure() {
 }
 
 export async function sendOpenchatNotification(task: OpenchatCronTask, summary: Record<string, unknown>) {
-  if (task === "morning-collect") return { sent: 0, skipped: "오전 9시 초안 알림에서 안내" };
+  if (task === "morning-collect" || task === "morning-repair") return { sent: 0, skipped: "관리자 수동 작업" };
   if (!configure()) return { sent: 0, skipped: "VAPID 키 미설정" };
   const admin = createAdminClient();
   const { data, error } = await admin.from("openchat_push_subscriptions")

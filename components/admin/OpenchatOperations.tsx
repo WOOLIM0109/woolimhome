@@ -131,9 +131,9 @@ export default function OpenchatOperations() {
           : "작업 시간이 초과되었습니다. 한 번 더 실행하면 다음 공고부터 이어서 복구합니다.");
       }
       if (!response.ok) throw new Error(typeof data.error === "string" ? data.error : "작업을 실행하지 못했습니다.");
-      const repair = data.repair as { attempted?: number; repaired?: number; stillIncomplete?: number; excluded?: number } | undefined;
-      setMessage(task === "morning-collect" && repair?.attempted
-        ? `누락 공고 ${repair.attempted}건을 다시 확인해 ${repair.repaired || 0}건을 복구했습니다. 여전히 핵심정보가 부족한 ${repair.stillIncomplete || 0}건은 게시 후보에서 제외했습니다.`
+      const repair = (task === "morning-repair" ? data : data.repair) as { attempted?: number; repaired?: number; stillIncomplete?: number; excluded?: number } | undefined;
+      setMessage(["morning-collect", "morning-repair"].includes(task) && repair?.attempted
+        ? `누락 공고 ${repair.attempted}건을 다시 확인해 ${repair.repaired || 0}건을 복구했습니다. 핵심정보 부족 ${repair.stillIncomplete || 0}건, 지역·기준 제외 ${repair.excluded || 0}건은 게시 후보에서 제외했습니다.`
         : "작업이 완료되었습니다.");
       await load();
     } catch (runError) {
@@ -343,7 +343,8 @@ export default function OpenchatOperations() {
               <p className="mt-1 text-sm text-orange-900/80">승인 {selectedPrograms.length}/{MORNING_PROGRAM_LIMIT}건 · 검토 후보 {reviewPrograms.length}건 · 오전 10:15 미승인 공고는 다음 영업일로 이월</p>
             </div>
             <div className="flex flex-wrap gap-2">
-              <button onClick={() => void run("morning-collect")} disabled={Boolean(busy)} className="inline-flex items-center gap-2 rounded-xl bg-orange-700 px-4 py-3 text-sm font-bold text-white disabled:opacity-60"><Play size={16} /> 수집·누락 복구</button>
+              <button onClick={() => void run("morning-repair")} disabled={Boolean(busy)} className="inline-flex items-center gap-2 rounded-xl bg-orange-700 px-4 py-3 text-sm font-bold text-white disabled:opacity-60"><RefreshCw size={16} /> 누락만 복구</button>
+              <button onClick={() => void run("morning-collect")} disabled={Boolean(busy)} className="inline-flex items-center gap-2 rounded-xl border border-orange-300 bg-white px-4 py-3 text-sm font-bold disabled:opacity-60"><Play size={16} /> 신규 공고 수집</button>
               <button onClick={() => void copy(formatMorningPost(selectedPrograms, date))} disabled={!selectedPrograms.length} className="inline-flex items-center gap-2 rounded-xl border border-orange-300 bg-white px-4 py-3 text-sm font-bold disabled:opacity-50"><Clipboard size={16} /> 게시문 복사</button>
             </div>
           </div>
