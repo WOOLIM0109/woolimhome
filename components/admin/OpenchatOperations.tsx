@@ -26,6 +26,14 @@ function todayKst() {
   }).format(new Date());
 }
 
+function initialWorkDate() {
+  if (typeof window !== "undefined") {
+    const requested = new URLSearchParams(window.location.search).get("date");
+    if (requested && /^20\d{2}-\d{2}-\d{2}$/.test(requested)) return requested;
+  }
+  return todayKst();
+}
+
 function statusClass(status: string) {
   if (["approved", "ready", "published"].includes(status)) return "bg-emerald-50 text-emerald-800";
   if (["excluded", "on_hold"].includes(status)) return "bg-red-50 text-red-800";
@@ -35,7 +43,7 @@ function statusClass(status: string) {
 
 export default function OpenchatOperations() {
   const [tab, setTab] = useState<Tab>("morning");
-  const [date, setDate] = useState(todayKst);
+  const [date, setDate] = useState(initialWorkDate);
   const [programs, setPrograms] = useState<OpenchatProgram[]>([]);
   const [deferredPrograms, setDeferredPrograms] = useState<OpenchatProgram[]>([]);
   const [draft, setDraft] = useState<OpenchatContentDraft | null>(null);
