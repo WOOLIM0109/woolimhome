@@ -1,5 +1,5 @@
 import { createAdminClient } from "@/lib/supabase/admin";
-import { analyzePrograms, generateAfternoonContent } from "./ai";
+import { analyzeProgramDeterministically, analyzePrograms, generateAfternoonContent } from "./ai";
 import { collectSource, hydratePrograms } from "./collectors";
 import { MORNING_PROGRAM_LIMIT } from "./config";
 import { sendOpenchatNotification } from "./push";
@@ -65,7 +65,7 @@ async function repairIncompleteMorningPrograms(date: string) {
     .eq("draft_for", date)
     .in("status", ["collected", "review_required", "approved", "deferred", "excluded", "ready"])
     .order("priority")
-    .limit(30);
+    .limit(100);
   if (error) throw new Error(error.message);
 
   const incomplete = (data || []).filter((row) => programDetailIssue({
@@ -75,7 +75,7 @@ async function repairIncompleteMorningPrograms(date: string) {
     applicationPeriodText: row.application_period_text,
     startsAt: row.starts_at,
     deadlineAt: row.deadline_at,
-  }));
+  })).slice(0, MORNING_PROGRAM_LIMIT);
   if (!incomplete.length) return { attempted: 0, repaired: 0, stillIncomplete: 0, excluded: 0 };
 
   const candidates: CollectedProgram[] = incomplete.map((row) => {
@@ -88,8 +88,25 @@ async function repairIncompleteMorningPrograms(date: string) {
       sourcePayload: row.raw_payload || {},
     };
   });
-  const hydrated = await hydratePrograms(candidates, 30);
-  const analyzed = await analyzePrograms(hydrated);
+  const hydrated = await hydratePrograms(candidates, MORNING_PROGRAM_LIMIT);
+  const analyzed = new Array<ReturnType<typeof analyzeProgramDeterministically> | undefined>(hydrated.length);
+  const aiCandidates: CollectedProgram[] = [];
+  const aiIndexes: number[] = [];
+  hydrated.forEach((program, index) => {
+    if (program.sourceKey === "kstartup" && program.applicantSummary && program.supportSummary
+      && program.applicationMethod && (program.applicationPeriodText || program.deadlineAt)) {
+      analyzed[index] = analyzeProgramDeterministically(program);
+    } else {
+      aiCandidates.push(program);
+      aiIndexes.push(index);
+    }
+  });
+  if (aiCandidates.length) {
+    const aiResults = await analyzePrograms(aiCandidates);
+    aiResults.forEach((program, index) => {
+      analyzed[aiIndexes[index]] = program;
+    });
+  }
   let repaired = 0;
   let stillIncomplete = 0;
   let excluded = 0;

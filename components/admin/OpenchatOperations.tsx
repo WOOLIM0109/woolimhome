@@ -121,8 +121,16 @@ export default function OpenchatOperations() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ task, date }),
       });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || "작업을 실행하지 못했습니다.");
+      const responseText = await response.text();
+      let data: Record<string, unknown>;
+      try {
+        data = JSON.parse(responseText) as Record<string, unknown>;
+      } catch {
+        throw new Error(response.ok
+          ? "작업 응답을 읽지 못했습니다. 잠시 후 다시 시도해 주세요."
+          : "작업 시간이 초과되었습니다. 한 번 더 실행하면 다음 공고부터 이어서 복구합니다.");
+      }
+      if (!response.ok) throw new Error(typeof data.error === "string" ? data.error : "작업을 실행하지 못했습니다.");
       const repair = data.repair as { attempted?: number; repaired?: number; stillIncomplete?: number; excluded?: number } | undefined;
       setMessage(task === "morning-collect" && repair?.attempted
         ? `누락 공고 ${repair.attempted}건을 다시 확인해 ${repair.repaired || 0}건을 복구했습니다. 여전히 핵심정보가 부족한 ${repair.stillIncomplete || 0}건은 게시 후보에서 제외했습니다.`

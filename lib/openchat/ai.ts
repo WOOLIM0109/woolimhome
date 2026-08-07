@@ -195,6 +195,10 @@ ${JSON.stringify(compact)}`) as { programs?: Array<Record<string, unknown>> };
   });
 }
 
+export function analyzeProgramDeterministically(program: CollectedProgram) {
+  return fallbackProgramAnalysis(program);
+}
+
 export async function analyzePrograms(programs: CollectedProgram[]) {
   const analyzed: ProgramAnalysis[] = [];
   for (let index = 0; index < programs.length; index += 5) {
