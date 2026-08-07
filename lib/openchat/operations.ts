@@ -93,8 +93,7 @@ async function repairIncompleteMorningPrograms(date: string) {
   const aiCandidates: CollectedProgram[] = [];
   const aiIndexes: number[] = [];
   hydrated.forEach((program, index) => {
-    if (program.sourceKey === "kstartup" && program.applicantSummary && program.supportSummary
-      && program.applicationMethod && (program.applicationPeriodText || program.deadlineAt)) {
+    if (program.sourceKey === "kstartup") {
       analyzed[index] = analyzeProgramDeterministically(program);
     } else {
       aiCandidates.push(program);
