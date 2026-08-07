@@ -55,6 +55,95 @@ function unique(programs: CollectedProgram[]) {
   });
 }
 
+function cleanTitle(value: string) {
+  return normalizeText(value)
+    .replace(/\s*새로운\s*게시글\s*$/i, "")
+    .trim();
+}
+
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function textAfterKStartupLabel(html: string, label: string) {
+  const escaped = escapeRegExp(label);
+  const paragraph = html.match(new RegExp(
+    `<p\\s+class=["']tit["'][^>]*>\\s*${escaped}\\s*</p>\\s*<p\\s+class=["']txt["'][^>]*>([\\s\\S]*?)</p>`,
+    "i",
+  ));
+  if (paragraph?.[1]) return normalizeText(paragraph[1]);
+
+  const block = html.match(new RegExp(
+    `<p\\s+class=["']tit["'][^>]*>\\s*${escaped}\\s*</p>([\\s\\S]*?)(?=<li\\b[^>]*class=["'][^"']*dot_list|<p\\s+class=["']tit["']|<p\\s+class=["']title["']|$)`,
+    "i",
+  ));
+  return normalizeText(block?.[1] || "");
+}
+
+function kStartupSectionText(html: string, title: string) {
+  const escaped = escapeRegExp(title);
+  const section = html.match(new RegExp(
+    `<p\\s+class=["']title["'][^>]*>\\s*${escaped}\\s*</p>([\\s\\S]*?)(?=<div\\s+class=["']information_list["']|<div\\s+style=["']margin-top|$)`,
+    "i",
+  ));
+  return normalizeText(section?.[1] || "");
+}
+
+function kStartupIsoDate(value: string, occurrence: number, endOfDay = false) {
+  const matches = [...value.matchAll(/(20\d{2})[.\-/년\s]+(\d{1,2})[.\-/월\s]+(\d{1,2})(?:일)?(?:\([^)]*\))?\s*(\d{1,2}:\d{2})?/g)];
+  const match = matches[occurrence];
+  if (!match) return null;
+  const [, year, month, day, time] = match;
+  const clock = time || (endOfDay ? "23:59" : "00:00");
+  return `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}T${clock}:00+09:00`;
+}
+
+export function extractKStartupDetail(html: string) {
+  const applicantSummary = textAfterKStartupLabel(html, "신청대상");
+  const applicationPeriodText = textAfterKStartupLabel(html, "신청기간");
+  const applicationMethod = textAfterKStartupLabel(html, "신청방법")
+    .replace(/접수\s*바로가기/g, "")
+    .replace(/-->/g, "")
+    .replace(/\s*:\s*$/, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  const supportSummary = kStartupSectionText(html, "지원내용");
+  const overview = html.match(/<p\s+class=["']txt["'][^>]*>([\s\S]*?)<\/p>\s*<p\s+class=["']date["']/i)?.[1] || "";
+  const rawText = [
+    `공고 개요: ${normalizeText(overview)}`,
+    `신청기간: ${applicationPeriodText}`,
+    `신청방법: ${applicationMethod}`,
+    `신청대상: ${applicantSummary}`,
+    `지원내용: ${supportSummary}`,
+  ].filter((value) => !/:\s*$/.test(value)).join("\n");
+
+  return {
+    applicantSummary,
+    supportSummary,
+    applicationMethod,
+    applicationPeriodText,
+    startsAt: kStartupIsoDate(applicationPeriodText, 0),
+    deadlineAt: kStartupIsoDate(applicationPeriodText, 1, true),
+    rawText,
+  };
+}
+
+function extractRelevantPageText(html: string) {
+  const main = html.match(/<main\b[^>]*>([\s\S]*?)<\/main>/i)?.[1]
+    || html.match(/<div\b[^>]*id=["'](?:content|contents|container)["'][^>]*>([\s\S]*?)<\/div>\s*(?:<footer|$)/i)?.[1];
+  if (main) return normalizeText(main).slice(0, 32_000);
+
+  const plain = normalizeText(html);
+  const keywords = ["신청기간", "접수기간", "신청대상", "지원대상", "지원내용", "지원금액", "접수방법"];
+  const excerpts: string[] = [];
+  for (const keyword of keywords) {
+    const index = plain.indexOf(keyword);
+    if (index < 0) continue;
+    excerpts.push(plain.slice(Math.max(0, index - 300), index + 4_000));
+  }
+  return [...new Set(excerpts)].join("\n").slice(0, 32_000) || plain.slice(0, 32_000);
+}
+
 async function collectBizinfo(source: OpenchatSource) {
   const html = await fetchText(source.listing_url);
   const rows: CollectedProgram[] = [];
@@ -79,7 +168,7 @@ async function collectKStartup(source: OpenchatSource) {
   for (const match of html.matchAll(pattern)) {
     const externalId = match[1];
     const titleBlock = match[2];
-    const title = normalizeText(titleBlock.match(/<p\s+class=["']tit["'][^>]*>([\s\S]*?)<\/p>/i)?.[1] || titleBlock);
+    const title = cleanTitle(titleBlock.match(/<p\s+class=["']tit["'][^>]*>([\s\S]*?)<\/p>/i)?.[1] || titleBlock);
     if (!title || !PROGRAM_KEYWORDS.test(title)) continue;
     const url = `https://www.k-startup.go.kr/web/contents/bizpbanc-ongoing.do?pbancClssCd=PBC010&schM=view&pbancSn=${externalId}`;
     rows.push({ sourceKey: source.source_key, externalId, title, url });
@@ -232,7 +321,10 @@ async function hydrateCandidate(program: CollectedProgram) {
   if (program.rawText) return program;
   try {
     const html = await fetchText(program.url);
-    return { ...program, rawText: normalizeText(html).slice(0, 12_000) };
+    if (program.sourceKey === "kstartup") {
+      return { ...program, ...extractKStartupDetail(html) };
+    }
+    return { ...program, rawText: extractRelevantPageText(html) };
   } catch (error) {
     return {
       ...program,

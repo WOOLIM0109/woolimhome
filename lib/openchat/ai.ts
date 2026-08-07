@@ -76,19 +76,24 @@ export type ProgramAnalysis = {
 function fallbackProgramAnalysis(program: CollectedProgram): ProgramAnalysis {
   const payload = program.sourcePayload || {};
   const title = program.title;
-  const otherRegion = /^\s*[\[【(](서울|경기|인천|대전|대구|광주|세종|강원|충북|충남|전북|전남|경북|제주)[^\]】)]*[\]】)]/i.test(title);
+  const applicantText = program.applicantSummary || "";
+  const otherPlace = /(서울|경기|인천|대전|대구|광주|세종|강원|충북|충남|전북|전남|경북|제주|구미|이천|하남|화성)/i;
+  const directOtherRegion = new RegExp(`${otherPlace.source}(?:시|도)?\\s*(?:내|관내)?\\s*(?:소재|거주|주소|사업장|본사|이전)`, "i").test(applicantText);
+  const regionalCenterRelocation = /(본점|주소지).{0,60}(센터|창업보육)|센터.{0,60}(본점|주소지)/i.test(applicantText)
+    && !/(부산|울산|경남|창원|김해|양산|진주|거제|통영)/i.test(`${title} ${applicantText}`);
+  const otherRegion = directOtherRegion || regionalCenterRelocation;
   const unsupportedEvent = /(시상|유공포상|아이디어\s*공모전|설명회|세미나|포럼)/.test(title)
     && !/(지원금|사업화|R&D|연구개발|바우처|정책자금|시제품)/i.test(title);
   const region = /부산/.test(title) || program.sourceKey.startsWith("busan") ? "부산"
     : /울산/.test(title) ? "울산"
       : /경남|창원/.test(title) ? "경남"
         : "전국";
-  const applicant = typeof payload.sprtBizTrgtNm === "string" ? payload.sprtBizTrgtNm
+  const applicant = program.applicantSummary || (typeof payload.sprtBizTrgtNm === "string" ? payload.sprtBizTrgtNm
     : typeof payload.applicantType === "string" ? payload.applicantType
-      : "공고별 신청 요건을 충족하는 예비창업자·소상공인·중소기업";
-  const purpose = typeof payload.txtDc === "string" ? payload.txtDc
+      : "");
+  const purpose = program.supportSummary || (typeof payload.txtDc === "string" ? payload.txtDc
     : typeof payload.category === "string" ? `${payload.category} 분야 지원`
-      : "세부 지원 내용과 금액은 원문 공고문 확인 필요";
+      : "");
   const sourcePriority: Record<string, number> = {
     kstartup: 10,
     bizinfo: 15,
@@ -103,10 +108,10 @@ function fallbackProgramAnalysis(program: CollectedProgram): ProgramAnalysis {
     url: program.url,
     keep: !otherRegion && !unsupportedEvent,
     exclusionReason: otherRegion ? "부울경 외 지역 한정 공고" : unsupportedEvent ? "지원 없는 행사·포상 공고" : "",
-    applicantSummary: `- ${applicant}`,
-    supportSummary: `- ${purpose}`,
-    applicationMethod: program.applicationMethod || "접수방법은 원문 공고문 참조",
-    applicationPeriodText: payload.rcritEndChk === "Y" ? "-공고일로부터 예산 소진 시까지" : "",
+    applicantSummary: applicant ? `- ${applicant.replace(/^-\s*/, "")}` : "",
+    supportSummary: purpose ? `- ${purpose.replace(/^-\s*/, "")}` : "",
+    applicationMethod: program.applicationMethod || "",
+    applicationPeriodText: program.applicationPeriodText || (payload.rcritEndChk === "Y" ? "-공고일로부터 예산 소진 시까지" : ""),
     startsAt: program.startsAt,
     deadlineAt: program.deadlineAt,
     regions: [region],
@@ -115,24 +120,9 @@ function fallbackProgramAnalysis(program: CollectedProgram): ProgramAnalysis {
   };
 }
 
-export async function analyzePrograms(programs: CollectedProgram[]) {
+async function analyzeProgramBatch(programs: CollectedProgram[]) {
   if (!process.env.GEMINI_API_KEY) {
-    return programs.map((program): ProgramAnalysis => ({
-      sourceKey: program.sourceKey,
-      externalId: program.externalId,
-      title: program.title,
-      url: program.url,
-      keep: true,
-      applicantSummary: "- 신청 대상은 공고문 확인이 필요합니다.",
-      supportSummary: "- 지원 내용은 공고문 확인이 필요합니다.",
-      applicationMethod: program.applicationMethod || "접수방법은 공고문 참조",
-      applicationPeriodText: "",
-      startsAt: program.startsAt,
-      deadlineAt: program.deadlineAt,
-      regions: [],
-      categories: [],
-      priority: 100,
-    }));
+    return programs.map(fallbackProgramAnalysis);
   }
 
   const compact = programs.map((program, index) => ({
@@ -144,6 +134,9 @@ export async function analyzePrograms(programs: CollectedProgram[]) {
     knownStartsAt: program.startsAt || null,
     knownDeadlineAt: program.deadlineAt || null,
     knownApplicationMethod: program.applicationMethod || null,
+    knownApplicantSummary: program.applicantSummary || null,
+    knownSupportSummary: program.supportSummary || null,
+    knownApplicationPeriodText: program.applicationPeriodText || null,
     text: (program.rawText || program.title).slice(0, 8_000),
   }));
   let result: { programs?: Array<Record<string, unknown>> };
@@ -164,7 +157,8 @@ export async function analyzePrograms(programs: CollectedProgram[]) {
 - 본문 근거가 부족해 공고 여부를 판단할 수 없는 탐색 메뉴
 
 절대 추측하지 말고 제공된 본문에 있는 내용만 사용하세요. 날짜는 ISO 8601 형식으로, 알 수 없으면 null로 작성하세요.
-지원내용은 카카오톡에 바로 쓸 수 있도록 각 항목을 "- "로 시작하는 짧은 문장으로 작성하세요.
+지원내용은 카카오톡에 바로 쓸 수 있도록 각 항목을 "- "로 시작하는 짧은 문장으로 작성하세요. 지원금·사업화자금·바우처·비용 한도 등 숫자가 본문에 있으면 반드시 빠짐없이 포함하세요.
+신청대상·지원내용/금액·신청기간·신청방법 중 하나라도 본문에서 확인되지 않으면 keep을 false로 하고 exclusionReason에 "상세정보 수집 미완료"와 누락 항목을 적으세요.
 priority는 중앙정부 10, 전국 20, 부산 30, 울산 35, 경남 40, 그 외 100을 기준으로 중요도를 반영하세요.
 
 반환 형식:
@@ -176,28 +170,37 @@ ${JSON.stringify(compact)}`) as { programs?: Array<Record<string, unknown>> };
     return programs.map(fallbackProgramAnalysis);
   }
   const rows = Array.isArray(result.programs) ? result.programs : [];
-  return rows.flatMap((row): ProgramAnalysis[] => {
-    const index = Number(row.index);
-    const original = programs[index];
-    if (!original) return [];
-    return [{
+  const rowsByIndex = new Map(rows.map((row) => [Number(row.index), row]));
+  return programs.map((original, index): ProgramAnalysis => {
+    const row = rowsByIndex.get(index);
+    if (!row) return fallbackProgramAnalysis(original);
+    const deterministic = fallbackProgramAnalysis(original);
+    return {
       sourceKey: original.sourceKey,
       externalId: original.externalId,
       title: original.title,
       url: original.url,
-      keep: row.keep === true,
-      exclusionReason: String(row.exclusionReason || ""),
-      applicantSummary: String(row.applicantSummary || "- 신청 대상은 공고문을 확인해 주세요."),
-      supportSummary: String(row.supportSummary || "- 지원 내용은 공고문을 확인해 주세요."),
-      applicationMethod: String(row.applicationMethod || original.applicationMethod || "접수방법은 공고문 참조"),
-      applicationPeriodText: String(row.applicationPeriodText || ""),
+      keep: row.keep === true && deterministic.keep,
+      exclusionReason: deterministic.keep ? String(row.exclusionReason || "") : deterministic.exclusionReason,
+      applicantSummary: String(row.applicantSummary || original.applicantSummary || ""),
+      supportSummary: String(row.supportSummary || original.supportSummary || ""),
+      applicationMethod: String(row.applicationMethod || original.applicationMethod || ""),
+      applicationPeriodText: String(row.applicationPeriodText || original.applicationPeriodText || ""),
       startsAt: typeof row.startsAt === "string" ? row.startsAt : original.startsAt,
       deadlineAt: typeof row.deadlineAt === "string" ? row.deadlineAt : original.deadlineAt,
       regions: Array.isArray(row.regions) ? row.regions.map(String) : [],
       categories: Array.isArray(row.categories) ? row.categories.map(String) : [],
       priority: Math.max(1, Math.min(999, Number(row.priority) || 100)),
-    }];
+    };
   });
+}
+
+export async function analyzePrograms(programs: CollectedProgram[]) {
+  const analyzed: ProgramAnalysis[] = [];
+  for (let index = 0; index < programs.length; index += 5) {
+    analyzed.push(...await analyzeProgramBatch(programs.slice(index, index + 5)));
+  }
+  return analyzed;
 }
 
 async function verifiedUrls(urls: string[]) {

@@ -4,7 +4,7 @@ import { collectSource, hydratePrograms } from "./collectors";
 import { MORNING_PROGRAM_LIMIT } from "./config";
 import { sendOpenchatNotification } from "./push";
 import type { CollectedProgram, OpenchatCronTask, OpenchatSource } from "./types";
-import { kstDate, kstWeekday, programFingerprint, programTitleKey } from "./utils";
+import { kstDate, kstWeekday, normalizeText, programDetailIssue, programFingerprint, programTitleKey } from "./utils";
 
 async function createRun(task: string) {
   const admin = createAdminClient();
@@ -58,6 +58,92 @@ function uniqueCandidates(programs: Array<CollectedProgram & { sourcePriority: n
     });
 }
 
+async function repairIncompleteMorningPrograms(date: string) {
+  const admin = createAdminClient();
+  const { data, error } = await admin.from("openchat_programs")
+    .select("*, source:openchat_sources(source_key)")
+    .eq("draft_for", date)
+    .in("status", ["collected", "review_required", "approved", "deferred", "excluded", "ready"])
+    .order("priority")
+    .limit(30);
+  if (error) throw new Error(error.message);
+
+  const incomplete = (data || []).filter((row) => programDetailIssue({
+    applicantSummary: row.applicant_summary,
+    supportSummary: row.support_summary,
+    applicationMethod: row.application_method,
+    applicationPeriodText: row.application_period_text,
+    startsAt: row.starts_at,
+    deadlineAt: row.deadline_at,
+  }));
+  if (!incomplete.length) return { attempted: 0, repaired: 0, stillIncomplete: 0, excluded: 0 };
+
+  const candidates: CollectedProgram[] = incomplete.map((row) => {
+    const relation = Array.isArray(row.source) ? row.source[0] : row.source;
+    return {
+      sourceKey: relation?.source_key || "unknown",
+      externalId: row.external_id,
+      title: normalizeText(row.title).replace(/\s*새로운\s*게시글\s*$/i, "").trim(),
+      url: row.source_url,
+      sourcePayload: row.raw_payload || {},
+    };
+  });
+  const hydrated = await hydratePrograms(candidates, 30);
+  const analyzed = await analyzePrograms(hydrated);
+  let repaired = 0;
+  let stillIncomplete = 0;
+  let excluded = 0;
+
+  for (let index = 0; index < incomplete.length; index += 1) {
+    const existing = incomplete[index];
+    const program = analyzed[index];
+    if (!program) {
+      stillIncomplete += 1;
+      continue;
+    }
+    const detailIssue = programDetailIssue({
+      applicantSummary: program.applicantSummary,
+      supportSummary: program.supportSummary,
+      applicationMethod: program.applicationMethod,
+      applicationPeriodText: program.applicationPeriodText,
+      startsAt: program.startsAt,
+      deadlineAt: program.deadlineAt,
+    });
+    const deadlineValue = program.deadlineAt ? new Date(program.deadlineAt).valueOf() : null;
+    const expired = deadlineValue !== null && !Number.isNaN(deadlineValue) && deadlineValue < Date.now();
+    const keep = program.keep && !detailIssue && !expired;
+    const restoredStatus = existing.status === "excluded" ? "review_required" : existing.status;
+    const nextStatus = keep ? restoredStatus : "excluded";
+    const exclusionReason = keep
+      ? null
+      : expired
+        ? "접수 마감"
+        : detailIssue
+          ? `상세정보 수집 미완료: ${detailIssue}`
+          : program.exclusionReason || "게시 기준 제외";
+    const { error: updateError } = await admin.from("openchat_programs").update({
+      title: program.title,
+      applicant_summary: program.applicantSummary,
+      support_summary: program.supportSummary,
+      application_method: program.applicationMethod,
+      application_period_text: program.applicationPeriodText,
+      starts_at: program.startsAt || null,
+      deadline_at: program.deadlineAt || null,
+      regions: program.regions,
+      categories: program.categories,
+      priority: program.priority,
+      status: nextStatus,
+      exclusion_reason: exclusionReason,
+      updated_at: new Date().toISOString(),
+    }).eq("id", existing.id);
+    if (updateError) throw new Error(updateError.message);
+    if (keep) repaired += 1;
+    else if (detailIssue) stillIncomplete += 1;
+    else excluded += 1;
+  }
+  return { attempted: incomplete.length, repaired, stillIncomplete, excluded };
+}
+
 async function collectMorningPrograms(date: string) {
   const admin = createAdminClient();
   const { error: carryError } = await admin.from("openchat_programs")
@@ -65,6 +151,7 @@ async function collectMorningPrograms(date: string) {
     .eq("draft_for", date)
     .eq("status", "deferred");
   if (carryError) throw new Error(carryError.message);
+  const repair = await repairIncompleteMorningPrograms(date);
   const { data: sourceRows, error: sourceError } = await admin.from("openchat_sources")
     .select("*")
     .eq("enabled", true)
@@ -132,7 +219,7 @@ async function collectMorningPrograms(date: string) {
   const fresh = withFingerprints.filter((program) => (
     !existing.has(program.fingerprint) && !existingTitles.has(programTitleKey(program.title))
   )).slice(0, 30);
-  if (!fresh.length) return { collected: collected.length, newPrograms: 0, failures };
+  if (!fresh.length) return { collected: collected.length, newPrograms: 0, repair, failures };
 
   const hydrated = await hydratePrograms(fresh, 30);
   const analysis = await analyzePrograms(hydrated);
@@ -143,7 +230,15 @@ async function collectMorningPrograms(date: string) {
       && (item.externalId || item.url) === (program.externalId || program.url));
     const deadlineValue = program.deadlineAt ? new Date(program.deadlineAt).valueOf() : null;
     const expired = deadlineValue !== null && !Number.isNaN(deadlineValue) && deadlineValue < now;
-    const keep = program.keep && !expired;
+    const detailIssue = programDetailIssue({
+      applicantSummary: program.applicantSummary,
+      supportSummary: program.supportSummary,
+      applicationMethod: program.applicationMethod,
+      applicationPeriodText: program.applicationPeriodText,
+      startsAt: program.startsAt,
+      deadlineAt: program.deadlineAt,
+    });
+    const keep = program.keep && !expired && !detailIssue;
     return {
       source_id: sourceByKey.get(program.sourceKey)?.id || null,
       external_id: program.externalId || null,
@@ -160,8 +255,8 @@ async function collectMorningPrograms(date: string) {
       categories: program.categories,
       status: keep ? "review_required" : "excluded",
       priority: program.priority,
-      draft_for: keep ? date : null,
-      exclusion_reason: keep ? null : (expired ? "접수 마감" : program.exclusionReason || "게시 기준 제외"),
+      draft_for: keep || detailIssue ? date : null,
+      exclusion_reason: keep ? null : (expired ? "접수 마감" : detailIssue ? `상세정보 수집 미완료: ${detailIssue}` : program.exclusionReason || "게시 기준 제외"),
       raw_payload: original?.sourcePayload || {},
       updated_at: new Date().toISOString(),
     };
@@ -173,6 +268,8 @@ async function collectMorningPrograms(date: string) {
     collected: collected.length,
     newPrograms: rows.filter((row) => row.status === "review_required").length,
     excluded: rows.filter((row) => row.status === "excluded").length,
+    incomplete: rows.filter((row) => row.exclusion_reason?.startsWith("상세정보 수집 미완료")).length,
+    repair,
     failures,
   };
 }

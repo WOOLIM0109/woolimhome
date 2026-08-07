@@ -38,6 +38,9 @@ export type CollectedProgram = {
   title: string;
   url: string;
   rawText?: string;
+  applicantSummary?: string;
+  supportSummary?: string;
+  applicationPeriodText?: string;
   startsAt?: string | null;
   deadlineAt?: string | null;
   applicationMethod?: string;
