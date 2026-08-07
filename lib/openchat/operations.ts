@@ -58,6 +58,14 @@ function uniqueCandidates(programs: Array<CollectedProgram & { sourcePriority: n
     });
 }
 
+function inferSourceKey(sourceUrl: string, relationKey?: string | null) {
+  if (/k-startup\.go\.kr/i.test(sourceUrl)) return "kstartup";
+  if (/bizinfo\.go\.kr/i.test(sourceUrl)) return "bizinfo";
+  if (/busanstartup\.kr/i.test(sourceUrl)) return "busanstartup";
+  if (/fanfandaero\.kr/i.test(sourceUrl)) return "fanfandaero";
+  return relationKey || "unknown";
+}
+
 async function repairIncompleteMorningPrograms(date: string) {
   const admin = createAdminClient();
   const { data, error } = await admin.from("openchat_programs")
@@ -81,7 +89,7 @@ async function repairIncompleteMorningPrograms(date: string) {
   const candidates: CollectedProgram[] = incomplete.map((row) => {
     const relation = Array.isArray(row.source) ? row.source[0] : row.source;
     return {
-      sourceKey: relation?.source_key || "unknown",
+      sourceKey: inferSourceKey(row.source_url, relation?.source_key),
       externalId: row.external_id,
       title: normalizeText(row.title).replace(/\s*새로운\s*게시글\s*$/i, "").trim(),
       url: row.source_url,
@@ -89,6 +97,10 @@ async function repairIncompleteMorningPrograms(date: string) {
     };
   });
   const hydrated = await hydratePrograms(candidates, MORNING_PROGRAM_LIMIT);
+  const detailFetchFailures = hydrated.flatMap((program) => {
+    const message = program.sourcePayload?.detailFetchError;
+    return typeof message === "string" ? [{ title: program.title, error: message }] : [];
+  });
   const analyzed = new Array<ReturnType<typeof analyzeProgramDeterministically> | undefined>(hydrated.length);
   const aiCandidates: CollectedProgram[] = [];
   const aiIndexes: number[] = [];
@@ -157,7 +169,7 @@ async function repairIncompleteMorningPrograms(date: string) {
     else if (detailIssue) stillIncomplete += 1;
     else excluded += 1;
   }
-  return { attempted: incomplete.length, repaired, stillIncomplete, excluded };
+  return { attempted: incomplete.length, repaired, stillIncomplete, excluded, detailFetchFailures };
 }
 
 async function collectMorningPrograms(date: string) {
