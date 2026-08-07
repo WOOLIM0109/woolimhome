@@ -132,6 +132,7 @@ async function repairIncompleteMorningPrograms(date: string) {
   let repaired = 0;
   let stillIncomplete = 0;
   let excluded = 0;
+  const diagnostics: Array<Record<string, unknown>> = [];
 
   for (let index = 0; index < incomplete.length; index += 1) {
     const existing = incomplete[index];
@@ -176,11 +177,25 @@ async function repairIncompleteMorningPrograms(date: string) {
       updated_at: new Date().toISOString(),
     }).eq("id", existing.id);
     if (updateError) throw new Error(updateError.message);
+    diagnostics.push({
+      title: program.title,
+      sourceKey: hydrated[index]?.sourceKey,
+      applicantLength: program.applicantSummary.length,
+      supportLength: program.supportSummary.length,
+      periodLength: program.applicationPeriodText.length,
+      methodLength: program.applicationMethod.length,
+      detailIssue,
+      aiKeep: program.keep,
+      expired,
+      nextStatus,
+      exclusionReason,
+      readerError: hydrated[index]?.sourcePayload?.detailReaderError || null,
+    });
     if (keep) repaired += 1;
     else if (detailIssue) stillIncomplete += 1;
     else excluded += 1;
   }
-  return { attempted: incomplete.length, repaired, stillIncomplete, excluded, detailFetchFailures, sourceKeys, structured };
+  return { attempted: incomplete.length, repaired, stillIncomplete, excluded, detailFetchFailures, sourceKeys, structured, diagnostics };
 }
 
 async function collectMorningPrograms(date: string) {
