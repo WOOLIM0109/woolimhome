@@ -115,7 +115,8 @@ async function repairIncompleteMorningPrograms(date: string) {
   const aiCandidates: CollectedProgram[] = [];
   const aiIndexes: number[] = [];
   hydrated.forEach((program, index) => {
-    if (program.sourceKey === "kstartup") {
+    if (program.sourceKey === "kstartup" && program.applicantSummary && program.supportSummary
+      && program.applicationMethod && (program.applicationPeriodText || program.deadlineAt)) {
       analyzed[index] = analyzeProgramDeterministically(program);
     } else {
       aiCandidates.push(program);
@@ -123,7 +124,7 @@ async function repairIncompleteMorningPrograms(date: string) {
     }
   });
   if (aiCandidates.length) {
-    const aiResults = await analyzePrograms(aiCandidates);
+    const aiResults = await analyzePrograms(aiCandidates, { useGoogleSearch: true });
     aiResults.forEach((program, index) => {
       analyzed[aiIndexes[index]] = program;
     });

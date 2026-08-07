@@ -120,7 +120,7 @@ function fallbackProgramAnalysis(program: CollectedProgram): ProgramAnalysis {
   };
 }
 
-async function analyzeProgramBatch(programs: CollectedProgram[]) {
+async function analyzeProgramBatch(programs: CollectedProgram[], useGoogleSearch = false) {
   if (!process.env.GEMINI_API_KEY) {
     return programs.map(fallbackProgramAnalysis);
   }
@@ -164,8 +164,10 @@ priority는 중앙정부 10, 전국 20, 부산 30, 울산 35, 경남 40, 그 외
 반환 형식:
 {"programs":[{"index":0,"keep":true,"exclusionReason":"","applicantSummary":"- ...","supportSummary":"- ...","applicationMethod":"온라인 접수","applicationPeriodText":"공고일로부터 상시접수","startsAt":null,"deadlineAt":null,"regions":["전국"],"categories":["창업","사업화"],"priority":20}]}
 
+온라인 검색 도구가 제공된 경우 후보 URL의 공식 원문을 우선 확인하고, 검색 결과의 다른 블로그나 요약문은 근거로 사용하지 마세요.
+
 후보:
-${JSON.stringify(compact)}`) as { programs?: Array<Record<string, unknown>> };
+${JSON.stringify(compact)}`, 12_000, useGoogleSearch) as { programs?: Array<Record<string, unknown>> };
   } catch {
     return programs.map(fallbackProgramAnalysis);
   }
@@ -199,10 +201,10 @@ export function analyzeProgramDeterministically(program: CollectedProgram) {
   return fallbackProgramAnalysis(program);
 }
 
-export async function analyzePrograms(programs: CollectedProgram[]) {
+export async function analyzePrograms(programs: CollectedProgram[], options?: { useGoogleSearch?: boolean }) {
   const analyzed: ProgramAnalysis[] = [];
   for (let index = 0; index < programs.length; index += 5) {
-    analyzed.push(...await analyzeProgramBatch(programs.slice(index, index + 5)));
+    analyzed.push(...await analyzeProgramBatch(programs.slice(index, index + 5), options?.useGoogleSearch));
   }
   return analyzed;
 }

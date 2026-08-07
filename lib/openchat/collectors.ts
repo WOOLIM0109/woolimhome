@@ -192,7 +192,11 @@ async function fetchKStartupReader(sourceUrl: string) {
   let lastError: unknown;
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
-      return await fetchText(kStartupReaderUrl(sourceUrl));
+      const markdown = await fetchText(kStartupReaderUrl(sourceUrl));
+      if (markdown.length < 500 || !/신청기간|접수기간/.test(markdown)) {
+        throw new Error("보조 본문에 신청기간이 없습니다.");
+      }
+      return markdown;
     } catch (error) {
       lastError = error;
       if (attempt === 0) await new Promise((resolve) => setTimeout(resolve, 1_500));
