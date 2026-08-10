@@ -32,6 +32,11 @@ import {
 } from "../pc-worker/redaction-manifest";
 import { normalizeCoverTitle, suggestCoverTitles } from "./cover-title";
 import { coverSlideBlockedMessage, resolveCoverSlide } from "./cover-slide";
+import {
+  classifyImageRegion,
+  imageRegionStats,
+  photoDetectionEnabled,
+} from "./photo-detect";
 
 type SharpOverlayOptions = Parameters<ReturnType<typeof sharp>["composite"]>[0][number];
 
@@ -94,6 +99,35 @@ function clampRegion(region: SensitiveRegion, width: number, height: number) {
   return { left, top, width: regionWidth, height: regionHeight };
 }
 
+/**
+ * 그림 하나가 실제 사진인지 캐릭터·아이콘인지 봅니다.
+ *
+ * 캐릭터와 아이콘은 포트폴리오에서 보여 줘야 할 결과물입니다.
+ * 실제 사진에는 사람과 현장이 그대로 담기므로 가립니다.
+ */
+async function looksLikePhotograph(
+  slideBuffer: Buffer,
+  box: { left: number; top: number; width: number; height: number },
+  slideArea: number,
+) {
+  const sample = 64;
+  try {
+    const raw = await sharp(slideBuffer)
+      .extract(box)
+      .flatten({ background: "#ffffff" })
+      // 이웃끼리 색을 섞으면 일러스트의 평평한 면이 사라집니다.
+      .resize(sample, sample, { fit: "fill", kernel: "nearest" })
+      .removeAlpha()
+      .raw()
+      .toBuffer();
+    const stats = imageRegionStats(raw, sample, (box.width * box.height) / slideArea);
+    return classifyImageRegion(stats).kind === "photograph";
+  } catch {
+    // 픽셀을 못 읽으면 사진으로 보고 가립니다.
+    return true;
+  }
+}
+
 async function redact(buffer: Buffer, regions: SensitiveRegion[]) {
   const oriented = await sharp(buffer)
     .rotate()
@@ -105,9 +139,17 @@ async function redact(buffer: Buffer, regions: SensitiveRegion[]) {
     buffer: oriented.data,
     appliedRegionCount: 0,
   };
-  const boxes = regions
-    .map((region) => clampRegion(region, oriented.info.width, oriented.info.height))
-    .filter((box): box is NonNullable<typeof box> => Boolean(box));
+  const slideArea = oriented.info.width * oriented.info.height;
+  const keepIllustrations = photoDetectionEnabled();
+  const boxes: NonNullable<ReturnType<typeof clampRegion>>[] = [];
+  for (const region of regions) {
+    const box = clampRegion(region, oriented.info.width, oriented.info.height);
+    if (!box) continue;
+    if (keepIllustrations && region.type === "embedded_photo") {
+      if (!await looksLikePhotograph(oriented.data, box, slideArea)) continue;
+    }
+    boxes.push(box);
+  }
   if (!boxes.length) return {
     sourceBuffer: oriented.data,
     buffer: oriented.data,

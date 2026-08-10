@@ -105,10 +105,13 @@ export function isPortfolioSlideRedactionProofForManifest(
   proof: PortfolioSlideRedactionProof,
   manifestSlide: LocalRedactionSlide,
 ) {
+  // 가릴 수 있는 최대 개수입니다.
+  // 이보다 많이 가렸다면 기록에 없는 곳을 덮은 것이라 통과시키지 않습니다.
+  const redactableCount = redactableRegions(manifestSlide.regions).length;
   if (proof.slideIndex !== manifestSlide.slideIndex
     || !Number.isInteger(proof.regionCount)
-    // 실제로 가린 개수와 비교합니다. 정책에서 제외한 영역은 세지 않습니다.
-    || proof.regionCount !== redactableRegions(manifestSlide.regions).length
+    || proof.regionCount < 0
+    || proof.regionCount > redactableCount
     || !Number.isFinite(proof.changedPixelRatio)
     || proof.changedPixelRatio < 0
     || proof.changedPixelRatio > 1
@@ -117,7 +120,9 @@ export function isPortfolioSlideRedactionProofForManifest(
     || !inspectLocalRedactionSlideSafety(manifestSlide).safeForAutomaticDesign) {
     return false;
   }
-  if (manifestSlide.regions.length === 0) {
+  // 한 곳도 가리지 않았다면 원본이 그대로여야 합니다.
+  // 캐릭터·아이콘만 있어서 가릴 곳이 없는 장표가 여기에 해당합니다.
+  if (proof.regionCount === 0) {
     return proof.changedPixelRatio === 0 && proof.sourceHash === proof.redactedHash;
   }
   return proof.changedPixelRatio > 0 && proof.sourceHash !== proof.redactedHash;

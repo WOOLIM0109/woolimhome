@@ -44,8 +44,10 @@ export type LocalRedactionRegionType = keyof typeof REGION_LABELS;
  *   · 개인정보 (이름·연락처·주소·사업자등록번호는 워커가 식별자로 분류합니다)
  *   · 아주 작은 글씨 (각주와 출처 표기)
  *   · 로고와 바닥글
+ *   · 실제 사진 (캐릭터·아이콘·일러스트는 lib/portfolio/photo-detect 가 골라 남깁니다)
  *
- * 남기는 것: 본문 문장, 소제목, 표 내용, 차트 라벨, 다이어그램, 사진, 화면 캡처.
+ * 남기는 것: 본문 문장, 소제목, 표 내용, 차트 라벨, 다이어그램, 화면 캡처,
+ * 그리고 사진처럼 보이지 않는 그림.
  *
  * 환경변수 PORTFOLIO_REDACTED_REGION_TYPES 로 언제든 조정할 수 있습니다.
  * 예전처럼 전부 가리려면 아래 값을 넣으면 됩니다.
@@ -57,6 +59,7 @@ export const DEFAULT_REDACTED_REGION_TYPES: LocalRedactionRegionType[] = [
   "small_text",
   "logo",
   "footer",
+  "embedded_photo",
 ];
 
 /** 이전 이름. 외부에서 참조하던 곳을 위해 남겨 둡니다. */
