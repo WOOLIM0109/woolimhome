@@ -129,6 +129,8 @@ async function writeRichClipboard(html: string, formatSentences: boolean) {
 function formatDate(value: string | null) {
   if (!value) return null;
   return new Intl.DateTimeFormat("ko-KR", {
+    // 보는 사람 컴퓨터의 시간대와 무관하게 항상 한국 시간으로 표시합니다.
+    timeZone: "Asia/Seoul",
     year: "numeric",
     month: "long",
     day: "numeric",
@@ -215,8 +217,22 @@ export default function PartnerQueue({ onUnauthorized }: { onUnauthorized: () =>
     }
   }
 
-  function downloadAll(item: PartnerItem) {
-    item.assets.forEach((asset, index) => {
+  async function downloadAll(item: PartnerItem) {
+    // 관리자가 이미지를 다시 만들면 이전 이미지 주소가 사라져 내려받기가 실패합니다.
+    // 내려받기 직전에 목록을 다시 받아 최신 주소를 사용합니다.
+    let assets = item.assets;
+    try {
+      const response = await fetch(`/api/partner/content?channel=${channel}`, { cache: "no-store" });
+      if (response.ok) {
+        const data = await response.json();
+        const list = (Array.isArray(data) ? data : data.items) as PartnerItem[] | undefined;
+        const fresh = list?.find((entry) => entry.id === item.id);
+        if (fresh?.assets?.length) assets = fresh.assets;
+      }
+    } catch {
+      // 목록을 새로 받지 못하면 화면에 있는 주소로 그대로 시도합니다.
+    }
+    assets.forEach((asset, index) => {
       window.setTimeout(() => {
         const link = document.createElement("a");
         link.href = asset.downloadUrl;
@@ -453,7 +469,7 @@ export default function PartnerQueue({ onUnauthorized }: { onUnauthorized: () =>
                           <p className="mt-1 text-xs text-[var(--muted)]">표시 순서대로 네이버 글에 삽입해 주세요.</p>
                         </div>
                         <button
-                          onClick={() => downloadAll(item)}
+                          onClick={() => void downloadAll(item)}
                           className="inline-flex items-center gap-2 rounded-xl bg-[#241a15] px-4 py-2.5 text-sm font-bold text-white"
                         >
                           <Download size={15} /> 이미지 전체 다운로드

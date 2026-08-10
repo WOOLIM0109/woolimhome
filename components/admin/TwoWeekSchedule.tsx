@@ -109,7 +109,7 @@ export default function TwoWeekSchedule({
                     <span className={`inline-flex rounded-full px-3 py-1 text-xs font-bold ${statusClass}`}>{statusLabel}</span>
                     {row.nextRetryAt && (
                       <small className="mt-2 block text-red-700">
-                        자동 재시도 {new Date(row.nextRetryAt).toLocaleString("ko-KR")} · {row.retryCount}회
+                        자동 재시도 {new Date(row.nextRetryAt).toLocaleString("ko-KR", { timeZone: "Asia/Seoul" })} · {row.retryCount}회
                       </small>
                     )}
                     {row.lastErrorCode && <small className="mt-1 block text-[var(--muted)]">{row.lastErrorCode}</small>}
@@ -123,7 +123,7 @@ export default function TwoWeekSchedule({
       </div>
       {automationRuns.length > 0 && (
         <p className="rounded-xl border border-[var(--line)] bg-white px-4 py-3 text-xs text-[var(--muted)]">
-          최근 자동화: {automationRuns.slice(0, 4).map((run) => `${run.cron_name} ${run.status} (${new Date(run.scheduled_for).toLocaleString("ko-KR")})`).join(" · ")}
+          최근 자동화: {automationRuns.slice(0, 4).map((run) => `${run.cron_name} ${run.status} (${new Date(run.scheduled_for).toLocaleString("ko-KR", { timeZone: "Asia/Seoul" })})`).join(" · ")}
         </p>
       )}
     </div>

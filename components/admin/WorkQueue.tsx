@@ -392,7 +392,10 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
         (item: WorkItem) => !item.review_note?.startsWith("generation-cancelled:"),
       );
       const next: WorkItem[] = reviewMode
-        ? activeItems.filter((item: WorkItem) => item.status === "review_required")
+        // 목업 이미지까지 끝난 포트폴리오는 본문 대기 상태(on_hold)로 남습니다.
+        // 이 항목을 빼면 이미지가 이미 만들어졌는데도 검토 화면에 아무것도 보이지 않습니다.
+        ? activeItems.filter((item: WorkItem) => item.status === "review_required"
+          || (item.status === "on_hold" && item.metadata?.portfolioStage === "design_completed"))
         : activeItems;
       const displayItems = next.map((item) => {
         const generated = item.metadata?.generated;
@@ -697,7 +700,7 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
               {item.summary && <p className="mt-2 text-sm leading-6 text-[var(--muted)]">{item.summary}</p>}
               <p className="mt-2 text-xs text-[var(--muted)]">
                 {item.source_label || "자동 일정"}
-                {item.scheduled_at ? ` · ${new Date(item.scheduled_at).toLocaleString("ko-KR")}` : ""}
+                {item.scheduled_at ? ` · ${new Date(item.scheduled_at).toLocaleString("ko-KR", { timeZone: "Asia/Seoul" })}` : ""}
               </p>
             </div>
             <StatusBadge status={item.status} />

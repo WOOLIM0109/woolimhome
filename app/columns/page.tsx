@@ -38,7 +38,7 @@ export default async function ColumnsPage() {
               <h2 className="mt-4 text-xl font-bold leading-7 text-[#14100c]">{item.title}</h2>
               <p className="prose-muted mt-4 flex-1 text-sm">{item.excerpt}</p>
               <p className="mt-6 text-xs font-semibold text-[var(--primary)]">
-                {new Date(item.published_at || item.created_at).toLocaleDateString("ko-KR")} · 자세히 읽기
+                {new Date(item.published_at || item.created_at).toLocaleDateString("ko-KR", { timeZone: "Asia/Seoul" })} · 자세히 읽기
               </p>
             </Link>
           ))}

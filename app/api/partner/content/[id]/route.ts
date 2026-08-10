@@ -138,14 +138,27 @@ export async function PATCH(
 
   const { data: conflict } = await admin
     .from("content_work_items")
-    .select("id,title,channel")
+    .select("id,title,channel,status")
     .eq("published_url_normalized", validation.publication.normalizedUrl)
     .neq("id", id)
     .maybeSingle();
   if (conflict) {
-    return apiError(409, "PUBLISHED_URL_CONFLICT", "이미 다른 작업에 등록된 발행 주소입니다.", {
-      nextAction: "기존 게시글 주소가 아닌 현재 작업의 새 게시글 주소를 입력해 주세요.",
-      details: { conflictItemId: conflict.id, conflictTitle: conflict.title, conflictChannel: conflict.channel },
+    // 같은 글이 작업 항목으로 두 번 만들어지면, 먼저 발행 등록된 쪽이 주소를 가지고 있습니다.
+    // 이때는 새 주소를 넣으라고 안내해도 해결되지 않으므로 중복이라는 사실을 그대로 알립니다.
+    const alreadyPublished = conflict.status === "published";
+    return apiError(409, "PUBLISHED_URL_CONFLICT", alreadyPublished
+      ? `이 주소는 이미 발행 완료로 등록된 다른 작업(${conflict.title})에 연결되어 있습니다.`
+      : "이미 다른 작업에 등록된 발행 주소입니다.", {
+      nextAction: alreadyPublished
+        ? "같은 글이 작업 목록에 두 번 올라온 상태입니다. 이 항목은 저장하지 마시고 대표님께 중복 정리를 요청해 주세요."
+        : "기존 게시글 주소가 아닌 현재 작업의 새 게시글 주소를 입력해 주세요.",
+      details: {
+        conflictItemId: conflict.id,
+        conflictTitle: conflict.title,
+        conflictChannel: conflict.channel,
+        conflictStatus: conflict.status,
+        duplicateWorkItem: alreadyPublished,
+      },
     });
   }
 

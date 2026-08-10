@@ -89,7 +89,7 @@ export default async function ColumnDetailPage({ params }: Props) {
             <h1 className="mt-5 text-4xl font-bold leading-tight text-[#14100c] lg:text-5xl">{post.title}</h1>
             {post.excerpt && <p className="prose-muted mt-6 text-lg">{post.excerpt}</p>}
             <p className="mt-6 text-sm text-[var(--muted)]">
-              {new Date(post.published_at || post.created_at).toLocaleDateString("ko-KR")} · 울림컴퍼니
+              {new Date(post.published_at || post.created_at).toLocaleDateString("ko-KR", { timeZone: "Asia/Seoul" })} · 울림컴퍼니
             </p>
           </div>
         </header>
