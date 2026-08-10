@@ -147,6 +147,9 @@ export function friendlyStyleIssues(
   const paragraphCount = (bodyHtml.match(/<p[\s>]/gi) || []).length;
   const strongCount = (bodyHtml.match(/<strong[\s>]/gi) || []).length;
   const plain = bodyHtml.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+  // 어떤 표현이 걸렸는지 함께 알려 줍니다.
+  // 문구를 알려 주지 않으면 다시 쓸 때도 같은 말을 그대로 씁니다.
+  const clicheSamples: string[] = [];
   const explicitClicheCount = [
     /오늘날/g,
     /빠르게 변화하는/g,
@@ -162,7 +165,13 @@ export function friendlyStyleIssues(
     /다양한 (?:방법|측면|요소)/g,
     /핵심은 바로/g,
     /이러한 (?:점|부분)에서/g,
-  ].reduce((total, pattern) => total + (plain.match(pattern) || []).length, 0);
+  ].reduce((total, pattern) => {
+    const matches = plain.match(pattern) || [];
+    for (const match of matches) {
+      if (clicheSamples.length < 5 && !clicheSamples.includes(match)) clicheSamples.push(match);
+    }
+    return total + matches.length;
+  }, 0);
 
   // 규칙에 적힌 기호와 목록이 실제로 쓰였는지 확인합니다.
   // 검사가 없으면 규칙이 권고에 그쳐 밋밋한 글이 그대로 통과합니다.
@@ -176,7 +185,13 @@ export function friendlyStyleIssues(
     /중요합니다/g,
     /필수적입니다/g,
     /기대할 수 있습니다/g,
-  ].reduce((total, pattern) => total + (plain.match(pattern) || []).length, 0);
+  ].reduce((total, pattern) => {
+    const matches = plain.match(pattern) || [];
+    if (matches.length > 2 && clicheSamples.length < 5 && !clicheSamples.includes(matches[0])) {
+      clicheSamples.push(`${matches[0]}(${matches.length}회)`);
+    }
+    return total + matches.length;
+  }, 0);
   const issues: string[] = [];
   if (strongCount < Math.min(5, Math.max(3, Math.floor(paragraphCount / 3)))) {
     issues.push("본문 핵심어 볼드가 부족합니다.");
@@ -185,7 +200,9 @@ export function friendlyStyleIssues(
     issues.push("본문 볼드가 너무 많습니다.");
   }
   if (explicitClicheCount || abstractEndingCount > 2) {
-    issues.push("AI 상투 표현이 반복됩니다.");
+    issues.push(clicheSamples.length
+      ? `AI 상투 표현이 반복됩니다. (${clicheSamples.join(", ")})`
+      : "AI 상투 표현이 반복됩니다.");
   }
   if (options.requireLiveliness && exclamationCount === 0 && questionCount === 0) {
     issues.push("독자에게 말을 거는 질문이나 느낌표가 한 번도 없습니다. 규칙대로 자연스럽게 섞어 주세요.");

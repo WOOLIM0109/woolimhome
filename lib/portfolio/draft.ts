@@ -119,6 +119,8 @@ function writingPrompt(input: {
   existingTitles: string[];
   bodyImageCount: number;
   previousIssues?: string[];
+  /** 지난 본문 길이. 얼마나 더 써야 하는지 숫자로 알려 줍니다. */
+  previousLength?: number;
   /** 장표에서 읽어낸 공개용 제목. 문서가 무엇에 대한 것인지 알려 줍니다. */
   publicTitles?: string[];
 }) {
@@ -178,8 +180,11 @@ ${JSON.stringify(input.existingTitles.slice(0, 30))}
 - FAQ는 실제 의뢰 고객이 물을 법한 질문과 현실적인 답변 4개로 작성합니다.
 - 제목에 "포트폴리오", 내부 채널명, 파일명을 기계적으로 붙이지 말고 프로젝트의 기획적 차별점을 드러냅니다.
 ${FRIENDLY_EDITORIAL_STYLE_RULES}
-${input.previousIssues?.length ? `이전 결과의 문제를 반드시 고치세요: ${input.previousIssues.join(", ")}
-이번에는 같은 내용을 반복하지 말고 각 구간의 정보 우선순위·그리드·색상·도표·페이지 흐름을 더 구체적으로 설명하여 공백 제외 2,800자 이상인지 확인한 뒤 반환하세요.` : ""}
+${input.previousIssues?.length ? `이전 결과에서 아래 문제가 있었습니다. 이번에는 반드시 고치세요.
+${input.previousIssues.map((issue) => `- ${issue}`).join("\n")}
+${input.previousLength ? `- 지난 본문은 공백 제외 ${input.previousLength}자였습니다. 최소 ${Math.max(400, 2900 - input.previousLength)}자를 더 써서 2,900자 이상으로 만드세요.` : ""}
+괄호 안에 적힌 표현이 있다면 그 문장을 통째로 다른 말로 바꾸세요. 같은 낱말을 다시 쓰면 또 걸립니다.
+분량은 문장을 늘려서 채우지 말고, 이미지에서 확인한 장표를 하나 더 골라 그 구성과 의도를 새 문단으로 설명해 채우세요.` : ""}
 
 반드시 JSON만 반환하세요:
 {
@@ -262,6 +267,7 @@ export async function createPortfolioDraft(input: {
           existingTitles,
           bodyImageCount: bodyAssets.length,
           previousIssues: validation?.issues,
+          previousLength: validation?.plainLength,
           publicTitles: input.publicTitles,
         }),
       },
