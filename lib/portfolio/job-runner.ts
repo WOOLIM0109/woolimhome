@@ -33,7 +33,7 @@ import {
   yieldPortfolioCheckpointIfNeeded,
 } from "./checkpoint";
 import { isCurrentLocalRedactionWorkerVersion } from "../pc-worker/capabilities";
-import { automaticDesignEligibleSlideIndexes } from "../pc-worker/redaction-manifest";
+import { automaticDesignEligibleSlideIndexes, manifestPublicTitles } from "../pc-worker/redaction-manifest";
 import { coverSlideBlockedMessage } from "./cover-slide";
 import { sanitizeGeneratedHtml, sanitizeInlineHtml } from "../security/html";
 import {
@@ -1735,6 +1735,9 @@ export async function processNextPortfolioDraft(candidateId?: string) {
     const { draft, validation } = await createPortfolioDraft({
       review: mockup.review,
       assets: mockup.assets,
+      // 장표에서 읽어낸 제목을 넘겨 줍니다.
+      // 이게 없으면 "비즈니스 문서" 같은 분류만 보고 일반론만 쓴 글이 나옵니다.
+      publicTitles: manifestPublicTitles(mockup.localRedactionManifest),
       progress: savedProgress,
       shouldYield,
       onProgress: async (progress) => {

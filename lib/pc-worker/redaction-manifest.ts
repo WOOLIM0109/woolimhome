@@ -99,6 +99,24 @@ export function smallTextMaxHeight() {
   return DEFAULT_SMALL_TEXT_MAX_HEIGHT;
 }
 
+/** 문서 전체에서 읽어낸 공개용 제목을 모읍니다. 앞쪽 장표를 먼저 씁니다. */
+export function manifestPublicTitles(
+  manifest: { slides: { publicTitles?: string[] }[] },
+  limit = 24,
+) {
+  const seen = new Set<string>();
+  const titles: string[] = [];
+  for (const slide of manifest.slides) {
+    for (const title of slide.publicTitles || []) {
+      if (seen.has(title)) continue;
+      seen.add(title);
+      titles.push(title);
+      if (titles.length >= limit) return titles;
+    }
+  }
+  return titles;
+}
+
 /** 이 장표에서 실제로 가릴 영역만 골라냅니다. 렌더링과 검증이 같은 값을 쓰게 합니다. */
 export function redactableRegions<T extends { type: LocalRedactionRegionType; height?: number }>(
   regions: T[],
@@ -131,6 +149,14 @@ export type LocalRedactionSlide = {
   slideIndex: number;
   sourceSlideNumber: number;
   inspectionStatus: "verified";
+  /**
+   * 장표에서 읽은 공개용 큰 제목.
+   *
+   * 이 글자가 없으면 서버는 문서가 무엇에 대한 것인지 전혀 모릅니다.
+   * 그래서 "비즈니스 문서" 같은 분류만 보고 일반론만 쓴 글이 나왔습니다.
+   * 워커가 식별자로 분류한 줄은 여기 담기지 않습니다.
+   */
+  publicTitles?: string[];
   regions: LocalRedactionRegion[];
 };
 
@@ -329,10 +355,18 @@ export function validateLocalRedactionManifest(
     if (totalRegions > 20_000) {
       return { ok: false, error: "PowerPoint redaction manifest contains too many regions." };
     }
+    const publicTitles = Array.isArray(rawSlide.publicTitles)
+      ? rawSlide.publicTitles
+        .filter((title): title is string => typeof title === "string")
+        .map((title) => title.replace(/\s+/g, " ").trim())
+        .filter((title) => title.length >= 2 && title.length <= 120)
+        .slice(0, 6)
+      : [];
     slides.push({
       slideIndex,
       sourceSlideNumber: Number(rawSlide.sourceSlideNumber),
       inspectionStatus: "verified",
+      ...(publicTitles.length ? { publicTitles } : {}),
       regions,
     });
     previousSourceSlideNumber = Number(rawSlide.sourceSlideNumber);

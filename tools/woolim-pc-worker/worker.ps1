@@ -6,7 +6,7 @@
 )
 
 $ErrorActionPreference = "Stop"
-$WorkerVersion = "2.6.0"
+$WorkerVersion = "2.7.0"
 
 function Get-WorkerSetting {
   param(
@@ -42,6 +42,13 @@ $ConfiguredPdfRenderer = Get-WorkerSetting -Name "WOOLIM_PDFTOPPM_PATH"
 # 본문 전체가 작은 글씨로 분류됐고, 장표 하나에서 가림 영역이 수십 개씩 나왔습니다.
 # 각주와 출처 표기만 잡도록 11pt 로 낮춥니다.
 # 환경변수 WOOLIM_SMALL_TEXT_MAX_PT 로 조정할 수 있습니다.
+# 장표에서 읽은 공개용 큰 제목을 모읍니다.
+# 이 글자가 없으면 서버가 문서 주제를 몰라 일반론만 쓴 글이 나옵니다.
+# 식별자로 분류된 줄은 절대 담지 않습니다.
+$script:CurrentSlidePublicTitles = New-Object System.Collections.Generic.List[string]
+$PublicTitleMaxPerSlide = 6
+$PublicTitleMaxLength = 120
+
 $SmallTextMaxPt = 11.0
 $ConfiguredSmallTextMaxPt = Get-WorkerSetting -Name "WOOLIM_SMALL_TEXT_MAX_PT"
 if ($ConfiguredSmallTextMaxPt) {
@@ -881,7 +888,18 @@ function Get-ShapeTextRedactionRegions {
           $looksLikeShortHeading -or
           (($placeholderType -in @(1, 3, 5)) -and $fontSize -ge 16.0)
         )
-        if ($isPublicHeading) { continue }
+        if ($isPublicHeading) {
+          # 식별자가 없는 큰 제목만 담습니다. 문서 주제를 알려 주는 문장입니다.
+          if (-not $containsIdentifier `
+            -and $script:CurrentSlidePublicTitles.Count -lt $PublicTitleMaxPerSlide `
+            -and $lineText.Length -le $PublicTitleMaxLength `
+            -and $lineText.Length -ge 2) {
+            if (-not $script:CurrentSlidePublicTitles.Contains($lineText)) {
+              $script:CurrentSlidePublicTitles.Add($lineText)
+            }
+          }
+          continue
+        }
 
         $regionType = if ($containsIdentifier) {
           "client_identifier"
@@ -1748,6 +1766,7 @@ function Convert-Document {
           try {
             # A successful inspection may legitimately return no sensitive
             # regions. Such a slide is exported unchanged and marked verified.
+            $script:CurrentSlidePublicTitles = New-Object System.Collections.Generic.List[string]
             $redactionRegions = @(Get-SlideRedactionRegions `
               -Slide $slide `
               -SlideIndex $exportedSlideIndex `
@@ -1796,6 +1815,7 @@ function Convert-Document {
               slideIndex = $exportedSlideIndex
               sourceSlideNumber = $slideNumber
               inspectionStatus = "verified"
+              publicTitles = @($script:CurrentSlidePublicTitles)
               regions = @($redactionRegions)
             })
             $slidePaths.Add($path)

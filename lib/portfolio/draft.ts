@@ -72,6 +72,8 @@ function writingPrompt(input: {
   existingTitles: string[];
   bodyImageCount: number;
   previousIssues?: string[];
+  /** 장표에서 읽어낸 공개용 제목. 문서가 무엇에 대한 것인지 알려 줍니다. */
+  publicTitles?: string[];
 }) {
   return `당신은 기획 전문가가 이끄는 울림컴퍼니의 디자인 포트폴리오 편집자입니다.
 실제 완성 문서의 시각 판정만 근거로 네이버 디자인 블로그에 올릴 비공개 검토 초안을 작성하세요.
@@ -79,6 +81,11 @@ function writingPrompt(input: {
 원본 파일명과 저장 경로는 개인정보 보호를 위해 제공되지 않습니다. 이를 추측하거나 본문에 쓰지 마세요.
 문서 유형: ${input.review.documentType}
 업종: ${input.review.industry}
+${input.publicTitles?.length
+    ? `이 문서의 장표에서 실제로 읽어낸 제목들입니다. 무엇에 대한 문서인지 여기서 파악하고,
+글의 주제와 예시를 이 내용에 맞춥니다. 고객사명·사람 이름·연락처는 여기 들어 있지 않습니다.
+${JSON.stringify(input.publicTitles)}`
+    : "장표 제목을 읽지 못했습니다. 문서 유형과 업종만으로 일반적인 설명을 씁니다."}
 고객 분류: ${input.review.clientCategory === "large_company" ? "대기업" : input.review.clientCategory === "public_institution" ? "공공기관" : "일반 프로젝트"}
 개인정보를 제외한 장표별 시각 점수와 도식 유형:
 ${JSON.stringify(input.review.slideAssessments.map((slide) => ({
@@ -154,6 +161,8 @@ function draftIssues(draft: PortfolioDraft) {
 export async function createPortfolioDraft(input: {
   review: PortfolioVisualReview;
   assets: GeneratedPortfolioAsset[];
+  /** 장표에서 읽어낸 공개용 제목. 없으면 예전처럼 일반적인 글이 나옵니다. */
+  publicTitles?: string[];
   progress?: PortfolioDraftProgress;
   onProgress?: (progress: PortfolioDraftProgress) => Promise<void> | void;
   shouldYield?: () => boolean;
@@ -186,6 +195,7 @@ export async function createPortfolioDraft(input: {
           existingTitles,
           bodyImageCount: bodyAssets.length,
           previousIssues: validation?.issues,
+          publicTitles: input.publicTitles,
         }),
       },
     ], {

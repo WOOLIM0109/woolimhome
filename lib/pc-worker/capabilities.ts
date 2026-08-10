@@ -6,8 +6,11 @@ export const LOCAL_REDACTION_WORKER_CAPABILITY = "powerpoint_selective_redaction
  * 그 전에 변환한 기록에는 본문 글자까지 작은 글씨로 적혀 있어,
  * 목업만 다시 만들면 예전 기준이 그대로 남습니다.
  * 기준을 올려 두면 예전 기록으로 만든 작업은 원본부터 다시 변환합니다.
+ *
+ * 2.7.0 에서는 장표의 공개용 제목까지 함께 보냅니다.
+ * 그 글자가 없으면 서버가 문서 주제를 몰라 일반론만 쓴 글이 나옵니다.
  */
-export const MIN_LOCAL_REDACTION_WORKER_VERSION = "2.6.0";
+export const MIN_LOCAL_REDACTION_WORKER_VERSION = "2.7.0";
 
 function numericVersion(value: unknown) {
   if (typeof value !== "string") return null;
