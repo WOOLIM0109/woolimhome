@@ -10,7 +10,8 @@
     "typecheck": "tsc --noEmit",
     "test": "node --test \"lib/**/*.test.mjs\"",
     "verify": "npm run typecheck && npm run lint && npm test",
-    "doctor": "node scripts/doctor.mjs"
+    "doctor": "node scripts/doctor.mjs",
+    "mockup-check": "node scripts/mockup-check.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.8.0",
