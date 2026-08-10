@@ -8,6 +8,46 @@ import type { PortfolioVisualReview } from "./visual-review";
 import { fetchExistingDesignBlogTitles } from "./naver-blog";
 import { sanitizeGeneratedHtml, sanitizeInlineHtml } from "@/lib/security/html";
 import { yieldPortfolioCheckpointIfNeeded } from "./checkpoint";
+import sharp from "sharp";
+import type { GeminiPart } from "@/lib/gemini/client";
+
+/** AI에게 보여 줄 목업 이미지 최대 장수. 늘리면 그만큼 입력 비용이 늘어납니다. */
+const MAX_VISION_IMAGES = 6;
+/** 보내기 전에 줄일 가로 크기. 글을 쓰기에는 이 정도로 충분합니다. */
+const VISION_IMAGE_WIDTH = 900;
+
+/**
+ * 완성된 목업 이미지를 AI가 볼 수 있게 준비합니다.
+ *
+ * 지금까지 AI는 문서를 한 번도 본 적이 없었습니다.
+ * 문서 유형과 점수만 받아 쓰다 보니 색상과 내용을 지어냈습니다.
+ * 실제로 "네이비 블루"라고 쓴 문서가 빨강·노랑 배색이었던 일이 있었습니다.
+ *
+ * 여기서 보내는 이미지는 가림 처리가 끝나 블로그에 그대로 올라갈 그림입니다.
+ * 원본 PPT나 가리기 전 장표는 보내지 않으므로 새로 나가는 기밀은 없습니다.
+ */
+async function mockupImageParts(assets: GeneratedPortfolioAsset[]): Promise<GeminiPart[]> {
+  const ordered = [
+    ...assets.filter((asset) => asset.kind === "thumbnail"),
+    ...assets.filter((asset) => asset.kind === "body_image"),
+  ].slice(0, MAX_VISION_IMAGES);
+  const parts: GeminiPart[] = [];
+  for (const asset of ordered) {
+    try {
+      const { data, error } = await contentAdmin().storage.from(asset.bucket).download(asset.path);
+      if (error || !data) continue;
+      const bytes = Buffer.from(await data.arrayBuffer());
+      const resized = await sharp(bytes)
+        .resize({ width: VISION_IMAGE_WIDTH, fit: "inside", withoutEnlargement: true })
+        .jpeg({ quality: 72 })
+        .toBuffer();
+      parts.push({ inlineData: { mimeType: "image/jpeg", data: resized.toString("base64") } });
+    } catch {
+      // 이미지 하나를 못 읽어도 글쓰기는 계속합니다.
+    }
+  }
+  return parts;
+}
 
 export type PortfolioDraft = {
   title: string;
@@ -100,6 +140,14 @@ ${JSON.stringify(input.review.slideAssessments.map((slide) => ({
 기존 초안 제목과 겹치지 않아야 합니다:
 ${JSON.stringify(input.existingTitles.slice(0, 30))}
 
+위에 첨부한 이미지가 이 프로젝트의 완성 목업입니다. 실제로 블로그에 함께 올라갑니다.
+반드시 눈에 보이는 것만 근거로 쓰세요.
+- 색상, 배색 비율, 레이아웃, 들어간 그림과 캐릭터, 도식 형태는 이미지에서 확인한 대로만 씁니다.
+- 이미지에서 확인할 수 없는 색상 이름이나 서체 이름을 지어내지 않습니다.
+- 흐릿하게 가려진 부분은 읽으려 하지 말고, 그 내용을 추측해 쓰지도 않습니다.
+- 가려진 곳에 무엇이 있었는지, 가림 처리 자체를 본문에서 언급하지 않습니다.
+- 이미지에 보이는 고객사명·사람 이름·연락처는 본문에 옮기지 않습니다.
+
 작성 원칙:
 - 울림의 전문성이 보이되, 전문 용어를 나열하지 말고 고객이 이해하기 쉬운 말로 설명합니다.
 - 단순히 "예쁘게 디자인했다"가 아니라 정보의 우선순위, 독자의 읽는 순서, 페이지 간 일관성, 설득 구조를 구체적으로 해설합니다.
@@ -181,6 +229,9 @@ export async function createPortfolioDraft(input: {
   ])];
 
   const bodyAssets = input.assets.filter((asset) => asset.kind === "body_image");
+  // 완성 목업을 AI에게 보여 줍니다. 못 읽으면 예전처럼 글로만 씁니다.
+  const visionParts = await mockupImageParts(input.assets);
+  console.info(`[portfolio-draft] attached ${visionParts.length} mockup image(s) for the writer`);
   let generated: PortfolioDraft | null = input.progress?.generated || null;
   let validation: ReturnType<typeof draftIssues> | null = generated
     ? draftIssues(generated)
@@ -189,6 +240,7 @@ export async function createPortfolioDraft(input: {
   for (let attempt = completedAttempts; attempt < 3; attempt += 1) {
     yieldPortfolioCheckpointIfNeeded(input.shouldYield);
     generated = await generateGeminiJson<PortfolioDraft>([
+      ...visionParts,
       {
         text: writingPrompt({
           review: input.review,
