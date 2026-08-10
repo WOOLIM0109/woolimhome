@@ -187,8 +187,9 @@ export function friendlyStyleIssues(
     /기대할 수 있습니다/g,
   ].reduce((total, pattern) => {
     const matches = plain.match(pattern) || [];
-    if (matches.length > 2 && clicheSamples.length < 5 && !clicheSamples.includes(matches[0])) {
-      clicheSamples.push(`${matches[0]}(${matches.length}회)`);
+    const first = matches[0];
+    if (first && matches.length > 2 && clicheSamples.length < 5 && !clicheSamples.includes(first)) {
+      clicheSamples.push(`${first}(${matches.length}회)`);
     }
     return total + matches.length;
   }, 0);
