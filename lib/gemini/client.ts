@@ -1,6 +1,7 @@
 import { redactGeminiTextParts } from "../security/privacy.ts";
 import { extractGeminiGrounding } from "./grounding.ts";
 import { assertGeminiInvocationAllowed } from "./protection.ts";
+import { reportGeminiUsage } from "./usage-sink.ts";
 import { GeminiRequestError } from "./retry.ts";
 import type { GeminiNetworkAttempt } from "./retry.ts";
 export { GeminiRequestError, geminiRetryDecision } from "./retry.ts";
@@ -182,6 +183,12 @@ export async function generateGeminiText(input: {
         retryable: false,
         retryAfterMs: null,
         ...usage,
+      });
+      // 자동 생성 작업이 실제로 쓴 양을 모아, 끝난 뒤 예약값 대신 실제값으로 기록합니다.
+      reportGeminiUsage({
+        inputTokens: usage.inputTokens,
+        outputTokens: usage.outputTokens,
+        networkAttempts,
       });
       return {
         text,

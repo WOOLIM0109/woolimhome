@@ -15,6 +15,10 @@ import {
   aggregateGeminiUsageRows,
   type GeminiUsageRow,
 } from "./usage-aggregation";
+import {
+  createGeminiUsageTally,
+  runWithGeminiUsageTally,
+} from "./usage-sink";
 
 /**
  * 자동 원고 생성용 예산 관문.
@@ -219,6 +223,24 @@ export async function runBudgetedGeminiAutomation<T>(
   });
 
   const startedAt = Date.now();
+  // 실제 사용량을 모아 두었다가 예약값 대신 기록합니다.
+  // 이 교체가 없으면 넉넉하게 잡아 둔 예약값이 그대로 남아 상한에 훨씬 빨리 도달합니다.
+  const tally = createGeminiUsageTally();
+
+  function actualMetrics() {
+    const networkAttempts = Math.max(1, tally.networkAttempts);
+    return {
+      networkAttempts,
+      inputTokens: tally.inputTokens,
+      outputTokens: tally.outputTokens,
+      // 실제 호출이 있었으면 실제 사용량으로, 한 번도 없었으면 예약값을 유지합니다.
+      accountedCostUsd: tally.networkAttempts > 0
+        ? estimatedGeminiCostUsd(tally.inputTokens, tally.outputTokens, config)
+        : estimatedCostUsd,
+      durationMs: Date.now() - startedAt,
+    };
+  }
+
   try {
     const value = await runWithGeminiInvocation({
       operationId,
@@ -228,14 +250,12 @@ export async function runBudgetedGeminiAutomation<T>(
       promptVersion: `automation:${input.operation}`,
       contentHash: sha256(`${input.operation}:${operationId}`),
       contentCount: 1,
-    }, work);
-    await finishAutomationLog(logId, "completed", {
-      durationMs: Date.now() - startedAt,
-    });
+    }, () => runWithGeminiUsageTally(tally, work));
+    await finishAutomationLog(logId, "completed", actualMetrics());
     return value;
   } catch (error) {
     await finishAutomationLog(logId, "failed", {
-      durationMs: Date.now() - startedAt,
+      ...actualMetrics(),
       errorMessage: error instanceof Error ? error.message.slice(0, 500) : "알 수 없는 오류",
     });
     throw error;
