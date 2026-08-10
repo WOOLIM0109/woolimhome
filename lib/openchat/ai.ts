@@ -2,59 +2,6 @@ import { AFTERNOON_THEMES } from "./config";
 import { assessHistoricalSimilarity } from "./novelty";
 import type { CollectedProgram } from "./types";
 
-const MODEL = "gemini-3.5-flash";
-
-function wait(milliseconds: number) {
-  return new Promise((resolve) => setTimeout(resolve, milliseconds));
-}
-
-async function askGemini(prompt: string, maxOutputTokens = 12_000, useGoogleSearch = false) {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) throw new Error("GEMINI_API_KEY가 설정되지 않았습니다.");
-  let lastError = "Gemini 요청 실패";
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    try {
-      const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${apiKey}`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            contents: [{ role: "user", parts: [{ text: prompt }] }],
-            generationConfig: {
-              responseMimeType: "application/json",
-              maxOutputTokens,
-              temperature: 0.35,
-            },
-            ...(useGoogleSearch ? { tools: [{ google_search: {} }] } : {}),
-          }),
-          signal: AbortSignal.timeout(120_000),
-        },
-      );
-      if (!response.ok) {
-        lastError = `Gemini 요청 실패: HTTP ${response.status}`;
-        if (![429, 500, 502, 503, 504].includes(response.status) || attempt === 2) {
-          throw new Error(lastError);
-        }
-        await wait([1_200, 3_500][attempt]);
-        continue;
-      }
-      const payload = await response.json();
-      const raw = payload.candidates?.[0]?.content?.parts
-        ?.map((part: { text?: string }) => part.text || "")
-        .join("")
-        .trim();
-      if (!raw) throw new Error("Gemini 응답이 비어 있습니다.");
-      return JSON.parse(raw) as unknown;
-    } catch (error) {
-      lastError = error instanceof Error ? error.message : lastError;
-      if (attempt === 2 || /HTTP (?!429|500|502|503|504)/.test(lastError)) throw new Error(lastError);
-      await wait([1_200, 3_500][attempt]);
-    }
-  }
-  throw new Error(lastError);
-}
-
 export type ProgramAnalysis = {
   sourceKey: string;
   externalId?: string | null;
@@ -120,93 +67,13 @@ function fallbackProgramAnalysis(program: CollectedProgram): ProgramAnalysis {
   };
 }
 
-async function analyzeProgramBatch(programs: CollectedProgram[], useGoogleSearch = false) {
-  if (!process.env.GEMINI_API_KEY) {
-    return programs.map(fallbackProgramAnalysis);
-  }
-
-  const compact = programs.map((program, index) => ({
-    index,
-    sourceKey: program.sourceKey,
-    externalId: program.externalId || null,
-    title: program.title,
-    url: program.url,
-    knownStartsAt: program.startsAt || null,
-    knownDeadlineAt: program.deadlineAt || null,
-    knownApplicationMethod: program.applicationMethod || null,
-    knownApplicantSummary: program.applicantSummary || null,
-    knownSupportSummary: program.supportSummary || null,
-    knownApplicationPeriodText: program.applicationPeriodText || null,
-    text: (program.rawText || program.title).slice(0, 8_000),
-  }));
-  let result: { programs?: Array<Record<string, unknown>> };
-  try {
-    result = await askGemini(`당신은 대한민국 정부지원사업 공고 편집자입니다.
-아래 공고 후보를 검토해 오픈채팅 게시 후보를 JSON으로 정리하세요.
-
-포함:
-- 중앙정부 또는 중소벤처기업부 공고
-- 전국 신청 가능 공고
-- 부산·울산·경남 기업 또는 예비창업자가 신청 가능한 공고
-- 창업, 사업화, R&D, 시제품, 판로, 수출, 정책자금, 스마트화, 소상공인 지원
-
-제외:
-- 부산·울산·경남 외 특정 지역 기업만 신청 가능한 공고
-- 이미 마감된 공고
-- 지원 없는 단순 행사·교육·홍보
-- 본문 근거가 부족해 공고 여부를 판단할 수 없는 탐색 메뉴
-
-절대 추측하지 말고 제공된 본문에 있는 내용만 사용하세요. 날짜는 ISO 8601 형식으로, 알 수 없으면 null로 작성하세요.
-지원내용은 카카오톡에 바로 쓸 수 있도록 각 항목을 "- "로 시작하는 짧은 문장으로 작성하세요. 지원금·사업화자금·바우처·비용 한도 등 숫자가 본문에 있으면 반드시 빠짐없이 포함하세요.
-신청대상·지원내용/금액·신청기간·신청방법 중 하나라도 본문에서 확인되지 않으면 keep을 false로 하고 exclusionReason에 "상세정보 수집 미완료"와 누락 항목을 적으세요.
-priority는 중앙정부 10, 전국 20, 부산 30, 울산 35, 경남 40, 그 외 100을 기준으로 중요도를 반영하세요.
-
-반환 형식:
-{"programs":[{"index":0,"keep":true,"exclusionReason":"","applicantSummary":"- ...","supportSummary":"- ...","applicationMethod":"온라인 접수","applicationPeriodText":"공고일로부터 상시접수","startsAt":null,"deadlineAt":null,"regions":["전국"],"categories":["창업","사업화"],"priority":20}]}
-
-온라인 검색 도구가 제공된 경우 후보 URL의 공식 원문을 우선 확인하고, 검색 결과의 다른 블로그나 요약문은 근거로 사용하지 마세요.
-
-후보:
-${JSON.stringify(compact)}`, 12_000, useGoogleSearch) as { programs?: Array<Record<string, unknown>> };
-  } catch {
-    return programs.map(fallbackProgramAnalysis);
-  }
-  const rows = Array.isArray(result.programs) ? result.programs : [];
-  const rowsByIndex = new Map(rows.map((row) => [Number(row.index), row]));
-  return programs.map((original, index): ProgramAnalysis => {
-    const row = rowsByIndex.get(index);
-    if (!row) return fallbackProgramAnalysis(original);
-    const deterministic = fallbackProgramAnalysis(original);
-    return {
-      sourceKey: original.sourceKey,
-      externalId: original.externalId,
-      title: original.title,
-      url: original.url,
-      keep: row.keep === true && deterministic.keep,
-      exclusionReason: deterministic.keep ? String(row.exclusionReason || "") : deterministic.exclusionReason,
-      applicantSummary: String(row.applicantSummary || original.applicantSummary || ""),
-      supportSummary: String(row.supportSummary || original.supportSummary || ""),
-      applicationMethod: String(row.applicationMethod || original.applicationMethod || ""),
-      applicationPeriodText: String(row.applicationPeriodText || original.applicationPeriodText || ""),
-      startsAt: typeof row.startsAt === "string" ? row.startsAt : original.startsAt,
-      deadlineAt: typeof row.deadlineAt === "string" ? row.deadlineAt : original.deadlineAt,
-      regions: Array.isArray(row.regions) ? row.regions.map(String) : [],
-      categories: Array.isArray(row.categories) ? row.categories.map(String) : [],
-      priority: Math.max(1, Math.min(999, Number(row.priority) || 100)),
-    };
-  });
-}
-
 export function analyzeProgramDeterministically(program: CollectedProgram) {
   return fallbackProgramAnalysis(program);
 }
 
 export async function analyzePrograms(programs: CollectedProgram[], options?: { useGoogleSearch?: boolean }) {
-  const analyzed: ProgramAnalysis[] = [];
-  for (let index = 0; index < programs.length; index += 5) {
-    analyzed.push(...await analyzeProgramBatch(programs.slice(index, index + 5), options?.useGoogleSearch));
-  }
-  return analyzed;
+  void options;
+  return programs.map(fallbackProgramAnalysis);
 }
 
 async function verifiedUrls(urls: string[]) {
@@ -320,7 +187,7 @@ const FALLBACK_TOPICS: Record<number, FallbackTopic> = {
   },
 };
 
-function fallbackAfternoonContent(weekday: number, failure: unknown) {
+function fallbackAfternoonContent(weekday: number) {
   const topic = FALLBACK_TOPICS[weekday] || FALLBACK_TOPICS[4];
   const body = `📌 오늘의 울림 비즈니스 팁
 
@@ -345,12 +212,11 @@ ${topic.tip}`;
     body,
     referenceUrls: topic.referenceUrls,
     keywords: topic.keywords,
-    reason: `Gemini 일시 제한 시 자동 대체 초안 사용: ${failure instanceof Error ? failure.message : "요청 실패"}`,
+    reason: "Gemini 비용 보호 모드에서 결정론적 대체 초안을 사용했습니다.",
   };
 }
 
 export async function generateAfternoonContent({
-  date,
   weekday,
   history,
 }: {
@@ -359,36 +225,7 @@ export async function generateAfternoonContent({
   history: HistoryItem[];
 }) {
   const theme = AFTERNOON_THEMES[weekday] || "대표자 실무 정보";
-  let result: Record<string, unknown>;
-  try {
-    result = await askGemini(`울림컴퍼니 오픈채팅방에 올릴 오후 6시 콘텐츠 초안을 작성하세요.
-
-오늘: ${date}
-요일 테마: ${theme}
-독자: 예비창업자, 소상공인, 중소기업 대표
-
-규칙:
-- 과거 게시물과 핵심 문제, 결론, 도구, 사이트가 겹치지 않는 새 주제를 선택합니다.
-- 목요일에도 PDF나 단톡 배포자료를 만들지 말고 일반 정보 콘텐츠를 작성합니다.
-- AI 말투를 줄이고 자연스러운 한국어 문단으로 연결합니다.
-- 과도한 이모티콘과 과장된 표현을 피합니다.
-- 주로 어디에 쓰이는지, 추천 이유, 활용 방법, 주의사항, 울림컴퍼니 팁을 포함합니다.
-- 글을 쓰기 전에 외부 확인이 가능한 사실을 모두 찾고, 법률·세무·노무·정책·통계·금액·기간·조건을 주장마다 나누어 각각 검색합니다.
-- 정부·공공기관·법령·제도 주관기관의 최신 공식 원문으로 확인된 사실만 사용합니다.
-- 공식 원문으로 확인되지 않는 사실은 '확인 필요'라고 독자에게 넘기지 말고 본문에서 제외합니다. 핵심 내용을 확인할 수 없으면 다른 주제로 바꿉니다.
-- 고객명, 내부 매출, 비공개 성과처럼 외부 조사로 알 수 없는 사실은 만들지 않습니다.
-- 참고 링크는 실제 공식 사이트의 정확한 URL만 최대 3개 넣습니다.
-- 상담 안내 문구는 시스템이 별도로 붙이므로 본문에 넣지 않습니다.
-- 전체 분량은 카카오톡에서 읽기 좋은 900~1,500자입니다.
-
-반환 형식:
-{"title":"...","body":"...","referenceUrls":["https://..."],"keywords":["..."],"reason":"과거 글과 다른 이유"}
-
-과거 게시물:
-${JSON.stringify(history.map((item) => ({ date: item.published_on, title: item.title, keywords: item.keywords })).slice(0, 80))}`, 12_000, true) as Record<string, unknown>;
-  } catch (error) {
-    result = fallbackAfternoonContent(weekday, error);
-  }
+  const result = fallbackAfternoonContent(weekday);
   const draft = {
     title: String(result.title || "오늘의 울림 비즈니스 팁"),
     body: String(result.body || ""),

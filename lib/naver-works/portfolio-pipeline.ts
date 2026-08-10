@@ -1,6 +1,4 @@
 import { contentAdmin } from "@/lib/content-ops/data";
-import { generateGeminiJson } from "@/lib/portfolio/gemini";
-import { fetchExistingDesignBlogTitles } from "@/lib/portfolio/naver-blog";
 import { sensitivePortfolioDocument, supportedPortfolioFile } from "./client";
 
 type CandidateRow = {
@@ -31,7 +29,7 @@ type CandidateRow = {
       }[];
 };
 
-type AiRankedCandidate = {
+type RankedCandidate = {
   id: string;
   confidence: number;
   reasons: string[];
@@ -98,60 +96,34 @@ function explorationScore(candidate: CandidateRow) {
   return score;
 }
 
-async function aiShortlist(candidates: CandidateRow[]) {
-  if (!candidates.length) return [] as AiRankedCandidate[];
-  const existingBlogTitles = await fetchExistingDesignBlogTitles();
-  const input = candidates.slice(0, 80).map((candidate) => {
-    const file = driveFile(candidate)!;
+function deterministicShortlist(candidates: CandidateRow[]): RankedCandidate[] {
+  const projectRanked = [...candidates].sort((a, b) => (
+    projectScore(b) - projectScore(a)
+    || explorationScore(b) - explorationScore(a)
+    || a.id.localeCompare(b.id)
+  ));
+  const qualified = projectRanked.filter((candidate) => projectScore(candidate) >= 55);
+  const pool = qualified.length
+    ? qualified
+    : [...candidates].sort((a, b) => (
+      explorationScore(b) - explorationScore(a)
+      || projectScore(b) - projectScore(a)
+      || a.id.localeCompare(b.id)
+    ));
+
+  return pool.slice(0, 10).map((candidate, index) => {
+    const score = qualified.length ? projectScore(candidate) : explorationScore(candidate);
     return {
       id: candidate.id,
-      projectKey: candidate.project_key,
-      name: file.file_name,
-      path: file.file_path,
-      extension: file.file_extension,
-      sizeMb: Math.round((Number(file.file_size || 0) / 1024 / 1024) * 10) / 10,
-      baseScore: Math.round(projectScore(candidate)),
+      confidence: Math.max(0.56, Math.min(0.99, score / 100)),
+      reasons: qualified.length
+        ? ["파일명·경로·형식을 기준으로 실제 디자인 프로젝트 가능성이 높음"]
+        : [
+          "파일명만으로 확정하지 않고 실제 페이지를 열어 판정할 탐색 후보",
+          `결정론적 탐색 순위 ${index + 1}위`,
+        ],
     };
   });
-  const result = await generateGeminiJson<{ candidates: AiRankedCandidate[] }>([
-    {
-      text: `당신은 디자인 에이전시의 프로젝트 자료 선별자입니다.
-다음 목록은 NAVER WORKS Drive에서 찾은 PPT·PPTX·PDF입니다. 파일을 열기 전에 이름·경로·용량만 보고, 실제로 완성된 비즈니스 문서 디자인 프로젝트일 가능성이 높은 항목 5~10개를 순서대로 고르세요.
-입력 목록은 반드시 '완성본_외부공유금지/PPT' 폴더 안의 울림 작업물만 사용하며, 레퍼런스 폴더 자료는 어떤 경우에도 선택하지 않습니다.
-
-우선순위:
-- 회사소개서, 제품소개서, 제안서, IR, 사업계획서, 발표자료처럼 디자인과 기획 구조를 보여줄 수 있는 완성 문서
-- 같은 프로젝트라면 PDF를 우선해 원본 폰트와 레이아웃을 보존
-- 5페이지 이상일 가능성이 높고, 포트폴리오에서 설명할 서로 다른 장면이 예상되는 자료
-
-제외:
-- 신청서, 공고, 양식, 증빙, 별첨, 제출서류, 통합 압축, 업무용 내부문서
-- 세로형 웹 상세페이지·카드뉴스·배너를 PPT에 단순히 담은 파일
-- 파일명과 경로만으로 프로젝트일 가능성이 낮은 자료
-- 아래 기존 디자인 블로그 제목과 같은 프로젝트로 보이는 자료
-
-기존 디자인 블로그 최근 제목:
-${JSON.stringify(existingBlogTitles)}
-
-여기서는 최종 승인하지 않습니다. 선택된 파일은 다음 단계에서 실제 페이지를 보고 다시 엄격히 판정합니다.
-목록이 비어 있지 않다면 확신이 낮더라도 상대적으로 가능성이 높은 탐색 후보를 최소 5개는 반환하세요. 빈 배열을 반환하지 마세요.
-반드시 JSON만 반환하세요:
-{"candidates":[{"id":"목록의 id","confidence":0.0,"reasons":["선정 이유"]}]}
-
-목록:
-${JSON.stringify(input)}`,
-    },
-  ], { maxOutputTokens: 4000 });
-  const allowed = new Set(candidates.map((candidate) => candidate.id));
-  return (result.candidates || [])
-    .filter((candidate) => allowed.has(candidate.id))
-    .map((candidate) => ({
-      id: candidate.id,
-      confidence: Math.max(0, Math.min(1, Number(candidate.confidence || 0))),
-      reasons: (candidate.reasons || []).map(String).slice(0, 4),
-    }))
-    .filter((candidate) => candidate.confidence >= 0.55)
-    .slice(0, 10);
 }
 
 export async function prepareNextPortfolioCandidate(options: {
@@ -171,32 +143,7 @@ export async function prepareNextPortfolioCandidate(options: {
   const candidates = ((data || []) as CandidateRow[])
     .filter(metadataEligible)
     .sort((a, b) => projectScore(b) - projectScore(a));
-  let shortlist: AiRankedCandidate[] = [];
-  try {
-    shortlist = await aiShortlist(candidates);
-  } catch {
-    shortlist = candidates
-      .filter((candidate) => projectScore(candidate) >= 55)
-      .slice(0, 10)
-      .map((candidate) => ({
-        id: candidate.id,
-        confidence: Math.min(0.9, projectScore(candidate) / 100),
-        reasons: ["파일명·경로·형식을 기준으로 실제 디자인 프로젝트 가능성이 높음"],
-      }));
-  }
-  if (!shortlist.length) {
-    shortlist = candidates
-      .sort((a, b) => explorationScore(b) - explorationScore(a))
-      .slice(0, 10)
-      .map((candidate, index) => ({
-        id: candidate.id,
-        confidence: Math.max(0.56, 0.65 - index * 0.01),
-        reasons: [
-          "파일명만으로 확정하지 않고 실제 페이지를 열어 판정할 탐색 후보",
-          "명백한 신청서·양식·세로형 홍보물 제외 기준 통과",
-        ],
-      }));
-  }
+  const shortlist = deterministicShortlist(candidates);
 
   const first = shortlist[0];
   const originallySelected = first

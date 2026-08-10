@@ -1,8 +1,5 @@
 import { createAdminClient } from "@/lib/supabase/admin";
-import { generateGeminiText } from "@/lib/gemini/client";
 import type { ExpertiseArea, InterviewQuestion } from "./types";
-
-const MODEL = "gemini-3.5-flash";
 
 export const EXPERTISE_AREAS: { value: ExpertiseArea; label: string }[] = [
   { value: "planning", label: "기획" },
@@ -56,20 +53,15 @@ function fallbackQuestions(area: ExpertiseArea): InterviewQuestion[] {
   ];
 }
 
-function stripFence(text: string) {
-  return text.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
-}
-
 export async function ensureInterviewRequest(input: {
   createdBy: string;
   expertiseArea?: ExpertiseArea;
   force?: boolean;
 }) {
   const admin = createAdminClient();
-  const [{ data: knowledge }, { data: pending }, { data: posts }] = await Promise.all([
+  const [{ data: knowledge }, { data: pending }] = await Promise.all([
     admin.from("column_expert_knowledge").select("id, topic, expertise_area, approved, use_count").eq("approved", true),
     admin.from("column_interview_requests").select("*").eq("status", "pending").order("created_at", { ascending: false }),
-    admin.from("column_posts").select("title, category, tags").order("created_at", { ascending: false }).limit(20),
   ]);
 
   const remainingTotal = (knowledge || []).reduce(
@@ -106,42 +98,9 @@ export async function ensureInterviewRequest(input: {
   if (existing) return { created: false, item: existing, reason: "해당 분야의 대기 중인 요청서가 있습니다." };
 
   const label = areaLabel(chosenArea);
-  let questions = fallbackQuestions(chosenArea);
-  let title = `${label} 전문성을 기록하는 심층 인터뷰`;
-  let rationale = `${label} 분야의 승인된 원천자료가 부족해, 대표님의 실제 판단 기준과 사례를 새롭게 기록할 필요가 있습니다.`;
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (apiKey) {
-    try {
-      const prompt = `울림컴퍼니 대표는 기획 전문가이며 종합 경영컨설팅, 정부지원사업, 사업계획서, IR·PPT, 디자인 업무를 수행한다.
-현재 "${label}" 분야의 장시간 음성 인터뷰 요청서를 작성한다.
-목적은 블로그 문장을 대신 써주는 것이 아니라 대표의 실제 판단 과정, 실패와 수정, 고객 문제를 발견한 방식, 공개 가능한 사례와 수치, 울림만의 원칙을 깊게 끌어내는 것이다.
-기존 자료 및 최근 글과 겹치는 피상적인 질문은 피하고, 전문용어를 모르는 사람도 답할 수 있는 자연스러운 한국어를 쓴다.
-기본 질문은 정확히 10개이며 각 질문에 답을 구체화하는 꼬리 질문 1~3개를 붙인다.
-고객명·개인정보·비공개 계약 내용은 말하지 않도록 첫 질문 전에 안내할 수 있는 맥락을 반영한다.
-
-기존 승인 자료: ${JSON.stringify(knowledge || [])}
-최근 칼럼: ${JSON.stringify(posts || [])}
-
-JSON만 반환:
-{"title":"","rationale":"","questions":[{"question":"","followUps":[""]}]}`;
-      const { text: output } = await generateGeminiText({
-        model: MODEL,
-        parts: [{ text: prompt }],
-        generationConfig: { responseMimeType: "application/json", maxOutputTokens: 8192 },
-        timeoutMs: 90_000,
-      });
-      const generated = JSON.parse(stripFence(output || "{}")) as {
-        title?: string;
-        rationale?: string;
-        questions?: InterviewQuestion[];
-      };
-      if (generated.title) title = generated.title;
-      if (generated.rationale) rationale = generated.rationale;
-      if (generated.questions?.length === 10) questions = generated.questions;
-    } catch {
-      // A deterministic guide is still more useful than failing the replenishment flow.
-    }
-  }
+  const questions = fallbackQuestions(chosenArea);
+  const title = `${label} 전문성을 기록하는 심층 인터뷰`;
+  const rationale = `${label} 분야의 승인된 원천자료가 부족해, 대표님의 실제 판단 기준과 사례를 새롭게 기록할 필요가 있습니다.`;
 
   const { data, error } = await admin.from("column_interview_requests").insert({
     expertise_area: chosenArea,
@@ -154,7 +113,7 @@ JSON만 반환:
       knowledge_remaining_total: remainingTotal,
       area_approved_count: areaState.count,
       area_remaining_uses: areaState.remaining,
-      model: apiKey ? MODEL : "fallback",
+      model: "deterministic",
     },
     created_by: input.createdBy,
   }).select().single();

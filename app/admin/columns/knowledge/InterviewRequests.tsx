@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { CheckCircle2, ChevronDown, Clipboard, FileText, Mic, Printer, RefreshCw } from "lucide-react";
 import { EXPERTISE_AREAS } from "@/lib/columns/interview-requests";
 import type { ExpertiseArea, InterviewRequest } from "@/lib/columns/types";
@@ -25,7 +25,6 @@ export default function InterviewRequests() {
   const [area, setArea] = useState<ExpertiseArea>("planning");
   const [generating, setGenerating] = useState(false);
   const [notice, setNotice] = useState("");
-  const autoChecked = useRef(false);
 
   const load = useCallback(async () => {
     const response = await fetch("/api/admin/columns/interview-requests", { cache: "no-store" });
@@ -56,12 +55,6 @@ export default function InterviewRequests() {
       .then((data: InterviewRequest[]) => setItems(data));
   }, []);
 
-  useEffect(() => {
-    if (autoChecked.current) return;
-    autoChecked.current = true;
-    void generate(false);
-  }, [generate]);
-
   const pending = useMemo(() => items.filter((item) => item.status === "pending"), [items]);
 
   const complete = async (item: InterviewRequest) => {
@@ -81,7 +74,8 @@ export default function InterviewRequests() {
           <div>
             <h2 className="text-xl font-bold">맞춤 인터뷰 요청서</h2>
             <p className="mt-1 text-sm leading-6 text-[var(--muted)]">
-              전체 또는 특정 전문 분야의 자료가 부족하면 자동으로 요청서를 만듭니다.
+              화면을 열거나 자료를 수정해도 요청서를 자동 생성하지 않습니다.
+              필요한 전문 분야를 선택하고 요청서 만들기를 직접 눌러주세요.
               질문을 보며 30~45분간 음성으로 답한 뒤 녹취록을 위 자료 가져오기에 올려주세요.
             </p>
           </div>
@@ -106,7 +100,7 @@ export default function InterviewRequests() {
       <div className="mt-6 space-y-5">
         {pending.length === 0 && !generating && (
           <p className="rounded-sm border border-dashed border-[var(--line)] p-5 text-sm text-[var(--muted)]">
-            대기 중인 인터뷰 요청서가 없습니다. 자료 부족이 감지되면 자동 생성됩니다.
+            대기 중인 인터뷰 요청서가 없습니다. 필요한 경우 위의 요청서 만들기를 눌러주세요.
           </p>
         )}
         {pending.map((item) => (

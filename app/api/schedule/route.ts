@@ -79,6 +79,7 @@ export async function GET(request: Request) {
       : Promise.resolve({ data: [], error: null }),
     admin.from("content_automation_runs")
       .select("id,cron_name,status,scheduled_for,completed_at")
+      .in("cron_name", ["columns", "content-operations"])
       .order("scheduled_for", { ascending: false })
       .limit(12),
   ]);

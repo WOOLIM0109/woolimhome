@@ -1,8 +1,10 @@
-import { redactGeminiTextParts } from "@/lib/security/privacy";
-import { extractGeminiGrounding } from "./grounding";
-import { GeminiRequestError } from "./retry";
-export { GeminiRequestError, geminiRetryDecision } from "./retry";
-export type { GeminiGroundingSource } from "./grounding";
+import { redactGeminiTextParts } from "../security/privacy.ts";
+import { extractGeminiGrounding } from "./grounding.ts";
+import { assertGeminiInvocationAllowed } from "./protection.ts";
+import { GeminiRequestError } from "./retry.ts";
+import type { GeminiNetworkAttempt } from "./retry.ts";
+export { GeminiRequestError, geminiRetryDecision } from "./retry.ts";
+export type { GeminiGroundingSource } from "./grounding.ts";
 
 export type GeminiPart =
   | { text: string }
@@ -78,14 +80,33 @@ export async function generateGeminiText(input: {
   attempts?: number;
   tools?: Array<Record<string, unknown>>;
 }) {
-  const attempts = Math.max(1, Math.min(input.attempts || 4, 5));
+  const model = input.model || "gemini-3.5-flash";
+  try {
+    assertGeminiInvocationAllowed(model);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Gemini 호출이 차단되어 있습니다.";
+    throw new GeminiRequestError({
+      code: /확인/.test(message) ? "GEMINI_APPROVAL_REQUIRED" : "GEMINI_DISABLED",
+      message,
+      retryable: false,
+      networkAttempts: 0,
+    });
+  }
+  // One logical user review normally makes one request. A second transport
+  // attempt is allowed only when the caller explicitly requests it, and only
+  // for retryable 429/5xx responses.
+  const attempts = Math.max(1, Math.min(input.attempts || 1, 2));
   const { parts, redactionCount } = redactGeminiTextParts(input.parts);
   let lastError: GeminiRequestError | null = null;
+  let networkAttempts = 0;
+  const attemptLog: GeminiNetworkAttempt[] = [];
 
   for (let attempt = 0; attempt < attempts; attempt += 1) {
+    const startedAt = new Date().toISOString();
     try {
+      networkAttempts += 1;
       const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/${input.model || "gemini-3.5-flash"}:generateContent?key=${apiKey()}`,
+        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey()}`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -103,10 +124,24 @@ export async function generateGeminiText(input: {
           (await response.text()).slice(0, 2_000),
           retryAfterMs(response),
         );
+        lastError.networkAttempts = networkAttempts;
+        attemptLog.push({
+          attempt: networkAttempts,
+          startedAt,
+          completedAt: new Date().toISOString(),
+          outcome: "failed",
+          httpStatus: response.status,
+          errorCode: lastError.code,
+          retryable: lastError.retryable,
+          retryAfterMs: lastError.retryAfterMs,
+          inputTokens: 0,
+          outputTokens: 0,
+          totalTokens: 0,
+          cachedInputTokens: 0,
+        });
+        lastError.attempts = [...attemptLog];
         if (!lastError.retryable || attempt === attempts - 1) throw lastError;
-        const exponential = Math.min(30_000, 1_500 * (2 ** attempt));
-        const jittered = Math.round(exponential * (0.8 + Math.random() * 0.4));
-        await wait(Math.max(lastError.retryAfterMs || 0, jittered));
+        await wait(Math.min(15_000, Math.max(lastError.retryAfterMs || 0, 1_500)));
         continue;
       }
       const payload = await response.json();
@@ -116,29 +151,84 @@ export async function generateGeminiText(input: {
         throw new GeminiRequestError({
           code: "GEMINI_EMPTY_RESPONSE",
           message: "Gemini returned an empty response.",
-          retryable: true,
+          retryable: false,
           status: response.status,
+          networkAttempts,
         });
       }
-      return { text, redactionCount, ...extractGeminiGrounding(payload) };
+      const usageMetadata = payload.usageMetadata || {};
+      const inputTokens = Number(usageMetadata.promptTokenCount || 0);
+      const candidateTokens = Number(usageMetadata.candidatesTokenCount || 0);
+      const thoughtsTokens = Number(usageMetadata.thoughtsTokenCount || 0);
+      const totalTokens = Number(usageMetadata.totalTokenCount || 0);
+      const usage = {
+        inputTokens,
+        // Thinking and other generated tokens can be billable even when they
+        // are not present in candidatesTokenCount. Count the larger known
+        // output total so the cost cap fails conservatively.
+        outputTokens: Math.max(candidateTokens + thoughtsTokens, totalTokens - inputTokens, 0),
+        candidateTokens,
+        thoughtsTokens,
+        totalTokens,
+        cachedInputTokens: Number(usageMetadata.cachedContentTokenCount || 0),
+      };
+      attemptLog.push({
+        attempt: networkAttempts,
+        startedAt,
+        completedAt: new Date().toISOString(),
+        outcome: "completed",
+        httpStatus: response.status,
+        errorCode: null,
+        retryable: false,
+        retryAfterMs: null,
+        ...usage,
+      });
+      return {
+        text,
+        redactionCount,
+        networkAttempts,
+        usage,
+        attempts: attemptLog,
+        ...extractGeminiGrounding(payload),
+      };
     } catch (error) {
       if (error instanceof GeminiRequestError) {
         lastError = error;
+        lastError.networkAttempts = networkAttempts;
       } else {
         const timedOut = error instanceof DOMException && error.name === "TimeoutError";
         lastError = new GeminiRequestError({
           code: timedOut ? "GEMINI_TIMEOUT" : "GEMINI_REQUEST_FAILED",
           message: timedOut ? "Gemini request timed out." : "Gemini request could not be completed.",
-          retryable: true,
+          retryable: false,
+          networkAttempts,
         });
       }
+      if (!attemptLog.some((entry) => entry.attempt === networkAttempts)) {
+        attemptLog.push({
+          attempt: networkAttempts,
+          startedAt,
+          completedAt: new Date().toISOString(),
+          outcome: "failed",
+          httpStatus: lastError.status,
+          errorCode: lastError.code,
+          retryable: lastError.retryable,
+          retryAfterMs: lastError.retryAfterMs,
+          inputTokens: 0,
+          outputTokens: 0,
+          totalTokens: 0,
+          cachedInputTokens: 0,
+        });
+      }
+      lastError.attempts = [...attemptLog];
       if (!lastError.retryable || attempt === attempts - 1) throw lastError;
-      await wait(Math.round(Math.min(30_000, 1_500 * (2 ** attempt)) * (0.8 + Math.random() * 0.4)));
+      await wait(1_500);
     }
   }
   throw lastError || new GeminiRequestError({
     code: "GEMINI_REQUEST_FAILED",
     message: "Gemini request could not be completed.",
-    retryable: true,
+    retryable: false,
+    networkAttempts,
   });
 }

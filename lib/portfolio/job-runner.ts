@@ -1116,14 +1116,14 @@ export async function processNextPortfolioMockup(candidateId?: string) {
     const { data: committedWorkItem, error: workUpdateError } = await admin.from("content_work_items").update({
       summary: mockupOnly
         ? restoredSummary
-        : "포트폴리오 디자인 목업을 완성했습니다. Gemini 글쓰기 작업은 별도 대기열에서 이어서 처리합니다.",
-      status: mockupOnly ? restoredStatus : "creating",
+        : "포트폴리오 디자인 목업을 완성했습니다. AI 본문 자동 생성은 비용 보호 모드에서 대기합니다.",
+      status: mockupOnly ? restoredStatus : "on_hold",
       source_label: mockupOnly
         ? workItem.source_label
         : "NAVER WORKS 실제 프로젝트 · 로컬 시각 분석",
       review_note: mockupOnly
         ? restoredReviewNote
-        : "디자인 목업은 저장되었습니다. 본문 초안 생성을 이어서 진행합니다.",
+        : "디자인 목업은 저장되었습니다. Gemini 본문은 관리자 확인 없이 생성하지 않습니다.",
       metadata: {
         ...workItemMetadata,
         portfolioReview: review,
@@ -1139,6 +1139,7 @@ export async function processNextPortfolioMockup(candidateId?: string) {
           ? workItemMetadata.portfolioStage || "design_completed"
           : "design_completed",
         designCompletedAt: completedAt,
+        ...(!mockupOnly ? { awaitingAiConfirmation: true } : {}),
       },
       updated_at: completedAt,
     }).eq("id", job.work_item_id)
@@ -1297,13 +1298,13 @@ export async function processNextPortfolioMockup(candidateId?: string) {
       ? pendingDraft.payload as Record<string, unknown>
       : {};
     const { data: queuedDraft, error: draftQueueError } = await admin.from("content_jobs").update({
-      status: "queued",
+      status: "on_hold",
       attempts: 0,
       started_at: null,
-      completed_at: null,
+      completed_at: completedAt,
       next_retry_at: null,
-      last_error_code: null,
-      error_message: null,
+      last_error_code: "GEMINI_COST_PROTECTION_ACTIVE",
+      error_message: "Gemini 본문은 관리자 확인 없이 생성하지 않습니다.",
       payload: {
         ...pendingDraftPayload,
         portfolioGenerationId: generationId,
@@ -1325,7 +1326,7 @@ export async function processNextPortfolioMockup(candidateId?: string) {
     return {
       candidateId: job.candidate_id,
       workItemId: job.work_item_id,
-      status: "creating",
+      status: "on_hold",
       stage: "design_completed",
       assetCount: assets.length,
     };
