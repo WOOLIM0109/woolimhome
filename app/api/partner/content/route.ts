@@ -4,7 +4,7 @@ import {
   PARTNER_CHANNELS,
   PARTNER_VISIBLE_STATUSES,
   isPartnerChannel,
-  isPartnerReleaseReady,
+  isVisibleToPartner,
   partnerAssetUrl,
   replaceAdminAssetUrls,
   replaceFiguresWithMarkers,
@@ -12,7 +12,6 @@ import {
 import { expectedNaverAccount } from "@/lib/publication";
 import { sanitizeGeneratedHtml } from "@/lib/security/html";
 import { PRIVATE_PORTFOLIO_SOURCE_NOTE } from "@/lib/content-ops/source-section";
-import { editorialPublicationIssues } from "@/lib/content-ops/editorial-policy";
 
 export const dynamic = "force-dynamic";
 
@@ -44,6 +43,9 @@ type WorkItemRow = {
     generated?: GeneratedContent;
     novelty?: {
       duplicate?: boolean;
+    };
+    partnerReleaseOverride?: {
+      approvedAt?: string;
     };
     validation?: {
       issues?: string[];
@@ -84,11 +86,10 @@ export async function GET(request: Request) {
   const { data, error } = await query;
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
+  // 노출 판단은 lib/partner-portal 한 곳에서만 합니다.
+  // 관리자 화면이 같은 함수로 사유를 보여 주므로, 여기서 조용히 빠지는 작업이 없습니다.
   const items = ((data || []) as WorkItemRow[])
-    .filter((item) => isPartnerReleaseReady(item) && (
-      item.status === "published"
-      || editorialPublicationIssues(item.format, item.metadata?.generated).length === 0
-    ))
+    .filter((item) => isVisibleToPartner(item))
     .map((item) => {
       const hasLegacyDuplicateUrl = item.metadata?.publicationValidation?.duplicateLegacyUrl === true;
       const storedAssets = [...(item.content_review_assets || [])]

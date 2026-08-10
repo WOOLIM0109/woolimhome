@@ -5,7 +5,7 @@ import {
   validatePortfolioSourceState,
 } from "@/lib/content-ops/portfolio-rules";
 import type { WorkflowStatus } from "@/lib/content-ops/types";
-import { isPartnerChannel, parseStoredAssetUrl } from "@/lib/partner-portal";
+import { isPartnerChannel, parseStoredAssetUrl, partnerVisibilityBlockers } from "@/lib/partner-portal";
 import { validateNaverPublication } from "@/lib/publication";
 import {
   PortfolioConversionRetryConflict,
@@ -586,27 +586,33 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     const admin = contentAdmin();
     const { data: current, error: currentError } = await admin
       .from("content_work_items")
-      .select("format,status,metadata")
+      .select("channel,format,status,metadata")
       .eq("id", id)
       .single();
     if (currentError) return NextResponse.json({ error: currentError.message }, { status: 500 });
-    if (current.format === "portfolio" || current.status === "published") {
-      return NextResponse.json({ error: "이 원고는 별도 외주 전달 승인이 필요하지 않습니다." }, { status: 400 });
+    if (!isPartnerChannel(current.channel)) {
+      return NextResponse.json({ error: "네이버 채널 작업만 외주 작업실로 보낼 수 있습니다." }, { status: 400 });
     }
-    const generated = current.metadata?.generated;
-    const editorialIssues = editorialPublicationIssues(current.format, generated);
-    if (editorialIssues.length) {
-      return NextResponse.json({
-        error: `원고 규칙을 먼저 정리해 주세요: ${editorialIssues.join(" ")}`,
-        details: { issues: editorialIssues },
-      }, { status: 400 });
+    if (current.status === "published") {
+      return NextResponse.json({ error: "이미 발행한 작업은 외주 작업실에 그대로 남아 있습니다." }, { status: 400 });
     }
+    // 규칙에 걸린 원고라도 관리자가 판단하면 보낼 수 있게 합니다.
+    // 막아 두면 작업이 아무 표시 없이 사라진 상태가 그대로 굳어집니다.
+    // 대신 어떤 사유를 넘겼는지 기록해 나중에 확인할 수 있게 남깁니다.
+    const overriddenReasons = partnerVisibilityBlockers({
+      channel: String(current.channel),
+      format: String(current.format),
+      // 상태 사유는 아래에서 승인으로 바꾸므로 판단에서 제외합니다.
+      status: "approved",
+      metadata: current.metadata,
+    }).map((blocker) => blocker.message);
     const now = new Date().toISOString();
     const metadata = {
       ...(current.metadata || {}),
       partnerReleaseOverride: {
         approvedAt: now,
         approvedBy: user.email || "admin",
+        overriddenReasons,
       },
     };
     const { data, error } = await admin.from("content_work_items").update({

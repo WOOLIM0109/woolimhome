@@ -109,6 +109,8 @@ type WorkItem = {
     partnerReleaseOverride?: {
       approvedAt?: string;
       approvedBy?: string;
+      /** 관리자가 어떤 사유를 넘기고 보냈는지 기록 */
+      overriddenReasons?: string[];
     };
     publicationValidation?: {
       duplicateLegacyUrl?: boolean;
@@ -123,6 +125,10 @@ type WorkItem = {
   content_review_assets?: { id: string; asset_type: "thumbnail" | "body_image" | "article_preview"; public_url: string; sort_order?: number; review_note?: string }[];
   portfolio_jobs?: PortfolioJob[];
   cover_title_suggestions?: string[];
+  /** 외주 작업실 노출 여부와 막힌 사유. 서버가 외주 화면과 같은 함수로 계산합니다. */
+  partner_visibility?: {
+    blockers: { code: string; message: string }[];
+  };
 };
 
 const mockupModeLabels: Record<PortfolioMockupMode, string> = {
@@ -965,25 +971,47 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
               </p>
             </section>
           )}
-          {item.status === "approved"
-            && item.format !== "portfolio"
-            && (
-              item.metadata?.novelty?.duplicate !== false
-              || !Array.isArray(item.metadata?.validation?.issues)
-              || item.metadata.validation.issues.length > 0
-            ) && !item.metadata?.partnerReleaseOverride?.approvedAt && (
-            <section className="mt-5 rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm leading-6 text-amber-950">
-              <p className="font-bold">외주 전달 보류</p>
-              <p className="mt-1">
-                새 중복·구조 검사를 통과한 기록이 없는 과거 승인 원고입니다.
-                다른 주제로 교체하거나, 현재 원고를 그대로 외주 작업실에 전달할 수 있습니다.
+          {/*
+            승인했는데 외주 작업실에 안 보이는 상태를 눈에 보이게 만듭니다.
+            여기 뜨는 사유는 외주 화면이 쓰는 판단 결과 그대로입니다.
+          */}
+          {["approved", "naver_ready", "scheduled"].includes(item.status)
+            && item.partner_visibility
+            && item.partner_visibility.blockers.length > 0 && (
+            <section className="mt-5 rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm leading-6 text-amber-950" role="alert">
+              <p className="font-bold">외주 작업실에 아직 보이지 않습니다</p>
+              <ul className="mt-2 list-disc space-y-1 pl-5">
+                {item.partner_visibility.blockers.map((blocker, index) => (
+                  <li key={`${blocker.code}-${index}`}>{blocker.message}</li>
+                ))}
+              </ul>
+              <p className="mt-2 text-xs opacity-80">
+                사유를 정리해 다시 만들거나, 지금 상태 그대로 최작가님께 넘길 수 있습니다.
               </p>
               <button
                 onClick={() => void update(item.id, { action: "release_to_partner" })}
                 className="mt-3 rounded-xl bg-amber-950 px-4 py-2 text-xs font-bold text-white hover:bg-amber-900"
               >
-                이 원고 그대로 승인·외주 전달
+                이 상태 그대로 외주 작업실에 전달
               </button>
+            </section>
+          )}
+          {item.metadata?.partnerReleaseOverride?.approvedAt
+            && item.status !== "published" && (
+            <section className="mt-5 rounded-xl border border-[var(--line)] bg-white p-4 text-xs leading-6 text-[var(--muted)]">
+              <p>
+                관리자가 규칙 검사를 넘기고 외주 작업실에 전달한 작업입니다.
+                {item.metadata.partnerReleaseOverride.approvedBy
+                  ? ` (${item.metadata.partnerReleaseOverride.approvedBy})`
+                  : ""}
+              </p>
+              {item.metadata.partnerReleaseOverride.overriddenReasons?.length ? (
+                <ul className="mt-1 list-disc space-y-1 pl-5">
+                  {item.metadata.partnerReleaseOverride.overriddenReasons.map((reason) => (
+                    <li key={reason}>{reason}</li>
+                  ))}
+                </ul>
+              ) : null}
             </section>
           )}
           {item.status === "on_hold" && (item.review_note || item.metadata?.validation?.issues?.length) ? (

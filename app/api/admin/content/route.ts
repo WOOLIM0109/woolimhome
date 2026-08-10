@@ -6,6 +6,7 @@ import {
   type CoverTitleRecord,
 } from "@/lib/portfolio/cover-title";
 import { authenticatedAdmin, contentAdmin } from "@/lib/content-ops/data";
+import { isPartnerChannel, partnerVisibilityBlockers } from "@/lib/partner-portal";
 import { sanitizeWorkItemMetadata } from "@/lib/security/html";
 import type { WorkflowStatus } from "@/lib/content-ops/types";
 import { applyHyundaiManualMockups } from "@/lib/portfolio/hyundai-manual-mockups";
@@ -203,9 +204,24 @@ export async function GET(request: Request) {
       url.origin,
     );
     const { content_jobs: contentJobs, ...safeItem } = item;
+    const metadata = sanitizeWorkItemMetadata(item.metadata);
     return {
       ...safeItem,
-      metadata: sanitizeWorkItemMetadata(item.metadata),
+      metadata,
+      // 외주 작업실에 보이는지, 안 보이면 왜 안 보이는지를 같이 내려 줍니다.
+      // 외주 화면과 완전히 같은 함수를 쓰므로 두 화면의 답이 갈리지 않습니다.
+      ...(isPartnerChannel(item.channel)
+        ? {
+          partner_visibility: {
+            blockers: partnerVisibilityBlockers({
+              channel: String(item.channel),
+              format: String(item.format),
+              status: String(item.status),
+              metadata: metadata as Parameters<typeof partnerVisibilityBlockers>[0]["metadata"],
+            }),
+          },
+        }
+        : {}),
       ...(item.format === "portfolio"
         ? {
           portfolio_jobs: sanitizePortfolioJobs(contentJobs),
