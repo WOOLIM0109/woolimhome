@@ -225,6 +225,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
   let approvedMetadata: Record<string, unknown> | null = null;
   // 승인 직전 상태와 metadata 를 기억해 둡니다.
   // 보류였던 작업을 바로 승인할 때 예전 보류 기록을 정리하는 데 씁니다.
+  let editorialOverride: Record<string, unknown> | null = null;
   let statusBeforeChange: string | null = null;
   let metadataBeforeChange: Record<string, unknown> | null = null;
   if (body.status === "published") {
@@ -788,11 +789,25 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
       current.format,
       current.metadata?.generated,
     );
-    if (editorialIssues.length) {
+    /**
+     * 문체 규칙은 사람이 판단해 넘길 수 있게 합니다.
+     *
+     * 기밀 가림과 발행 검증은 넘길 수 없지만, 문체는 취향과 판단의 영역입니다.
+     * 막아 두기만 하면 내용이 좋은 원고도 승인할 방법이 없어 작업이 멈춥니다.
+     * 대신 누가 어떤 사유를 넘겼는지 기록을 남깁니다.
+     */
+    if (editorialIssues.length && body.overrideEditorial !== true) {
       return NextResponse.json({
         error: `원고 규칙을 먼저 정리해 주세요: ${editorialIssues.join(" ")}`,
-        details: { issues: editorialIssues },
+        details: { issues: editorialIssues, canOverride: true },
       }, { status: 400 });
+    }
+    if (editorialIssues.length && body.overrideEditorial === true) {
+      editorialOverride = {
+        approvedAt: new Date().toISOString(),
+        approvedBy: user.email || "admin",
+        overriddenIssues: editorialIssues,
+      };
     }
   }
   const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
@@ -801,6 +816,12 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
   if (approvedMetadata) patch.metadata = approvedMetadata;
   // 보류였던 작업을 바로 승인하면 예전 보류 사유와 복원 표시를 함께 정리합니다.
   // 남겨 두면 목업을 다시 만들 때 보류 상태가 되살아납니다.
+  if (editorialOverride) {
+    const baseMetadata = (patch.metadata as Record<string, unknown> | undefined)
+      || metadataBeforeChange
+      || {};
+    patch.metadata = { ...baseMetadata, editorialOverride };
+  }
   if (body.status === "approved" && statusBeforeChange === "on_hold") {
     patch.review_note = null;
     const baseMetadata = (patch.metadata as Record<string, unknown> | undefined)

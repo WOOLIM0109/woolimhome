@@ -389,6 +389,8 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
   // 눌렀을 때 무슨 일이 일어났는지 알려 주는 안내 문구입니다.
   const [notice, setNotice] = useState("");
   const [draftRewritingId, setDraftRewritingId] = useState<string | null>(null);
+  // 문체 규칙에 걸려 승인이 막힌 작업. 사람이 판단해 넘길 수 있게 버튼을 띄웁니다.
+  const [editorialBlocked, setEditorialBlocked] = useState<{ id: string; issues: string[] } | null>(null);
   const [notes, setNotes] = useState<Record<string, string>>({});
   const [manualDrafts, setManualDrafts] = useState<Record<string, { title: string; bodyHtml: string }>>({});
   const [savingEditId, setSavingEditId] = useState("");
@@ -473,7 +475,7 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
 
   async function update(
     id: string,
-    patch: { action?: "regenerate" | "replace_topic" | "release_to_partner" | "retry_missing_fonts" | "retry_portfolio_conversion" | "restore_portfolio_draft" | "reflow_portfolio_images" | "correct_hyundai_content" | "clear_hold" | "retry_portfolio_draft"; status?: WorkflowStatus; review_note?: string },
+    patch: { action?: "regenerate" | "replace_topic" | "release_to_partner" | "retry_missing_fonts" | "retry_portfolio_conversion" | "restore_portfolio_draft" | "reflow_portfolio_images" | "correct_hyundai_content" | "clear_hold" | "retry_portfolio_draft"; status?: WorkflowStatus; review_note?: string; overrideEditorial?: boolean },
   ) {
     const regenerating = patch.action === "regenerate"
       || patch.action === "replace_topic"
@@ -494,8 +496,13 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
       if (!response.ok) {
         const data = await response.json();
         setError(data.error || "저장하지 못했습니다.");
+        // 문체 규칙 때문에 막힌 경우에는 그대로 승인할 방법을 함께 보여 줍니다.
+        if (data.details?.canOverride && Array.isArray(data.details?.issues)) {
+          setEditorialBlocked({ id, issues: data.details.issues });
+        }
         return;
       }
+      setEditorialBlocked(null);
       await load();
     } finally {
       if (regenerating) setRegeneratingId(null);
@@ -896,6 +903,35 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
         <p className="rounded-xl bg-red-50 p-4 text-sm font-bold text-red-700" role="alert">
           {error}
         </p>
+      )}
+      {editorialBlocked && (
+        <section className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm leading-6 text-amber-950" role="alert">
+          <p className="font-bold">문체 규칙에 걸려 승인이 막혔습니다</p>
+          <ul className="mt-2 list-disc space-y-1 pl-5">
+            {editorialBlocked.issues.map((issue) => <li key={issue}>{issue}</li>)}
+          </ul>
+          <p className="mt-2 text-xs opacity-80">
+            내용에 문제가 없다고 판단하셨다면 이대로 승인할 수 있습니다.
+            기밀 가림과 발행 검증은 그대로 지켜집니다. 누가 넘겼는지는 기록에 남습니다.
+          </p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button
+              onClick={() => void update(editorialBlocked.id, {
+                status: "approved",
+                overrideEditorial: true,
+              })}
+              className="rounded-xl bg-amber-950 px-4 py-2 text-xs font-bold text-white hover:bg-amber-900"
+            >
+              규칙 넘기고 이대로 승인
+            </button>
+            <button
+              onClick={() => { setEditorialBlocked(null); setError(""); }}
+              className="rounded-xl border border-amber-300 bg-white px-4 py-2 text-xs font-bold text-amber-900 hover:bg-amber-100"
+            >
+              닫기
+            </button>
+          </div>
+        </section>
       )}
       {notice && (
         <p className="rounded-xl bg-emerald-50 p-4 text-sm font-bold text-emerald-900" role="status">
