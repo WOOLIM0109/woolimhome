@@ -40,7 +40,9 @@ export async function generateGeminiJson<T>(
   } = {},
 ) {
   let lastError: unknown;
-  const jsonAttempts = Math.max(1, Math.min(options.jsonAttempts || 2, 2));
+  // A malformed JSON response is surfaced to the user. Regenerating the
+  // complete answer would be another billable logical request.
+  const jsonAttempts = 1;
   for (let attempt = 0; attempt < jsonAttempts; attempt += 1) {
     const { text } = await generateGeminiText({
       parts: attempt

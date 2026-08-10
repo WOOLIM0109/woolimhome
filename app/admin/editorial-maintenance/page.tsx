@@ -2,12 +2,12 @@
 
 import { useState } from "react";
 import AdminPortal from "@/components/admin/AdminPortal";
+import GeminiReviewPanel from "@/components/admin/GeminiReviewPanel";
 
 export default function EditorialMaintenancePage() {
   const [payload, setPayload] = useState("");
   const [result, setResult] = useState("");
   const [saving, setSaving] = useState(false);
-  const [diagnosing, setDiagnosing] = useState(false);
 
   async function submit() {
     setSaving(true);
@@ -28,27 +28,19 @@ export default function EditorialMaintenancePage() {
     }
   }
 
-  async function diagnoseGemini() {
-    setDiagnosing(true);
-    setResult("");
-    try {
-      const response = await fetch("/api/admin/gemini-diagnostic", { method: "POST" });
-      const data = await response.json();
-      setResult(JSON.stringify(data, null, 2));
-    } catch (error) {
-      setResult(error instanceof Error ? error.message : "오류 원문을 불러오지 못했습니다.");
-    } finally {
-      setDiagnosing(false);
-    }
-  }
-
   return (
     <AdminPortal
-      title="원고 수동 복구"
-      description="AI 할당량 제한 때도 숫자·이미지·링크를 잠근 상태로 미발행 원고만 안전하게 교정합니다."
+      title="원고 수동 복구·AI 검수"
+      description="수정 내용은 먼저 로컬에 모으고, 호출량을 확인한 뒤 직접 승인한 경우에만 AI 검수를 실행합니다."
     >
+      <GeminiReviewPanel />
+
       <section className="mt-8 rounded-2xl border border-[var(--line)] bg-white p-6">
-        <label htmlFor="manual-editorial-json" className="font-bold">수동 교정 JSON</label>
+        <h2 className="text-xl font-bold">AI 없이 원고 수동 적용</h2>
+        <p className="mt-1 text-sm leading-6 text-[var(--muted)]">
+          이 저장 기능은 Gemini를 호출하지 않습니다. 서버 검증을 통과한 미발행 원고만 교체합니다.
+        </p>
+        <label htmlFor="manual-editorial-json" className="mt-5 block font-bold">수동 교정 JSON</label>
         <textarea
           id="manual-editorial-json"
           className="input mt-3 min-h-80 font-mono text-xs"
@@ -63,14 +55,6 @@ export default function EditorialMaintenancePage() {
           className="btn-gradient mt-4 rounded-xl px-5 py-3 font-bold text-white disabled:opacity-50"
         >
           {saving ? "서버 검증·저장 중…" : "검증 후 미발행 원고에 적용"}
-        </button>
-        <button
-          type="button"
-          onClick={() => void diagnoseGemini()}
-          disabled={diagnosing}
-          className="ml-3 mt-4 rounded-xl border border-red-300 bg-red-50 px-5 py-3 font-bold text-red-800 disabled:opacity-50"
-        >
-          {diagnosing ? "Google 원문 오류 재현 중…" : "실패 2건 Google 원문 오류 재현"}
         </button>
         {result && <pre className="mt-5 overflow-auto rounded-xl bg-stone-950 p-4 text-xs text-white">{result}</pre>}
       </section>

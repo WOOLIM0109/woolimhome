@@ -4,13 +4,32 @@ export type GeminiErrorCode =
   | "GEMINI_SERVER_ERROR"
   | "GEMINI_TIMEOUT"
   | "GEMINI_REQUEST_FAILED"
-  | "GEMINI_EMPTY_RESPONSE";
+  | "GEMINI_EMPTY_RESPONSE"
+  | "GEMINI_DISABLED"
+  | "GEMINI_APPROVAL_REQUIRED";
+
+export type GeminiNetworkAttempt = {
+  attempt: number;
+  startedAt: string;
+  completedAt: string;
+  outcome: "completed" | "failed";
+  httpStatus: number | null;
+  errorCode: GeminiErrorCode | null;
+  retryable: boolean;
+  retryAfterMs: number | null;
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  cachedInputTokens: number;
+};
 
 export class GeminiRequestError extends Error {
   code: GeminiErrorCode;
   retryable: boolean;
   status: number | null;
   retryAfterMs: number | null;
+  networkAttempts: number;
+  attempts: GeminiNetworkAttempt[];
 
   constructor(input: {
     code: GeminiErrorCode;
@@ -18,6 +37,8 @@ export class GeminiRequestError extends Error {
     retryable: boolean;
     status?: number | null;
     retryAfterMs?: number | null;
+    networkAttempts?: number;
+    attempts?: GeminiNetworkAttempt[];
   }) {
     super(input.message);
     this.name = "GeminiRequestError";
@@ -25,24 +46,20 @@ export class GeminiRequestError extends Error {
     this.retryable = input.retryable;
     this.status = input.status ?? null;
     this.retryAfterMs = input.retryAfterMs ?? null;
+    this.networkAttempts = input.networkAttempts ?? 0;
+    this.attempts = input.attempts ?? [];
   }
 }
 
-export function geminiRetryDecision(error: unknown, retryCount: number, now = new Date()) {
+export function geminiRetryDecision(error: unknown, retryCount: number) {
   const typed = error instanceof GeminiRequestError ? error : null;
-  const retryable = typed?.retryable === true;
   const nextRetryCount = retryCount + 1;
-  if (!retryable || nextRetryCount > 6) {
-    return { retryable: false, retryCount: nextRetryCount, nextRetryAt: null, code: typed?.code || "UNKNOWN" };
-  }
-  const normalDelays = [5, 15, 60, 180, 360, 1_440];
-  const quotaDelays = [360, 720, 1_440, 1_440, 1_440, 1_440];
-  const minutes = (typed?.code === "GEMINI_QUOTA_EXHAUSTED" ? quotaDelays : normalDelays)[nextRetryCount - 1];
-  const delayMs = Math.max(minutes * 60_000, typed?.retryAfterMs || 0);
   return {
-    retryable: true,
+    // Durable/background retries are forbidden in cost-protection mode.
+    // The user must explicitly prepare and retry only failed review items.
+    retryable: false,
     retryCount: nextRetryCount,
-    nextRetryAt: new Date(now.getTime() + delayMs).toISOString(),
+    nextRetryAt: null,
     code: typed?.code || "UNKNOWN",
   };
 }

@@ -193,6 +193,19 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const { id } = await context.params;
   const body = await request.json();
+  const protectedAiAction = body.action === "regenerate"
+    || body.action === "replace_topic"
+    || body.action === "rebuild_portfolio"
+    || body.action === "retry_portfolio_draft"
+    || body.status === "creating";
+  if (protectedAiAction) {
+    return NextResponse.json({
+      error: "AI 원고 생성·재생성은 비용 보호 모드에서 차단됩니다.",
+      code: "GEMINI_COST_PROTECTION_ACTIVE",
+      aiCalls: 0,
+      nextAction: "/admin/editorial-maintenance",
+    }, { status: 409 });
+  }
   let expectedUpdatedAt: string | null = null;
   let approvedMetadata: Record<string, unknown> | null = null;
   if (body.status === "published") {

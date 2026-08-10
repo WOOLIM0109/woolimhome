@@ -6,7 +6,6 @@ import {
   restorePcEligibleOversizedCandidates,
 } from "@/lib/naver-works/job-runner";
 import {
-  processNextPortfolioDraft,
   processNextPortfolioMockup,
 } from "@/lib/portfolio/job-runner";
 import { contentAdmin } from "@/lib/content-ops/data";
@@ -56,10 +55,10 @@ export async function POST(request: Request) {
     const completedMockup = scheduleKey && !candidateId
       ? null
       : await processNextPortfolioMockup(candidateId);
-    const completedDraft = completedMockup || (scheduleKey && !candidateId)
-      ? null
-      : await processNextPortfolioDraft(candidateId);
-    const portfolioProgress = completedMockup || completedDraft;
+    // Portfolio image conversion and mockup creation are deterministic/local.
+    // Draft prose is intentionally not advanced here: only the confirmed
+    // Gemini review endpoint may obtain provider-call authority.
+    const portfolioProgress = completedMockup;
     if (scheduleKey && await generationCancellationRequested(scheduleKey)) {
       await removeCancelledGeneration(scheduleKey);
       return NextResponse.json({
@@ -122,7 +121,6 @@ export async function POST(request: Request) {
         .eq("candidate_id", candidateId)
         .in("job_type", ["mockup", "draft"]);
       const mockupJob = pipelineJobs?.find((job) => job.job_type === "mockup");
-      const draftJob = pipelineJobs?.find((job) => job.job_type === "draft");
       if (mockupJob?.status === "queued" || mockupJob?.status === "running") {
         return NextResponse.json({
           prepared: null,
@@ -147,25 +145,13 @@ export async function POST(request: Request) {
         });
       }
       if (mockupJob?.status === "completed") {
-        const draftRetryPending = draftJob?.status === "failed"
-          && draftJob.next_retry_at
-          && new Date(draftJob.next_retry_at).getTime() > Date.now();
-        if (draftRetryPending) {
-          return NextResponse.json({
-            prepared: null,
-            stage: "draft_retry_wait",
-            shouldContinue: false,
-            message: `디자인은 완료되어 보존 중이며 Gemini 글쓰기만 ${draftJob.next_retry_at} 이후 자동 재시도합니다.`,
-          });
-        }
+        const draftJob = pipelineJobs?.find((job) => job.job_type === "draft");
         if (draftJob?.status !== "completed") {
           return NextResponse.json({
             prepared: null,
-            stage: draftJob?.status === "failed" ? "draft_failed" : "design_completed",
-            shouldContinue: draftJob?.status !== "failed",
-            message: draftJob?.status === "failed"
-              ? `디자인은 완료되었습니다. 본문 생성 오류를 확인해 주세요: ${draftJob.error_message || "재시도 횟수 초과"}`
-              : "디자인 목업은 완료되어 보존 중이며 본문 생성 단계를 이어서 진행합니다.",
+            stage: "design_completed",
+            shouldContinue: false,
+            message: "디자인 목업은 완료해 보존했습니다. Gemini 본문 자동 생성과 재시도는 비용 보호 모드에서 실행하지 않습니다.",
           });
         }
         return NextResponse.json({

@@ -8,6 +8,9 @@ out/
 # Vercel local project metadata
 .vercel/
 
+# Codex-only local scratch files (may contain diagnostics or local tokens)
+.codex-tmp/
+
 # Local environment variables and secrets
 .env
 .env.*
