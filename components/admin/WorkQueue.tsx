@@ -470,7 +470,7 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
 
   async function update(
     id: string,
-    patch: { action?: "regenerate" | "replace_topic" | "release_to_partner" | "retry_missing_fonts" | "retry_portfolio_conversion" | "restore_portfolio_draft" | "reflow_portfolio_images" | "correct_hyundai_content"; status?: WorkflowStatus; review_note?: string },
+    patch: { action?: "regenerate" | "replace_topic" | "release_to_partner" | "retry_missing_fonts" | "retry_portfolio_conversion" | "restore_portfolio_draft" | "reflow_portfolio_images" | "correct_hyundai_content" | "clear_hold"; status?: WorkflowStatus; review_note?: string },
   ) {
     const regenerating = patch.action === "regenerate"
       || patch.action === "replace_topic"
@@ -1014,7 +1014,11 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
               ) : null}
             </section>
           )}
-          {item.status === "on_hold" && (item.review_note || item.metadata?.validation?.issues?.length) ? (
+          {/*
+            보류 상태에서는 사유가 없어도 상자를 띄웁니다.
+            사유가 비어 있으면 "왜 보류인지 모르겠다"는 상태가 되어 손을 못 댑니다.
+          */}
+          {item.status === "on_hold" ? (
             <section className="mt-5 rounded-xl border border-red-200 bg-red-50 p-4 text-sm leading-6 text-red-800">
               <p className="font-bold">보류 사유</p>
               {item.review_note && <p className="mt-1">{item.review_note}</p>}
@@ -1023,6 +1027,29 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
                   {item.metadata.validation.issues.map((issue) => <li key={issue}>{issue}</li>)}
                 </ul>
               ) : null}
+              {!item.review_note && !item.metadata?.validation?.issues?.length ? (
+                <p className="mt-1">
+                  기록된 사유가 없습니다. 예전에 걸렸던 보류가 그대로 남아 있는 경우입니다.
+                </p>
+              ) : null}
+              <p className="mt-2 text-xs opacity-80">
+                목업 이미지를 다시 만들어도 보류는 자동으로 풀리지 않습니다.
+                내용을 확인하셨다면 아래에서 직접 해제해 주세요. AI를 부르지 않습니다.
+              </p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button
+                  onClick={() => void update(item.id, { action: "clear_hold" })}
+                  className="rounded-xl border border-red-300 bg-white px-4 py-2 text-xs font-bold text-red-800 hover:bg-red-100"
+                >
+                  보류 해제 · 검토요청으로
+                </button>
+                <button
+                  onClick={() => void update(item.id, { status: "approved" })}
+                  className="rounded-xl bg-red-800 px-4 py-2 text-xs font-bold text-white hover:bg-red-700"
+                >
+                  확인했습니다 · 바로 승인
+                </button>
+              </div>
             </section>
           ) : null}
           {item.content_review_assets?.some((asset) =>

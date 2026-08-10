@@ -363,6 +363,61 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
 
   // 사람이 직접 고쳐 저장합니다. AI를 부르지 않으므로 요금이 들지 않고 즉시 반영됩니다.
   // 기존 '수정 요청'은 전체 재생성이라 오래 걸리고 결과를 예측할 수 없었습니다.
+  /**
+   * 보류 해제
+   *
+   * 목업 이미지를 다시 만들어도 예전 보류 상태는 그대로 되살아납니다.
+   * 이미지가 문제였던 경우에는 사람이 눈으로 확인한 뒤 직접 풀어야 하는데,
+   * 지금까지는 본문을 고치는 방법밖에 없어서 고칠 게 없으면 계속 보류로 남았습니다.
+   * AI를 부르지 않고 검토 대기로만 옮깁니다.
+   */
+  if (body.action === "clear_hold") {
+    const { data: current, error: currentError } = await contentAdmin()
+      .from("content_work_items")
+      .select("id,status,metadata,updated_at")
+      .eq("id", id)
+      .single();
+    if (currentError) return NextResponse.json({ error: currentError.message }, { status: 500 });
+    if (current.status !== "on_hold") {
+      return NextResponse.json({ error: "보류 상태인 작업만 해제할 수 있습니다." }, { status: 409 });
+    }
+    const metadata = (current.metadata || {}) as Record<string, unknown>;
+    const validation = metadata.validation && typeof metadata.validation === "object"
+      ? metadata.validation as Record<string, unknown>
+      : {};
+    const clearedAt = new Date().toISOString();
+    const { data: saved, error: saveError } = await contentAdmin()
+      .from("content_work_items")
+      .update({
+        status: "review_required",
+        review_note: null,
+        metadata: {
+          ...metadata,
+          validation: { ...validation, issues: [] },
+          // 누가 언제 어떤 사유를 보고 풀었는지 남겨 둡니다.
+          holdCleared: {
+            clearedAt,
+            clearedBy: user.email || "admin",
+            previousNote: typeof metadata.lastReviewNote === "string" ? metadata.lastReviewNote : null,
+          },
+          // 목업만 다시 만들 때 예전 보류 상태가 되살아나지 않게 함께 정리합니다.
+          mockupOnlyRestoreState: null,
+        },
+        updated_at: clearedAt,
+      })
+      .eq("id", id)
+      .eq("updated_at", current.updated_at)
+      .select("id,status")
+      .maybeSingle();
+    if (saveError) return NextResponse.json({ error: saveError.message }, { status: 500 });
+    if (!saved) {
+      return NextResponse.json({
+        error: "해제하는 동안 다른 변경이 있었습니다. 새로고침 후 다시 시도해 주세요.",
+      }, { status: 409 });
+    }
+    return NextResponse.json({ id: saved.id, status: saved.status, holdCleared: true });
+  }
+
   if (body.action === "manual_edit") {
     const nextTitle = typeof body.title === "string" ? body.title.trim() : "";
     const nextBodyHtml = typeof body.bodyHtml === "string" ? body.bodyHtml : "";
@@ -738,6 +793,15 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
   if (typeof body.review_note === "string") patch.review_note = body.review_note;
   if (body.status && STATUSES.includes(body.status)) patch.status = body.status;
   if (approvedMetadata) patch.metadata = approvedMetadata;
+  // 보류였던 작업을 바로 승인하면 예전 보류 사유와 복원 표시를 함께 정리합니다.
+  // 남겨 두면 목업을 다시 만들 때 보류 상태가 되살아납니다.
+  if (body.status === "approved" && current.status === "on_hold") {
+    patch.review_note = null;
+    const baseMetadata = (patch.metadata as Record<string, unknown> | undefined)
+      || (current.metadata as Record<string, unknown> | null)
+      || {};
+    patch.metadata = { ...baseMetadata, mockupOnlyRestoreState: null };
+  }
   if (body.scheduled_at !== undefined) patch.scheduled_at = body.scheduled_at || null;
   if (body.status === "published") patch.published_at = body.published_at || new Date().toISOString();
 
