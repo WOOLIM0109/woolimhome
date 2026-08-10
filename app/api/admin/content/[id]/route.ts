@@ -19,6 +19,8 @@ import {
 } from "@/lib/portfolio/job-runner";
 import { EDITORIAL_SLOTS } from "@/lib/content-ops/config";
 import { generateContentWorkItem } from "@/lib/content-ops/generate";
+import { geminiRuntimeStatus } from "@/lib/gemini/protection";
+import { GeminiAutomationBlocked, runBudgetedGeminiAutomation } from "@/lib/gemini/automation";
 import { resolveRevisionNote } from "@/lib/content-ops/generated-content";
 import type { ContentChannel, ContentFormat, EditorialSlot } from "@/lib/content-ops/types";
 import { retryMissingFontCandidates } from "@/lib/pc-worker/font-retry";
@@ -198,13 +200,18 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     || body.action === "rebuild_portfolio"
     || body.action === "retry_portfolio_draft"
     || body.status === "creating";
+  // 이전에는 이 지점에서 무조건 막았기 때문에 환경변수를 켜도 열리지 않았습니다.
+  // 이제는 잠금 상태와 남은 예산을 실제로 확인해서 판단합니다.
   if (protectedAiAction) {
-    return NextResponse.json({
-      error: "AI 원고 생성·재생성은 비용 보호 모드에서 차단됩니다.",
-      code: "GEMINI_COST_PROTECTION_ACTIVE",
-      aiCalls: 0,
-      nextAction: "/admin/editorial-maintenance",
-    }, { status: 409 });
+    const runtime = geminiRuntimeStatus();
+    if (!runtime.enabled) {
+      return NextResponse.json({
+        error: runtime.reason || "Gemini 호출이 잠겨 있습니다.",
+        code: "GEMINI_DISABLED",
+        aiCalls: 0,
+        nextAction: "Vercel 환경변수에서 GEMINI_ENABLED 를 확인해 주세요.",
+      }, { status: 409 });
+    }
   }
   let expectedUpdatedAt: string | null = null;
   let approvedMetadata: Record<string, unknown> | null = null;
@@ -221,12 +228,20 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
       .single();
     if (currentError) return NextResponse.json({ error: currentError.message }, { status: 500 });
     try {
-      return NextResponse.json(await regenerateContentItem(
+      return NextResponse.json(await runBudgetedGeminiAutomation({
+        operation: body.action === "replace_topic" ? "content-replace-topic" : "content-regenerate",
+        actor: user.email || "admin",
+        // 주제가 그대로인 수정이면 저장해 둔 조사 결과를 다시 쓰므로 호출이 더 적습니다.
+        plannedCalls: body.action === "replace_topic" ? 6 : 4,
+      }, () => regenerateContentItem(
         current as RegeneratableItem,
         body.review_note,
         body.action === "replace_topic",
-      ));
+      )));
     } catch (error) {
+      if (error instanceof GeminiAutomationBlocked) {
+        return NextResponse.json({ error: error.message, code: error.code }, { status: 409 });
+      }
       return NextResponse.json({
         error: error instanceof Error ? error.message : "초안을 다시 만들지 못했습니다.",
       }, { status: 500 });
@@ -257,12 +272,19 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
   }
   if (body.action === "retry_portfolio_draft") {
     try {
-      const result = await retryPortfolioDraft(id);
+      const result = await runBudgetedGeminiAutomation({
+        operation: "portfolio-draft-retry",
+        actor: user.email || "admin",
+        plannedCalls: 3,
+      }, () => retryPortfolioDraft(id));
       if (!result) {
         return NextResponse.json({ error: "다시 생성할 포트폴리오 본문 작업을 찾지 못했습니다." }, { status: 409 });
       }
       return NextResponse.json(result);
     } catch (error) {
+      if (error instanceof GeminiAutomationBlocked) {
+        return NextResponse.json({ error: error.message, code: error.code }, { status: 409 });
+      }
       return NextResponse.json({
         error: error instanceof Error ? error.message : "포트폴리오 본문을 다시 만들지 못했습니다.",
       }, { status: 500 });
