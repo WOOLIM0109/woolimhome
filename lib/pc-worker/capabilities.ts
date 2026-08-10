@@ -1,5 +1,13 @@
 export const LOCAL_REDACTION_WORKER_CAPABILITY = "powerpoint_selective_redaction_manifest_v2";
-export const MIN_LOCAL_REDACTION_WORKER_VERSION = "2.5.4";
+/**
+ * 이 버전 이상으로 변환한 결과만 최신으로 봅니다.
+ *
+ * 2.6.0 에서 '작은 글씨' 기준을 18pt 에서 11pt 로 내렸습니다.
+ * 그 전에 변환한 기록에는 본문 글자까지 작은 글씨로 적혀 있어,
+ * 목업만 다시 만들면 예전 기준이 그대로 남습니다.
+ * 기준을 올려 두면 예전 기록으로 만든 작업은 원본부터 다시 변환합니다.
+ */
+export const MIN_LOCAL_REDACTION_WORKER_VERSION = "2.6.0";
 
 function numericVersion(value: unknown) {
   if (typeof value !== "string") return null;
