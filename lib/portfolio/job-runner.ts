@@ -2966,6 +2966,45 @@ async function rebuildPortfolioMockupsOnlyClaimed(workItemId: string) {
   return result;
 }
 
+/**
+ * 이미 만들어 둔 목업 이미지를 다시 만들지 않도록 체크포인트를 넘겨받습니다.
+ *
+ * 원본 문서가 바뀌었는지는 processNextPortfolioMockup이
+ * result.sourceFingerprint 와 redactionProof 로 다시 검사합니다.
+ * 원본이 바뀌었으면 그쪽에서 알아서 버리므로, 여기서 넘겨도 오래된 이미지가 남지 않습니다.
+ *
+ * 이 값을 비워서 넘기면 원본이 그대로여도 전체 이미지가 다시 만들어집니다.
+ */
+const PORTFOLIO_MOCKUP_CHECKPOINT_FIELDS = [
+  "sourceFingerprint",
+  "visualReview",
+  "visualReviewBase",
+  "slideAssessmentsProgress",
+  "confidentialRegions",
+  "confidentialRegionsProgress",
+  "confidentialAudits",
+  "confidentialAuditsProgress",
+  "confidentialRegionsCompletedIndexes",
+  "redactionVerification",
+  "redactionProof",
+  "redactionSlideProofProgress",
+  "portfolioAssetsProgress",
+] as const;
+
+function preservedMockupCheckpoint(
+  previousResult: unknown,
+  extra: Record<string, unknown>,
+): Record<string, unknown> {
+  const previous = previousResult && typeof previousResult === "object"
+    ? previousResult as Record<string, unknown>
+    : {};
+  const preserved: Record<string, unknown> = {};
+  for (const field of PORTFOLIO_MOCKUP_CHECKPOINT_FIELDS) {
+    if (previous[field] !== undefined) preserved[field] = previous[field];
+  }
+  return { ...preserved, ...extra };
+}
+
 export async function rebuildPortfolioDraft(workItemId: string) {
   const admin = contentAdmin();
   const { data: workItem, error: workItemError } = await admin
@@ -3187,6 +3226,16 @@ export async function rebuildPortfolioDraft(workItemId: string) {
   if (claimWorkError) throw new Error(claimWorkError.message);
   if (!claimedWorkItem) throw new PortfolioRebuildConflict();
 
+  // 본문을 다시 만들 때 목업 이미지까지 버리면, 원본이 그대로인데도 전체 이미지가 다시 만들어집니다.
+  // 이미 만들어 둔 결과를 넘겨서 원본이 바뀐 경우에만 다시 만들도록 합니다.
+  const { data: previousMockupJob, error: previousMockupError } = await admin
+    .from("content_jobs")
+    .select("result")
+    .eq("candidate_id", candidateId)
+    .eq("job_type", "mockup")
+    .maybeSingle();
+  if (previousMockupError) throw new Error(previousMockupError.message);
+
   const { error: mockupResetError } = await admin.from("content_jobs").update({
     status: "queued",
     attempts: 0,
@@ -3195,7 +3244,7 @@ export async function rebuildPortfolioDraft(workItemId: string) {
     started_at: null,
     completed_at: null,
     error_message: null,
-    result: { rebuildRequestedAt: now },
+    result: preservedMockupCheckpoint(previousMockupJob?.result, { rebuildRequestedAt: now }),
     updated_at: now,
   }).eq("candidate_id", candidateId).eq("job_type", "mockup");
   if (mockupResetError) throw new Error(mockupResetError.message);

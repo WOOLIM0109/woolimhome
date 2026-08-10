@@ -2,6 +2,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { generateGeminiText, geminiRetryDecision } from "@/lib/gemini/client";
 import { parseGeminiJson } from "@/lib/gemini/json";
 import { researchOfficialFacts } from "@/lib/research/official";
+import { AI_INPUT_LIMITS, AI_OUTPUT_LIMITS, COLUMN_MIN_BODY_CHARS } from "@/lib/ai-budget";
 import { sanitizeGeneratedHtml, sanitizeInlineHtml } from "@/lib/security/html";
 import {
   FRIENDLY_EDITORIAL_STYLE_RULES,
@@ -136,7 +137,7 @@ export async function generateColumn(input: {
   ]);
   const writingKnowledge = (knowledge || []).map((item) => ({
     ...item,
-    raw_text: stripVerificationControlText(item.raw_text),
+    raw_text: stripVerificationControlText(item.raw_text).slice(0, AI_INPUT_LIMITS.knowledgeRawText),
     perspective: stripVerificationControlText(item.perspective),
     case_evidence: stripVerificationControlText(item.case_evidence),
     differentiator: stripVerificationControlText(item.differentiator),
@@ -241,7 +242,7 @@ JSON만 반환:
     const { text } = await generateGeminiText({
       model: MODEL,
       parts: [{ text: promptText }],
-      generationConfig: { responseMimeType: "application/json", maxOutputTokens: 32768 },
+      generationConfig: { responseMimeType: "application/json", maxOutputTokens: AI_OUTPUT_LIMITS.columnBody },
       timeoutMs: 120_000,
     });
     return parseGeminiJson<Generated>(text);
@@ -255,7 +256,8 @@ JSON만 반환:
       answer: sanitizeInlineHtml(faq.answer || ""),
     }));
     let initialCharCount = visibleText(generated.bodyHtml).replace(/\s/g, "").length;
-    if (initialCharCount < 3000) {
+    // 여기서 걸리면 글 전체를 한 번 더 생성하므로 비용이 두 배가 됩니다.
+    if (initialCharCount < COLUMN_MIN_BODY_CHARS) {
       generated = await requestGemini(`
 다음 JSON은 최소 분량에 미달한 한국어 비즈니스 칼럼 초안입니다.
 군더더기, 반복, 출처에 없는 사실을 추가하지 말고 한국어 가시 문자 3,500~4,000자로 다시 작성하세요.
@@ -285,7 +287,7 @@ ${JSON.stringify(generated)}
     const charCount = initialCharCount;
     const h2Count = (generated.bodyHtml.match(/<h2[\s>]/gi) || []).length;
     const blockquoteCount = (generated.bodyHtml.match(/<blockquote[\s>]/gi) || []).length;
-    if (charCount < 3000) issues.push(`본문이 짧습니다(${charCount}자).`);
+    if (charCount < COLUMN_MIN_BODY_CHARS) issues.push(`본문이 짧습니다(${charCount}자).`);
     if (h2Count < 3) issues.push("H2가 3개 미만입니다.");
     if (generated.faqs.length < 3 || generated.faqs.length > 4) issues.push("FAQ는 3~4개여야 합니다.");
     issues.push(...friendlyStyleIssues(generated.bodyHtml, generated.faqs));

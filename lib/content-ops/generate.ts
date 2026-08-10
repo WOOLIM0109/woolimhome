@@ -3,6 +3,7 @@ import { sanitizeGeneratedHtml, sanitizeInlineHtml } from "@/lib/security/html";
 import { generateGeminiText } from "@/lib/gemini/client";
 import { stripVerificationControlText } from "@/lib/columns/verification";
 import { researchOfficialFacts } from "@/lib/research/official";
+import { AI_ATTEMPTS, AI_INPUT_LIMITS, AI_OUTPUT_LIMITS, RESEARCH_REUSE_HOURS } from "@/lib/ai-budget";
 import { PORTFOLIO_WRITING_RULES } from "./portfolio-rules";
 import { FRIENDLY_EDITORIAL_STYLE_RULES } from "./editorial-style";
 import { editorialPublicationIssues } from "./editorial-policy";
@@ -72,9 +73,47 @@ type StoredWorkItem = {
   metadata: Record<string, unknown> | null;
 };
 
-const MAX_ARTICLE_ATTEMPTS = 3;
+const MAX_ARTICLE_ATTEMPTS = AI_ATTEMPTS.articlePlans;
 const NOVELTY_LOOKBACK_DAYS = 90;
 const AI_RESPONSE_TIMEOUT_MS = 90_000;
+
+/**
+ * 공식자료 조사 결과. 문구 수정처럼 주제가 그대로인 재작성에서 다시 사용합니다.
+ * 조사에는 Google 검색 연동이 붙어 호출당 과금되므로, 재사용 여부가 수정 1건의 요금을 좌우합니다.
+ */
+type StoredResearch = {
+  dossier: string;
+  sources: { title: string; url: string }[];
+  topicKey?: string;
+  savedAt?: string;
+};
+
+function isStoredResearch(value: unknown): value is StoredResearch {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as Partial<StoredResearch>;
+  return typeof candidate.dossier === "string"
+    && candidate.dossier.length > 0
+    && Array.isArray(candidate.sources)
+    && candidate.sources.every((source) => typeof source?.title === "string" && typeof source?.url === "string");
+}
+
+/**
+ * 지난번 조사 결과를 다시 쓸 수 있는지 판단합니다.
+ * 새 주제를 뽑는 경우에는 재사용하지 않습니다. 조사 내용이 주제와 어긋나기 때문입니다.
+ */
+function reusableStoredResearch(
+  storedMetadata: Record<string, unknown>,
+  options: { isRevision: boolean; now?: Date },
+): StoredResearch | null {
+  if (!options.isRevision) return null;
+  const stored = storedMetadata.research;
+  if (!isStoredResearch(stored) || !stored.topicKey || !stored.savedAt) return null;
+  const savedAt = Date.parse(stored.savedAt);
+  if (!Number.isFinite(savedAt)) return null;
+  const ageHours = ((options.now?.getTime() ?? Date.now()) - savedAt) / 3_600_000;
+  if (ageHours < 0 || ageHours > RESEARCH_REUSE_HOURS) return null;
+  return stored;
+}
 
 function clean(value: string) {
   return value.replace(/<script[\s\S]*?<\/script>/gi, " ").replace(/<style[\s\S]*?<\/style>/gi, " ")
@@ -174,7 +213,7 @@ ${JSON.stringify(sources)}`;
 }
 
 function recentContentSummary(existing: ComparableContent[]) {
-  return existing.slice(0, 30).map((item) => ({
+  return existing.slice(0, AI_INPUT_LIMITS.recentArticles).map((item) => ({
     id: item.id,
     title: item.title,
     format: item.format,
@@ -234,7 +273,7 @@ ${knowledge.length ? JSON.stringify(knowledge.map((item) => ({
     caseEvidence: item.case_evidence,
     differentiator: item.differentiator,
     expertiseArea: item.expertise_area,
-    rawText: item.raw_text.slice(0, 3000),
+    rawText: item.raw_text.slice(0, AI_INPUT_LIMITS.knowledgeRawText),
   }))) : "없음"}
 
 [사용 가능한 공식 출처]
@@ -242,13 +281,13 @@ ${JSON.stringify(sources.map((source) => ({
     name: source.name,
     url: source.base_url,
     topicFamilies: source.topic_families,
-    snapshot: source.snapshot.slice(0, 1800),
+    snapshot: source.snapshot.slice(0, AI_INPUT_LIMITS.sourceSnapshot),
   })))}
 
 후보마다 대주제, 구체 주제, 기존 글과 다른 관점, 한 명의 독자, 핵심 제도·사업·개념, 가제, 차별화 이유를 적는다.
 JSON 객체만 반환한다.`;
   let lastFormatError: unknown;
-  for (let attempt = 0; attempt < 2; attempt += 1) {
+  for (let attempt = 0; attempt < AI_ATTEMPTS.jsonReparse; attempt += 1) {
     if (await generationCancellationRequested(scheduleKey)) {
       await removeCancelledGeneration(scheduleKey);
       throw new Error("GENERATION_CANCELLED");
@@ -261,7 +300,7 @@ JSON 객체만 반환한다.`;
       generationConfig: {
         responseMimeType: "application/json",
         responseSchema: TOPIC_PLAN_SCHEMA,
-        maxOutputTokens: 6000,
+        maxOutputTokens: AI_OUTPUT_LIMITS.topicPlan,
       },
       timeoutMs: AI_RESPONSE_TIMEOUT_MS,
     });
@@ -288,7 +327,7 @@ async function requestGeneratedContent({
   scheduleKey: string;
 }) {
   let lastParseError: unknown;
-  for (let attempt = 0; attempt < 2; attempt += 1) {
+  for (let attempt = 0; attempt < AI_ATTEMPTS.jsonReparse; attempt += 1) {
     if (await generationCancellationRequested(scheduleKey)) {
       await removeCancelledGeneration(scheduleKey);
       throw new Error("GENERATION_CANCELLED");
@@ -301,7 +340,7 @@ async function requestGeneratedContent({
       generationConfig: {
         responseMimeType: "application/json",
         responseSchema: GENERATED_CONTENT_SCHEMA,
-        maxOutputTokens: 12000,
+        maxOutputTokens: AI_OUTPUT_LIMITS.articleBody,
       },
       timeoutMs: AI_RESPONSE_TIMEOUT_MS,
     });
@@ -508,21 +547,33 @@ export async function generateContentWorkItem(
     duplicate: boolean;
     issues: string[];
   }[] = [];
+  // 공식자료 조사는 Google 검색 연동이 붙어 호출당 과금됩니다.
+  // (1) 같은 실행 안에서 주제가 겹치면 다시 조사하지 않습니다.
+  // (2) 문구 수정처럼 주제가 그대로인 재작성이면 지난번 조사 결과를 그대로 씁니다.
+  const researchCache = new Map<string, StoredResearch>();
+  const reusableResearch = reusableStoredResearch(storedMetadata, {
+    isRevision: Boolean(revisionNote) && !options.forceNewTopic,
+  });
+
   articlePlans:
   for (const { plan } of eligiblePlans.slice(0, MAX_ARTICLE_ATTEMPTS)) {
     const selectedKnowledge = knowledge.filter((item) => plan.knowledgeIds.includes(item.id));
-    const research = await researchOfficialFacts({
-      topic: `${plan.workingTitle} — ${plan.primaryTopic}`,
-      sourceContext: JSON.stringify({
-        plan,
-        woolimKnowledge: selectedKnowledge,
-        registeredOfficialSources: sources.map((source) => ({
-          name: source.name,
-          url: source.base_url,
-          snapshot: source.snapshot.slice(0, 2500),
-        })),
-      }),
-    });
+    const researchKey = `${plan.topicFamily}|${plan.primaryTopic}`;
+    const research: StoredResearch = researchCache.get(researchKey)
+      ?? (reusableResearch?.topicKey === researchKey ? reusableResearch : null)
+      ?? await researchOfficialFacts({
+        topic: `${plan.workingTitle} — ${plan.primaryTopic}`,
+        sourceContext: JSON.stringify({
+          plan,
+          woolimKnowledge: selectedKnowledge,
+          registeredOfficialSources: sources.map((source) => ({
+            name: source.name,
+            url: source.base_url,
+            snapshot: source.snapshot.slice(0, AI_INPUT_LIMITS.researchSnapshot),
+          })),
+        }),
+      });
+    researchCache.set(researchKey, research);
     const researchSources: AvailableSource[] = research.sources.map((source) => ({
       name: source.title,
       base_url: source.url,
@@ -543,7 +594,7 @@ export async function generateContentWorkItem(
         : undefined,
     );
     let repairInstruction = "";
-    for (let repairAttempt = 0; repairAttempt < 2; repairAttempt += 1) {
+    for (let repairAttempt = 0; repairAttempt < AI_ATTEMPTS.articleRepair; repairAttempt += 1) {
       const generated = await requestGeneratedContent({
         prompt: `${basePrompt}${repairInstruction}`,
         scheduleKey,
@@ -651,6 +702,8 @@ ${JSON.stringify(generated)}
     .map((source) => source.name);
   const successfulMetadata = metadataAfterSuccessfulRevision(storedMetadata);
   const generatedAt = new Date().toISOString();
+  const selectedResearchKey = `${plan.topicFamily}|${plan.primaryTopic}`;
+  const selectedResearch = researchCache.get(selectedResearchKey) || null;
   const { data, error } = await admin.from("content_work_items").update({
     title: generated.title,
     summary: generated.summary || "",
@@ -674,6 +727,15 @@ ${JSON.stringify(generated)}
         }),
       } : {}),
       sourceChannel: slot.channel,
+      // 다음 수정 요청에서 Google 검색 조사를 다시 실행하지 않도록 이번 조사 결과를 보관합니다.
+      ...(selectedResearch ? {
+        research: {
+          dossier: selectedResearch.dossier,
+          sources: selectedResearch.sources,
+          topicKey: selectedResearchKey,
+          savedAt: generatedAt,
+        },
+      } : {}),
       validation: { plainLength, h2Count, faqCount, issues },
       novelty: {
         plan,

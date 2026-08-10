@@ -1,4 +1,5 @@
 import { contentAdmin } from "@/lib/content-ops/data";
+import { AI_BATCH_LIMITS, AI_OUTPUT_LIMITS } from "@/lib/ai-budget";
 import {
   FRIENDLY_EDITORIAL_STYLE_RULES,
   stripFaqPrefix,
@@ -117,7 +118,7 @@ ${FRIENDLY_EDITORIAL_STYLE_RULES}
 승인 원고:
 ${JSON.stringify(input)}
 ` }], {
-    maxOutputTokens: 30000,
+    maxOutputTokens: AI_OUTPUT_LIMITS.styleRevision,
     timeoutMs: 60_000,
     attempts: 1,
     jsonAttempts: 1,
@@ -195,7 +196,11 @@ export async function rewritePendingPartnerStyle(channel: ContentChannel, approv
     .in("status", [...STYLE_REVISION_PENDING_STATUSES])
     .order("scheduled_at", { ascending: true, nullsFirst: false });
   if (error) throw new Error(error.message);
-  const candidates = ((data || []) as PendingItem[]).filter(shouldRewritePendingStyleItem);
+  // 문체 규칙을 한 번 바꾸면 밀린 원고 전체가 대상이 됩니다.
+  // 한 번의 실행이 물량 전체를 소진하지 않도록 상한을 두고, 나머지는 다음 실행으로 넘깁니다.
+  const allCandidates = ((data || []) as PendingItem[]).filter(shouldRewritePendingStyleItem);
+  const candidates = allCandidates.slice(0, AI_BATCH_LIMITS.styleRevisionPerRun);
+  const skippedForLimit = allCandidates.length - candidates.length;
   const results = await mapWithConcurrency(candidates, 2, async (item) => {
     try {
       const metadata = item.metadata || {};
@@ -255,6 +260,8 @@ export async function rewritePendingPartnerStyle(channel: ContentChannel, approv
   return {
     channel,
     found: candidates.length,
+    /** 이번 실행 상한에 걸려 다음 실행으로 미뤄진 건수 */
+    deferred: skippedForLimit,
     updated: results.filter((result) => result.success).length,
     failed: results.filter((result) => !result.success).length,
     results,
