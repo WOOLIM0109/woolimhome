@@ -529,7 +529,10 @@ export function portfolioMockupIndexes(
   const selectedIndexes = selection.selectedSlideIndexes
     .filter((index) => index >= 0 && index < slideCount && eligible.has(index));
   const groups = mode === "long" ? buildSixGridGroups(selectedIndexes) : [];
-  const coverIndex = eligible.has(0) ? 0 : selectedIndexes[0];
+  // 대표 썸네일은 원본 PPT의 표지(1장)만 씁니다.
+  // 표지를 쓸 수 없으면 다른 장표로 몰래 바꾸지 않고 비워 둡니다.
+  // 바꿔치기하면 어느 문서인지 알아볼 수 없는 썸네일이 조용히 올라갑니다.
+  const coverIndex = eligible.has(0) ? 0 : undefined;
   const indexes = [...new Set([
     ...(coverIndex === undefined ? [] : [coverIndex]),
     ...selectedIndexes,
@@ -641,9 +644,15 @@ export async function createPortfolioMockups(input: {
     throw new Error("긴 문서 목업에 필요한 중복 없는 6장 묶음 3~5개를 완성하지 못했습니다.");
   }
   const thumbnailSlide = plan.coverIndex === undefined
-    ? selectedSlides[0]
-    : slideMap.get(plan.coverIndex) || selectedSlides[0];
-  if (!thumbnailSlide) throw new Error("대표 썸네일에 사용할 표지 장표가 없습니다.");
+    ? undefined
+    : slideMap.get(plan.coverIndex);
+  if (!thumbnailSlide) {
+    throw new Error(
+      "대표 썸네일은 원본 PPT의 표지(1장)만 사용합니다. "
+      + "표지가 가림 검사에서 제외되어 목업을 만들지 않았습니다. "
+      + "표지의 가림 범위를 확인한 뒤 다시 시도해 주세요.",
+    );
+  }
   const aspect = aggregateAspectClass(selectedSlides);
   const rankedShortSlides = plan.mode === "short"
     ? shortMockupRankedIndexes(plan.selection, aspect.primary === "4:3" ? 13 : 14)

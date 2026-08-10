@@ -948,6 +948,12 @@ export async function processNextPortfolioMockup(candidateId?: string) {
     const confidentialRegions = localRedactionRegions(localManifest, mockupPlan.indexes);
     const redactionVerification = verifyLocalRedactionSelection(localManifest, mockupPlan.indexes);
     const minimumSelectedSlides = mockupPlan.mode === "long" ? 18 : 5;
+    // 썸네일은 원본 표지만 씁니다. 표지를 못 쓰면 여기서 멈추고 사유를 남깁니다.
+    if (mockupPlan.coverIndex === undefined) {
+      throw new PortfolioRedactionSelectionBlocked(
+        "표지(1장)가 가림 검사에서 제외되어 대표 썸네일을 만들 수 없습니다",
+      );
+    }
     if (!redactionVerification.verified
       || mockupPlan.selectedIndexes.length < minimumSelectedSlides) {
       throw new PortfolioRedactionSelectionBlocked(
