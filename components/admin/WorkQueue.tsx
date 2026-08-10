@@ -388,6 +388,7 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
   const [error, setError] = useState("");
   // 눌렀을 때 무슨 일이 일어났는지 알려 주는 안내 문구입니다.
   const [notice, setNotice] = useState("");
+  const [draftRewritingId, setDraftRewritingId] = useState<string | null>(null);
   const [notes, setNotes] = useState<Record<string, string>>({});
   const [manualDrafts, setManualDrafts] = useState<Record<string, { title: string; bodyHtml: string }>>({});
   const [savingEditId, setSavingEditId] = useState("");
@@ -472,7 +473,7 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
 
   async function update(
     id: string,
-    patch: { action?: "regenerate" | "replace_topic" | "release_to_partner" | "retry_missing_fonts" | "retry_portfolio_conversion" | "restore_portfolio_draft" | "reflow_portfolio_images" | "correct_hyundai_content" | "clear_hold"; status?: WorkflowStatus; review_note?: string },
+    patch: { action?: "regenerate" | "replace_topic" | "release_to_partner" | "retry_missing_fonts" | "retry_portfolio_conversion" | "restore_portfolio_draft" | "reflow_portfolio_images" | "correct_hyundai_content" | "clear_hold" | "retry_portfolio_draft"; status?: WorkflowStatus; review_note?: string },
   ) {
     const regenerating = patch.action === "regenerate"
       || patch.action === "replace_topic"
@@ -669,6 +670,34 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
       await load();
     } finally {
       setRebuildingId(null);
+    }
+  }
+
+  /**
+   * 이미지는 그대로 두고 글만 다시 씁니다.
+   *
+   * 지금까지는 글만 고치고 싶어도 이미지까지 전부 다시 만드는 버튼밖에 없었습니다.
+   * 이미 마음에 드는 이미지가 지워지고 시간도 훨씬 오래 걸렸습니다.
+   */
+  async function rewriteDraftOnly(item: WorkItem) {
+    setDraftRewritingId(item.id);
+    setError("");
+    setNotice("");
+    try {
+      const response = await fetch(`/api/admin/content/${item.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "retry_portfolio_draft" }),
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        setError(data.error || "본문만 다시 쓰지 못했습니다.");
+        return;
+      }
+      setNotice("이미지는 그대로 두고 본문만 다시 썼습니다. 내용을 확인해 주세요.");
+      await load();
+    } finally {
+      setDraftRewritingId(null);
     }
   }
 
@@ -1410,8 +1439,20 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
                       : "② 이미지만 다시 만들기 · 글은 그대로 (블러는 여기)"}
                   </button>
                   <button
+                    onClick={() => void rewriteDraftOnly(item)}
+                    disabled={regeneratingId === item.id || rebuildingId === item.id
+                      || mockupRebuildingId === item.id || draftRewritingId === item.id}
+                    className="inline-flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-950 hover:bg-emerald-100 disabled:cursor-wait disabled:opacity-60"
+                  >
+                    <RotateCcw size={15} className={draftRewritingId === item.id ? "animate-spin" : ""} />
+                    {draftRewritingId === item.id
+                      ? "글 다시 쓰는 중…"
+                      : "③ 글만 다시 쓰기 · 이미지는 그대로 (AI 사용)"}
+                  </button>
+                  <button
                     onClick={() => void rebuild(item)}
-                    disabled={regeneratingId === item.id || rebuildingId === item.id || mockupRebuildingId === item.id}
+                    disabled={regeneratingId === item.id || rebuildingId === item.id
+                      || mockupRebuildingId === item.id || draftRewritingId === item.id}
                     className="inline-flex items-center gap-2 rounded-xl border border-violet-200 bg-violet-50 px-3 py-2 text-xs font-bold text-violet-950 hover:bg-violet-100 disabled:cursor-wait disabled:opacity-60"
                   >
                     <RotateCcw size={15} className={rebuildingId === item.id ? "animate-spin" : ""} />
@@ -1421,7 +1462,7 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
                         : "이미지와 글 전부 다시 만드는 중…"
                       : item.metadata?.portfolioStage === "draft_failed"
                         ? "본문만 다시 생성"
-                        : "③ 이미지와 글 전부 다시 만들기 · AI 사용"}
+                        : "④ 이미지와 글 전부 다시 만들기 · AI 사용"}
                   </button>
                 </>
               )}
