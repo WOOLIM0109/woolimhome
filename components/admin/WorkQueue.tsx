@@ -54,6 +54,10 @@ type WorkItem = {
   review_note: string | null;
   metadata?: {
     candidateId?: string;
+    /** 관리자가 고르거나 직접 쓴 표지 문구 */
+    coverTitle?: { title?: string; source?: string; savedAt?: string };
+    /** 관리자가 직접 올린 이미지를 쓰는 중이라는 표시 */
+    manualMockupOverride?: { kind?: string; approvedAt?: string; approvedBy?: string };
     generated?: {
       bodyHtml?: string;
       faq?: {
@@ -1008,7 +1012,7 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
             <div className="mt-5 rounded-xl border border-sky-200 bg-sky-50/60 p-4">
               <p className="text-sm font-bold text-sky-950">표지 문구</p>
               <p className="mt-1 text-xs text-sky-900">
-                지금 문구: <b>{String((item.metadata?.coverTitle as { title?: string } | undefined)?.title || "아직 정하지 않음 (자동 생성)")}</b>
+                지금 문구: <b>{item.metadata?.coverTitle?.title || "아직 정하지 않음 (자동 생성)"}</b>
               </p>
               {item.cover_title_suggestions?.length ? (
                 <div className="mt-3 flex flex-wrap gap-2">
