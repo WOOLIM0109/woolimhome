@@ -10,6 +10,9 @@ export const FRIENDLY_EDITORIAL_STYLE_RULES = `
 - 짧은 문장과 보통 길이 문장을 섞어 속도감 있게 쓴다. 모든 문장을 같은 길이와 문형으로 맞추지 않는다.
 - 본문과 FAQ에 <br>을 직접 넣지 않는다. 화면과 복사 시스템이 ., ?, !, 。, ？, ！ 뒤에 빈 한 줄을 자동으로 적용한다.
 - 의미 없는 도입과 요약을 줄이고, 구체적인 상황·판단 기준·실행 순서가 바로 드러나게 쓴다.
+- 글마다 숫자를 앞세운 목록 문단을 최소 한 번 넣는다. "확인할 세 가지", "준비 순서 다섯 단계"처럼 소제목에 숫자를 쓰고 ol 또는 ul 로 항목을 나눈다.
+- 독자에게 말을 거는 질문과 느낌표를 실제로 사용한다. 규칙에 적힌 횟수는 권고가 아니라 최소 기준이다.
+- 읽는 사람이 다음 문장을 궁금해하도록 쓴다. 첫 문단에서 독자가 겪는 상황을 먼저 짚고 들어간다.
 - 각 본문 문단에서 독자가 찾아야 할 핵심어 1~2개만 <strong>으로 강조한다. 문장 전체나 문단 전체는 굵게 만들지 않는다.
 - FAQ 질문과 답변 데이터에는 Q. 또는 A. 접두어를 직접 넣지 않는다. 화면과 복사 원고에서 시스템이 한 번만 붙인다.
 - FAQ 답변에서도 꼭 필요한 핵심어만 <strong>으로 강조할 수 있다.
@@ -135,6 +138,11 @@ export function conciseStyleIssues(
 export function friendlyStyleIssues(
   bodyHtml: string,
   faq: { question?: string; answer?: string }[] = [],
+  /**
+   * 질문·느낌표·숫자 목록을 실제로 썼는지도 확인할지 여부.
+   * 글로 읽히는 원고에만 적용하고, 이미지 중심인 포트폴리오에는 적용하지 않습니다.
+   */
+  options: { requireLiveliness?: boolean } = {},
 ) {
   const paragraphCount = (bodyHtml.match(/<p[\s>]/gi) || []).length;
   const strongCount = (bodyHtml.match(/<strong[\s>]/gi) || []).length;
@@ -145,7 +153,25 @@ export function friendlyStyleIssues(
     /살펴보겠습니다/g,
     /결론적으로/g,
     /단순(?:한|히).{0,24}넘어/g,
+    // AI 글에서 반복해서 나오는 표현을 더 잡아냅니다.
+    /알아보겠습니다/g,
+    /정리해 보았습니다/g,
+    /도움이 되(?:셨|시)길/g,
+    /무엇보다도/g,
+    /점점 더/g,
+    /다양한 (?:방법|측면|요소)/g,
+    /핵심은 바로/g,
+    /이러한 (?:점|부분)에서/g,
   ].reduce((total, pattern) => total + (plain.match(pattern) || []).length, 0);
+
+  // 규칙에 적힌 기호와 목록이 실제로 쓰였는지 확인합니다.
+  // 검사가 없으면 규칙이 권고에 그쳐 밋밋한 글이 그대로 통과합니다.
+  const exclamationCount = (plain.match(/[!！]/g) || []).length;
+  const questionCount = (plain.match(/[?？]/g) || []).length;
+  const listCount = (bodyHtml.match(/<(?:ol|ul)[\s>]/gi) || []).length;
+  const numberedHeadingCount = (bodyHtml.match(
+    /<h[23][^>]*>[^<]*(?:[1-9][0-9]?\s*(?:가지|단계|개|곳|축)|하나|둘|셋|넷|다섯|세 가지|네 가지|다섯 가지)[^<]*<\/h[23]>/gi,
+  ) || []).length;
   const abstractEndingCount = [
     /중요합니다/g,
     /필수적입니다/g,
@@ -160,6 +186,18 @@ export function friendlyStyleIssues(
   }
   if (explicitClicheCount || abstractEndingCount > 2) {
     issues.push("AI 상투 표현이 반복됩니다.");
+  }
+  if (options.requireLiveliness && exclamationCount === 0 && questionCount === 0) {
+    issues.push("독자에게 말을 거는 질문이나 느낌표가 한 번도 없습니다. 규칙대로 자연스럽게 섞어 주세요.");
+  }
+  if (exclamationCount > 4) {
+    issues.push(`느낌표가 ${exclamationCount}회입니다. 4회 이하로 줄여 주세요.`);
+  }
+  if (questionCount > 6) {
+    issues.push(`질문이 ${questionCount}회입니다. 3회 안팎으로 줄여 주세요.`);
+  }
+  if (options.requireLiveliness && listCount === 0 && numberedHeadingCount === 0) {
+    issues.push("숫자를 앞세운 목록 문단이 없습니다. '확인할 세 가지'처럼 소제목에 숫자를 쓰고 항목을 나눠 주세요.");
   }
   issues.push(...conciseStyleIssues(bodyHtml, faq));
   return issues;
