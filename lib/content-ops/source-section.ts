@@ -25,13 +25,19 @@ export function publicSourceUrls(value: unknown) {
   return [...unique.values()].slice(0, 8);
 }
 
-export function sourceSectionHtml(value: unknown) {
+export const PRIVATE_PORTFOLIO_SOURCE_NOTE = "자료: 의뢰인이 제공한 원본 문서(기밀 보호를 위해 세부 출처 비공개)";
+
+export function sourceSectionHtml(
+  value: unknown,
+  options: { note?: string | null } = {},
+) {
   const urls = publicSourceUrls(value);
-  if (!urls.length) return "";
+  const note = typeof options.note === "string" ? options.note.trim() : "";
+  if (!urls.length && !note) return "";
   const items = urls.map((url) => {
     const parsed = new URL(url);
     const label = parsed.hostname.replace(/^www\./, "");
     return `<li><a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(label)}</a></li>`;
   });
-  return `<section class="column-sources"><h2>출처</h2><ol>${items.join("")}</ol></section>`;
+  return `<section class="column-sources"><h2>출처</h2>${note ? `<p>${escapeHtml(note)}</p>` : ""}${items.length ? `<ol>${items.join("")}</ol>` : ""}</section>`;
 }

@@ -1,23 +1,32 @@
 import { contentAdmin } from "@/lib/content-ops/data";
 import {
   FRIENDLY_EDITORIAL_STYLE_RULES,
-  friendlyStyleIssues,
   stripFaqPrefix,
 } from "@/lib/content-ops/editorial-style";
+import { editorialPublicationIssues } from "@/lib/content-ops/editorial-policy";
 import type { GeneratedContent } from "@/lib/content-ops/generated-content";
 import {
   assertSameNumericFacts,
   lockValue,
   markerLetters,
-  numericFacts,
   restoreLocked,
 } from "@/lib/content-ops/protected-markers";
 import type { ContentChannel } from "@/lib/content-ops/types";
-import { isPartnerReleaseReady } from "@/lib/partner-portal";
 import { generateGeminiJson } from "@/lib/portfolio/gemini";
 import { sanitizeGeneratedHtml, sanitizeInlineHtml } from "@/lib/security/html";
+import {
+  createStyleRevisionStamp,
+  minimumStyleRevisionBodyLength,
+  shouldRewritePendingStyleItem,
+  STYLE_REVISION_PENDING_STATUSES,
+  styleRevisionFingerprint,
+} from "./style-revision-rules";
 
-export const FRIENDLY_STYLE_VERSION = "friendly-partner-v2-concise-sources";
+export {
+  createStyleRevisionStamp,
+  FRIENDLY_STYLE_VERSION,
+  styleRevisionFingerprint,
+} from "./style-revision-rules";
 
 type PendingItem = {
   id: string;
@@ -26,6 +35,11 @@ type PendingItem = {
   title: string;
   summary: string | null;
   status: string;
+  published_at: string | null;
+  published_url: string | null;
+  published_url_normalized: string | null;
+  published_account: string | null;
+  updated_at: string;
   metadata: Record<string, unknown> | null;
 };
 
@@ -63,30 +77,20 @@ async function rewriteGenerated(
   generated: GeneratedContent,
 ) {
   const originalSummary = generated.summary || item.summary || "";
-  const numericChecklist = numericFacts([
-    originalSummary,
-    generated.bodyHtml,
-    ...(generated.faq || []).flatMap((faq) => [faq.question, faq.answer]),
-  ].join("\n"));
-  const body = lockValue(generated.bodyHtml, "BODY", true, false);
-  const summary = lockValue(originalSummary, "SUMMARY", false, false);
+  const body = lockValue(generated.bodyHtml, "BODY", true, true);
+  const summary = lockValue(originalSummary, "SUMMARY", false, true);
   const faqLocks = (generated.faq || []).map((faq, index) => ({
-    question: lockValue(stripFaqPrefix(faq.question), `FAQ${markerLetters(index)}QUESTION`, false, false),
-    answer: lockValue(stripFaqPrefix(faq.answer), `FAQ${markerLetters(index)}ANSWER`, false, false),
+    question: lockValue(stripFaqPrefix(faq.question), `FAQ${markerLetters(index)}QUESTION`, false, true),
+    answer: lockValue(stripFaqPrefix(faq.answer), `FAQ${markerLetters(index)}ANSWER`, false, true),
   }));
   const input = {
     summary: summary.value,
     bodyHtml: body.value,
     faq: faqLocks.map((faq) => ({ question: faq.question.value, answer: faq.answer.value })),
   };
-  let lastError: unknown;
-  // Batch rewrites must finish within the 300-second server window. Each item
-  // gets one fact-preserving pass; failures stay untouched and are reported.
-  for (let attempt = 0; attempt < 1; attempt += 1) {
-    const retry = attempt && lastError instanceof Error
-      ? `\n직전 결과의 안전검사 문제: ${lastError.message}\n보호 마커와 원문의 사실을 그대로 유지해 다시 작성하세요.`
-      : "";
-    const rewritten = await generateGeminiJson<FriendlyRewrite>([{ text: `
+  // Each item gets exactly one bounded, fact-preserving Gemini pass. Failures
+  // stay untouched and are reported so the batch can continue safely.
+  const rewritten = await generateGeminiJson<FriendlyRewrite>([{ text: `
 당신은 울림컴퍼니의 네이버 블로그 원고를 다듬는 한국어 편집자입니다.
 새로운 사실을 조사하거나 추가하지 말고, 아래 승인 원고의 의미·사실·수치·링크·이미지·소제목 순서를 그대로 유지한 채 말투와 강조만 다듬으세요.
 
@@ -99,7 +103,7 @@ ${FRIENDLY_EDITORIAL_STYLE_RULES}
 - 본문의 H2/H3 주제와 순서, 문단의 핵심 주장, 모든 사실과 조건을 유지합니다.
 - figure와 링크는 보호 마커로 잠겨 있으며 위치를 이동하지 않습니다.
 - 기존 FAQ 개수와 질문의 의미를 유지합니다.
-- 수치 체크리스트의 각 항목은 단위까지 그대로, 같은 횟수로 결과 전체에 포함합니다. 요약·본문·FAQ 사이의 위치는 자연스럽게 조정할 수 있습니다.
+- 숫자와 단위도 보호 마커로 잠겨 있습니다. 마커를 원래 위치와 순서 그대로 유지합니다.
 - 보호 마커 밖에는 아라비아 숫자, 퍼센트, 금액, 기간, 인원, 개수, 단계 번호를 새로 쓰지 않습니다.
 - 순서를 정리할 때 1·2·3 또는 첫째·둘째 같은 번호를 만들지 말고, "먼저", "다음", "마지막"처럼 숫자 없는 연결어를 사용합니다.
 - summary에는 HTML을 넣지 않습니다.
@@ -112,60 +116,57 @@ ${FRIENDLY_EDITORIAL_STYLE_RULES}
 
 승인 원고:
 ${JSON.stringify(input)}
-
-수치 체크리스트:
-${JSON.stringify(numericChecklist)}${retry}
-` }], { maxOutputTokens: 30000, timeoutMs: 120_000 });
-    try {
-      if (!rewritten || typeof rewritten.summary !== "string" || typeof rewritten.bodyHtml !== "string") {
-        throw new Error("말투 수정 결과의 필수 필드가 없습니다.");
-      }
-      if (!Array.isArray(rewritten.faq) || rewritten.faq.length !== faqLocks.length) {
-        throw new Error("FAQ 개수가 달라졌습니다.");
-      }
-      const restoredSummary = restoreLocked(rewritten.summary, summary.locks).trim();
-      const restoredBody = restoreLocked(safeBodyHtml(rewritten.bodyHtml), body.locks);
-      const restoredFaq = rewritten.faq.map((faq, index) => ({
-        question: sanitizeInlineHtml(stripFaqPrefix(restoreLocked(faq.question, faqLocks[index].question.locks))),
-        answer: sanitizeInlineHtml(stripFaqPrefix(restoreLocked(faq.answer, faqLocks[index].answer.locks))),
-      }));
-      const originalNumericText = [
-        originalSummary,
-        generated.bodyHtml,
-        ...(generated.faq || []).flatMap((faq) => [
-          stripFaqPrefix(faq.question),
-          stripFaqPrefix(faq.answer),
-        ]),
-      ].join("\n");
-      const revisedNumericText = [
-        restoredSummary,
-        restoredBody,
-        ...restoredFaq.flatMap((faq) => [faq.question, faq.answer]),
-      ].join("\n");
-      assertSameNumericFacts(originalNumericText, revisedNumericText);
-      const originalLength = plainLength(generated.bodyHtml);
-      const nextLength = plainLength(restoredBody);
-      // Friendly editing removes repetitive setup and recap from older drafts.
-      // Keep a substantial floor without rejecting a fact-preserving tighter edit.
-      if (nextLength < Math.max(900, Math.floor(originalLength * 0.65))) {
-        throw new Error("본문이 원문보다 지나치게 짧아졌습니다.");
-      }
-      if (nextLength > Math.ceil(originalLength * 1.25)) {
-        throw new Error("본문이 원문보다 지나치게 길어졌습니다.");
-      }
-      const issues = friendlyStyleIssues(restoredBody, restoredFaq);
-      if (issues.length) throw new Error(issues.join(" "));
-      return {
-        ...generated,
-        summary: restoredSummary,
-        bodyHtml: restoredBody,
-        faq: restoredFaq,
-      };
-    } catch (error) {
-      lastError = error;
-    }
+` }], {
+    maxOutputTokens: 30000,
+    timeoutMs: 60_000,
+    attempts: 1,
+    jsonAttempts: 1,
+  });
+  if (!rewritten || typeof rewritten.summary !== "string" || typeof rewritten.bodyHtml !== "string") {
+    throw new Error("말투 수정 결과의 필수 필드가 없습니다.");
   }
-  throw lastError instanceof Error ? lastError : new Error("원고 말투를 안전하게 다듬지 못했습니다.");
+  if (!Array.isArray(rewritten.faq) || rewritten.faq.length !== faqLocks.length) {
+    throw new Error("FAQ 개수가 달라졌습니다.");
+  }
+  const restoredSummary = restoreLocked(rewritten.summary, summary.locks).trim();
+  const restoredBody = restoreLocked(safeBodyHtml(rewritten.bodyHtml), body.locks);
+  const restoredFaq = rewritten.faq.map((faq, index) => ({
+    question: sanitizeInlineHtml(stripFaqPrefix(restoreLocked(faq.question, faqLocks[index].question.locks))),
+    answer: sanitizeInlineHtml(stripFaqPrefix(restoreLocked(faq.answer, faqLocks[index].answer.locks))),
+  }));
+  const originalNumericText = [
+    originalSummary,
+    generated.bodyHtml,
+    ...(generated.faq || []).flatMap((faq) => [
+      stripFaqPrefix(faq.question),
+      stripFaqPrefix(faq.answer),
+    ]),
+  ].join("\n");
+  const revisedNumericText = [
+    restoredSummary,
+    restoredBody,
+    ...restoredFaq.flatMap((faq) => [faq.question, faq.answer]),
+  ].join("\n");
+  assertSameNumericFacts(originalNumericText, revisedNumericText);
+  const originalLength = plainLength(generated.bodyHtml);
+  const nextLength = plainLength(restoredBody);
+  // Friendly editing removes repetitive setup and recap from older drafts.
+  // Keep a substantial floor without rejecting a fact-preserving tighter edit.
+  if (nextLength < minimumStyleRevisionBodyLength(item.format, originalLength)) {
+    throw new Error("본문이 원문보다 지나치게 짧아졌습니다.");
+  }
+  if (nextLength > Math.ceil(originalLength * 1.25)) {
+    throw new Error("본문이 원문보다 지나치게 길어졌습니다.");
+  }
+  const result = {
+    ...generated,
+    summary: restoredSummary,
+    bodyHtml: restoredBody,
+    faq: restoredFaq,
+  };
+  const issues = editorialPublicationIssues(item.format, result);
+  if (issues.length) throw new Error(issues.join(" "));
+  return result;
 }
 
 async function mapWithConcurrency<T, R>(
@@ -189,27 +190,24 @@ async function mapWithConcurrency<T, R>(
 export async function rewritePendingPartnerStyle(channel: ContentChannel, approvedBy: string) {
   const admin = contentAdmin();
   const { data, error } = await admin.from("content_work_items")
-    .select("id,channel,format,title,summary,status,metadata")
+    .select("id,channel,format,title,summary,status,published_at,published_url,published_url_normalized,published_account,updated_at,metadata")
     .eq("channel", channel)
-    .in("status", ["approved", "naver_ready", "scheduled"])
+    .in("status", [...STYLE_REVISION_PENDING_STATUSES])
     .order("scheduled_at", { ascending: true, nullsFirst: false });
   if (error) throw new Error(error.message);
-  const candidates = ((data || []) as PendingItem[]).filter((item) => {
-    const metadata = item.metadata || {};
-    const generated = metadata.generated as GeneratedContent | undefined;
-    const styleRevision = metadata.styleRevision as { version?: string } | undefined;
-    return Boolean(generated?.bodyHtml)
-      && isPartnerReleaseReady(item)
-      && styleRevision?.version !== FRIENDLY_STYLE_VERSION;
-  });
+  const candidates = ((data || []) as PendingItem[]).filter(shouldRewritePendingStyleItem);
   const results = await mapWithConcurrency(candidates, 2, async (item) => {
     try {
       const metadata = item.metadata || {};
       const previousGenerated = metadata.generated as GeneratedContent;
-      const generated = await rewriteGenerated(item, previousGenerated);
+      const inputFingerprint = styleRevisionFingerprint(previousGenerated);
+      const existingIssues = editorialPublicationIssues(item.format, previousGenerated);
+      const generated = existingIssues.length
+        ? await rewriteGenerated(item, previousGenerated)
+        : previousGenerated;
       const appliedAt = new Date().toISOString();
       const validation = (metadata.validation || {}) as Record<string, unknown>;
-      const { error: updateError } = await admin.from("content_work_items").update({
+      const { data: updated, error: updateError } = await admin.from("content_work_items").update({
         summary: generated.summary,
         metadata: {
           ...metadata,
@@ -221,17 +219,30 @@ export async function rewritePendingPartnerStyle(channel: ContentChannel, approv
             faqCount: generated.faq.length,
             issues: [],
           },
-          styleRevision: {
-            version: FRIENDLY_STYLE_VERSION,
+          styleRevision: createStyleRevisionStamp(generated, {
             appliedAt,
             appliedBy: approvedBy,
+            inputFingerprint,
             previousGenerated,
-          },
+          }),
         },
         updated_at: appliedAt,
-      }).eq("id", item.id).eq("status", item.status);
+      })
+        .eq("id", item.id)
+        .eq("status", item.status)
+        .eq("updated_at", item.updated_at)
+        .select("id")
+        .maybeSingle();
       if (updateError) throw new Error(updateError.message);
-      return { id: item.id, title: item.title, success: true as const };
+      if (!updated) {
+        throw new Error("원고가 정리되는 동안 다른 변경이 저장되어 현재 작업을 적용하지 않았습니다.");
+      }
+      return {
+        id: item.id,
+        title: item.title,
+        success: true as const,
+        rewritten: existingIssues.length > 0,
+      };
     } catch (rewriteError) {
       return {
         id: item.id,

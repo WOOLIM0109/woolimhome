@@ -4,7 +4,8 @@ import { generateGeminiText } from "@/lib/gemini/client";
 import { stripVerificationControlText } from "@/lib/columns/verification";
 import { researchOfficialFacts } from "@/lib/research/official";
 import { PORTFOLIO_WRITING_RULES } from "./portfolio-rules";
-import { conciseStyleIssues, FRIENDLY_EDITORIAL_STYLE_RULES } from "./editorial-style";
+import { FRIENDLY_EDITORIAL_STYLE_RULES } from "./editorial-style";
+import { editorialPublicationIssues } from "./editorial-policy";
 import type { EditorialSlot } from "./types";
 import {
   generationCancellationRequested,
@@ -38,6 +39,7 @@ import {
   knowledgeRequiredForSlot,
   mostRelevantKnowledgeId,
 } from "./knowledge-routing";
+import { createStyleRevisionStamp } from "./style-revision-rules";
 
 type Source = {
   name: string;
@@ -572,12 +574,10 @@ export async function generateContentWorkItem(
       const structuralIssues = [
         ...(plainLength < 2000 ? [`본문 ${plainLength}자 — 최소 2,000자, 목표 3,500자로 확장`] : []),
         ...(h2Count < 3 ? [`H2 ${h2Count}개 — 최소 3개로 보완`] : []),
-        ...(faqCount < 3 ? [`FAQ ${faqCount}개 — 정확히 3개 이상으로 보완`] : []),
         ...(designForbidden ? ["디자인 채널에서 금지된 컨설팅 주제"] : []),
         ...(internalLabel ? ["제목에 내부 채널 표기"] : []),
         ...(authorityMissingKnowledge ? [`${knowledgeFormatLabel(slot)}에 승인된 원천자료가 사용되지 않음`] : []),
-        ...(generated.sourceUrls.length < 2 ? ["본문 하단에 표시할 공식 출처가 2개 미만임"] : []),
-        ...conciseStyleIssues(generated.bodyHtml, generated.faq),
+        ...editorialPublicationIssues(slot.format, generated),
       ];
       const issues = [
         ...structuralIssues,
@@ -650,6 +650,7 @@ ${JSON.stringify(generated)}
     }))
     .map((source) => source.name);
   const successfulMetadata = metadataAfterSuccessfulRevision(storedMetadata);
+  const generatedAt = new Date().toISOString();
   const { data, error } = await admin.from("content_work_items").update({
     title: generated.title,
     summary: generated.summary || "",
@@ -666,6 +667,12 @@ ${JSON.stringify(generated)}
     metadata: {
       ...successfulMetadata,
       generated,
+      ...(status === "review_required" ? {
+        styleRevision: createStyleRevisionStamp(generated, {
+          appliedAt: generatedAt,
+          appliedBy: "system-generation",
+        }),
+      } : {}),
       sourceChannel: slot.channel,
       validation: { plainLength, h2Count, faqCount, issues },
       novelty: {
@@ -676,18 +683,18 @@ ${JSON.stringify(generated)}
         matches: novelty.matches,
         attempts,
         rationale: plan.rationale,
-        checkedAt: new Date().toISOString(),
+        checkedAt: generatedAt,
         lookbackDays: NOVELTY_LOOKBACK_DAYS,
       },
-      generatedAt: new Date().toISOString(),
+      generatedAt,
       ...(revisionNote ? {
         lastRevision: {
           note: revisionNote,
-          appliedAt: new Date().toISOString(),
+          appliedAt: generatedAt,
         },
       } : {}),
     },
-    updated_at: new Date().toISOString(),
+    updated_at: generatedAt,
   }).eq("schedule_key", scheduleKey).select().single();
   if (error) throw new Error(error.message);
   if (status === "review_required" && selected.usedKnowledgeIds.length) {

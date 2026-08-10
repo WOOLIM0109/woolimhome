@@ -20,6 +20,8 @@ export type SlideSelectionAssessment = {
   visualQuality?: number | null;
   rarity?: number | null;
   sectionDiversity?: number | null;
+  /** Dense small-text pages are less suitable as portfolio highlights. */
+  textDensity?: number | null;
   /** Legacy visual-review score. Used when visualQuality is absent. */
   quality?: number | null;
   recommended?: boolean | null;
@@ -91,6 +93,7 @@ export const SLIDE_SELECTION_WEIGHTS = Object.freeze({
 
 export const SLIDE_SELECTION_LIMITS = Object.freeze({ short: 14, long: 30 });
 export const SLIDE_SELECTION_MINIMUM_SCORE = 50;
+export const SLIDE_TEXT_DENSITY_PENALTY_START = 60;
 export const SIX_GRID_GROUP_COUNT = 5;
 export const SIX_GRID_GROUP_SIZE = 6;
 export const SIX_GRID_MINIMUM_GROUP_COUNT = 3;
@@ -270,9 +273,13 @@ export function scoreSlideAssessment(
   fallbackSectionDiversity = 50,
 ): ScoredSlide {
   const components = scoreComponents(assessment, fallbackSectionDiversity);
+  const textDensity = normalizedScore(assessment.textDensity);
+  const densityPenalty = textDensity === null
+    ? 0
+    : Math.max(0, textDensity - SLIDE_TEXT_DENSITY_PENALTY_START) * 0.35;
   return {
     slideIndex: Math.floor(Number(assessment.slideIndex)),
-    totalScore: weightedTotal(components),
+    totalScore: rounded(Math.max(0, weightedTotal(components) - densityPenalty)),
     components,
     reason: selectionReason(assessment, components),
   };

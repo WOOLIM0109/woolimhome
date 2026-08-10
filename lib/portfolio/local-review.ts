@@ -10,6 +10,7 @@ import {
   scoreLocalVisualMetrics,
   type LocalVisualMetrics,
 } from "./local-visual-score";
+import { classifyPortfolioClientCategoryFromSourceHint } from "./client-category";
 
 type LocalSlideAnalysis = LocalVisualMetrics & {
   slideIndex: number;
@@ -22,13 +23,8 @@ function clampScore(value: number) {
 
 function genericDocumentContext(sourceHint: string) {
   const source = sourceHint.normalize("NFKC").toLocaleLowerCase("ko-KR");
-  const clientCategory: NonNullable<PortfolioVisualReview["clientCategory"]> = (
-    /공공|정부|공사|공단|공공기관|지자체|시청|군청|도청|교육청|연구원|진흥원|재단/.test(source)
-      ? "public_institution"
-      : /대기업|그룹사|삼성|현대|에이치디씨|hdc|lg|cj|sk|롯데|한화|포스코|gs|kt|네이버|카카오/.test(source)
-        ? "large_company"
-        : "general_company"
-  );
+  const clientCategory: NonNullable<PortfolioVisualReview["clientCategory"]> =
+    classifyPortfolioClientCategoryFromSourceHint(sourceHint);
   const industry = /관광|여행/.test(source)
     ? "관광마케팅"
     : /연구|r&d|바이오|기술개발|스마트팜/.test(source)

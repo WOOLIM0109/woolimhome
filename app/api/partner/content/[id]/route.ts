@@ -12,6 +12,7 @@ import {
   validatePortfolioPublicationMetadata,
   validatePortfolioSourceState,
 } from "@/lib/content-ops/portfolio-rules";
+import { editorialPublicationIssues } from "@/lib/content-ops/editorial-policy";
 
 export const dynamic = "force-dynamic";
 
@@ -92,6 +93,17 @@ export async function PATCH(
         details: { issues },
       });
     }
+  }
+
+  const editorialIssues = editorialPublicationIssues(
+    item.format,
+    item.metadata?.generated,
+  );
+  if (editorialIssues.length) {
+    return apiError(409, "EDITORIAL_REVIEW_REQUIRED", "본문 문체·FAQ·출처 규칙 검수가 완료되지 않았습니다.", {
+      nextAction: "관리자 화면에서 포스팅 대기 원고 다듬기를 실행한 뒤 다시 승인해 주세요.",
+      details: { issues: editorialIssues },
+    });
   }
 
   const validation = validateNaverPublication({

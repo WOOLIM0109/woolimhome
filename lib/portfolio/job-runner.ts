@@ -55,6 +55,7 @@ import {
   completedMockupOnlyState,
   preserveMockupOnlyRestoreState,
 } from "./mockup-only-state";
+import { createStyleRevisionStamp } from "../content-ops/style-revision-rules";
 
 class PortfolioClaimLost extends Error {
   constructor() {
@@ -188,8 +189,7 @@ function portfolioMockupMetadata(input: {
 }
 
 function hasBlockingPortfolioDraftIssue(issues: string[]) {
-  return issues.some((issue) =>
-    /짧음|김|H2|FAQ|미만|연속|설명 문단|내부 슬라이드/.test(issue));
+  return issues.length > 0;
 }
 
 type CompletedPortfolioMockup = {
@@ -1790,6 +1790,12 @@ export async function processNextPortfolioDraft(candidateId?: string) {
       metadata: {
         ...(workItem.metadata || {}),
         generated: draft,
+        ...(!hasBlockingIssue ? {
+          styleRevision: createStyleRevisionStamp(draft, {
+            appliedAt: completedAt,
+            appliedBy: "system-portfolio-generation",
+          }),
+        } : {}),
         portfolioReview: mockup.review,
         portfolioAssets: mockup.assets,
         portfolioSourceFingerprint: mockup.sourceFingerprint,
