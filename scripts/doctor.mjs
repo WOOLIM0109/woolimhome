@@ -37,8 +37,11 @@ for (const file of [".env.local", ".env.production.local", ".env"]) {
 const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
 if (!url || !key) {
-  console.error("NEXT_PUBLIC_SUPABASE_URL 과 SUPABASE_SERVICE_ROLE_KEY 를 찾지 못했습니다.");
-  console.error(".env.local 파일이 있는 폴더에서 실행해 주세요.");
+  console.error("NEXT_PUBLIC_SUPABASE_URL 과 SUPABASE_SERVICE_ROLE_KEY 를 찾지 못했습니다.\n");
+  console.error("이 폴더에 .env.local 파일이 없어서 그렇습니다. 아래 명령으로 내려받으세요.\n");
+  console.error("  vercel.cmd env pull .env.local        (윈도우)");
+  console.error("  vercel env pull .env.local            (맥·리눅스)\n");
+  console.error("프로젝트 연결이 안 돼 있다면 먼저 vercel.cmd link 를 실행하세요.");
   process.exit(1);
 }
 const db = createClient(url, key, { auth: { persistSession: false } });

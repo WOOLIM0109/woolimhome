@@ -134,6 +134,52 @@ function sourceHost(value: string) {
   }
 }
 
+/**
+ * 지역 이름과 지역 기관 이름.
+ *
+ * 같은 주제를 지역만 바꿔 반복 생성하는 문제를 막기 위해, 중복 검사를 하기 전에
+ * 이 단어들을 지웁니다. "부산테크노파크 시제품 제작지원"과
+ * "울산창조경제혁신센터 시제품 제작 지원"이 같은 글로 인식되게 하려는 목적입니다.
+ *
+ * 지우는 것은 비교할 때뿐이며, 실제 원고에는 그대로 남습니다.
+ */
+const REGION_NAMES = [
+  "서울", "부산", "대구", "인천", "광주", "대전", "울산", "세종",
+  "경기", "강원", "충북", "충청북도", "충남", "충청남도",
+  "전북", "전라북도", "전남", "전라남도", "경북", "경상북도", "경남", "경상남도", "제주",
+  "창원", "김해", "양산", "진주", "거제", "통영", "포항", "구미", "천안", "청주",
+  "전주", "여수", "순천", "수원", "성남", "용인", "고양", "화성", "이천", "하남", "평택",
+];
+
+const REGION_ORG_SUFFIXES = [
+  "테크노파크", "창조경제혁신센터", "지방중소벤처기업청", "중소벤처기업청",
+  "경제진흥원", "산업진흥원", "신용보증재단", "테크노밸리", "창업보육센터",
+  "상공회의소", "발전연구원", "일자리재단", "도시공사", "관광공사",
+];
+
+const REGION_PATTERN = new RegExp(
+  `(${REGION_NAMES.join("|")})\\s*(특별시|광역시|특별자치시|특별자치도|시|도|군|구)?\\s*(${REGION_ORG_SUFFIXES.join("|")})?`,
+  "g",
+);
+
+/** 비교용으로만 지역 표현을 지웁니다. */
+export function stripRegionTokens(value: string) {
+  if (!value) return "";
+  return value
+    .replace(REGION_PATTERN, " ")
+    .replace(new RegExp(`(${REGION_ORG_SUFFIXES.join("|")})`, "g"), " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/** 지역 표현을 지운 뒤 남는 핵심 주제. 이것이 같으면 지역만 바꾼 글로 봅니다. */
+export function coreTopicKey(fingerprint: { topicFamily: string; primaryTopic: string }) {
+  return stripRegionTokens(`${fingerprint.topicFamily} ${fingerprint.primaryTopic}`)
+    .toLowerCase()
+    .replace(/[^0-9a-z가-힣]+/g, " ")
+    .trim();
+}
+
 function inferredEntities(value: string) {
   const normalized = value.toLowerCase().replace(/\s+/g, " ");
   return DOMAIN_ENTITIES.filter((entity) => normalized.includes(entity.toLowerCase()));
@@ -164,7 +210,11 @@ export function fingerprintFromGenerated({
     topicFamily: plan?.topicFamily || "",
     primaryTopic: plan?.primaryTopic || "",
     angle: plan?.angle || "",
-    keyEntities: [...new Set([...(plan?.keyEntities || []), ...inferredEntities(combined)])],
+    // 지역 이름을 지운 상태로 비교해야 지역만 바꾼 반복을 잡을 수 있습니다.
+    keyEntities: [...new Set([
+      ...(plan?.keyEntities || []).map(stripRegionTokens).filter(Boolean),
+      ...inferredEntities(combined),
+    ])],
   };
 }
 
@@ -179,9 +229,10 @@ export function fingerprintFromPlan(plan: ContentPlan): ContentFingerprint {
     topicFamily: plan.topicFamily,
     primaryTopic: plan.primaryTopic,
     angle: plan.angle,
-    keyEntities: [...new Set([...plan.keyEntities, ...inferredEntities(
-      `${plan.workingTitle} ${plan.primaryTopic} ${plan.angle} ${plan.rationale}`,
-    )])],
+    keyEntities: [...new Set([
+      ...plan.keyEntities.map(stripRegionTokens).filter(Boolean),
+      ...inferredEntities(`${plan.workingTitle} ${plan.primaryTopic} ${plan.angle} ${plan.rationale}`),
+    ])],
   };
 }
 
@@ -190,20 +241,26 @@ function compareFingerprints(
   existing: ContentFingerprint,
   stage: "plan" | "article",
 ) {
+  // 지역 이름을 지운 상태로 비교합니다.
+  // 지우지 않으면 "부산~"과 "울산~"이 서로 다른 글처럼 보여 중복을 통과합니다.
+  const candidateCore = coreTopicKey(candidate);
+  const existingCore = coreTopicKey(existing);
+  const sameCoreTopic = Boolean(candidateCore) && candidateCore === existingCore;
   const topicSimilarity = Math.max(
     tokenCosine(
-      `${candidate.topicFamily} ${candidate.primaryTopic} ${candidate.angle} ${candidate.title}`,
-      `${existing.topicFamily} ${existing.primaryTopic} ${existing.angle} ${existing.title}`,
+      stripRegionTokens(`${candidate.topicFamily} ${candidate.primaryTopic} ${candidate.angle} ${candidate.title}`),
+      stripRegionTokens(`${existing.topicFamily} ${existing.primaryTopic} ${existing.angle} ${existing.title}`),
     ),
     candidate.topicFamily && existing.topicFamily && candidate.topicFamily === existing.topicFamily ? 0.75 : 0,
+    sameCoreTopic ? 0.95 : 0,
   );
   const structureSimilarity = setOverlap(
     [candidate.title, candidate.summary, ...candidate.headings],
     [existing.title, existing.summary, ...existing.headings],
   );
   const bodySimilarity = tokenCosine(
-    `${candidate.title} ${candidate.summary} ${candidate.bodyText}`,
-    `${existing.title} ${existing.summary} ${existing.bodyText}`,
+    stripRegionTokens(`${candidate.title} ${candidate.summary} ${candidate.bodyText}`),
+    stripRegionTokens(`${existing.title} ${existing.summary} ${existing.bodyText}`),
   );
   const entitySimilarity = setOverlap(candidate.keyEntities, existing.keyEntities);
   const sourceSimilarity = jaccard(candidate.sourceHosts, existing.sourceHosts);
@@ -214,11 +271,14 @@ function compareFingerprints(
       + (bodySimilarity * 0.25) + (entitySimilarity * 0.23) + (sourceSimilarity * 0.10);
   const score = Math.round(weighted * 100);
   const duplicate = stage === "plan"
-    ? score >= 48 || (topicSimilarity >= 0.68 && entitySimilarity >= 0.42)
-    : score >= 58
+    // 지역을 지운 핵심 주제가 완전히 같으면 표현이 달라도 중복으로 봅니다.
+    ? sameCoreTopic || score >= 48 || (topicSimilarity >= 0.68 && entitySimilarity >= 0.42)
+    : sameCoreTopic
+      || score >= 58
       || (entitySimilarity >= 0.5 && bodySimilarity >= 0.34 && sourceSimilarity >= 0.6)
       || (topicSimilarity >= 0.78 && structureSimilarity >= 0.45);
   const reasons = [
+    ...(sameCoreTopic ? ["지역 표현을 빼면 같은 주제임"] : []),
     ...(topicSimilarity >= 0.55 ? ["핵심 주제와 관점이 유사함"] : []),
     ...(structureSimilarity >= 0.4 ? ["제목·목차 구조가 유사함"] : []),
     ...(bodySimilarity >= 0.34 ? ["본문에서 다루는 내용이 유사함"] : []),

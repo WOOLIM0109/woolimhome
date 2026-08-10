@@ -2868,6 +2868,11 @@ async function rebuildPortfolioMockupsOnlyClaimed(workItemId: string) {
     candidateId = linkedJob?.candidate_id || undefined;
   }
   if (!candidateId) throw new Error("연결된 포트폴리오 원본을 찾지 못했습니다.");
+  // 목업만 다시 만드는 경우에도 수동 이미지를 덮어쓰지 않습니다.
+  const mockupOnlyManualApprovedAt = manualMockupApprovedAt(metadata);
+  if (mockupOnlyManualApprovedAt !== null) {
+    throw new PortfolioManualAssetsPresent(mockupOnlyManualApprovedAt);
+  }
 
   const { data: conversion, error: conversionError } = await admin
     .from("content_jobs")
@@ -2967,6 +2972,33 @@ async function rebuildPortfolioMockupsOnlyClaimed(workItemId: string) {
 }
 
 /**
+ * 관리자가 직접 넣은 목업 이미지가 있는지 확인합니다.
+ *
+ * 다시 만들기는 metadata 의 portfolioAssets 를 지우고 자동 생성 이미지로 채웁니다.
+ * 수동으로 넣은 이미지도 거기 들어 있어서, 그대로 두면 예전 자동 이미지로 되돌아갑니다.
+ * 그래서 수동 이미지가 있으면 멈추고 사람에게 확인을 받습니다.
+ */
+export class PortfolioManualAssetsPresent extends Error {
+  code = "PORTFOLIO_MANUAL_ASSETS_PRESENT" as const;
+
+  constructor(approvedAt?: string) {
+    super(
+      `관리자가 직접 넣은 목업 이미지가 있습니다${approvedAt ? ` (${approvedAt.slice(0, 10)} 적용)` : ""}. `
+      + "다시 만들면 그 이미지가 사라지고 자동 생성 이미지로 바뀝니다. "
+      + "그래도 진행하시려면 '수동 이미지 버리고 다시 만들기'를 선택해 주세요.",
+    );
+    this.name = "PortfolioManualAssetsPresent";
+  }
+}
+
+function manualMockupApprovedAt(metadata: Record<string, unknown>): string | null {
+  const override = metadata.manualMockupOverride;
+  if (!override || typeof override !== "object") return null;
+  const approvedAt = (override as Record<string, unknown>).approvedAt;
+  return typeof approvedAt === "string" ? approvedAt : "";
+}
+
+/**
  * 이미 만들어 둔 목업 이미지를 다시 만들지 않도록 체크포인트를 넘겨받습니다.
  *
  * 원본 문서가 바뀌었는지는 processNextPortfolioMockup이
@@ -3005,7 +3037,10 @@ function preservedMockupCheckpoint(
   return { ...preserved, ...extra };
 }
 
-export async function rebuildPortfolioDraft(workItemId: string) {
+export async function rebuildPortfolioDraft(
+  workItemId: string,
+  options: { discardManualAssets?: boolean } = {},
+) {
   const admin = contentAdmin();
   const { data: workItem, error: workItemError } = await admin
     .from("content_work_items")
@@ -3023,6 +3058,11 @@ export async function rebuildPortfolioDraft(workItemId: string) {
   const metadata = (workItem.metadata || {}) as Record<string, unknown> & {
     candidateId?: string;
   };
+  // 수동으로 넣은 이미지를 말없이 덮어쓰지 않습니다.
+  const manualApprovedAt = manualMockupApprovedAt(metadata);
+  if (manualApprovedAt !== null && !options.discardManualAssets) {
+    throw new PortfolioManualAssetsPresent(manualApprovedAt);
+  }
   let candidateId = metadata.candidateId;
   if (!candidateId) {
     const { data: linkedJob, error: linkedJobError } = await admin

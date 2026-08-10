@@ -9,6 +9,7 @@ import { parseStoredAssetUrl } from "@/lib/partner-portal";
 import {
   PortfolioConversionRetryConflict,
   PortfolioDraftRecoveryUnavailable,
+  PortfolioManualAssetsPresent,
   PortfolioRebuildConflict,
   rebuildPortfolioDraft,
   rebuildPortfolioMockupsOnly,
@@ -249,8 +250,18 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
   }
   if (body.action === "rebuild_portfolio") {
     try {
-      return NextResponse.json(await rebuildPortfolioDraft(id));
+      return NextResponse.json(await rebuildPortfolioDraft(id, {
+        // 화면에서 '수동 이미지 버리고 다시 만들기'를 선택했을 때만 true 가 옵니다.
+        discardManualAssets: body.discardManualAssets === true,
+      }));
     } catch (error) {
+      if (error instanceof PortfolioManualAssetsPresent) {
+        return NextResponse.json({
+          error: error.message,
+          code: error.code,
+          requiresConfirmation: "discardManualAssets",
+        }, { status: 409 });
+      }
       return NextResponse.json({
         error: error instanceof Error ? error.message : "포트폴리오를 다시 만들지 못했습니다.",
       }, {
