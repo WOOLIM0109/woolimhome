@@ -36,11 +36,26 @@ type PendingItem = {
   metadata: Record<string, unknown> | null;
 };
 
-function plainText(value: string) {
+function decodeHtmlEntities(value: string) {
+  const named: Record<string, string> = {
+    nbsp: " ",
+    amp: "&",
+    lt: "<",
+    gt: ">",
+    quot: '"',
+    "#39": "'",
+    apos: "'",
+  };
   return value
+    .replace(/&(?:nbsp|amp|lt|gt|quot|#39|apos);/gi, (entity) => named[entity.slice(1, -1).toLowerCase()] || entity)
+    .replace(/&#(\d+);/g, (_, code: string) => String.fromCodePoint(Number(code)))
+    .replace(/&#x([0-9a-f]+);/gi, (_, code: string) => String.fromCodePoint(Number.parseInt(code, 16)));
+}
+
+function plainText(value: string) {
+  return decodeHtmlEntities(value
     .replace(/<br\s*\/?\s*>/gi, " ")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/&(?:nbsp|amp|lt|gt|quot|#39);/gi, " ")
+    .replace(/<[^>]+>/g, " "))
     .replace(/\s+/g, " ")
     .trim();
 }
@@ -51,7 +66,7 @@ function plainLength(value: string) {
 
 function attribute(tag: string, name: string) {
   const match = tag.match(new RegExp(`\\b${name}\\s*=\\s*(["'])([\\s\\S]*?)\\1`, "i"));
-  return match?.[2] || "";
+  return decodeHtmlEntities(match?.[2] || "");
 }
 
 function structuralParts(value: string) {
@@ -132,7 +147,7 @@ async function applyRevision(raw: ManualRevision, approvedBy: string) {
   }
 
   const bodyHtml = removeDisplayBreaks(sanitizeGeneratedHtml(raw.bodyHtml)).trim();
-  const mismatch = structuralMismatch(original.bodyHtml, bodyHtml);
+  const mismatch = structuralMismatch(sanitizeGeneratedHtml(original.bodyHtml), bodyHtml);
   if (mismatch) {
     throw new Error(
       `${raw.title}: 제목 구조, 이미지, 캡션 또는 링크가 원문과 달라졌습니다. `
