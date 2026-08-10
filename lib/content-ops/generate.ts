@@ -4,6 +4,7 @@ import { generateGeminiText } from "@/lib/gemini/client";
 import { stripVerificationControlText } from "@/lib/columns/verification";
 import { researchOfficialFacts } from "@/lib/research/official";
 import { AI_ATTEMPTS, AI_INPUT_LIMITS, AI_OUTPUT_LIMITS, RESEARCH_REUSE_HOURS } from "@/lib/ai-budget";
+import { CONSULTING_INFORMATIONAL_TOPIC_TYPES } from "./config";
 import { PORTFOLIO_WRITING_RULES } from "./portfolio-rules";
 import { FRIENDLY_EDITORIAL_STYLE_RULES } from "./editorial-style";
 import { editorialPublicationIssues } from "./editorial-policy";
@@ -251,6 +252,20 @@ async function requestTopicPlans({
 - 공식 자료에서 한 가지 구체적인 고객 문제를 고른다.
 - 여러 지원사업·제도·기능을 한 글에 모은 종합 안내 주제는 금지한다.
 - knowledgeIds는 빈 배열로 반환한다.`;
+  /**
+   * 컨설팅 정보형 주제가 지원사업·정책자금으로만 쏠리는 것을 막습니다.
+   *
+   * 공식 출처가 그쪽에 몰려 있어 후보 5개가 매번 비슷하게 나왔습니다.
+   * 실제 블로그에서 검색 유입이 꾸준한 서류·시스템·용어 정리 글을 함께 만들게 합니다.
+   */
+  const informationalVarietyRules = slot.channel === "naver_consulting" && slot.format === "informational"
+    ? `
+- 후보 5개 중 최소 3개는 아래 유형에서 서로 다른 유형으로 고른다. 같은 유형을 두 개 이상 넣지 않는다.
+- '지원사업·정책자금 안내' 유형은 5개 중 최대 1개까지만 허용한다.
+- 아래 예시는 결을 보여 주는 참고일 뿐이다. 제목을 베끼지 말고 아직 다루지 않은 다른 서류·시스템·절차를 고른다.
+- 담당자가 실제로 검색하는 말(발급 방법, 유효기간, 차이, 준비서류, 오류 해결)이 주제에 드러나게 한다.
+${JSON.stringify(CONSULTING_INFORMATIONAL_TOPIC_TYPES)}`
+    : "";
   const designRules = slot.channel === "naver_design" ? `
 - 디자인 채널 후보는 PPT·PDF·비즈니스 문서의 기획, 정보 구조, 레이아웃, 가독성, 시각화에만 한정한다.
 - 정부지원사업·정책자금·기업인증은 후보로 만들지 않는다.` : "";
@@ -260,6 +275,7 @@ async function requestTopicPlans({
 채널: ${slot.channel}
 글 유형: ${slot.format}
 ${authorityRules}
+${informationalVarietyRules}
 ${designRules}
 
 [최근 90일 같은 채널 콘텐츠 — 주제·제도·관점·목차가 겹치면 안 됨]
