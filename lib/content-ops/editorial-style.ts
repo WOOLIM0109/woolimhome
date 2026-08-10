@@ -72,7 +72,7 @@ function sentenceLengths(value: string) {
   const text = visibleText(value);
   if (!text) return [];
   return text
-    .split(/[.!?。？！]+(?:["'”’」』)\]]*)?\s*/)
+    .split(/(?:(?<!\d)\.(?!\d)|[!?。？！])+(?:["'”’」』)\]]*)?\s*/)
     .map((sentence) => sentence.replace(/\s/g, "").length)
     .filter((length) => length > 0);
 }
