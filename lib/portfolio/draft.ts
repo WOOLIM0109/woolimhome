@@ -1,5 +1,6 @@
 import { contentAdmin } from "@/lib/content-ops/data";
-import { conciseStyleIssues, FRIENDLY_EDITORIAL_STYLE_RULES } from "@/lib/content-ops/editorial-style";
+import { FRIENDLY_EDITORIAL_STYLE_RULES } from "@/lib/content-ops/editorial-style";
+import { editorialPublicationIssues } from "@/lib/content-ops/editorial-policy";
 import { validatePortfolioBodyHtml } from "@/lib/content-ops/portfolio-rules";
 import { generateGeminiJson } from "./gemini";
 import type { GeneratedPortfolioAsset } from "./mockup";
@@ -142,7 +143,7 @@ function draftIssues(draft: PortfolioDraft) {
       ...(h2Count < 5 ? [`H2가 ${h2Count}개뿐임`] : []),
       ...(paragraphCount < 12 ? [`설명 문단이 ${paragraphCount}개뿐임`] : []),
       ...(faqCount < 4 ? [`FAQ가 ${faqCount}개뿐임`] : []),
-      ...conciseStyleIssues(bodyHtml, draft.faq),
+      ...editorialPublicationIssues("portfolio", { ...draft, bodyHtml }),
       ...(internalReferenceCount ? [`내부 슬라이드·페이지 번호가 ${internalReferenceCount}곳 노출됨`] : []),
       ...(!draft.title?.trim() ? ["제목 누락"] : []),
       ...(!draft.summary?.trim() ? ["요약 누락"] : []),

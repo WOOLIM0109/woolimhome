@@ -3,7 +3,10 @@ import { generateGeminiText, geminiRetryDecision } from "@/lib/gemini/client";
 import { parseGeminiJson } from "@/lib/gemini/json";
 import { researchOfficialFacts } from "@/lib/research/official";
 import { sanitizeGeneratedHtml, sanitizeInlineHtml } from "@/lib/security/html";
-import { conciseStyleIssues } from "@/lib/content-ops/editorial-style";
+import {
+  FRIENDLY_EDITORIAL_STYLE_RULES,
+  friendlyStyleIssues,
+} from "@/lib/content-ops/editorial-style";
 import { stripVerificationControlText } from "./verification";
 import type { ColumnFaq, ColumnKind, ColumnSource } from "./types";
 
@@ -181,6 +184,7 @@ export async function generateColumn(input: {
 대표는 기획 전문가다. 기획은 전략·서비스·콘텐츠·문서·시각화 기획을 아우르는 독립 핵심 분야다.
 
 [콘텐츠 매뉴얼]
+${FRIENDLY_EDITORIAL_STYLE_RULES}
 - 유형은 informational(공식 정보 중심), hybrid(공식 정보+울림 관점), authority(인터뷰·사례 중심) 중 하나다.
 - 한 명의 독자, 실제 검색어, 핵심 메시지 한 문장을 먼저 정한다.
 - 내부 흐름은 공감 도입 → 흔한 실수 → 울림의 관점 → 사례·증거 → 실행 방법 → 부담 없는 CTA다.
@@ -284,7 +288,7 @@ ${JSON.stringify(generated)}
     if (charCount < 3000) issues.push(`본문이 짧습니다(${charCount}자).`);
     if (h2Count < 3) issues.push("H2가 3개 미만입니다.");
     if (generated.faqs.length < 3 || generated.faqs.length > 4) issues.push("FAQ는 3~4개여야 합니다.");
-    issues.push(...conciseStyleIssues(generated.bodyHtml, generated.faqs));
+    issues.push(...friendlyStyleIssues(generated.bodyHtml, generated.faqs));
     if (usedSources.length < 2) issues.push("독립된 공식 출처가 2개 미만입니다.");
     if (generated.contentKind !== "informational" && !writingKnowledge.length) {
       issues.push("하이브리드·권위형에 필요한 승인된 원천자료가 없습니다.");

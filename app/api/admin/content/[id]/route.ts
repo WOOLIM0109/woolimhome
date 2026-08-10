@@ -23,6 +23,7 @@ import { resolveRevisionNote } from "@/lib/content-ops/generated-content";
 import type { ContentChannel, ContentFormat, EditorialSlot } from "@/lib/content-ops/types";
 import { retryMissingFontCandidates } from "@/lib/pc-worker/font-retry";
 import { geminiRetryDecision } from "@/lib/gemini/client";
+import { editorialPublicationIssues } from "@/lib/content-ops/editorial-policy";
 import {
   correctHyundaiManualContentMetadata,
   HYUNDAI_MANUAL_MOCKUP_TITLE,
@@ -342,6 +343,14 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     if (current.format === "portfolio" || current.status === "published") {
       return NextResponse.json({ error: "이 원고는 별도 외주 전달 승인이 필요하지 않습니다." }, { status: 400 });
     }
+    const generated = current.metadata?.generated;
+    const editorialIssues = editorialPublicationIssues(current.format, generated);
+    if (editorialIssues.length) {
+      return NextResponse.json({
+        error: `원고 규칙을 먼저 정리해 주세요: ${editorialIssues.join(" ")}`,
+        details: { issues: editorialIssues },
+      }, { status: 400 });
+    }
     const now = new Date().toISOString();
     const metadata = {
       ...(current.metadata || {}),
@@ -457,6 +466,16 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
           { status: 400 },
         );
       }
+    }
+    const editorialIssues = editorialPublicationIssues(
+      current.format,
+      current.metadata?.generated,
+    );
+    if (editorialIssues.length) {
+      return NextResponse.json({
+        error: `원고 규칙을 먼저 정리해 주세요: ${editorialIssues.join(" ")}`,
+        details: { issues: editorialIssues },
+      }, { status: 400 });
     }
   }
   const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };

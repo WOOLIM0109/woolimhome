@@ -6,7 +6,10 @@ import StatusBadge from "./StatusBadge";
 import type { ContentChannel, WorkflowStatus } from "@/lib/content-ops/types";
 import { faqAnswerHtml, faqQuestionHtml } from "@/lib/content-ops/editorial-style";
 import { formatSentenceLineBreaks } from "@/lib/content-ops/sentence-line-breaks";
-import { sourceSectionHtml } from "@/lib/content-ops/source-section";
+import {
+  PRIVATE_PORTFOLIO_SOURCE_NOTE,
+  sourceSectionHtml,
+} from "@/lib/content-ops/source-section";
 import { HYUNDAI_MANUAL_MOCKUP_LEGACY_TITLE } from "@/lib/portfolio/hyundai-manual-mockups";
 
 type PortfolioMockupMode = "short_psd" | "six_grid";
@@ -393,7 +396,7 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
         : activeItems;
       const displayItems = next.map((item) => {
         const generated = item.metadata?.generated;
-        if (!generated || item.status === "published") return item;
+        if (!generated) return item;
         return {
           ...item,
           metadata: {
@@ -663,8 +666,10 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
       {channel && !reviewMode && (
         <section className="flex flex-col gap-3 rounded-xl border border-orange-200 bg-orange-50 p-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <p className="font-bold text-orange-950">외주 대기 원고 말투 정리</p>
-            <p className="mt-1 text-sm leading-6 text-orange-900/80">친근한 채널별 말투, 핵심어 볼드, FAQ의 Q.·A. 표기를 적용합니다.</p>
+            <p className="font-bold text-orange-950">검토 요청·포스팅 대기 원고 규칙 정리</p>
+            <p className="mt-1 text-sm leading-6 text-orange-900/80">
+              100자 이하의 짧은 문장, 간결한 FAQ, 자연스러운 말투와 핵심어 강조를 적용합니다. 검토 요청 글도 함께 정리하며 수치·링크·이미지는 보존합니다.
+            </p>
             {styleResult && <p className="mt-2 text-sm font-bold text-emerald-700">{styleResult}</p>}
           </div>
           <button
@@ -674,7 +679,7 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
             className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl bg-orange-600 px-4 py-3 text-sm font-bold text-white hover:bg-orange-700 disabled:cursor-wait disabled:opacity-60"
           >
             <Sparkles size={16} className={rewritingStyle ? "animate-spin" : ""} />
-            {rewritingStyle ? "원고 다듬는 중…" : "포스팅 대기 원고 다듬기"}
+            {rewritingStyle ? "원고 규칙 확인 중…" : "검토·대기 원고 정리"}
           </button>
         </section>
       )}
@@ -853,10 +858,14 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
               <summary className="cursor-pointer font-bold">이미지가 배치된 글 전체 미리보기</summary>
               <div className="column-body mt-5" dangerouslySetInnerHTML={{ __html: item.metadata.generated.bodyHtml }} />
               {item.metadata.generated.faq?.length ? <section className="mt-7 border-t border-[var(--line)] pt-5"><h3 className="text-lg font-bold">FAQ</h3>{item.metadata.generated.faq.map((faq) => <div key={faq.question} className="mt-4"><p className="font-bold" dangerouslySetInnerHTML={{ __html: faq.displayQuestionHtml || faqQuestionHtml(faq.question) }} /><p className="mt-1 text-sm leading-6 text-[var(--muted)]" dangerouslySetInnerHTML={{ __html: faq.displayAnswerHtml || faqAnswerHtml(faq.answer) }} /></div>)}</section> : null}
-              {item.metadata.generated.sourceUrls?.length ? (
+              {(item.metadata.generated.sourceUrls?.length || item.format === "portfolio") ? (
                 <div
                   className="column-body mt-7 border-t border-[var(--line)] pt-5"
-                  dangerouslySetInnerHTML={{ __html: sourceSectionHtml(item.metadata.generated.sourceUrls) }}
+                  dangerouslySetInnerHTML={{
+                    __html: sourceSectionHtml(item.metadata.generated.sourceUrls, {
+                      note: item.format === "portfolio" ? PRIVATE_PORTFOLIO_SOURCE_NOTE : null,
+                    }),
+                  }}
                 />
               ) : null}
             </details>

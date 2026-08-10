@@ -11,6 +11,8 @@ import {
 } from "@/lib/partner-portal";
 import { expectedNaverAccount } from "@/lib/publication";
 import { sanitizeGeneratedHtml } from "@/lib/security/html";
+import { PRIVATE_PORTFOLIO_SOURCE_NOTE } from "@/lib/content-ops/source-section";
+import { editorialPublicationIssues } from "@/lib/content-ops/editorial-policy";
 
 export const dynamic = "force-dynamic";
 
@@ -83,7 +85,10 @@ export async function GET(request: Request) {
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
   const items = ((data || []) as WorkItemRow[])
-    .filter(isPartnerReleaseReady)
+    .filter((item) => isPartnerReleaseReady(item) && (
+      item.status === "published"
+      || editorialPublicationIssues(item.format, item.metadata?.generated).length === 0
+    ))
     .map((item) => {
       const hasLegacyDuplicateUrl = item.metadata?.publicationValidation?.duplicateLegacyUrl === true;
       const storedAssets = [...(item.content_review_assets || [])]
@@ -115,6 +120,7 @@ export async function GET(request: Request) {
         faq: Array.isArray(generated.faq) ? generated.faq : [],
         tags: Array.isArray(generated.tags) ? generated.tags : [],
         sourceUrls: Array.isArray(generated.sourceUrls) ? generated.sourceUrls : [],
+        sourceNote: item.format === "portfolio" ? PRIVATE_PORTFOLIO_SOURCE_NOTE : null,
         assets: uploadableAssets.map((asset) => {
           const order = asset.asset_type === "thumbnail"
             ? ++thumbnailNumber

@@ -37,6 +37,7 @@ type PartnerItem = {
   faq: { question: string; answer: string }[];
   tags: string[];
   sourceUrls: string[];
+  sourceNote: string | null;
   assets: {
     id: string;
     type: "thumbnail" | "body_image" | "article_preview";
@@ -164,9 +165,10 @@ export default function PartnerQueue({ onUnauthorized }: { onUnauthorized: () =>
       }
       if (!response.ok) throw new Error(data.error || "작업 목록을 불러오지 못했습니다.");
       const loadedItems = (Array.isArray(data) ? data : data.items) as PartnerItem[];
-      const displayItems = loadedItems.map((item) => item.status === "published"
-        ? item
-        : { ...item, previewHtml: formatSentenceLineBreaks(item.previewHtml) });
+      const displayItems = loadedItems.map((item) => ({
+        ...item,
+        previewHtml: formatSentenceLineBreaks(item.previewHtml),
+      }));
       setItems(displayItems);
       setChannelConfigs(Array.isArray(data.channels) ? data.channels : []);
       setPublishedUrls(
@@ -385,7 +387,7 @@ export default function PartnerQueue({ onUnauthorized }: { onUnauthorized: () =>
         <div className="mt-6 space-y-6">
           {visibleItems.map((item) => {
             const faqHtml = buildFaqHtml(item.faq);
-            const sourcesHtml = sourceSectionHtml(item.sourceUrls);
+            const sourcesHtml = sourceSectionHtml(item.sourceUrls, { note: item.sourceNote });
             const fullHtml = `${item.copyHtml}${faqHtml}${sourcesHtml}`;
             const tags = item.tags.map((tag) => `#${tag.replace(/^#/, "")}`).join(" ");
             const isPublished = item.status === "published";
@@ -422,14 +424,14 @@ export default function PartnerQueue({ onUnauthorized }: { onUnauthorized: () =>
                         label="본문 전체 복사"
                         icon={<FileText size={15} />}
                         done={copied === `${item.id}-body`}
-                        onClick={() => void copyValue(`${item.id}-body`, fullHtml, true, !isPublished)}
+                        onClick={() => void copyValue(`${item.id}-body`, fullHtml, true, true)}
                       />
                       {item.faq.length > 0 && (
                         <CopyButton
                           label="FAQ만 복사"
                           icon={<Clipboard size={15} />}
                           done={copied === `${item.id}-faq`}
-                          onClick={() => void copyValue(`${item.id}-faq`, faqHtml, true, !isPublished)}
+                          onClick={() => void copyValue(`${item.id}-faq`, faqHtml, true, true)}
                         />
                       )}
                       {tags && (
@@ -493,17 +495,13 @@ export default function PartnerQueue({ onUnauthorized }: { onUnauthorized: () =>
                             <p
                               className="font-bold"
                               dangerouslySetInnerHTML={{
-                                __html: isPublished
-                                  ? faqQuestionHtml(faq.question)
-                                  : formatSentenceLineBreaks(faqQuestionHtml(faq.question)),
+                                __html: formatSentenceLineBreaks(faqQuestionHtml(faq.question)),
                               }}
                             />
                             <p
                               className="mt-2 text-sm leading-7 text-[var(--muted)]"
                               dangerouslySetInnerHTML={{
-                                __html: isPublished
-                                  ? faqAnswerHtml(faq.answer)
-                                  : formatSentenceLineBreaks(faqAnswerHtml(faq.answer)),
+                                __html: formatSentenceLineBreaks(faqAnswerHtml(faq.answer)),
                               }}
                             />
                           </div>
