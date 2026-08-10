@@ -14,14 +14,24 @@ export async function POST(request: Request) {
   const user = await authenticatedAdmin();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const body = await request.json().catch(() => ({}));
-  const format = body.format === "portfolio" ? "portfolio" : "design_insight";
+  // 컨설팅 블로그 글도 예약 일정을 기다리지 않고 지금 만들 수 있어야 합니다.
+  // 예약 항목을 지우면 새 글을 만들 방법이 아예 없어지는 문제가 있었습니다.
+  const channel = body.channel === "naver_consulting" ? "naver_consulting" : "naver_design";
+  const format = channel === "naver_consulting"
+    ? (body.format === "authority" ? "authority" : "informational")
+    : (body.format === "portfolio" ? "portfolio" : "design_insight");
   const requestId = typeof body.requestId === "string" && /^[a-zA-Z0-9-]{8,80}$/.test(body.requestId)
     ? body.requestId
     : crypto.randomUUID();
-  const scheduleKey = `manual-design-${requestId}`;
-  const slot: EditorialSlot = { key: scheduleKey, channel: "naver_design", format, weekday: new Date().getDay(), hour: new Date().getHours(), label: "디자인 블로그 시험 초안" };
+  const scheduleKey = channel === "naver_consulting"
+    ? `manual-consulting-${requestId}`
+    : `manual-design-${requestId}`;
+  const label = channel === "naver_consulting"
+    ? (format === "authority" ? "컨설팅 울림 콘텐츠형" : "컨설팅 정보형")
+    : "디자인 블로그 시험 초안";
+  const slot: EditorialSlot = { key: scheduleKey, channel, format, weekday: new Date().getDay(), hour: new Date().getHours(), label };
   const { error } = await contentAdmin().from("content_work_items").upsert({
-    channel: slot.channel, format: slot.format, title: "디자인 블로그 시험 초안 생성 중", summary: "공식 자료를 확인하고 초안을 생성하고 있습니다.",
+    channel: slot.channel, format: slot.format, title: `${label} 생성 중`, summary: "공식 자료를 확인하고 초안을 생성하고 있습니다.",
     status: "creating", schedule_key: scheduleKey, created_by: user.email,
     metadata: { manual: true, manualRequestId: requestId },
   }, { onConflict: "schedule_key" });
@@ -30,7 +40,7 @@ export async function POST(request: Request) {
     await removeCancelledGeneration(scheduleKey);
     return NextResponse.json({
       cancelled: true,
-      error: "디자인 인사이트 초안 생성을 취소했습니다.",
+      error: `${label} 초안 생성을 취소했습니다.`,
     }, { status: 409 });
   }
   try {
@@ -56,7 +66,7 @@ export async function POST(request: Request) {
     if (message === "GENERATION_CANCELLED") {
       return NextResponse.json({
         cancelled: true,
-        error: "디자인 인사이트 초안 생성을 취소했습니다.",
+        error: `${label} 초안 생성을 취소했습니다.`,
       }, { status: 409 });
     }
     await contentAdmin().from("content_work_items").update({ status: "on_hold", review_note: message }).eq("schedule_key", scheduleKey);

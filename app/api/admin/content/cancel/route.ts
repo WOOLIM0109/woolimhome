@@ -5,7 +5,7 @@ import { parseStoredAssetUrl } from "@/lib/partner-portal";
 
 export const dynamic = "force-dynamic";
 
-type CancelKind = "portfolio" | "design_insight";
+type CancelKind = "portfolio" | "design_insight" | "consulting";
 
 function validRequestId(value: unknown): value is string {
   return typeof value === "string" && /^[a-zA-Z0-9-]{8,80}$/.test(value);
@@ -36,7 +36,9 @@ export async function POST(request: Request) {
 
   const body = await request.json().catch(() => ({}));
   const requestId = body.requestId;
-  const kind: CancelKind = body.kind === "portfolio" ? "portfolio" : "design_insight";
+  const kind: CancelKind = body.kind === "portfolio"
+    ? "portfolio"
+    : body.kind === "consulting" ? "consulting" : "design_insight";
   if (!validRequestId(requestId)) {
     return NextResponse.json({ error: "취소할 생성 요청 정보가 올바르지 않습니다." }, { status: 400 });
   }
@@ -44,7 +46,9 @@ export async function POST(request: Request) {
   const admin = contentAdmin();
   const scheduleKey = kind === "portfolio"
     ? `manual-portfolio-${requestId}`
-    : `manual-design-${requestId}`;
+    : kind === "consulting"
+      ? `manual-consulting-${requestId}`
+      : `manual-design-${requestId}`;
   const marker = cancellationMarker(requestId);
   const { data: existing, error: readError } = await admin
     .from("content_work_items")
@@ -72,8 +76,8 @@ export async function POST(request: Request) {
     const { data, error } = await admin
       .from("content_work_items")
       .insert({
-        channel: "naver_design",
-        format: kind,
+        channel: kind === "consulting" ? "naver_consulting" : "naver_design",
+        format: kind === "consulting" ? "informational" : kind,
         title: "취소된 초안 생성 요청",
         summary: "",
         status: "on_hold",

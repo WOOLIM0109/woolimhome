@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { BookOpen, ExternalLink, Radar } from "lucide-react";
 import AdminPortal from "@/components/admin/AdminPortal";
+import ManualGenerateButton from "@/components/admin/ManualGenerateButton";
 import WorkQueue from "@/components/admin/WorkQueue";
 import TwoWeekSchedule from "@/components/admin/TwoWeekSchedule";
 import { CONSULTING_TOPIC_FAMILIES } from "@/lib/content-ops/config";
@@ -12,6 +13,7 @@ export default function NaverConsultingAdminPage() {
       description="단순 정보형 주 3회와 울림의 소개·성과·노하우·칼럼형 콘텐츠 주 2회를 별도로 관리합니다."
       actions={(
         <>
+          <ManualGenerateButton channel="naver_consulting" />
           <a href="https://blog.naver.com/ygamsjzys" target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 rounded-xl border border-[var(--line)] bg-white px-4 py-3 font-bold">
             블로그 열기 <ExternalLink size={17} />
           </a>
