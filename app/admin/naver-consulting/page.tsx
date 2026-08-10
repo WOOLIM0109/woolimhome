@@ -1,17 +1,9 @@
 import Link from "next/link";
-import { BookOpen, Bot, ExternalLink, Radar } from "lucide-react";
+import { BookOpen, ExternalLink, Radar } from "lucide-react";
 import AdminPortal from "@/components/admin/AdminPortal";
-import StatusBadge from "@/components/admin/StatusBadge";
 import WorkQueue from "@/components/admin/WorkQueue";
 import TwoWeekSchedule from "@/components/admin/TwoWeekSchedule";
 import { CONSULTING_TOPIC_FAMILIES } from "@/lib/content-ops/config";
-
-const PIPELINE = [
-  { title: "ISO 인증을 준비하는 기업이 먼저 확인할 것", type: "정보형", status: "researching" as const, source: "공식기관 자료 확인 중" },
-  { title: "기업부설연구소 설립 전 인적·물적 요건 점검", type: "정보형", status: "topic_candidate" as const, source: "제도 변경 감시 대상" },
-  { title: "좋은 사업계획서는 지원금을 받기 전에 사업을 바로잡는다", type: "울림 콘텐츠형", status: "creating" as const, source: "울림 노하우 결합" },
-  { title: "대표가 컨설팅을 받아도 실행하지 못하는 세 가지 이유", type: "울림 콘텐츠형", status: "topic_candidate" as const, source: "인터뷰 원천자료 필요" },
-];
 
 export default function NaverConsultingAdminPage() {
   return (
@@ -41,28 +33,6 @@ export default function NaverConsultingAdminPage() {
             <p className="mt-2 text-sm text-[var(--muted)]">{note}</p>
           </article>
         ))}
-      </section>
-
-      <section className="mt-10">
-        <div className="mb-4 flex items-center gap-3">
-          <Bot className="text-[var(--primary)]" />
-          <div>
-            <h2 className="text-2xl font-bold">콘텐츠 작업 대기열</h2>
-            <p className="mt-1 text-sm text-[var(--muted)]">수집된 후보는 출처와 중복을 확인한 뒤 초안으로 이동합니다.</p>
-          </div>
-        </div>
-        <div className="space-y-3">
-          {PIPELINE.map((item) => (
-            <article key={item.title} className="card flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <p className="text-xs font-bold text-[var(--primary)]">{item.type}</p>
-                <h3 className="mt-1 font-bold">{item.title}</h3>
-                <p className="mt-1 text-sm text-[var(--muted)]">{item.source}</p>
-              </div>
-              <StatusBadge status={item.status} />
-            </article>
-          ))}
-        </div>
       </section>
 
       <section className="mt-10">

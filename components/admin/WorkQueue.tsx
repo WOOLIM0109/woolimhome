@@ -116,6 +116,7 @@ type WorkItem = {
   };
   content_review_assets?: { id: string; asset_type: "thumbnail" | "body_image" | "article_preview"; public_url: string; sort_order?: number; review_note?: string }[];
   portfolio_jobs?: PortfolioJob[];
+  cover_title_suggestions?: string[];
 };
 
 const mockupModeLabels: Record<PortfolioMockupMode, string> = {
@@ -376,6 +377,8 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
   const [notes, setNotes] = useState<Record<string, string>>({});
   const [manualDrafts, setManualDrafts] = useState<Record<string, { title: string; bodyHtml: string }>>({});
   const [savingEditId, setSavingEditId] = useState("");
+  const [coverDrafts, setCoverDrafts] = useState<Record<string, string>>({});
+  const [savingCoverId, setSavingCoverId] = useState("");
   const [rebuildingId, setRebuildingId] = useState<string | null>(null);
   const [mockupRebuildingId, setMockupRebuildingId] = useState<string | null>(null);
   const [regeneratingId, setRegeneratingId] = useState<string | null>(null);
@@ -491,6 +494,36 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
       return;
     }
     await load();
+  }
+
+  /** 표지 문구를 저장합니다. AI를 부르지 않습니다. */
+  async function saveCoverTitle(item: WorkItem, title: string, fromSuggestion: boolean) {
+    if (!title.trim()) return;
+    setSavingCoverId(item.id);
+    try {
+      const response = await fetch(`/api/admin/content/${item.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "set_cover_title",
+          coverTitle: title.trim(),
+          chosenFromSuggestion: fromSuggestion,
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        setError(data.error || "표지 문구를 저장하지 못했습니다.");
+        return;
+      }
+      setCoverDrafts((current) => {
+        const next = { ...current };
+        delete next[item.id];
+        return next;
+      });
+      await load();
+    } finally {
+      setSavingCoverId("");
+    }
   }
 
   /** 사람이 직접 고쳐 저장합니다. AI를 부르지 않으므로 요금이 들지 않고 바로 반영됩니다. */
@@ -913,6 +946,47 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
                 />
               ) : null}
             </details>
+          )}
+          {/* 표지 문구는 사람이 고르거나 직접 씁니다. 고른 문구는 다음 추천에 반영됩니다. */}
+          {item.format === "portfolio" && item.status !== "published" && (
+            <div className="mt-5 rounded-xl border border-sky-200 bg-sky-50/60 p-4">
+              <p className="text-sm font-bold text-sky-950">표지 문구</p>
+              <p className="mt-1 text-xs text-sky-900">
+                지금 문구: <b>{String((item.metadata?.coverTitle as { title?: string } | undefined)?.title || "아직 정하지 않음 (자동 생성)")}</b>
+              </p>
+              {item.cover_title_suggestions?.length ? (
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {item.cover_title_suggestions.map((suggestion) => (
+                    <button
+                      key={suggestion}
+                      onClick={() => void saveCoverTitle(item, suggestion, true)}
+                      disabled={savingCoverId === item.id}
+                      className="rounded-full border border-sky-300 bg-white px-3.5 py-2 text-sm font-bold text-sky-950 disabled:cursor-wait disabled:opacity-60"
+                    >
+                      {suggestion}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+              <div className="mt-3 flex flex-wrap gap-2">
+                <input
+                  className="input flex-1"
+                  placeholder="직접 쓰기 (2~40자)"
+                  value={coverDrafts[item.id] ?? ""}
+                  onChange={(event) => setCoverDrafts((current) => ({ ...current, [item.id]: event.target.value }))}
+                />
+                <button
+                  onClick={() => void saveCoverTitle(item, coverDrafts[item.id] || "", false)}
+                  disabled={savingCoverId === item.id || !(coverDrafts[item.id] || "").trim()}
+                  className="rounded-xl border border-sky-300 bg-white px-4 py-2 text-sm font-bold text-sky-950 disabled:opacity-50"
+                >
+                  {savingCoverId === item.id ? "저장 중…" : "이 문구로 저장"}
+                </button>
+              </div>
+              <p className="mt-2 text-xs text-sky-900">
+                저장한 뒤 아래 &lsquo;본문 유지·목업 이미지만 재생성&rsquo;을 누르면 표지에 반영됩니다.
+              </p>
+            </div>
           )}
           {reviewMode && (
             <div className="mt-5 border-t border-[var(--line)] pt-5">

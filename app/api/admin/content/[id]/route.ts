@@ -24,6 +24,11 @@ import { geminiRuntimeStatus } from "@/lib/gemini/protection";
 import { GeminiAutomationBlocked, runBudgetedGeminiAutomation } from "@/lib/gemini/automation";
 import { resolveRevisionNote } from "@/lib/content-ops/generated-content";
 import { sanitizeGeneratedHtml } from "@/lib/security/html";
+import {
+  coverTitleRecord,
+  coverTitleSignature,
+  normalizeCoverTitle,
+} from "@/lib/portfolio/cover-title";
 import type { ContentChannel, ContentFormat, EditorialSlot } from "@/lib/content-ops/types";
 import { retryMissingFontCandidates } from "@/lib/pc-worker/font-retry";
 import { geminiRetryDecision } from "@/lib/gemini/client";
@@ -222,6 +227,60 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
       error: "발행 완료는 파트너 발행 완료 등록 화면에서 네이버 게시물 URL을 입력해 처리해 주세요.",
     }, { status: 400 });
   }
+  // 표지 문구를 고르거나 직접 써서 저장합니다. AI를 부르지 않습니다.
+  // 저장된 문구는 다음 목업 생성에 그대로 쓰이고, 같은 성격의 다른 문서 추천에도 반영됩니다.
+  if (body.action === "set_cover_title") {
+    const title = normalizeCoverTitle(body.coverTitle);
+    if (!title) {
+      return NextResponse.json({ error: "표지 문구는 2자 이상 40자 이하로 입력해 주세요." }, { status: 400 });
+    }
+    const { data: current, error: currentError } = await contentAdmin()
+      .from("content_work_items")
+      .select("id,metadata,updated_at")
+      .eq("id", id)
+      .single();
+    if (currentError) return NextResponse.json({ error: currentError.message }, { status: 500 });
+    const metadata = (current.metadata || {}) as Record<string, unknown>;
+    const review = metadata.portfolioReview && typeof metadata.portfolioReview === "object"
+      ? metadata.portfolioReview as Record<string, unknown>
+      : {};
+    const signature = coverTitleSignature({
+      industry: typeof review.industry === "string" ? review.industry : null,
+      documentType: typeof review.documentType === "string" ? review.documentType : null,
+      clientCategory: typeof review.clientCategory === "string" ? review.clientCategory : null,
+    });
+    const savedAt = new Date().toISOString();
+    const { data: saved, error: saveError } = await contentAdmin()
+      .from("content_work_items")
+      .update({
+        metadata: {
+          ...metadata,
+          coverTitle: coverTitleRecord(
+            title,
+            body.chosenFromSuggestion === true ? "selected" : "manual",
+            signature,
+            savedAt,
+          ),
+        },
+        updated_at: savedAt,
+      })
+      .eq("id", id)
+      .eq("updated_at", current.updated_at)
+      .select("id")
+      .maybeSingle();
+    if (saveError) return NextResponse.json({ error: saveError.message }, { status: 500 });
+    if (!saved) {
+      return NextResponse.json({
+        error: "저장하는 동안 다른 변경이 있었습니다. 새로고침 후 다시 시도해 주세요.",
+      }, { status: 409 });
+    }
+    return NextResponse.json({
+      id: saved.id,
+      coverTitle: title,
+      note: "표지 이미지에 반영하려면 '본문 유지·목업 이미지만 재생성'을 눌러 주세요.",
+    });
+  }
+
   // 사람이 직접 고쳐 저장합니다. AI를 부르지 않으므로 요금이 들지 않고 즉시 반영됩니다.
   // 기존 '수정 요청'은 전체 재생성이라 오래 걸리고 결과를 예측할 수 없었습니다.
   if (body.action === "manual_edit") {

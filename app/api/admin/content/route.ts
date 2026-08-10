@@ -1,4 +1,10 @@
 import { NextResponse } from "next/server";
+import {
+  coverTitleSignature,
+  parseCoverTitleHistory,
+  suggestCoverTitles,
+  type CoverTitleRecord,
+} from "@/lib/portfolio/cover-title";
 import { authenticatedAdmin, contentAdmin } from "@/lib/content-ops/data";
 import { sanitizeWorkItemMetadata } from "@/lib/security/html";
 import type { WorkflowStatus } from "@/lib/content-ops/types";
@@ -143,6 +149,31 @@ function sanitizePortfolioJobs(value: unknown) {
   return [...latestByType.values()];
 }
 
+/** 이 문서에 어울리는 표지 문구 후보를 만듭니다. AI를 부르지 않습니다. */
+function portfolioCoverTitleSuggestions(
+  metadata: unknown,
+  history: CoverTitleRecord[],
+) {
+  const value = metadata && typeof metadata === "object" ? metadata as Record<string, unknown> : {};
+  const review = value.portfolioReview && typeof value.portfolioReview === "object"
+    ? value.portfolioReview as Record<string, unknown>
+    : {};
+  const industry = typeof review.industry === "string" ? review.industry : null;
+  const documentType = typeof review.documentType === "string" ? review.documentType : null;
+  const clientCategory = typeof review.clientCategory === "string" ? review.clientCategory : null;
+  return suggestCoverTitles({
+    parts: {
+      clientPrefix: clientCategory === "large_company" ? "대기업"
+        : clientCategory === "public_institution" ? "공공기관" : null,
+      subject: industry,
+      documentType,
+      projectName: typeof review.projectTitle === "string" ? review.projectTitle : null,
+    },
+    pastTitles: history,
+    signature: coverTitleSignature({ industry, documentType, clientCategory }),
+  });
+}
+
 export async function GET(request: Request) {
   const user = await authenticatedAdmin();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -158,6 +189,14 @@ export async function GET(request: Request) {
 
   const { data, error } = await query;
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  // 과거에 관리자가 고르거나 직접 쓴 표지 문구를 모읍니다.
+  // 같은 성격의 문서에서 다시 추천되므로, 고치는 일이 점점 줄어듭니다.
+  const coverTitleHistory = parseCoverTitleHistory(
+    (data || [])
+      .map((row) => (row.metadata as Record<string, unknown> | null)?.coverTitle)
+      .filter(Boolean),
+  ).sort((left, right) => right.savedAt.localeCompare(left.savedAt));
+
   const items = (data || []).map((rawItem) => {
     const item = applyHyundaiManualMockups(
       applyManualTourismMockups(rawItem, url.origin),
@@ -168,7 +207,10 @@ export async function GET(request: Request) {
       ...safeItem,
       metadata: sanitizeWorkItemMetadata(item.metadata),
       ...(item.format === "portfolio"
-        ? { portfolio_jobs: sanitizePortfolioJobs(contentJobs) }
+        ? {
+          portfolio_jobs: sanitizePortfolioJobs(contentJobs),
+          cover_title_suggestions: portfolioCoverTitleSuggestions(item.metadata, coverTitleHistory),
+        }
         : {}),
     };
   });

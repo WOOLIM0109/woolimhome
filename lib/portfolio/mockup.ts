@@ -30,6 +30,7 @@ import {
   automaticDesignEligibleSlideIndexes,
   type LocalRedactionManifest,
 } from "../pc-worker/redaction-manifest";
+import { normalizeCoverTitle, suggestCoverTitles } from "./cover-title";
 
 type SharpOverlayOptions = Parameters<ReturnType<typeof sharp>["composite"]>[0][number];
 
@@ -305,7 +306,18 @@ function inferredClientCategory(review: Pick<PortfolioVisualReview, "clientCateg
   return "general_company";
 }
 
-export function privacySafeThumbnailTitle(review: PortfolioVisualReview) {
+/**
+ * 표지 문구를 만듭니다.
+ *
+ * 관리자가 골라 둔 문구가 있으면 그것을 그대로 씁니다.
+ * 없을 때만 아래 규칙으로 만들며, 같은 낱말이 반복되면 후보 생성기가 걸러냅니다.
+ */
+export function privacySafeThumbnailTitle(
+  review: PortfolioVisualReview,
+  chosenTitle?: string | null,
+) {
+  const chosen = normalizeCoverTitle(chosenTitle);
+  if (chosen) return chosen;
   const context = `${review.industry || ""} ${review.documentType || ""}`.toLowerCase();
   const category = inferredClientCategory(review);
   const prefix = category === "large_company"
@@ -345,7 +357,11 @@ export function privacySafeThumbnailTitle(review: PortfolioVisualReview) {
               : /ir/.test(context)
                 ? "IR 자료"
                 : "비즈니스 문서";
-  return [prefix, subject, documentType, "디자인"].filter(Boolean).join(" ");
+  // 규칙으로 만든 문구가 "비즈니스 비즈니스 문서"처럼 겹치면 후보 생성기가 고른 값을 씁니다.
+  return suggestCoverTitles({
+    base: [prefix, subject, documentType, "디자인"].filter(Boolean).join(" "),
+    parts: { clientPrefix: prefix, subject, documentType, projectName: review.projectTitle },
+  })[0];
 }
 
 function thumbnailTitleLines(value: string) {
@@ -563,6 +579,8 @@ export async function createPortfolioMockups(input: {
   slidePaths: string[];
   review: PortfolioVisualReview;
   localRedactionManifest: LocalRedactionManifest;
+  /** 관리자가 골라 둔 표지 문구. 있으면 그대로 씁니다. */
+  coverTitle?: string | null;
   onRedactionProof?: (proof: PortfolioSlideRedactionProof[]) => Promise<void> | void;
 }) {
   console.info(`[portfolio-mockup] starting candidate=${input.candidateId} slides=${input.slidePaths.length}`);
@@ -674,7 +692,7 @@ export async function createPortfolioMockups(input: {
       name: "thumbnail.jpg",
       bytes: await thumbnail(
         thumbnailSlide,
-        privacySafeThumbnailTitle(input.review),
+        privacySafeThumbnailTitle(input.review, input.coverTitle),
       ),
       caption: "문서의 여러 구간을 한 화면에 보여주는 포트폴리오 대표 이미지",
       slideIndexes: [thumbnailSlide.index],

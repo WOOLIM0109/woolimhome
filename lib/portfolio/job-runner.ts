@@ -978,11 +978,18 @@ export async function processNextPortfolioMockup(candidateId?: string) {
       let slideProof = Array.isArray(result.redactionSlideProofProgress)
         ? result.redactionSlideProofProgress.filter(isPortfolioSlideRedactionProof)
         : [];
+      // 관리자가 골라 둔 표지 문구가 있으면 그대로 씁니다.
+      const { data: coverWorkItem } = await admin.from("content_work_items")
+        .select("metadata").eq("id", job.work_item_id).maybeSingle();
+      const chosenCoverTitle = storedCoverTitle(
+        (coverWorkItem?.metadata || {}) as Record<string, unknown>,
+      );
       assets = await createPortfolioMockups({
         candidateId: job.candidate_id,
         bucket,
         slidePaths,
         review,
+        coverTitle: chosenCoverTitle,
         localRedactionManifest: localManifest,
         onRedactionProof: async (proof) => {
           slideProof = proof;
@@ -3007,6 +3014,14 @@ function manualMockupApprovedAt(metadata: Record<string, unknown>): string | nul
  *
  * 이 값을 비워서 넘기면 원본이 그대로여도 전체 이미지가 다시 만들어집니다.
  */
+/** 관리자가 저장해 둔 표지 문구를 꺼냅니다. */
+function storedCoverTitle(metadata: Record<string, unknown>): string | null {
+  const value = metadata.coverTitle;
+  if (!value || typeof value !== "object") return null;
+  const title = (value as Record<string, unknown>).title;
+  return typeof title === "string" && title.trim() ? title.trim() : null;
+}
+
 const PORTFOLIO_MOCKUP_CHECKPOINT_FIELDS = [
   "sourceFingerprint",
   "visualReview",
