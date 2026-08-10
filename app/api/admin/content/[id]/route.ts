@@ -5,7 +5,8 @@ import {
   validatePortfolioSourceState,
 } from "@/lib/content-ops/portfolio-rules";
 import type { WorkflowStatus } from "@/lib/content-ops/types";
-import { parseStoredAssetUrl } from "@/lib/partner-portal";
+import { isPartnerChannel, parseStoredAssetUrl } from "@/lib/partner-portal";
+import { validateNaverPublication } from "@/lib/publication";
 import {
   PortfolioConversionRetryConflict,
   PortfolioDraftRecoveryUnavailable,
@@ -227,6 +228,85 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
       error: "발행 완료는 파트너 발행 완료 등록 화면에서 네이버 게시물 URL을 입력해 처리해 주세요.",
     }, { status: 400 });
   }
+  // 관리자가 발행 완료를 직접 등록합니다.
+  // 지금까지는 외주 작업실에서만 가능해, 작가가 등록하지 못하면 승인 완료에 머물렀습니다.
+  // 검증과 중복 확인은 외주 화면과 똑같이 거칩니다.
+  if (body.action === "mark_published") {
+    const { data: current, error: currentError } = await contentAdmin()
+      .from("content_work_items")
+      .select("id,channel,status,metadata,updated_at")
+      .eq("id", id)
+      .single();
+    if (currentError) return NextResponse.json({ error: currentError.message }, { status: 500 });
+    if (!isPartnerChannel(current.channel)) {
+      return NextResponse.json({
+        error: "네이버 블로그 채널만 발행 완료로 등록할 수 있습니다.",
+      }, { status: 400 });
+    }
+    if (current.status === "published") {
+      return NextResponse.json({ error: "이미 발행 완료로 등록된 작업입니다." }, { status: 409 });
+    }
+    const validation = validateNaverPublication({
+      channel: current.channel,
+      publishedUrl: body.publishedUrl,
+    });
+    if (!validation.ok) {
+      return NextResponse.json({ error: validation.message }, { status: 400 });
+    }
+    const { data: conflict } = await contentAdmin()
+      .from("content_work_items")
+      .select("id,title,status")
+      .eq("published_url_normalized", validation.publication.normalizedUrl)
+      .neq("id", id)
+      .maybeSingle();
+    if (conflict) {
+      return NextResponse.json({
+        error: `이 주소는 이미 다른 작업(${conflict.title})에 등록되어 있습니다.`,
+        code: "PUBLISHED_URL_CONFLICT",
+        details: { conflictItemId: conflict.id, conflictStatus: conflict.status },
+      }, { status: 409 });
+    }
+    const completedAt = new Date().toISOString();
+    const metadata = (current.metadata || {}) as Record<string, unknown>;
+    const { data: saved, error: saveError } = await contentAdmin()
+      .from("content_work_items")
+      .update({
+        status: "published",
+        published_at: completedAt,
+        published_url: validation.publication.normalizedUrl,
+        published_url_normalized: validation.publication.normalizedUrl,
+        published_account: validation.publication.account,
+        metadata: {
+          ...metadata,
+          partnerHandoff: {
+            publishedUrl: validation.publication.normalizedUrl,
+            publishedAccount: validation.publication.account,
+            completedAt,
+            completedBy: user.email,
+            registeredFrom: "admin",
+          },
+        },
+        updated_at: completedAt,
+      })
+      .eq("id", id)
+      .eq("updated_at", current.updated_at)
+      .select("id,status,published_at")
+      .maybeSingle();
+    if (saveError?.code === "23505") {
+      return NextResponse.json({
+        error: "이 주소는 이미 다른 작업에 등록되어 있습니다.",
+        code: "PUBLISHED_URL_CONFLICT",
+      }, { status: 409 });
+    }
+    if (saveError) return NextResponse.json({ error: saveError.message }, { status: 500 });
+    if (!saved) {
+      return NextResponse.json({
+        error: "등록하는 동안 다른 변경이 있었습니다. 새로고침 후 다시 시도해 주세요.",
+      }, { status: 409 });
+    }
+    return NextResponse.json(saved);
+  }
+
   // 표지 문구를 고르거나 직접 써서 저장합니다. AI를 부르지 않습니다.
   // 저장된 문구는 다음 목업 생성에 그대로 쓰이고, 같은 성격의 다른 문서 추천에도 반영됩니다.
   if (body.action === "set_cover_title") {

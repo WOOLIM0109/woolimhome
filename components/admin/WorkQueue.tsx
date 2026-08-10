@@ -384,6 +384,8 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
   const [coverDrafts, setCoverDrafts] = useState<Record<string, string>>({});
   const [savingCoverId, setSavingCoverId] = useState("");
   const [uploadingImagesId, setUploadingImagesId] = useState("");
+  const [publishUrls, setPublishUrls] = useState<Record<string, string>>({});
+  const [publishingId, setPublishingId] = useState("");
   const [rebuildingId, setRebuildingId] = useState<string | null>(null);
   const [mockupRebuildingId, setMockupRebuildingId] = useState<string | null>(null);
   const [regeneratingId, setRegeneratingId] = useState<string | null>(null);
@@ -539,6 +541,40 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
       await load();
     } finally {
       setUploadingImagesId("");
+    }
+  }
+
+  /**
+   * 발행 완료를 관리자가 직접 등록합니다.
+   * 외주 작업실에서만 가능하던 절차라, 작가가 등록하지 못하면 승인 완료에 머물렀습니다.
+   * 검증과 중복 확인은 외주 화면과 동일하게 거칩니다.
+   */
+  async function markPublished(item: WorkItem) {
+    const url = (publishUrls[item.id] || "").trim();
+    if (!url) {
+      setError("발행한 네이버 블로그 글 주소를 입력해 주세요.");
+      return;
+    }
+    setPublishingId(item.id);
+    try {
+      const response = await fetch(`/api/admin/content/${item.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "mark_published", publishedUrl: url }),
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        setError(data.error || "발행 완료로 등록하지 못했습니다.");
+        return;
+      }
+      setPublishUrls((current) => {
+        const next = { ...current };
+        delete next[item.id];
+        return next;
+      });
+      await load();
+    } finally {
+      setPublishingId("");
     }
   }
 
@@ -992,6 +1028,32 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
                 />
               ) : null}
             </details>
+          )}
+          {/* 작가가 등록하지 못한 경우를 대비해 관리자도 발행 완료를 등록할 수 있게 합니다. */}
+          {!reviewMode
+            && (item.channel === "naver_consulting" || item.channel === "naver_design")
+            && (item.status === "approved" || item.status === "naver_ready" || item.status === "scheduled") && (
+            <div className="mt-5 rounded-xl border border-teal-200 bg-teal-50/60 p-4">
+              <p className="text-sm font-bold text-teal-950">발행 완료 등록</p>
+              <p className="mt-1 text-xs text-teal-900">
+                네이버에 이미 올린 글이라면 그 주소를 넣어 발행 완료로 옮깁니다. 외주 작업실에서 등록하지 못했을 때 쓰세요.
+              </p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <input
+                  className="input flex-1"
+                  placeholder="https://blog.naver.com/계정/게시글번호"
+                  value={publishUrls[item.id] ?? ""}
+                  onChange={(event) => setPublishUrls((current) => ({ ...current, [item.id]: event.target.value }))}
+                />
+                <button
+                  onClick={() => void markPublished(item)}
+                  disabled={publishingId === item.id || !(publishUrls[item.id] || "").trim()}
+                  className="rounded-xl border border-teal-300 bg-white px-4 py-2 text-sm font-bold text-teal-950 disabled:opacity-50"
+                >
+                  {publishingId === item.id ? "등록 중…" : "발행 완료로 등록"}
+                </button>
+              </div>
+            </div>
           )}
           {/* 만들어진 이미지가 마음에 들지 않으면 직접 만든 이미지로 바꿉니다. */}
           {item.format === "portfolio" && item.status !== "published" && (
