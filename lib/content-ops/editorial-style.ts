@@ -26,6 +26,13 @@ export function stripFaqPrefix(value: string) {
   return source.replace(FAQ_PREFIX, "").trim();
 }
 
+export function stripFaqDisplayFormatting(value: string) {
+  return stripFaqPrefix(value)
+    .replace(/&amp;/gi, "&")
+    .replace(/(?:\s*<br\s*\/?\s*>\s*)+/gi, " ")
+    .trim();
+}
+
 function escapeHtml(value: string) {
   return value
     .replaceAll("&", "&amp;")
