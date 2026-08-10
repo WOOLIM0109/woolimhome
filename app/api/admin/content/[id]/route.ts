@@ -223,6 +223,10 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
   }
   let expectedUpdatedAt: string | null = null;
   let approvedMetadata: Record<string, unknown> | null = null;
+  // 승인 직전 상태와 metadata 를 기억해 둡니다.
+  // 보류였던 작업을 바로 승인할 때 예전 보류 기록을 정리하는 데 씁니다.
+  let statusBeforeChange: string | null = null;
+  let metadataBeforeChange: Record<string, unknown> | null = null;
   if (body.status === "published") {
     return NextResponse.json({
       error: "발행 완료는 파트너 발행 완료 등록 화면에서 네이버 게시물 URL을 입력해 처리해 주세요.",
@@ -715,11 +719,13 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     const admin = contentAdmin();
     const { data: current, error: currentError } = await admin
       .from("content_work_items")
-      .select("format,title,metadata,updated_at")
+      .select("format,title,status,metadata,updated_at")
       .eq("id", id)
       .single();
     if (currentError) return NextResponse.json({ error: currentError.message }, { status: 500 });
     expectedUpdatedAt = current.updated_at;
+    statusBeforeChange = typeof current.status === "string" ? current.status : null;
+    metadataBeforeChange = (current.metadata || null) as Record<string, unknown> | null;
     if (current.format === "portfolio") {
       approvedMetadata = tourismManualApprovalMetadata(
         id,
@@ -795,10 +801,10 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
   if (approvedMetadata) patch.metadata = approvedMetadata;
   // 보류였던 작업을 바로 승인하면 예전 보류 사유와 복원 표시를 함께 정리합니다.
   // 남겨 두면 목업을 다시 만들 때 보류 상태가 되살아납니다.
-  if (body.status === "approved" && current.status === "on_hold") {
+  if (body.status === "approved" && statusBeforeChange === "on_hold") {
     patch.review_note = null;
     const baseMetadata = (patch.metadata as Record<string, unknown> | undefined)
-      || (current.metadata as Record<string, unknown> | null)
+      || metadataBeforeChange
       || {};
     patch.metadata = { ...baseMetadata, mockupOnlyRestoreState: null };
   }
