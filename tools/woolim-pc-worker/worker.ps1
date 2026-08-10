@@ -6,7 +6,7 @@
 )
 
 $ErrorActionPreference = "Stop"
-$WorkerVersion = "2.5.4"
+$WorkerVersion = "2.6.0"
 
 function Get-WorkerSetting {
   param(
@@ -35,6 +35,22 @@ $WorkerSecret = Get-WorkerSetting -Name "WOOLIM_PC_WORKER_SECRET"
 $WorkerId = Get-WorkerSetting -Name "WOOLIM_WORKER_ID" -DefaultValue "becky-office-pc"
 $WorkerName = Get-WorkerSetting -Name "WOOLIM_WORKER_NAME" -DefaultValue "울림 집 PC (기존)"
 $ConfiguredPdfRenderer = Get-WorkerSetting -Name "WOOLIM_PDFTOPPM_PATH"
+
+# '작은 글씨'로 볼 최대 글자 크기 (pt).
+#
+# 예전 기준은 18pt 였습니다. 한국어 제안서 본문은 대부분 11~16pt 라서
+# 본문 전체가 작은 글씨로 분류됐고, 장표 하나에서 가림 영역이 수십 개씩 나왔습니다.
+# 각주와 출처 표기만 잡도록 11pt 로 낮춥니다.
+# 환경변수 WOOLIM_SMALL_TEXT_MAX_PT 로 조정할 수 있습니다.
+$SmallTextMaxPt = 11.0
+$ConfiguredSmallTextMaxPt = Get-WorkerSetting -Name "WOOLIM_SMALL_TEXT_MAX_PT"
+if ($ConfiguredSmallTextMaxPt) {
+  $parsedSmallTextMaxPt = 0.0
+  if ([double]::TryParse($ConfiguredSmallTextMaxPt, [ref]$parsedSmallTextMaxPt) `
+    -and $parsedSmallTextMaxPt -gt 0 -and $parsedSmallTextMaxPt -le 72) {
+    $SmallTextMaxPt = $parsedSmallTextMaxPt
+  }
+}
 $WorkerRoot = Join-Path $env:LOCALAPPDATA "WoolimWorker"
 $JobsRoot = Join-Path $WorkerRoot "jobs"
 $LogPath = Join-Path $WorkerRoot "worker.log"
@@ -787,7 +803,7 @@ function Get-ShapeTextClassification {
     $isTitlePlaceholder = $placeholderType -in @(1, 3, 5)
     $largeEnough = ($isTitlePlaceholder -and $fontSize -ge 22.0) -or $fontSize -ge 24.0
     if ($largeEnough) { return "public_large_title" }
-    if ($fontSize -gt 0 -and $fontSize -lt 18.0) { return "small_text" }
+    if ($fontSize -gt 0 -and $fontSize -lt $SmallTextMaxPt) { return "small_text" }
     return "body_text"
   } catch {
     # A text run that cannot be classified must not be reduced to a guessed
@@ -871,7 +887,7 @@ function Get-ShapeTextRedactionRegions {
           "client_identifier"
         } elseif ($isFooter) {
           "footer"
-        } elseif ($fontSize -gt 0 -and $fontSize -lt 18.0) {
+        } elseif ($fontSize -gt 0 -and $fontSize -lt $SmallTextMaxPt) {
           "small_text"
         } else {
           "body_text"

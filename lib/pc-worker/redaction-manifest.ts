@@ -39,38 +39,44 @@ export type LocalRedactionRegionType = keyof typeof REGION_LABELS;
 /**
  * 실제로 가릴 영역 종류.
  *
- * 지금까지는 워커가 보낸 모든 영역을 예외 없이 가렸습니다.
- * 본문 글자와 표까지 전부 대상이라 장표가 통째로 뭉개져 보였습니다.
- *
- * 기본 정책은 다음만 가립니다.
+ * 담당자가 정한 정책입니다.
  *   · 고객사 상호명과 프로젝트명
- *   · 개인정보 (이름·연락처·주소·사업자등록번호 등은 워커가 식별자로 분류합니다)
- *   · 작은 글씨 (18pt 미만. 세부 수치와 주석이 몰려 있습니다)
+ *   · 개인정보 (이름·연락처·주소·사업자등록번호는 워커가 식별자로 분류합니다)
+ *   · 아주 작은 글씨 (각주와 출처 표기)
  *   · 로고와 바닥글
- *   · 사진과 화면 캡처 (사람 얼굴이나 내부 화면이 그대로 남을 수 있습니다)
  *
- * 남기는 것: 본문 글자, 표 내용, 차트 라벨, 큰 제목.
- * 환경변수 PORTFOLIO_REDACTED_REGION_TYPES 로 조정할 수 있습니다.
+ * 남기는 것: 본문 문장, 소제목, 표 내용, 차트 라벨, 다이어그램, 사진, 화면 캡처.
+ *
+ * 환경변수 PORTFOLIO_REDACTED_REGION_TYPES 로 언제든 조정할 수 있습니다.
+ * 예전처럼 전부 가리려면 아래 값을 넣으면 됩니다.
+ *   body_text,small_text,table_content,chart_label,embedded_photo,screenshot,logo,footer,client_identifier,project_identifier
  */
-/**
- * 권장 정책. 환경변수에 이 값을 넣으면 적용됩니다.
- *
- *   PORTFOLIO_REDACTED_REGION_TYPES=client_identifier,project_identifier,small_text,logo,footer,embedded_photo,screenshot
- *
- * 기본값은 지금까지와 같이 모든 영역을 가립니다.
- * 가리는 범위를 줄이는 것은 고객사 기밀이 걸린 결정이라,
- * 담당자가 실제 결과를 확인한 뒤 직접 켜도록 두었습니다.
- * 마음에 들지 않으면 환경변수만 지우면 즉시 원래대로 돌아갑니다.
- */
-export const RECOMMENDED_REDACTED_REGION_TYPES: LocalRedactionRegionType[] = [
+export const DEFAULT_REDACTED_REGION_TYPES: LocalRedactionRegionType[] = [
   "client_identifier",
   "project_identifier",
   "small_text",
   "logo",
   "footer",
-  "embedded_photo",
-  "screenshot",
 ];
+
+/** 이전 이름. 외부에서 참조하던 곳을 위해 남겨 둡니다. */
+export const RECOMMENDED_REDACTED_REGION_TYPES = DEFAULT_REDACTED_REGION_TYPES;
+
+/**
+ * '작은 글씨'로 볼 최대 높이 (장표 높이 대비 비율).
+ *
+ * 워커는 오랫동안 18pt 미만을 전부 작은 글씨로 분류했습니다.
+ * 한국어 제안서 본문은 대부분 11~16pt라, 본문 전체가 작은 글씨로 잡혔습니다.
+ * 장표 하나에서 가림 영역이 수십 개씩 나오던 이유가 이것입니다.
+ *
+ * 워커는 이제 11pt를 기준으로 삼지만, 이미 만들어 둔 기록에는
+ * 옛 기준으로 붙은 이름이 그대로 남아 있습니다.
+ * 그래서 높이로 한 번 더 걸러, 다시 변환하지 않아도 같은 결과가 나오게 합니다.
+ *
+ * 11pt 한 줄은 장표 높이의 약 2.4%입니다. 여유를 둬 2.8%로 잡았습니다.
+ * 환경변수 PORTFOLIO_SMALL_TEXT_MAX_HEIGHT 로 조정할 수 있습니다.
+ */
+export const DEFAULT_SMALL_TEXT_MAX_HEIGHT = 0.028;
 
 const ALL_REGION_TYPES = Object.keys(REGION_LABELS) as LocalRedactionRegionType[];
 
@@ -79,14 +85,34 @@ export function redactedRegionTypes(): Set<LocalRedactionRegionType> {
     .split(",")
     .map((value) => value.trim())
     .filter((value): value is LocalRedactionRegionType => value in REGION_LABELS);
-  return new Set(configured.length ? configured : ALL_REGION_TYPES);
+  if (configured.length) return new Set(configured);
+  return new Set(DEFAULT_REDACTED_REGION_TYPES);
+}
+
+export function smallTextMaxHeight() {
+  const raw = Number(process.env.PORTFOLIO_SMALL_TEXT_MAX_HEIGHT);
+  // 1 을 넣으면 높이 검사를 끄는 것과 같습니다.
+  if (Number.isFinite(raw) && raw > 0 && raw <= 1) return raw;
+  return DEFAULT_SMALL_TEXT_MAX_HEIGHT;
 }
 
 /** 이 장표에서 실제로 가릴 영역만 골라냅니다. 렌더링과 검증이 같은 값을 쓰게 합니다. */
-export function redactableRegions<T extends { type: LocalRedactionRegionType }>(regions: T[]) {
+export function redactableRegions<T extends { type: LocalRedactionRegionType; height?: number }>(
+  regions: T[],
+) {
   const allowed = redactedRegionTypes();
-  return regions.filter((region) => allowed.has(region.type));
+  const maxHeight = smallTextMaxHeight();
+  return regions.filter((region) => {
+    if (!allowed.has(region.type)) return false;
+    // 작은 글씨로 기록됐어도 실제 높이가 본문 크기면 남깁니다.
+    if (region.type === "small_text" && typeof region.height === "number") {
+      return region.height <= maxHeight;
+    }
+    return true;
+  });
 }
+
+export { ALL_REGION_TYPES };
 
 export type LocalRedactionRegion = {
   slideIndex: number;
