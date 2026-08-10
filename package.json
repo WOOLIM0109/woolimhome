@@ -9,7 +9,8 @@
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
     "test": "node --test \"lib/**/*.test.mjs\"",
-    "verify": "npm run typecheck && npm run lint && npm test"
+    "verify": "npm run typecheck && npm run lint && npm test",
+    "doctor": "node scripts/doctor.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.8.0",
