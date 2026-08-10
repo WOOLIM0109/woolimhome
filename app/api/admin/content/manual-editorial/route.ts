@@ -54,7 +54,7 @@ function attribute(tag: string, name: string) {
   return match?.[2] || "";
 }
 
-function structuralSignature(value: string) {
+function structuralParts(value: string) {
   const headings = [...value.matchAll(/<h([23])\b[^>]*>([\s\S]*?)<\/h\1>/gi)]
     .map((match) => `${match[1]}:${plainText(match[2])}`);
   const images = [...value.matchAll(/<img\b[^>]*>/gi)]
@@ -63,7 +63,26 @@ function structuralSignature(value: string) {
     .map((match) => plainText(match[1]));
   const links = [...value.matchAll(/<a\b[^>]*>([\s\S]*?)<\/a>/gi)]
     .map((match) => `${attribute(match[0], "href")}|${plainText(match[1])}`);
-  return JSON.stringify({ headings, images, captions, links });
+  return { headings, images, captions, links };
+}
+
+function structuralMismatch(original: string, revised: string) {
+  const expected = structuralParts(original);
+  const received = structuralParts(revised);
+  for (const key of ["headings", "images", "captions", "links"] as const) {
+    const count = Math.max(expected[key].length, received[key].length);
+    for (let index = 0; index < count; index += 1) {
+      if (expected[key][index] !== received[key][index]) {
+        return {
+          key,
+          index,
+          expected: expected[key][index] || "(없음)",
+          received: received[key][index] || "(없음)",
+        };
+      }
+    }
+  }
+  return null;
 }
 
 function removeDisplayBreaks(value: string) {
@@ -113,8 +132,13 @@ async function applyRevision(raw: ManualRevision, approvedBy: string) {
   }
 
   const bodyHtml = removeDisplayBreaks(sanitizeGeneratedHtml(raw.bodyHtml)).trim();
-  if (structuralSignature(bodyHtml) !== structuralSignature(original.bodyHtml)) {
-    throw new Error(`${raw.title}: 제목 구조, 이미지, 캡션 또는 링크가 원문과 달라졌습니다.`);
+  const mismatch = structuralMismatch(original.bodyHtml, bodyHtml);
+  if (mismatch) {
+    throw new Error(
+      `${raw.title}: 제목 구조, 이미지, 캡션 또는 링크가 원문과 달라졌습니다. `
+      + `${mismatch.key}[${mismatch.index}] 원문=${JSON.stringify(mismatch.expected)} `
+      + `수정=${JSON.stringify(mismatch.received)}`,
+    );
   }
   const originalFacts = [
     item.summary || original.summary || "",
