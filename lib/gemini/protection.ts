@@ -88,13 +88,19 @@ export function geminiRuntimeStatus() {
   if (!process.env.GEMINI_API_KEY) {
     return { enabled: false, reason: "GEMINI_API_KEY가 설정되지 않았습니다." };
   }
+  // 고객사·담당자 이름 목록(PII_REDACTION_TERMS)은 있으면 좋지만 필수는 아닙니다.
+  // 전화번호·이메일·주민번호 같은 일반 개인정보는 이 목록과 무관하게 항상 가려지고,
+  // 대외비 표기가 남아 있는 원고는 normalizeGeminiReviewItems 가 따로 막습니다.
+  // 목록을 필수로 두면 이름을 정하기 전까지 자동화 전체가 멈추므로 경고로만 알립니다.
+  // GEMINI_REQUIRE_PII_TERMS=true 로 두면 예전처럼 필수로 되돌릴 수 있습니다.
   if (configuredPrivacyTerms().length === 0) {
-    return {
-      enabled: false,
-      reason: "PII_REDACTION_TERMS에 고객사·담당자·프로젝트 식별어를 먼저 등록해야 합니다.",
-    };
+    const warning = "PII_REDACTION_TERMS가 비어 있습니다. 고객사·담당자·프로젝트 이름을 등록하면 해당 단어가 전송 전에 가려집니다.";
+    if (process.env.GEMINI_REQUIRE_PII_TERMS === "true") {
+      return { enabled: false, reason: warning, warning };
+    }
+    return { enabled: true, reason: null, warning };
   }
-  return { enabled: true, reason: null };
+  return { enabled: true, reason: null, warning: null };
 }
 
 const REVIEW_LIMITS = {
