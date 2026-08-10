@@ -45,6 +45,8 @@ type PortfolioJob = {
 
 type WorkItem = {
   id: string;
+  /** 어느 채널의 작업인지. 발행 완료 등록 화면을 네이버 채널에만 보여 주는 데 씁니다. */
+  channel: string;
   title: string;
   summary: string;
   format: string;
