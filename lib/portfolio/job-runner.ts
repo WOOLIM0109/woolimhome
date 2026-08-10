@@ -2916,7 +2916,12 @@ async function rebuildPortfolioMockupsOnlyClaimed(workItemId: string) {
     || !localManifest
     || !hasEnoughAutomaticDesignSlides(localManifest)
   ))) {
-    return retryPortfolioConversion(workItemId, { preserveDraft: true });
+    // 원본을 다시 변환해야 하는 경우입니다. PC 워커가 받아 처리합니다.
+    // 화면에서 이 사실을 알려 주지 않으면 눌러도 아무 일이 없는 것처럼 보입니다.
+    return {
+      ...await retryPortfolioConversion(workItemId, { preserveDraft: true }),
+      conversionRequeued: true,
+    };
   }
   if (conversionState !== "ready" || !localManifest) {
     throw new Error("변환과 기밀 검수가 끝난 최신 PPT 원본이 없어 목업 이미지만 다시 만들 수 없습니다.");

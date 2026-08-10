@@ -386,6 +386,8 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
   const [items, setItems] = useState<WorkItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  // 눌렀을 때 무슨 일이 일어났는지 알려 주는 안내 문구입니다.
+  const [notice, setNotice] = useState("");
   const [notes, setNotes] = useState<Record<string, string>>({});
   const [manualDrafts, setManualDrafts] = useState<Record<string, { title: string; bodyHtml: string }>>({});
   const [savingEditId, setSavingEditId] = useState("");
@@ -673,6 +675,7 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
   async function rebuildMockupsOnly(item: WorkItem) {
     setMockupRebuildingId(item.id);
     setError("");
+    setNotice("");
     try {
       const response = await fetch(`/api/admin/content/${item.id}`, {
         method: "PATCH",
@@ -684,6 +687,16 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
         setError(data.error || "본문은 유지하고 목업 이미지만 다시 만들지 못했습니다.");
         return;
       }
+      // 눌러도 아무 일이 없는 것처럼 보이던 경우들을 문장으로 알려 줍니다.
+      setNotice(
+        data.conversionRequeued
+          ? "원본 PPT를 다시 변환해야 해서 PC 워커에 작업을 넘겼습니다. 변환이 끝나면 이미지가 새로 만들어집니다."
+          : data.conversionActive
+            ? "원본 변환이 아직 진행 중입니다. 끝난 뒤에 다시 눌러 주세요."
+            : data.alreadyRunning
+              ? "이미 이미지를 다시 만드는 중입니다. 잠시 뒤 새로고침해 주세요."
+              : "목업 이미지를 새 가림 규칙으로 다시 만들었습니다.",
+      );
       await load();
     } finally {
       setMockupRebuildingId(null);
@@ -853,6 +866,11 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
       {error && (
         <p className="rounded-xl bg-red-50 p-4 text-sm font-bold text-red-700" role="alert">
           {error}
+        </p>
+      )}
+      {notice && (
+        <p className="rounded-xl bg-emerald-50 p-4 text-sm font-bold text-emerald-900" role="status">
+          {notice}
         </p>
       )}
       {items.map((item) => (
