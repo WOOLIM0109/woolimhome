@@ -29,9 +29,20 @@ import { createClient } from "@supabase/supabase-js";
  */
 function readTextFile(path) {
   const buffer = readFileSync(path);
-  if (buffer[0] === 0xFF && buffer[1] === 0xFE) return buffer.toString("utf16le").replace(/^\uFEFF/, "");
-  if (buffer[0] === 0xFE && buffer[1] === 0xFF) return buffer.swap16().toString("utf16le").replace(/^\uFEFF/, "");
-  return buffer.toString("utf8").replace(/^\uFEFF/, "");
+  if (buffer[0] === 0xFF && buffer[1] === 0xFE) return cleanText(buffer.toString("utf16le"));
+  if (buffer[0] === 0xFE && buffer[1] === 0xFF) return cleanText(buffer.swap16().toString("utf16le"));
+  // 앞머리 표시가 없는 UTF-16 파일도 있습니다.
+  // 글자 사이에 빈 바이트가 끼어 있으면 UTF-16 으로 봅니다.
+  const head = buffer.subarray(0, Math.min(buffer.length, 512));
+  let zeros = 0;
+  for (const byte of head) if (byte === 0) zeros += 1;
+  if (head.length > 8 && zeros > head.length * 0.2) return cleanText(buffer.toString("utf16le"));
+  return cleanText(buffer.toString("utf8"));
+}
+
+/** 앞머리 표시와 남은 빈 문자를 제거합니다. 남아 있으면 키 이름이 어긋납니다. */
+function cleanText(text) {
+  return text.replace(/^\uFEFF/, "").replace(/\u0000/g, "");
 }
 
 const envFilesFound = [];
@@ -51,6 +62,9 @@ for (const file of [".env.local", ".env.production.local", ".env"]) {
   envFilesFound.push(`${file} (${loaded}개)`);
 }
 
+/** 진단용. 이름만 모으며 값은 담지 않습니다. */
+const loadedKeyNames = Object.keys(process.env).filter((name) => /^(NEXT_PUBLIC_|SUPABASE_|GEMINI_)/.test(name));
+
 const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
 if (!url || !key) {
@@ -60,7 +74,8 @@ if (!url || !key) {
     ? `읽은 파일: ${envFilesFound.join(", ")}`
     : "읽은 파일: 없음 (이 폴더에 .env 파일이 하나도 없습니다)");
   console.error(`  NEXT_PUBLIC_SUPABASE_URL: ${url ? "있음" : "없음"}`);
-  console.error(`  SUPABASE_SERVICE_ROLE_KEY: ${key ? "있음" : "없음"}\n`);
+  console.error(`  SUPABASE_SERVICE_ROLE_KEY: ${key ? "있음" : "없음"}`);
+  console.error(`  읽어낸 관련 키 이름: ${loadedKeyNames.length ? loadedKeyNames.join(", ") : "없음"}\n`);
   console.error("파일은 있는데 0개로 나오면 인코딩 문제입니다. 아래 명령으로 다시 내려받으세요.\n");
   console.error("  vercel.cmd env pull .env.local        (윈도우)");
   console.error("  vercel env pull .env.local            (맥·리눅스)\n");
