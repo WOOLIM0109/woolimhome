@@ -374,6 +374,8 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [notes, setNotes] = useState<Record<string, string>>({});
+  const [manualDrafts, setManualDrafts] = useState<Record<string, { title: string; bodyHtml: string }>>({});
+  const [savingEditId, setSavingEditId] = useState("");
   const [rebuildingId, setRebuildingId] = useState<string | null>(null);
   const [mockupRebuildingId, setMockupRebuildingId] = useState<string | null>(null);
   const [regeneratingId, setRegeneratingId] = useState<string | null>(null);
@@ -468,15 +470,54 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
     await update(item.id, { action: "replace_topic" });
   }
 
-  async function remove(item: WorkItem) {
-    if (!window.confirm(`"${item.title}" 작업을 삭제할까요?\n연결된 자동화 작업과 검토 이미지도 함께 정리됩니다.`)) return;
-    const response = await fetch(`/api/admin/content/${item.id}`, { method: "DELETE" });
+  async function remove(item: WorkItem, confirmPublished = false) {
+    if (!confirmPublished
+      && !window.confirm(`"${item.title}" 작업을 삭제할까요?\n연결된 자동화 작업과 검토 이미지도 함께 정리됩니다.`)) return;
+    const response = await fetch(
+      `/api/admin/content/${item.id}${confirmPublished ? "?confirmPublished=1" : ""}`,
+      { method: "DELETE" },
+    );
     if (!response.ok) {
       const data = await response.json();
+      // 발행 완료 항목은 한 번 더 확인한 뒤에만 지웁니다.
+      // 같은 글이 두 번 등록되어 외주 작업실에서 발행 주소를 저장하지 못하는 경우에 필요합니다.
+      if (data.requiresConfirmation === "confirmPublished") {
+        if (window.confirm(`"${item.title}" 은 발행 완료 상태입니다.\n중복 등록을 정리하려는 것이 맞다면 삭제합니다. 계속할까요?`)) {
+          await remove(item, true);
+        }
+        return;
+      }
       setError(data.error || "작업을 삭제하지 못했습니다.");
       return;
     }
     await load();
+  }
+
+  /** 사람이 직접 고쳐 저장합니다. AI를 부르지 않으므로 요금이 들지 않고 바로 반영됩니다. */
+  async function saveManualEdit(item: WorkItem) {
+    const draft = manualDrafts[item.id];
+    if (!draft) return;
+    setSavingEditId(item.id);
+    try {
+      const response = await fetch(`/api/admin/content/${item.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "manual_edit", title: draft.title, bodyHtml: draft.bodyHtml }),
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        setError(data.error || "수정 내용을 저장하지 못했습니다.");
+        return;
+      }
+      setManualDrafts((current) => {
+        const next = { ...current };
+        delete next[item.id];
+        return next;
+      });
+      await load();
+    } finally {
+      setSavingEditId("");
+    }
   }
 
   async function rebuild(item: WorkItem) {
@@ -875,6 +916,68 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
           )}
           {reviewMode && (
             <div className="mt-5 border-t border-[var(--line)] pt-5">
+              {/* 사람이 직접 고쳐 저장합니다. AI를 부르지 않아 요금이 들지 않고 즉시 반영됩니다. */}
+              {manualDrafts[item.id] ? (
+                <div className="mb-4 rounded-xl border border-emerald-300 bg-emerald-50/60 p-4">
+                  <p className="text-sm font-bold text-emerald-950">직접 수정</p>
+                  <p className="mt-1 text-xs text-emerald-900">
+                    고치고 저장하면 바로 반영됩니다. AI를 부르지 않아 요금이 들지 않고 기다릴 필요도 없습니다.
+                  </p>
+                  <label className="mt-3 block text-xs font-bold text-emerald-950">제목</label>
+                  <input
+                    className="input mt-1"
+                    value={manualDrafts[item.id].title}
+                    onChange={(event) => setManualDrafts((current) => ({
+                      ...current,
+                      [item.id]: { ...current[item.id], title: event.target.value },
+                    }))}
+                  />
+                  <label className="mt-3 block text-xs font-bold text-emerald-950">
+                    본문 (h2, h3, p, ul, ol, li, strong, blockquote, a 태그를 쓸 수 있습니다)
+                  </label>
+                  <textarea
+                    className="input mt-1 font-mono text-xs"
+                    rows={16}
+                    value={manualDrafts[item.id].bodyHtml}
+                    onChange={(event) => setManualDrafts((current) => ({
+                      ...current,
+                      [item.id]: { ...current[item.id], bodyHtml: event.target.value },
+                    }))}
+                  />
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <button
+                      onClick={() => void saveManualEdit(item)}
+                      disabled={savingEditId === item.id}
+                      className="btn-gradient rounded-xl px-4 py-2 text-sm font-bold text-white disabled:cursor-wait disabled:opacity-60"
+                    >
+                      {savingEditId === item.id ? "저장 중…" : "수정 내용 저장"}
+                    </button>
+                    <button
+                      onClick={() => setManualDrafts((current) => {
+                        const next = { ...current };
+                        delete next[item.id];
+                        return next;
+                      })}
+                      className="rounded-xl bg-stone-100 px-4 py-2 text-sm font-bold"
+                    >
+                      취소
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <button
+                  onClick={() => setManualDrafts((current) => ({
+                    ...current,
+                    [item.id]: {
+                      title: item.title || "",
+                      bodyHtml: String(item.metadata?.generated?.bodyHtml || ""),
+                    },
+                  }))}
+                  className="mb-4 rounded-xl border border-emerald-300 bg-emerald-50 px-4 py-2 text-sm font-bold text-emerald-950"
+                >
+                  직접 수정하기 (AI 호출 없음)
+                </button>
+              )}
               <textarea className="input" rows={3} value={notes[item.id] || ""} onChange={(event) => setNotes((current) => ({ ...current, [item.id]: event.target.value }))} placeholder="수정 요청이나 가려야 할 내용을 적어주세요." />
               <div className="mt-3 flex flex-wrap gap-2">
                 <button

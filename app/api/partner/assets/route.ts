@@ -23,6 +23,9 @@ type AssetRow = {
 
 const FALLBACK_SITE_URL = "https://woolim-site.vercel.app";
 
+/** 외주 작업실에서 열 수 있는 이미지 경로. 자동 생성분과 수동 확정분을 모두 포함합니다. */
+const ALLOWED_ASSET_PREFIXES = ["/portfolio-drafts/", "/portfolio/manual/"];
+
 function parsePortfolioAssetUrl(publicUrl: string, requestUrl: string) {
   const requestOrigin = new URL(requestUrl).origin;
   const configuredSiteUrl = process.env.NEXT_PUBLIC_SITE_URL || FALLBACK_SITE_URL;
@@ -33,7 +36,9 @@ function parsePortfolioAssetUrl(publicUrl: string, requestUrl: string) {
 
   if (
     !allowedOrigins.has(parsed.origin)
-    || !decodedPath.startsWith("/portfolio-drafts/")
+    // 관리자가 직접 넣은 목업 이미지는 /portfolio/manual/ 아래에 있습니다.
+    // 이 경로를 빼면 수동 이미지가 외주 작업실에서 전부 깨져 보입니다.
+    || !ALLOWED_ASSET_PREFIXES.some((prefix) => decodedPath.startsWith(prefix))
     || decodedPath.includes("..")
     || !/\.(?:png|jpe?g|webp)$/i.test(decodedPath)
   ) {

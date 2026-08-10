@@ -23,6 +23,7 @@ import { generateContentWorkItem } from "@/lib/content-ops/generate";
 import { geminiRuntimeStatus } from "@/lib/gemini/protection";
 import { GeminiAutomationBlocked, runBudgetedGeminiAutomation } from "@/lib/gemini/automation";
 import { resolveRevisionNote } from "@/lib/content-ops/generated-content";
+import { sanitizeGeneratedHtml } from "@/lib/security/html";
 import type { ContentChannel, ContentFormat, EditorialSlot } from "@/lib/content-ops/types";
 import { retryMissingFontCandidates } from "@/lib/pc-worker/font-retry";
 import { geminiRetryDecision } from "@/lib/gemini/client";
@@ -221,6 +222,70 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
       error: "발행 완료는 파트너 발행 완료 등록 화면에서 네이버 게시물 URL을 입력해 처리해 주세요.",
     }, { status: 400 });
   }
+  // 사람이 직접 고쳐 저장합니다. AI를 부르지 않으므로 요금이 들지 않고 즉시 반영됩니다.
+  // 기존 '수정 요청'은 전체 재생성이라 오래 걸리고 결과를 예측할 수 없었습니다.
+  if (body.action === "manual_edit") {
+    const nextTitle = typeof body.title === "string" ? body.title.trim() : "";
+    const nextBodyHtml = typeof body.bodyHtml === "string" ? body.bodyHtml : "";
+    if (!nextTitle || !nextBodyHtml.trim()) {
+      return NextResponse.json({ error: "제목과 본문을 모두 입력해 주세요." }, { status: 400 });
+    }
+    const { data: current, error: currentError } = await contentAdmin()
+      .from("content_work_items")
+      .select("id,format,status,metadata,updated_at")
+      .eq("id", id)
+      .single();
+    if (currentError) return NextResponse.json({ error: currentError.message }, { status: 500 });
+    if (current.status === "published") {
+      return NextResponse.json({ error: "이미 발행한 글은 여기서 고칠 수 없습니다." }, { status: 409 });
+    }
+    const metadata = (current.metadata || {}) as Record<string, unknown>;
+    const generated = metadata.generated && typeof metadata.generated === "object"
+      ? metadata.generated as Record<string, unknown>
+      : null;
+    if (!generated) {
+      return NextResponse.json({ error: "고칠 원고가 아직 없습니다." }, { status: 409 });
+    }
+    const cleanBody = sanitizeGeneratedHtml(nextBodyHtml);
+    const plainLength = cleanBody.replace(/<[^>]+>/g, " ").replace(/\s+/g, "").length;
+    const nextGenerated = { ...generated, title: nextTitle, bodyHtml: cleanBody };
+    const appliedAt = new Date().toISOString();
+    const validation = metadata.validation && typeof metadata.validation === "object"
+      ? metadata.validation as Record<string, unknown>
+      : {};
+    const { data: saved, error: saveError } = await contentAdmin()
+      .from("content_work_items")
+      .update({
+        title: nextTitle,
+        // 사람이 직접 고쳤으므로 자동 검증에서 걸렸던 보류 사유는 지웁니다.
+        review_note: null,
+        status: current.status === "on_hold" ? "review_required" : current.status,
+        metadata: {
+          ...metadata,
+          generated: nextGenerated,
+          validation: {
+            ...validation,
+            plainLength,
+            h2Count: (cleanBody.match(/<h2[\s>]/gi) || []).length,
+            issues: [],
+          },
+          manualEdit: { appliedAt, appliedBy: user.email || "admin" },
+        },
+        updated_at: appliedAt,
+      })
+      .eq("id", id)
+      .eq("updated_at", current.updated_at)
+      .select("id,status")
+      .maybeSingle();
+    if (saveError) return NextResponse.json({ error: saveError.message }, { status: 500 });
+    if (!saved) {
+      return NextResponse.json({
+        error: "저장하는 동안 다른 변경이 있었습니다. 새로고침 후 다시 시도해 주세요.",
+      }, { status: 409 });
+    }
+    return NextResponse.json({ id: saved.id, status: saved.status, manualEdit: true, plainLength });
+  }
+
   if (body.action === "regenerate" || body.action === "replace_topic" || body.status === "creating") {
     const { data: current, error: currentError } = await contentAdmin()
       .from("content_work_items")
@@ -543,11 +608,14 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
   return NextResponse.json(data);
 }
 
-export async function DELETE(_request: Request, context: { params: Promise<{ id: string }> }) {
+export async function DELETE(request: Request, context: { params: Promise<{ id: string }> }) {
   const user = await authenticatedAdmin();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const { id } = await context.params;
+  // 발행 완료 항목은 기본적으로 보호하되, 화면에서 한 번 더 확인하면 지울 수 있게 합니다.
+  // 중복 등록된 발행 기록을 정리할 방법이 없어 외주 작업실이 막히는 일이 있었습니다.
+  const confirmPublishedDelete = new URL(request.url).searchParams.get("confirmPublished") === "1";
   const admin = contentAdmin();
   const { data: item, error: itemError } = await admin
     .from("content_work_items")
@@ -557,9 +625,13 @@ export async function DELETE(_request: Request, context: { params: Promise<{ id:
 
   if (itemError) return NextResponse.json({ error: itemError.message }, { status: 500 });
   if (!item) return NextResponse.json({ error: "삭제할 작업을 찾을 수 없습니다." }, { status: 404 });
-  if (item.status === "published") {
+  if (item.status === "published" && !confirmPublishedDelete) {
     return NextResponse.json(
-      { error: "이미 발행한 글은 기록 보호를 위해 관리자 화면에서 삭제할 수 없습니다." },
+      {
+        error: "이미 발행한 글입니다. 그래도 지우시려면 확인 후 다시 시도해 주세요.",
+        code: "PUBLISHED_DELETE_CONFIRM_REQUIRED",
+        requiresConfirmation: "confirmPublished",
+      },
       { status: 409 },
     );
   }
