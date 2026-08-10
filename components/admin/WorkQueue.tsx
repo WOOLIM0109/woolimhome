@@ -428,8 +428,26 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
           },
         };
       });
-      setItems(displayItems);
-      setNotes(Object.fromEntries(displayItems.map((item) => [item.id, item.review_note || ""])));
+      // 손이 필요한 것부터 위로 올립니다. 상태가 뒤섞여 보이지 않게 하려는 목적입니다.
+      const statusOrder: Record<string, number> = {
+        review_required: 0,
+        on_hold: 1,
+        creating: 2,
+        researching: 3,
+        topic_candidate: 4,
+        approved: 5,
+        naver_ready: 6,
+        scheduled: 7,
+        published: 8,
+      };
+      const sortedItems = [...displayItems].sort((left, right) => {
+        const orderGap = (statusOrder[left.status] ?? 9) - (statusOrder[right.status] ?? 9);
+        if (orderGap !== 0) return orderGap;
+        // 같은 상태끼리는 예정일이 빠른 것부터
+        return String(left.scheduled_at || "").localeCompare(String(right.scheduled_at || ""));
+      });
+      setItems(sortedItems);
+      setNotes(Object.fromEntries(sortedItems.map((item) => [item.id, item.review_note || ""])));
       setError("");
     }
     setLoading(false);
@@ -1044,7 +1062,7 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
                 </button>
               </div>
               <p className="mt-2 text-xs text-sky-900">
-                저장한 뒤 아래 &lsquo;본문 유지·목업 이미지만 재생성&rsquo;을 누르면 표지에 반영됩니다.
+                저장한 뒤 아래 &lsquo;② 이미지만 다시 만들기&rsquo;를 누르면 표지에 반영됩니다.
               </p>
             </div>
           )}
@@ -1135,9 +1153,15 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
               </div>
             </div>
           )}
-          {!reviewMode && item.status !== "published" && (
+          {!reviewMode && (
             <div className="mt-5 flex flex-wrap justify-end gap-2 border-t border-[var(--line)] pt-4">
-              {item.format === "portfolio" && (
+              {/* 다시 만들기 계열은 발행 전에만 의미가 있습니다. 삭제는 발행 완료 항목에도 필요합니다. */}
+              {item.status !== "published" && item.format === "portfolio" && (
+                <p className="w-full text-right text-xs text-[var(--muted)]">
+                  ① 이미 있는 이미지의 자리만 정리 · ② 이미지를 새로 그림(블러 규칙도 여기서 다시 적용) · ③ 이미지와 글을 처음부터 (AI 요금 발생)
+                </p>
+              )}
+              {item.status !== "published" && item.format === "portfolio" && (
                 <>
                   {!item.metadata?.candidateId && (
                     <>
@@ -1223,7 +1247,7 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
                       className="inline-flex items-center gap-2 rounded-xl border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-950 hover:bg-emerald-100 disabled:cursor-wait disabled:opacity-60"
                     >
                       <RotateCcw size={15} className={regeneratingId === item.id ? "animate-spin" : ""} />
-                      {regeneratingId === item.id ? "본문 이미지 배치 정리 중…" : "본문 이미지 균등 배치"}
+                      {regeneratingId === item.id ? "배치 정리 중…" : "① 이미지 배치만 정리 · 새로 안 만듦"}
                     </button>
                   )}
                   {item.title === HYUNDAI_MANUAL_MOCKUP_LEGACY_TITLE && (
@@ -1245,8 +1269,8 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
                   >
                     <RotateCcw size={15} className={mockupRebuildingId === item.id ? "animate-spin" : ""} />
                     {mockupRebuildingId === item.id
-                      ? "본문 유지·목업 이미지만 재생성 중…"
-                      : "본문 유지·목업 이미지만 재생성"}
+                      ? "이미지 다시 만드는 중…"
+                      : "② 이미지만 다시 만들기 · 글은 그대로 (블러는 여기)"}
                   </button>
                   <button
                     onClick={() => void rebuild(item)}
@@ -1257,10 +1281,10 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
                     {rebuildingId === item.id
                       ? item.metadata?.portfolioStage === "draft_failed"
                         ? "본문만 다시 생성 중…"
-                        : "기밀 검수·목업·본문 전체 재생성 중…"
+                        : "이미지와 글 전부 다시 만드는 중…"
                       : item.metadata?.portfolioStage === "draft_failed"
                         ? "본문만 다시 생성"
-                        : "기밀 검수·목업·본문 전체 재생성"}
+                        : "③ 이미지와 글 전부 다시 만들기 · AI 사용"}
                   </button>
                 </>
               )}
