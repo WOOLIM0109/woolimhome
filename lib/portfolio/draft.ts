@@ -12,15 +12,16 @@ import sharp from "sharp";
 import type { GeminiPart } from "@/lib/gemini/client";
 
 /** AI에게 보여 줄 목업 이미지 최대 장수. 늘리면 그만큼 입력 비용이 늘어납니다. */
-const MAX_VISION_IMAGES = 6;
+const MAX_VISION_IMAGES = 4;
 /**
  * 보내기 전에 줄일 가로 크기.
  *
  * 본문 목업은 장표 6장을 한 판에 모아 붙인 그림입니다.
  * 너무 작게 줄이면 장표 안의 한글 제목이 뭉개져 무슨 문서인지 못 읽습니다.
- * 1400px 이면 한 장이 대략 450px 이라 큰 제목은 읽힙니다.
+ * 1200px 이면 한 장이 대략 400px 이라 큰 제목은 읽힙니다.
+ * 더 키우면 응답이 느려져 제한 시간을 넘깁니다.
  */
-const VISION_IMAGE_WIDTH = 1400;
+const VISION_IMAGE_WIDTH = 1200;
 
 /**
  * 완성된 목업 이미지를 AI가 볼 수 있게 준비합니다.
@@ -266,7 +267,9 @@ export async function createPortfolioDraft(input: {
       },
     ], {
       maxOutputTokens: attempt ? 20000 : 18000,
-      timeoutMs: 55_000,
+      // 이미지를 함께 보내면 답이 느려집니다.
+      // 55초로는 다 쓰기 전에 끊겨 "Gemini request timed out" 으로 보류가 났습니다.
+      timeoutMs: visionParts.length ? 130_000 : 55_000,
       attempts: 1,
       jsonAttempts: 1,
     });
