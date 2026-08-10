@@ -89,6 +89,11 @@ const TECHNICAL_HOLD_PATTERNS = [
   /^자동 재생성 보류/,
   /^(?:중복 검사|원천자료 확인) 보류:/,
   /^GENERATION_/,
+  // 예산 상한 안내는 사람이 남긴 수정 요청이 아닙니다.
+  // 걸러내지 않으면 "상한을 초과합니다"가 수정 지시로 AI에게 전달됩니다.
+  /상한(?:을|에)\s*(?:초과|도달)/,
+  /(?:일일|월간)\s*Gemini/,
+  /^GEMINI_/,
 ];
 
 export function editorialRevisionNote(value: unknown) {
