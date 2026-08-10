@@ -31,6 +31,7 @@ import {
   type LocalRedactionManifest,
 } from "../pc-worker/redaction-manifest";
 import { normalizeCoverTitle, suggestCoverTitles } from "./cover-title";
+import { resolveCoverIndex } from "./cover-slide";
 
 type SharpOverlayOptions = Parameters<ReturnType<typeof sharp>["composite"]>[0][number];
 
@@ -530,9 +531,7 @@ export function portfolioMockupIndexes(
     .filter((index) => index >= 0 && index < slideCount && eligible.has(index));
   const groups = mode === "long" ? buildSixGridGroups(selectedIndexes) : [];
   // 대표 썸네일은 원본 PPT의 표지(1장)만 씁니다.
-  // 표지를 쓸 수 없으면 다른 장표로 몰래 바꾸지 않고 비워 둡니다.
-  // 바꿔치기하면 어느 문서인지 알아볼 수 없는 썸네일이 조용히 올라갑니다.
-  const coverIndex = eligible.has(0) ? 0 : undefined;
+  const coverIndex = resolveCoverIndex(eligible);
   const indexes = [...new Set([
     ...(coverIndex === undefined ? [] : [coverIndex]),
     ...selectedIndexes,
