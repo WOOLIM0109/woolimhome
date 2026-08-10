@@ -379,6 +379,7 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
   const [savingEditId, setSavingEditId] = useState("");
   const [coverDrafts, setCoverDrafts] = useState<Record<string, string>>({});
   const [savingCoverId, setSavingCoverId] = useState("");
+  const [uploadingImagesId, setUploadingImagesId] = useState("");
   const [rebuildingId, setRebuildingId] = useState<string | null>(null);
   const [mockupRebuildingId, setMockupRebuildingId] = useState<string | null>(null);
   const [regeneratingId, setRegeneratingId] = useState<string | null>(null);
@@ -494,6 +495,29 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
       return;
     }
     await load();
+  }
+
+  /**
+   * 목업 이미지를 직접 올려 교체합니다.
+   * 올린 이미지에는 수동 확정 표시가 붙어 '다시 만들기'로 덮이지 않습니다.
+   */
+  async function uploadMockupImages(item: WorkItem, form: HTMLFormElement) {
+    setUploadingImagesId(item.id);
+    try {
+      const response = await fetch(`/api/admin/content/${item.id}/mockup-images`, {
+        method: "POST",
+        body: new FormData(form),
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        setError(data.error || "이미지를 올리지 못했습니다.");
+        return;
+      }
+      form.reset();
+      await load();
+    } finally {
+      setUploadingImagesId("");
+    }
   }
 
   /** 표지 문구를 저장합니다. AI를 부르지 않습니다. */
@@ -946,6 +970,38 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
                 />
               ) : null}
             </details>
+          )}
+          {/* 만들어진 이미지가 마음에 들지 않으면 직접 만든 이미지로 바꿉니다. */}
+          {item.format === "portfolio" && item.status !== "published" && (
+            <form
+              className="mt-5 rounded-xl border border-violet-200 bg-violet-50/60 p-4"
+              onSubmit={(event) => {
+                event.preventDefault();
+                void uploadMockupImages(item, event.currentTarget);
+              }}
+            >
+              <p className="text-sm font-bold text-violet-950">이미지 직접 올리기</p>
+              <p className="mt-1 text-xs text-violet-900">
+                직접 만드신 이미지로 바꿉니다. 올린 이미지는 &lsquo;다시 만들기&rsquo;를 눌러도 확인 없이 지워지지 않습니다.
+                PNG · JPG · WEBP, 한 장에 12MB까지.
+              </p>
+              {item.metadata?.manualMockupOverride ? (
+                <p className="mt-2 rounded-lg bg-violet-100 px-3 py-2 text-xs font-bold text-violet-950">
+                  지금 이 작업은 직접 올린 이미지를 쓰고 있습니다.
+                </p>
+              ) : null}
+              <label className="mt-3 block text-xs font-bold text-violet-950">대표 썸네일 (1장)</label>
+              <input type="file" name="thumbnail" accept="image/png,image/jpeg,image/webp" className="mt-1 block w-full text-sm" />
+              <label className="mt-3 block text-xs font-bold text-violet-950">본문 이미지 (여러 장 선택 가능)</label>
+              <input type="file" name="bodyImages" accept="image/png,image/jpeg,image/webp" multiple className="mt-1 block w-full text-sm" />
+              <button
+                type="submit"
+                disabled={uploadingImagesId === item.id}
+                className="mt-3 rounded-xl border border-violet-300 bg-white px-4 py-2 text-sm font-bold text-violet-950 disabled:cursor-wait disabled:opacity-60"
+              >
+                {uploadingImagesId === item.id ? "올리는 중…" : "이 이미지로 교체"}
+              </button>
+            </form>
           )}
           {/* 표지 문구는 사람이 고르거나 직접 씁니다. 고른 문구는 다음 추천에 반영됩니다. */}
           {item.format === "portfolio" && item.status !== "published" && (
