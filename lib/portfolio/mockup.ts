@@ -31,7 +31,7 @@ import {
   type LocalRedactionManifest,
 } from "../pc-worker/redaction-manifest";
 import { normalizeCoverTitle, suggestCoverTitles } from "./cover-title";
-import { resolveCoverIndex } from "./cover-slide";
+import { coverSlideBlockedMessage, resolveCoverSlide } from "./cover-slide";
 
 type SharpOverlayOptions = Parameters<ReturnType<typeof sharp>["composite"]>[0][number];
 
@@ -531,7 +531,12 @@ export function portfolioMockupIndexes(
     .filter((index) => index >= 0 && index < slideCount && eligible.has(index));
   const groups = mode === "long" ? buildSixGridGroups(selectedIndexes) : [];
   // 대표 썸네일은 원본 PPT의 표지(1장)만 씁니다.
-  const coverIndex = resolveCoverIndex(eligible);
+  // 워커가 변환하지 못한 장표를 건너뛰면 번호가 밀리므로 원본 장표 번호로 찾습니다.
+  const cover = resolveCoverSlide({
+    slides: localManifest?.slides,
+    eligibleSlideIndexes: eligible,
+  });
+  const coverIndex = cover.coverIndex;
   const indexes = [...new Set([
     ...(coverIndex === undefined ? [] : [coverIndex]),
     ...selectedIndexes,
@@ -543,6 +548,7 @@ export function portfolioMockupIndexes(
     selectedIndexes,
     selection,
     coverIndex,
+    coverBlockedReason: cover.blockedReason,
     eligibleSlideIndexes,
     blockedSlideIndexes: localManifest
       ? localManifest.slides
@@ -646,11 +652,7 @@ export async function createPortfolioMockups(input: {
     ? undefined
     : slideMap.get(plan.coverIndex);
   if (!thumbnailSlide) {
-    throw new Error(
-      "대표 썸네일은 원본 PPT의 표지(1장)만 사용합니다. "
-      + "표지가 가림 검사에서 제외되어 목업을 만들지 않았습니다. "
-      + "표지의 가림 범위를 확인한 뒤 다시 시도해 주세요.",
-    );
+    throw new Error(coverSlideBlockedMessage(plan.coverBlockedReason || "redaction_excluded"));
   }
   const aspect = aggregateAspectClass(selectedSlides);
   const rankedShortSlides = plan.mode === "short"

@@ -34,6 +34,7 @@ import {
 } from "./checkpoint";
 import { isCurrentLocalRedactionWorkerVersion } from "../pc-worker/capabilities";
 import { automaticDesignEligibleSlideIndexes } from "../pc-worker/redaction-manifest";
+import { coverSlideBlockedMessage } from "./cover-slide";
 import { sanitizeGeneratedHtml, sanitizeInlineHtml } from "../security/html";
 import {
   isCompletePortfolioSourceDownload,
@@ -951,7 +952,7 @@ export async function processNextPortfolioMockup(candidateId?: string) {
     // 썸네일은 원본 표지만 씁니다. 표지를 못 쓰면 여기서 멈추고 사유를 남깁니다.
     if (mockupPlan.coverIndex === undefined) {
       throw new PortfolioRedactionSelectionBlocked(
-        "표지(1장)가 가림 검사에서 제외되어 대표 썸네일을 만들 수 없습니다",
+        coverSlideBlockedMessage(mockupPlan.coverBlockedReason || "redaction_excluded"),
       );
     }
     if (!redactionVerification.verified
