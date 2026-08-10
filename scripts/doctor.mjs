@@ -22,23 +22,46 @@ import { readFileSync, existsSync, writeFileSync } from "node:fs";
 import { createClient } from "@supabase/supabase-js";
 
 // ── 환경변수 읽기 ────────────────────────────────────────────
+/**
+ * 환경변수 파일은 UTF-8 이 아닐 수 있습니다.
+ * 윈도우에서 만들어진 파일은 UTF-16 인 경우가 있어, 그대로 읽으면 한 줄도 해석되지 않습니다.
+ * 파일 앞머리(BOM)를 보고 알맞은 방식으로 읽습니다.
+ */
+function readTextFile(path) {
+  const buffer = readFileSync(path);
+  if (buffer[0] === 0xFF && buffer[1] === 0xFE) return buffer.toString("utf16le").replace(/^\uFEFF/, "");
+  if (buffer[0] === 0xFE && buffer[1] === 0xFF) return buffer.swap16().toString("utf16le").replace(/^\uFEFF/, "");
+  return buffer.toString("utf8").replace(/^\uFEFF/, "");
+}
+
+const envFilesFound = [];
 for (const file of [".env.local", ".env.production.local", ".env"]) {
   if (!existsSync(file)) continue;
-  for (const line of readFileSync(file, "utf8").split(/\r?\n/)) {
-    const text = line.trim();
+  let loaded = 0;
+  for (const line of readTextFile(file).split(/\r?\n/)) {
+    const text = line.trim().replace(/^export\s+/, "");
     if (!text || text.startsWith("#") || !text.includes("=")) continue;
     const index = text.indexOf("=");
     const key = text.slice(0, index).trim();
     const value = text.slice(index + 1).trim().replace(/^["']|["']$/g, "");
+    if (!key) continue;
+    loaded += 1;
     if (!process.env[key]) process.env[key] = value;
   }
+  envFilesFound.push(`${file} (${loaded}개)`);
 }
 
 const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
 if (!url || !key) {
   console.error("NEXT_PUBLIC_SUPABASE_URL 과 SUPABASE_SERVICE_ROLE_KEY 를 찾지 못했습니다.\n");
-  console.error("이 폴더에 .env.local 파일이 없어서 그렇습니다. 아래 명령으로 내려받으세요.\n");
+  console.error(`실행한 폴더: ${process.cwd()}`);
+  console.error(envFilesFound.length
+    ? `읽은 파일: ${envFilesFound.join(", ")}`
+    : "읽은 파일: 없음 (이 폴더에 .env 파일이 하나도 없습니다)");
+  console.error(`  NEXT_PUBLIC_SUPABASE_URL: ${url ? "있음" : "없음"}`);
+  console.error(`  SUPABASE_SERVICE_ROLE_KEY: ${key ? "있음" : "없음"}\n`);
+  console.error("파일은 있는데 0개로 나오면 인코딩 문제입니다. 아래 명령으로 다시 내려받으세요.\n");
   console.error("  vercel.cmd env pull .env.local        (윈도우)");
   console.error("  vercel env pull .env.local            (맥·리눅스)\n");
   console.error("프로젝트 연결이 안 돼 있다면 먼저 vercel.cmd link 를 실행하세요.");
