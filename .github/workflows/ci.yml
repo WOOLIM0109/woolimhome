@@ -1,0 +1,42 @@
+name: CI
+
+# 목적: 고친 코드가 다른 곳을 깨뜨렸는지 사람 대신 기계가 먼저 확인합니다.
+# 이 검사가 빨간불이면 배포 전에 멈추므로, 오류를 운영 중에 발견하지 않게 됩니다.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: 의존성 설치
+        run: npm ci
+
+      - name: 타입 검사
+        run: npm run typecheck
+
+      - name: 린트
+        run: npm run lint
+
+      - name: 테스트
+        run: npm test
+
+      - name: 빌드
+        run: npm run build
+        env:
+          # 빌드 통과용 더미값. 실제 키는 Vercel 환경변수에 있습니다.
+          NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: dummy-anon-key
+          SUPABASE_SERVICE_ROLE_KEY: dummy-service-role-key
+          # 검사 중 실제 Gemini 호출이 일어나지 않도록 잠금 상태를 유지합니다.
+          GEMINI_ENABLED: "false"
