@@ -65,8 +65,24 @@ for (const file of [".env.local", ".env.production.local", ".env"]) {
 /** 진단용. 이름만 모으며 값은 담지 않습니다. */
 const loadedKeyNames = Object.keys(process.env).filter((name) => /^(NEXT_PUBLIC_|SUPABASE_|GEMINI_)/.test(name));
 
-const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+/**
+ * 주소에서 경로를 떼어냅니다.
+ * Supabase 화면에서 복사하면 뒤에 /rest/v1 같은 경로가 붙어 있는 경우가 있는데,
+ * 그대로 쓰면 "Invalid path specified in request URL" 오류가 납니다.
+ */
+function normalizeSupabaseUrl(value) {
+  if (!value) return value;
+  const trimmed = value.trim().replace(/^["']|["']$/g, "");
+  try {
+    return new URL(trimmed).origin;
+  } catch {
+    return trimmed.replace(/\/+$/, "");
+  }
+}
+
+const rawUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const url = normalizeSupabaseUrl(rawUrl);
+const key = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim().replace(/^["']|["']$/g, "");
 if (!url || !key) {
   console.error("NEXT_PUBLIC_SUPABASE_URL 과 SUPABASE_SERVICE_ROLE_KEY 를 찾지 못했습니다.\n");
   console.error(`실행한 폴더: ${process.cwd()}`);
@@ -81,6 +97,9 @@ if (!url || !key) {
   console.error("  vercel env pull .env.local            (맥·리눅스)\n");
   console.error("프로젝트 연결이 안 돼 있다면 먼저 vercel.cmd link 를 실행하세요.");
   process.exit(1);
+}
+if (rawUrl && url !== rawUrl.trim()) {
+  console.log(`주소를 정리했습니다: ${rawUrl.trim()} → ${url}\n`);
 }
 const db = createClient(url, key, { auth: { persistSession: false } });
 
@@ -109,15 +128,27 @@ function line(item, extra = "") {
 // ── 데이터 읽기 ──────────────────────────────────────────────
 console.log("데이터를 읽는 중입니다...\n");
 
-const { data: items, error: itemsError } = await db
+const { data: itemsData, error: itemsError } = await db
   .from("content_work_items")
   .select("id,channel,format,status,title,schedule_key,scheduled_at,published_at,published_url,published_url_normalized,review_note,metadata,created_at,updated_at,retry_count,next_retry_at")
   .order("scheduled_at", { ascending: false })
   .limit(1000);
 if (itemsError) {
-  console.error("작업 항목을 읽지 못했습니다:", itemsError.message);
-  process.exit(1);
+  console.error("작업 항목을 읽지 못했습니다:", itemsError.message, "\n");
+  if (/Invalid path|not found/i.test(itemsError.message)) {
+    console.error("NEXT_PUBLIC_SUPABASE_URL 값을 확인해 주세요.");
+    console.error("  올바른 형태: https://xxxxx.supabase.co");
+    console.error("  뒤에 /rest/v1 같은 경로가 붙어 있으면 안 됩니다.\n");
+  }
+  if (/JWT|api key|Unauthorized|invalid/i.test(itemsError.message)) {
+    console.error("SUPABASE_SERVICE_ROLE_KEY 값을 확인해 주세요.");
+    console.error("  Supabase → Settings → API Keys → 'Legacy anon, service_role API keys' 탭의 service_role 값입니다.\n");
+  }
+  // 여기서 즉시 종료하면 윈도우에서 Assertion 경고가 함께 출력됩니다.
+  // 종료 코드만 남기고 정상적으로 마무리합니다.
+  process.exitCode = 1;
 }
+const items = itemsData || [];
 
 const { data: assets } = await db
   .from("content_review_assets")
