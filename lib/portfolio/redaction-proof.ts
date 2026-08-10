@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import type { SensitiveRegion } from "./visual-review";
 import {
+  redactableRegions,
   inspectLocalRedactionSlideSafety,
   LOCAL_REDACTION_MANIFEST_METHOD,
   validateLocalRedactionManifest,
@@ -59,7 +60,7 @@ export function localRedactionRegions(
   const selected = new Set(indexes);
   return manifest.slides
     .filter((slide) => selected.has(slide.slideIndex))
-    .flatMap((slide) => slide.regions) as SensitiveRegion[];
+    .flatMap((slide) => redactableRegions(slide.regions)) as SensitiveRegion[];
 }
 
 function normalizedSelectedIndexes(indexes: number[]) {
@@ -88,7 +89,7 @@ export function verifyLocalRedactionSelection(
       return;
     }
     const safety = inspectLocalRedactionSlideSafety(slide);
-    regionCount += slide.regions.length;
+    regionCount += redactableRegions(slide.regions).length;
     coverage += safety.unionCoverage;
     if (!safety.safeForAutomaticDesign) blockedSlideIndexes.push(slideIndex);
   });
@@ -106,7 +107,8 @@ export function isPortfolioSlideRedactionProofForManifest(
 ) {
   if (proof.slideIndex !== manifestSlide.slideIndex
     || !Number.isInteger(proof.regionCount)
-    || proof.regionCount !== manifestSlide.regions.length
+    // 실제로 가린 개수와 비교합니다. 정책에서 제외한 영역은 세지 않습니다.
+    || proof.regionCount !== redactableRegions(manifestSlide.regions).length
     || !Number.isFinite(proof.changedPixelRatio)
     || proof.changedPixelRatio < 0
     || proof.changedPixelRatio > 1

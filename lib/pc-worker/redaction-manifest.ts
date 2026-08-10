@@ -36,6 +36,58 @@ const REGION_LABELS = {
 
 export type LocalRedactionRegionType = keyof typeof REGION_LABELS;
 
+/**
+ * 실제로 가릴 영역 종류.
+ *
+ * 지금까지는 워커가 보낸 모든 영역을 예외 없이 가렸습니다.
+ * 본문 글자와 표까지 전부 대상이라 장표가 통째로 뭉개져 보였습니다.
+ *
+ * 기본 정책은 다음만 가립니다.
+ *   · 고객사 상호명과 프로젝트명
+ *   · 개인정보 (이름·연락처·주소·사업자등록번호 등은 워커가 식별자로 분류합니다)
+ *   · 작은 글씨 (18pt 미만. 세부 수치와 주석이 몰려 있습니다)
+ *   · 로고와 바닥글
+ *   · 사진과 화면 캡처 (사람 얼굴이나 내부 화면이 그대로 남을 수 있습니다)
+ *
+ * 남기는 것: 본문 글자, 표 내용, 차트 라벨, 큰 제목.
+ * 환경변수 PORTFOLIO_REDACTED_REGION_TYPES 로 조정할 수 있습니다.
+ */
+/**
+ * 권장 정책. 환경변수에 이 값을 넣으면 적용됩니다.
+ *
+ *   PORTFOLIO_REDACTED_REGION_TYPES=client_identifier,project_identifier,small_text,logo,footer,embedded_photo,screenshot
+ *
+ * 기본값은 지금까지와 같이 모든 영역을 가립니다.
+ * 가리는 범위를 줄이는 것은 고객사 기밀이 걸린 결정이라,
+ * 담당자가 실제 결과를 확인한 뒤 직접 켜도록 두었습니다.
+ * 마음에 들지 않으면 환경변수만 지우면 즉시 원래대로 돌아갑니다.
+ */
+export const RECOMMENDED_REDACTED_REGION_TYPES: LocalRedactionRegionType[] = [
+  "client_identifier",
+  "project_identifier",
+  "small_text",
+  "logo",
+  "footer",
+  "embedded_photo",
+  "screenshot",
+];
+
+const ALL_REGION_TYPES = Object.keys(REGION_LABELS) as LocalRedactionRegionType[];
+
+export function redactedRegionTypes(): Set<LocalRedactionRegionType> {
+  const configured = (process.env.PORTFOLIO_REDACTED_REGION_TYPES || "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter((value): value is LocalRedactionRegionType => value in REGION_LABELS);
+  return new Set(configured.length ? configured : ALL_REGION_TYPES);
+}
+
+/** 이 장표에서 실제로 가릴 영역만 골라냅니다. 렌더링과 검증이 같은 값을 쓰게 합니다. */
+export function redactableRegions<T extends { type: LocalRedactionRegionType }>(regions: T[]) {
+  const allowed = redactedRegionTypes();
+  return regions.filter((region) => allowed.has(region.type));
+}
+
 export type LocalRedactionRegion = {
   slideIndex: number;
   type: LocalRedactionRegionType;
@@ -126,12 +178,14 @@ export type LocalRedactionSlideSafety = {
 export function inspectLocalRedactionSlideSafety(
   slide: Pick<LocalRedactionSlide, "slideIndex" | "inspectionStatus" | "regions">,
 ): LocalRedactionSlideSafety {
-  const maxRegionCoverage = slide.regions.reduce(
+  // 실제로 가릴 영역만 놓고 판단합니다. 가리지 않는 영역까지 세면 덮는 면적이 과대평가됩니다.
+  const regions = redactableRegions(slide.regions);
+  const maxRegionCoverage = regions.reduce(
     (maximum, region) => Math.max(maximum, region.width * region.height),
     0,
   );
-  const unionCoverage = localRedactionUnionCoverage(slide.regions);
-  const hasFullSlideRegion = slide.regions.some((region) => (
+  const unionCoverage = localRedactionUnionCoverage(regions);
+  const hasFullSlideRegion = regions.some((region) => (
     region.x <= 0.000001
     && region.y <= 0.000001
     && region.x + region.width >= 0.999999
