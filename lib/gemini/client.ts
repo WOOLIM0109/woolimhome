@@ -146,6 +146,10 @@ export async function generateGeminiText(input: {
         continue;
       }
       const payload = await response.json();
+      // 답이 잘렸는지 알려 주는 값입니다. MAX_TOKENS 면 한도에 걸려 끊긴 것입니다.
+      const finishReason = typeof payload.candidates?.[0]?.finishReason === "string"
+        ? String(payload.candidates[0].finishReason)
+        : null;
       const text = payload.candidates?.[0]?.content?.parts
         ?.map((part: { text?: string }) => part.text || "").join("")?.trim();
       if (!text) {
@@ -192,6 +196,7 @@ export async function generateGeminiText(input: {
       });
       return {
         text,
+        finishReason,
         redactionCount,
         networkAttempts,
         usage,

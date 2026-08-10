@@ -40,7 +40,10 @@ export const AI_INPUT_LIMITS = {
 
 /** 출력 상한 — 폭주 방지용 안전장치 */
 export const AI_OUTPUT_LIMITS = {
-  topicPlan: envInt("AI_OUT_TOPIC_PLAN", 4000),
+  // 이 모델은 답을 쓰기 전에 생각하는 데도 출력 한도를 씁니다.
+  // 4000 으로 줄였더니 생각에 다 쓰고 JSON 이 잘려 나와 매번 보류가 났습니다.
+  // 원래 값인 6000 으로 되돌립니다.
+  topicPlan: envInt("AI_OUT_TOPIC_PLAN", 6000),
   articleBody: envInt("AI_OUT_ARTICLE_BODY", 12000),
   columnBody: envInt("AI_OUT_COLUMN_BODY", 14000),
   styleRevision: envInt("AI_OUT_STYLE_REVISION", 12000),

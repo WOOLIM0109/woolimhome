@@ -295,16 +295,23 @@ JSON 객체만 반환한다.`;
     const retryInstruction = attempt
       ? "\n\n이전 주제 후보 응답은 JSON 문법 오류로 읽지 못했습니다. 후보를 처음부터 다시 만들고 JSON 객체 외에는 아무 글자도 반환하지 마세요."
       : "";
-    const { text: raw } = await generateGeminiText({
+    const { text: raw, finishReason } = await generateGeminiText({
       parts: [{ text: `${prompt}${retryInstruction}` }],
       generationConfig: {
         responseMimeType: "application/json",
         responseSchema: TOPIC_PLAN_SCHEMA,
-        maxOutputTokens: AI_OUTPUT_LIMITS.topicPlan,
+        // 한도에 걸려 잘렸다면 같은 한도로 다시 부르는 것은 돈만 쓰고 또 실패합니다.
+        maxOutputTokens: AI_OUTPUT_LIMITS.topicPlan * (attempt + 1),
       },
       timeoutMs: AI_RESPONSE_TIMEOUT_MS,
     });
     try {
+      if (finishReason === "MAX_TOKENS") {
+        throw new Error(
+          "주제 후보를 다 쓰기 전에 출력 한도에 걸렸습니다. "
+          + "환경변수 AI_OUT_TOPIC_PLAN 값을 올리면 해결됩니다.",
+        );
+      }
       if (!raw) throw new Error("주제 기획 응답이 비어 있습니다.");
       const plans = parseTopicPlans(raw);
       if (!plans.length) throw new Error("사용할 수 있는 주제 후보를 만들지 못했습니다.");
@@ -335,17 +342,24 @@ async function requestGeneratedContent({
     const retryInstruction = attempt
       ? "\n\n이전 응답은 JSON 문법 오류로 읽지 못했습니다. 내용을 처음부터 다시 생성하고, JSON 객체 외에는 아무 글자도 반환하지 마세요."
       : "";
-    const { text: raw } = await generateGeminiText({
+    const { text: raw, finishReason } = await generateGeminiText({
       parts: [{ text: `${prompt}${retryInstruction}` }],
       generationConfig: {
         responseMimeType: "application/json",
         responseSchema: GENERATED_CONTENT_SCHEMA,
-        maxOutputTokens: AI_OUTPUT_LIMITS.articleBody,
+        // 한도에 걸려 잘렸다면 두 번째에는 여유를 더 줍니다.
+        maxOutputTokens: AI_OUTPUT_LIMITS.articleBody * (attempt + 1),
       },
       timeoutMs: AI_RESPONSE_TIMEOUT_MS,
     });
     if (!raw) throw new Error("AI 응답이 비어 있습니다.");
     try {
+      if (finishReason === "MAX_TOKENS") {
+        throw new Error(
+          "본문을 다 쓰기 전에 출력 한도에 걸렸습니다. "
+          + "환경변수 AI_OUT_ARTICLE_BODY 값을 올리면 해결됩니다.",
+        );
+      }
       return parseGeneratedContent(raw);
     } catch (error) {
       lastParseError = error;
