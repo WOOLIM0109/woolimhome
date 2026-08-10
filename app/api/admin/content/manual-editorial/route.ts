@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { authenticatedAdmin, contentAdmin } from "@/lib/content-ops/data";
 import { editorialPublicationIssues } from "@/lib/content-ops/editorial-policy";
 import type { GeneratedContent } from "@/lib/content-ops/generated-content";
-import { stripFaqPrefix } from "@/lib/content-ops/editorial-style";
+import { stripFaqDisplayFormatting } from "@/lib/content-ops/editorial-style";
 import { assertSameNumericFacts } from "@/lib/content-ops/protected-markers";
 import {
   createStyleRevisionStamp,
@@ -76,8 +76,8 @@ function normalizedFaq(value: unknown) {
     const entry = raw && typeof raw === "object" ? raw as Record<string, unknown> : {};
     if (typeof entry.question !== "string" || typeof entry.answer !== "string") return null;
     return {
-      question: removeDisplayBreaks(sanitizeInlineHtml(stripFaqPrefix(entry.question))).trim(),
-      answer: removeDisplayBreaks(sanitizeInlineHtml(stripFaqPrefix(entry.answer))).trim(),
+      question: sanitizeInlineHtml(stripFaqDisplayFormatting(entry.question)).trim(),
+      answer: sanitizeInlineHtml(stripFaqDisplayFormatting(entry.answer)).trim(),
     };
   });
   return entries.every(Boolean) ? entries as { question: string; answer: string }[] : null;
