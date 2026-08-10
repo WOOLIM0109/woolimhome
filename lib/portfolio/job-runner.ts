@@ -2360,6 +2360,33 @@ export async function retryPortfolioDraft(workItemId: string) {
     .maybeSingle();
   if (resetError) throw new Error(resetError.message);
   if (!resetJob) return null;
+
+  /**
+   * 목업 작업에 남아 있는 예전 본문을 지웁니다.
+   *
+   * 본문 생성은 중간에 끊겨도 이어서 쓰도록 진행 상황을 저장해 둡니다.
+   * 그 기록이 목업 작업 쪽에도 남아 있어서, 본문 작업만 초기화하면
+   * 저장된 예전 글을 그대로 다시 꺼내 쓰고 끝나 버립니다.
+   * 글이 한 글자도 안 바뀌던 원인입니다.
+   */
+  const { data: mockupJob, error: mockupJobError } = await admin.from("content_jobs")
+    .select("id,result,updated_at")
+    .eq("candidate_id", candidateId)
+    .eq("job_type", "mockup")
+    .maybeSingle();
+  if (mockupJobError) throw new Error(mockupJobError.message);
+  const mockupResult = mockupJob?.result && typeof mockupJob.result === "object"
+    ? { ...(mockupJob.result as Record<string, unknown>) }
+    : null;
+  if (mockupJob && mockupResult && mockupResult.portfolioDraftProgress !== undefined) {
+    delete mockupResult.portfolioDraftProgress;
+    const { error: clearError } = await admin.from("content_jobs")
+      .update({ result: mockupResult, updated_at: now })
+      .eq("id", mockupJob.id)
+      .eq("updated_at", mockupJob.updated_at);
+    if (clearError) throw new Error(clearError.message);
+  }
+
   await admin.from("content_work_items").update({
     status: "creating",
     summary: "포트폴리오 디자인은 그대로 유지하고 Gemini 본문만 다시 생성합니다.",
