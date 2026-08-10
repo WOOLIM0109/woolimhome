@@ -34,7 +34,25 @@ export function stripFaqDisplayFormatting(value: string) {
 }
 
 function escapeHtml(value: string) {
-  return value
+  const entities: Record<string, string> = {
+    "&nbsp;": " ",
+    "&amp;": "&",
+    "&lt;": "<",
+    "&gt;": ">",
+    "&quot;": '"',
+    "&apos;": "'",
+    "&#39;": "'",
+    "&#x27;": "'",
+  };
+  let decoded = value;
+  for (let pass = 0; pass < 3; pass += 1) {
+    const next = decoded.replace(/&(?:nbsp|amp|lt|gt|quot|apos|#39|#x27);/gi, (entity) => (
+      entities[entity.toLowerCase()] || entity
+    ));
+    if (next === decoded) break;
+    decoded = next;
+  }
+  return decoded
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;")
