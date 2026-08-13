@@ -591,6 +591,7 @@ export function portfolioMockupIndexes(
     selection,
     coverIndex,
     coverBlockedReason: cover.blockedReason,
+    coverSubstitutedSourceSlideNumber: cover.substitutedSourceSlideNumber,
     eligibleSlideIndexes,
     blockedSlideIndexes: localManifest
       ? localManifest.slides

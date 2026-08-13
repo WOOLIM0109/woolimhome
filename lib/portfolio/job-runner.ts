@@ -34,7 +34,7 @@ import {
 } from "./checkpoint";
 import { isCurrentLocalRedactionWorkerVersion } from "../pc-worker/capabilities";
 import { automaticDesignEligibleSlideIndexes, manifestPublicTitles } from "../pc-worker/redaction-manifest";
-import { coverSlideBlockedMessage } from "./cover-slide";
+import { coverSlideBlockedMessage, coverSlideSubstitutionNotice } from "./cover-slide";
 import { sanitizeGeneratedHtml, sanitizeInlineHtml } from "../security/html";
 import {
   isCompletePortfolioSourceDownload,
@@ -949,12 +949,24 @@ export async function processNextPortfolioMockup(candidateId?: string) {
     const confidentialRegions = localRedactionRegions(localManifest, mockupPlan.indexes);
     const redactionVerification = verifyLocalRedactionSelection(localManifest, mockupPlan.indexes);
     const minimumSelectedSlides = mockupPlan.mode === "long" ? 18 : 5;
-    // 썸네일은 원본 표지만 씁니다. 표지를 못 쓰면 여기서 멈추고 사유를 남깁니다.
+    // 표지를 못 쓰면 다음 장표로 이어서 만들고, 그 사실을 기록에 남깁니다.
+    // 쓸 장표가 하나도 없을 때만 멈춥니다.
     if (mockupPlan.coverIndex === undefined) {
       throw new PortfolioRedactionSelectionBlocked(
         coverSlideBlockedMessage(mockupPlan.coverBlockedReason || "redaction_excluded"),
       );
     }
+    const coverSubstitution = mockupPlan.coverBlockedReason
+      && mockupPlan.coverSubstitutedSourceSlideNumber
+      ? {
+        reason: mockupPlan.coverBlockedReason,
+        usedSourceSlideNumber: mockupPlan.coverSubstitutedSourceSlideNumber,
+        notice: coverSlideSubstitutionNotice(
+          mockupPlan.coverBlockedReason,
+          mockupPlan.coverSubstitutedSourceSlideNumber,
+        ),
+      }
+      : null;
     if (!redactionVerification.verified
       || mockupPlan.selectedIndexes.length < minimumSelectedSlides) {
       throw new PortfolioRedactionSelectionBlocked(
@@ -1038,6 +1050,12 @@ export async function processNextPortfolioMockup(candidateId?: string) {
     const previousPortfolioAssets = Array.isArray(workItemMetadata.portfolioAssets)
       ? workItemMetadata.portfolioAssets.filter(isGeneratedPortfolioAsset)
       : [];
+    // 표지를 못 써서 다른 장표로 대신한 경우, 그 사실을 화면에 남깁니다.
+    if (coverSubstitution) {
+      workItemMetadata.coverSubstitution = coverSubstitution;
+    } else {
+      delete workItemMetadata.coverSubstitution;
+    }
     const restoreState = mockupOnly ? workItemMetadata.mockupOnlyRestoreState : null;
     const refreshedGenerated = mockupOnly
       ? replaceGeneratedPortfolioBodyAssets(

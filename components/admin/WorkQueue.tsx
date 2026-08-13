@@ -121,6 +121,8 @@ type WorkItem = {
     redactionMode?: "standard" | "confidential";
     confidentialRegions?: unknown[];
     portfolioStage?: "design_completed" | "draft_retry_wait" | "draft_completed" | "draft_failed";
+    /** 표지를 못 써서 다른 장표를 대표 이미지로 쓴 경우의 안내 */
+    coverSubstitution?: { reason?: string; usedSourceSlideNumber?: number; notice?: string };
   };
   content_review_assets?: { id: string; asset_type: "thumbnail" | "body_image" | "article_preview"; public_url: string; sort_order?: number; review_note?: string }[];
   portfolio_jobs?: PortfolioJob[];
@@ -1043,6 +1045,12 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
               <p className="mt-2 text-xs opacity-70">
                 생성에 실패해도 이 요청은 사라지지 않으며, 아래 재시도 버튼이 같은 요청을 다시 반영합니다.
               </p>
+            </section>
+          )}
+          {item.metadata?.coverSubstitution?.notice && (
+            <section className="mt-5 rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm leading-6 text-amber-950" role="alert">
+              <p className="font-bold">대표 썸네일이 표지가 아닙니다</p>
+              <p className="mt-1">{item.metadata.coverSubstitution.notice}</p>
             </section>
           )}
           {item.metadata?.publicationValidation?.duplicateLegacyUrl && (
