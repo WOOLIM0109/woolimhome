@@ -7,6 +7,29 @@ import {
   restorePcEligibleOversizedCandidates,
 } from "@/lib/naver-works/job-runner";
 import { processNextPortfolioMockup } from "@/lib/portfolio/job-runner";
+import { generateContentWorkItem } from "@/lib/content-ops/generate";
+import { GeminiAutomationBlocked, runBudgetedGeminiAutomation } from "@/lib/gemini/automation";
+import type { EditorialSlot } from "@/lib/content-ops/types";
+
+/**
+ * 예약 일정에 맞춰 원고까지 자동으로 만들지 여부.
+ *
+ * 예전에는 크론에서 AI를 전혀 부르지 않았습니다. 그때는 지출 상한이 없어서
+ * 자동 생성이 곧 요금 폭탄이었기 때문입니다.
+ * 지금은 월·일 상한과 사용량 기록이 있어, 상한이 브레이크 역할을 합니다.
+ * 상한을 넘으면 생성을 건너뛰고 다음 시간에 다시 시도합니다.
+ *
+ * 끄고 싶으면 환경변수 CONTENT_AUTO_GENERATION 을 false 로 두면 됩니다.
+ * 자동으로 만드는 것은 원고까지입니다. 발행은 어떤 경우에도 사람이 합니다.
+ */
+function autoGenerationEnabled() {
+  return process.env.CONTENT_AUTO_GENERATION !== "false";
+}
+
+/** 한 번 도는 동안 만들 원고 수. 시간과 비용을 함께 아끼려고 한 편씩만 만듭니다. */
+const AUTO_GENERATION_PER_RUN = 1;
+/** 같은 자리에서 실패를 반복하며 예산을 태우지 않도록 시도 횟수를 제한합니다. */
+const AUTO_GENERATION_MAX_ATTEMPTS = 2;
 
 export const maxDuration = 300;
 
@@ -74,6 +97,12 @@ export async function GET(request: Request) {
     .filter((slot) => slot.weekday === kst.weekday && slot.hour <= kst.hour)
     .filter((slot) => slot.key !== "home-sat" || isoWeek(currentKoreaDate) % 2 === 0);
   const scheduled: unknown[] = [];
+  const autoTargets: {
+    slot: EditorialSlot;
+    scheduleKey: string;
+    workItem: { id: string; status: string; metadata: unknown };
+    attempts: number;
+  }[] = [];
   for (const slot of due) {
     const scheduleKey = `${kst.date}-${slot.key}`;
     const scheduledAt = new Date(
@@ -137,16 +166,85 @@ export async function GET(request: Request) {
     if (error) throw new Error(error.message);
     const workItem = data || (await admin.from("content_work_items")
       .select("*").eq("schedule_key", scheduleKey).single()).data;
-    if (workItem) scheduled.push(workItem);
+    if (workItem) {
+      scheduled.push(workItem);
+      // 아직 원고가 없는 자리만 자동 생성 대상으로 모읍니다.
+      if (workItem.status === "topic_candidate" && slot.channel !== "homepage") {
+        const attempts = Number(
+          (workItem.metadata as Record<string, unknown> | null)?.autoGenerationAttempts || 0,
+        );
+        if (attempts < AUTO_GENERATION_MAX_ATTEMPTS) {
+          autoTargets.push({ slot, scheduleKey, workItem, attempts });
+        }
+      }
+    }
+  }
+
+  /**
+   * 예약된 자리에 실제 원고를 만듭니다.
+   *
+   * 상한을 넘으면 GeminiAutomationBlocked 로 멈추고 다음 시간에 다시 시도합니다.
+   * 만들어진 원고는 검토요청으로 들어가며, 발행은 사람이 승인해야 진행됩니다.
+   */
+  const autoGeneration: unknown[] = [];
+  let aiCalls = 0;
+  if (autoGenerationEnabled()) {
+    for (const target of autoTargets.slice(0, AUTO_GENERATION_PER_RUN)) {
+      await admin.from("content_work_items").update({
+        metadata: {
+          ...((target.workItem.metadata as Record<string, unknown> | null) || {}),
+          autoGenerationAttempts: target.attempts + 1,
+          autoGenerationStartedAt: new Date().toISOString(),
+        },
+        updated_at: new Date().toISOString(),
+      }).eq("id", target.workItem.id);
+      try {
+        const result = await runBudgetedGeminiAutomation({
+          operation: "cron-content-generate",
+          actor: "cron",
+          // 주제 기획 + 후보별 조사 + 본문 생성
+          plannedCalls: 6,
+        }, () => generateContentWorkItem(target.slot, target.scheduleKey));
+        aiCalls += 6;
+        autoGeneration.push({ scheduleKey: target.scheduleKey, status: "generated", result });
+      } catch (error) {
+        const blocked = error instanceof GeminiAutomationBlocked;
+        const message = error instanceof Error ? error.message : "자동 생성 실패";
+        autoGeneration.push({
+          scheduleKey: target.scheduleKey,
+          status: blocked ? "budget_blocked" : "failed",
+          reason: message,
+        });
+        // 상한 때문에 멈춘 것이면 시도 횟수를 되돌려 다음 기회를 남깁니다.
+        if (blocked) {
+          await admin.from("content_work_items").update({
+            metadata: {
+              ...((target.workItem.metadata as Record<string, unknown> | null) || {}),
+              autoGenerationAttempts: target.attempts,
+              autoGenerationBlockedReason: message,
+            },
+            updated_at: new Date().toISOString(),
+          }).eq("id", target.workItem.id);
+          break;
+        }
+        await admin.from("content_work_items").update({
+          status: "on_hold",
+          review_note: `자동 생성 보류: ${message}`,
+          updated_at: new Date().toISOString(),
+        }).eq("id", target.workItem.id);
+      }
+    }
   }
 
   const completedAt = new Date().toISOString();
   const metrics = {
-    code: "GEMINI_COST_PROTECTION_ACTIVE",
-    aiCalls: 0,
+    code: autoGenerationEnabled() ? "CONTENT_AUTO_GENERATION_ON" : "GEMINI_COST_PROTECTION_ACTIVE",
+    aiCalls,
     localProgress,
     scheduledCount: scheduled.length,
-    skippedAiStages: ["content_generation", "style_retry", "portfolio_draft"],
+    autoGeneration,
+    // 문체 재작성과 포트폴리오 본문은 여전히 사람이 눌러야 시작합니다.
+    skippedAiStages: ["style_retry", "portfolio_draft"],
   };
   await admin.from("content_automation_runs").update({
     status: "completed",
