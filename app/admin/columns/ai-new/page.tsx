@@ -10,6 +10,8 @@ type Result = {
   post?: { id: string; title: string };
   blocked?: boolean;
   issues?: string[];
+  /** 저장은 했지만 다듬을 곳. 글을 버리지 않고 함께 알려 줍니다. */
+  styleWarnings?: string[];
   expertQuestions?: string[];
   validation?: { charCount: number; h2Count: number; faqCount: number; sourceCount: number };
   error?: string;
@@ -88,9 +90,20 @@ export default function AiNewColumnPage() {
       )}
       {result?.post && (
         <ResultBox tone="success">
-          <h2 className="font-bold">비공개 초안이 생성되었습니다.</h2>
+          <h2 className="font-bold">
+            {result.styleWarnings?.length ? "비공개 초안을 저장했습니다. 다듬을 곳이 있습니다." : "비공개 초안이 생성되었습니다."}
+          </h2>
           <p className="mt-2">{result.post.title}</p>
           {result.validation && <p className="mt-3 text-sm">본문 {result.validation.charCount.toLocaleString("ko-KR")}자 · H2 {result.validation.h2Count}개 · FAQ {result.validation.faqCount}개 · 출처 {result.validation.sourceCount}개</p>}
+          {result.styleWarnings?.length ? (
+            <div className="mt-4 rounded-sm border border-amber-200 bg-amber-50 p-4">
+              <p className="font-bold">발행 전에 손볼 곳</p>
+              {result.styleWarnings.map((warning) => <p key={warning} className="mt-2 text-sm">· {warning}</p>)}
+            </div>
+          ) : null}
+          {result.expertQuestions?.length ? (
+            <div className="mt-4"><p className="font-bold">대표님께 확인할 질문</p>{result.expertQuestions.map((question) => <p key={question} className="mt-2 text-sm">· {question}</p>)}</div>
+          ) : null}
           <Link href={`/admin/columns/edit/${result.post.id}`} className="mt-5 inline-block rounded-sm bg-[#24523c] px-5 py-2.5 font-bold text-white">편집기에서 검토하기</Link>
         </ResultBox>
       )}

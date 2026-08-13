@@ -137,8 +137,8 @@ export async function GET(request: Request) {
   const writeOne = (hint: string, key: string) => runBudgetedGeminiAutomation({
     operation: "cron-column-generate",
     actor: "cron",
-    // 조사 1회 + 본문 생성 1회 + 분량 미달 시 재생성 1회 + 문체만 걸렸을 때 1회
-    plannedCalls: 4,
+    // 조사 1회 + 본문 생성 1회 + 분량 미달 시 1회 + 문체만 걸렸을 때 2회
+    plannedCalls: 5,
   }, () => generateColumn({
     topicHint: hint,
     createdBy: AUTOMATION_EMAIL,
@@ -162,13 +162,15 @@ export async function GET(request: Request) {
     }
     const metrics = {
       code: "COLUMN_AUTO_GENERATION_ON",
-      aiCalls: 4 + caughtUp * 4,
+      aiCalls: 5 + caughtUp * 5,
       scheduleKey,
       interviewRequest,
       caughtUp,
       catchupReason,
       blocked: Boolean(result?.blocked),
-      reason: result?.blocked ? "초안을 만들었으나 검증에서 보류되었습니다." : "칼럼 초안을 생성했습니다.",
+      reason: result?.blocked
+        ? "초안을 만들었으나 검증에서 보류되었습니다."
+        : "칼럼 초안을 생성했습니다.",
     };
     await completeRun("completed", metrics);
     return NextResponse.json({ success: true, ...metrics });

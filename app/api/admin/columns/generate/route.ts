@@ -4,7 +4,8 @@ import { generateColumn } from "@/lib/columns/generate";
 import { GeminiAutomationBlocked, runBudgetedGeminiAutomation } from "@/lib/gemini/automation";
 import { createClient } from "@/lib/supabase/server";
 
-export const maxDuration = 180;
+// 문체 재작성까지 붙어 몇 분이 걸립니다. 180초로는 만들다가 끊깁니다.
+export const maxDuration = 300;
 
 export async function POST(request: Request) {
   const supabase = await createClient();
@@ -20,8 +21,8 @@ export async function POST(request: Request) {
     const result = await runBudgetedGeminiAutomation({
       operation: "column-generate",
       actor: user.email || "admin",
-      // 조사 1회 + 본문 생성 1회 + 분량 미달 시 재생성 1회
-      plannedCalls: 3,
+      // 조사 1회 + 본문 생성 1회 + 분량 미달 시 1회 + 문체만 걸렸을 때 2회
+      plannedCalls: 5,
     }, () => generateColumn({
       topicHint: typeof body.topicHint === "string" ? body.topicHint.trim() : undefined,
       sourceUrls: Array.isArray(body.sourceUrls) ? body.sourceUrls : [],

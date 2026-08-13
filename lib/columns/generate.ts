@@ -8,10 +8,17 @@ import {
   FRIENDLY_EDITORIAL_STYLE_RULES,
   friendlyStyleIssues,
 } from "@/lib/content-ops/editorial-style";
+import {
+  KNOWLEDGE_PER_COLUMN,
+  KNOWLEDGE_POOL_LIMIT,
+  selectRotatingKnowledge,
+} from "./knowledge-rotation";
 import { stripVerificationControlText } from "./verification";
 import type { ColumnFaq, ColumnKind, ColumnSource } from "./types";
 
 const MODEL = "gemini-3.5-flash";
+/** 문체만 걸렸을 때 다시 써 보는 횟수. 한 번 고치면 다른 곳이 걸리는 일이 잦습니다. */
+const STYLE_REPAIR_ATTEMPTS = 2;
 const OFFICIAL_FEEDS = [
   { url: "https://mss.go.kr/rss/smba/board/310.do", publisher: "중소벤처기업부", label: "사업공고" },
   { url: "https://mss.go.kr/rss/smba/board/86.do", publisher: "중소벤처기업부", label: "보도자료" },
@@ -133,11 +140,13 @@ export async function generateColumn(input: {
 
   const admin = createAdminClient();
   const [{ data: knowledge }, feedSources, supplied] = await Promise.all([
-    admin.from("column_expert_knowledge").select("*").eq("approved", true).order("created_at", { ascending: false }).limit(12),
+    // 승인 자료를 넉넉히 읽고, 어떤 열두 개를 쓸지는 아래에서 돌아가며 고릅니다.
+    admin.from("column_expert_knowledge").select("*").eq("approved", true)
+      .order("created_at", { ascending: false }).limit(KNOWLEDGE_POOL_LIMIT),
     rssCandidates(),
     Promise.all((input.sourceUrls || []).slice(0, 8).map(suppliedCandidate)),
   ]);
-  const writingKnowledge = (knowledge || []).map((item) => ({
+  const writingKnowledge = selectRotatingKnowledge(knowledge || [], KNOWLEDGE_PER_COLUMN).map((item) => ({
     ...item,
     raw_text: stripVerificationControlText(item.raw_text).slice(0, AI_INPUT_LIMITS.knowledgeRawText),
     perspective: stripVerificationControlText(item.perspective),
@@ -330,11 +339,14 @@ ${JSON.stringify(generated)}
      *
      * 예전에는 상투 문구 하나 때문에 3,500자 칼럼이 통째로 사라졌습니다.
      * 조사와 작성에 쓴 호출은 그대로 버려지고 남는 것이 없었습니다.
-     * 자료·분량 문제가 아니라 표현만 걸렸다면 한 번만 다시 씁니다.
+     * 자료·분량 문제가 아니라 표현만 걸렸다면 그 부분만 다시 씁니다.
+     * 한 곳을 고치면 다른 곳이 걸리는 일이 잦아 두 번까지 시도합니다.
+     * 그래도 남으면 버리지 않고 아래에서 비공개 초안으로 저장합니다.
      */
-    const styleOnly = checked.issues.length > 0
-      && checked.issues.every((issue) => checked.styleIssues.includes(issue));
-    if (styleOnly) {
+    for (let attempt = 0; attempt < STYLE_REPAIR_ATTEMPTS; attempt += 1) {
+      const styleOnly = checked.issues.length > 0
+        && checked.issues.every((issue) => checked.styleIssues.includes(issue));
+      if (!styleOnly) break;
       const repaired = await requestGemini(`
 다음 JSON은 표현 규칙에 걸린 한국어 비즈니스 칼럼 초안입니다.
 아래 지적된 표현만 자연스러운 다른 말로 바꾸고, 그 밖의 내용·구조·출처·FAQ는 그대로 두세요.
@@ -352,10 +364,9 @@ ${JSON.stringify(generated)}
       }));
       const repairedCheck = inspect(repaired);
       // 고친 글이 더 나을 때만 씁니다. 더 나빠지면 처음 글을 그대로 둡니다.
-      if (repairedCheck.issues.length < checked.issues.length) {
-        generated = repaired;
-        checked = repairedCheck;
-      }
+      if (repairedCheck.issues.length >= checked.issues.length) break;
+      generated = repaired;
+      checked = repairedCheck;
     }
 
     const usedSources = checked.usedSources;
@@ -365,7 +376,16 @@ ${JSON.stringify(generated)}
     const h2Count = checked.h2Count;
     const blockquoteCount = checked.blockquoteCount;
 
-    const blocked = issues.length > 0;
+    /**
+     * 다듬을 곳과 못 쓸 글을 갈라 봅니다.
+     *
+     * 출처가 모자라거나 분량이 짧은 글은 고쳐 쓸 수 없으니 버립니다.
+     * 그러나 FAQ 한 줄이 길다는 이유로 3,500자를 버리는 것은 낭비였습니다.
+     * 문체만 남았으면 비공개 초안으로 저장하고, 어디를 다듬을지 함께 적어 둡니다.
+     * 발행은 어차피 사람이 확인한 뒤에 합니다.
+     */
+    const styleWarnings = issues.filter((issue) => checked.styleIssues.includes(issue));
+    const blocked = issues.length > styleWarnings.length;
     if (blocked) {
       await admin.from("column_generation_runs").update({
         status: "blocked",
@@ -397,13 +417,14 @@ ${JSON.stringify(generated)}
       audience: generated.audience,
       core_message: generated.coreMessage,
       published: false,
-      generation_status: "generated",
+      generation_status: styleWarnings.length ? "needs_style_fix" : "generated",
       generation_metadata: {
         run_id: run.data.id,
         sources: sourceRecords,
         faqs: generated.faqs,
         knowledge_ids: usedKnowledgeIds,
         validation: { charCount, h2Count, blockquoteCount, sourceCount: sourceRecords.length },
+        styleWarnings,
       },
       author_email: input.createdBy,
     }).select().single();
@@ -424,10 +445,29 @@ ${JSON.stringify(generated)}
       post_id: post.id,
       status: "generated",
       response_payload: generated,
-      validation_result: { issues: [], charCount, h2Count, blockquoteCount, sourceCount: sourceRecords.length },
+      validation_result: {
+        issues: [],
+        styleWarnings,
+        charCount,
+        h2Count,
+        blockquoteCount,
+        sourceCount: sourceRecords.length,
+      },
       completed_at: new Date().toISOString(),
     }).eq("id", run.data.id);
-    return { blocked: false, post, validation: { charCount, h2Count, blockquoteCount, faqCount: generated.faqs.length, sourceCount: sourceRecords.length } };
+    return {
+      blocked: false,
+      post,
+      styleWarnings,
+      expertQuestions: generated.expertQuestions || [],
+      validation: {
+        charCount,
+        h2Count,
+        blockquoteCount,
+        faqCount: generated.faqs.length,
+        sourceCount: sourceRecords.length,
+      },
+    };
   } catch (error) {
     const retry = geminiRetryDecision(error, 0);
     await admin.from("column_generation_runs").update({
