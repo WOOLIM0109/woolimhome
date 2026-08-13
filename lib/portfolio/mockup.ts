@@ -32,6 +32,7 @@ import {
 } from "../pc-worker/redaction-manifest";
 import { normalizeCoverTitle, suggestCoverTitles } from "./cover-title";
 import { coverSlideBlockedMessage, resolveCoverSlide } from "./cover-slide";
+import { excludePhotoHeavySlides } from "./photo-heavy";
 import {
   classifyImageRegion,
   imageRegionStats,
@@ -554,15 +555,29 @@ export function portfolioMockupIndexes(
   const eligibleSlideIndexes = localManifest
     ? automaticDesignEligibleSlideIndexes(localManifest)
     : Array.from({ length: slideCount }, (_, index) => index);
-  const eligible = new Set(eligibleSlideIndexes);
   const mode = localManifest
     ? portfolioMockupMode(localManifest.sourceSlideCount)
     : portfolioMockupMode(slideCount);
+  /**
+   * 보여 줄 것이 적은 장표를 선정에서 뺍니다.
+   *
+   * 사진으로 뒤덮인 장표는 가리고 나면 남는 것이 없고,
+   * 표 하나로 꽉 찬 장표는 자료 목록에 가까워 디자인을 보여 주지 못합니다.
+   * 목업에 필요한 최소 장수를 못 채우게 되면 덜 심한 것부터 되살립니다.
+   */
+  const usable = localManifest
+    ? excludePhotoHeavySlides({
+      slides: localManifest.slides,
+      eligibleSlideIndexes,
+      minimumKept: mode === "long" ? 18 : 5,
+    })
+    : { keptSlideIndexes: eligibleSlideIndexes, excludedSlideIndexes: [] };
+  const eligible = new Set(usable.keptSlideIndexes);
   const selection = localManifest
     ? selectPortfolioSlides({
       slideCount,
       assessments: review?.slideAssessments || [],
-      eligibleSlideIndexes,
+      eligibleSlideIndexes: usable.keptSlideIndexes,
       modeOverride: mode === "insufficient" ? undefined : mode,
     })
     : review?.selection || selectPortfolioSlides({
@@ -591,6 +606,8 @@ export function portfolioMockupIndexes(
     selection,
     coverIndex,
     coverBlockedReason: cover.blockedReason,
+    // 사진·표로 뒤덮여 뺀 장표. 화면에서 몇 장이 빠졌는지 알려 주는 데 씁니다.
+    lowValueSlideIndexes: usable.excludedSlideIndexes,
     coverSubstitutedSourceSlideNumber: cover.substitutedSourceSlideNumber,
     eligibleSlideIndexes,
     blockedSlideIndexes: localManifest
