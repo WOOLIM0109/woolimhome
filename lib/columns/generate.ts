@@ -125,6 +125,8 @@ export async function generateColumn(input: {
   topicHint?: string;
   sourceUrls?: string[];
   createdBy: string;
+  /** 어느 회차로 만든 글인지 기록에 남깁니다. 밀린 회차를 세는 데 씁니다. */
+  scheduleKey?: string;
 }) {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) throw new Error("GEMINI_API_KEY가 설정되지 않았습니다.");
@@ -172,7 +174,11 @@ export async function generateColumn(input: {
   const run = await admin.from("column_generation_runs").insert({
     status: "started",
     model: MODEL,
-    request_payload: { topicHint: input.topicHint, sourceUrls: input.sourceUrls },
+    request_payload: {
+      topicHint: input.topicHint,
+      sourceUrls: input.sourceUrls,
+      ...(input.scheduleKey ? { scheduleKey: input.scheduleKey } : {}),
+    },
     created_by: input.createdBy,
   }).select("id").single();
   if (run.error) throw new Error(run.error.message);
@@ -277,31 +283,87 @@ ${JSON.stringify(generated)}
       initialCharCount = visibleText(generated.bodyHtml).replace(/\s/g, "").length;
     }
 
-    const usedSources = generated.usedSourceUrls
-      .map((url) => candidates.find((source) => source.url === url))
-      .filter((source): source is Candidate => Boolean(source));
-    const approvedKnowledgeIds = new Set(writingKnowledge.map((item) => item.id));
-    const usedKnowledgeIds = [...new Set(generated.usedKnowledgeIds || [])]
-      .filter((id) => approvedKnowledgeIds.has(id));
-    const issues: string[] = [];
-    const charCount = initialCharCount;
-    const h2Count = (generated.bodyHtml.match(/<h2[\s>]/gi) || []).length;
-    const blockquoteCount = (generated.bodyHtml.match(/<blockquote[\s>]/gi) || []).length;
-    if (charCount < COLUMN_MIN_BODY_CHARS) issues.push(`본문이 짧습니다(${charCount}자).`);
-    if (h2Count < 3) issues.push("H2가 3개 미만입니다.");
-    if (generated.faqs.length < 3 || generated.faqs.length > 4) issues.push("FAQ는 3~4개여야 합니다.");
-    issues.push(...friendlyStyleIssues(generated.bodyHtml, generated.faqs));
-    if (usedSources.length < 2) issues.push("독립된 공식 출처가 2개 미만입니다.");
-    if (generated.contentKind !== "informational" && !writingKnowledge.length) {
-      issues.push("하이브리드·권위형에 필요한 승인된 원천자료가 없습니다.");
+    const inspect = (draft: typeof generated) => {
+      const sources = draft.usedSourceUrls
+        .map((url) => candidates.find((source) => source.url === url))
+        .filter((source): source is Candidate => Boolean(source));
+      const approvedKnowledgeIds = new Set(writingKnowledge.map((item) => item.id));
+      const knowledgeIds = [...new Set(draft.usedKnowledgeIds || [])]
+        .filter((id) => approvedKnowledgeIds.has(id));
+      const found: string[] = [];
+      const chars = visibleText(draft.bodyHtml).replace(/\s/g, "").length;
+      const headings = (draft.bodyHtml.match(/<h2[\s>]/gi) || []).length;
+      const quotes = (draft.bodyHtml.match(/<blockquote[\s>]/gi) || []).length;
+      if (chars < COLUMN_MIN_BODY_CHARS) found.push(`본문이 짧습니다(${chars}자).`);
+      if (headings < 3) found.push("H2가 3개 미만입니다.");
+      if (draft.faqs.length < 3 || draft.faqs.length > 4) found.push("FAQ는 3~4개여야 합니다.");
+      const styleIssues = friendlyStyleIssues(draft.bodyHtml, draft.faqs);
+      found.push(...styleIssues);
+      if (sources.length < 2) found.push("독립된 공식 출처가 2개 미만입니다.");
+      if (draft.contentKind !== "informational" && !writingKnowledge.length) {
+        found.push("하이브리드·권위형에 필요한 승인된 원천자료가 없습니다.");
+      }
+      if (draft.contentKind !== "informational" && knowledgeIds.length === 0) {
+        found.push("대표님의 승인 원천자료를 실제로 사용하지 않았습니다.");
+      }
+      if (draft.contentKind !== "informational" && quotes < 1) {
+        found.push("대표님의 실제 표현을 보존한 인용문이 없습니다.");
+      }
+      if (/<script|<iframe|on\w+=|javascript:/i.test(draft.bodyHtml)) {
+        found.push("허용되지 않은 HTML이 있습니다.");
+      }
+      return {
+        issues: found,
+        styleIssues,
+        usedSources: sources,
+        usedKnowledgeIds: knowledgeIds,
+        charCount: chars,
+        h2Count: headings,
+        blockquoteCount: quotes,
+      };
+    };
+
+    let checked = inspect(generated);
+
+    /**
+     * 문체만 걸렸을 때 글을 버리지 않고 그 부분만 고쳐 씁니다.
+     *
+     * 예전에는 상투 문구 하나 때문에 3,500자 칼럼이 통째로 사라졌습니다.
+     * 조사와 작성에 쓴 호출은 그대로 버려지고 남는 것이 없었습니다.
+     * 자료·분량 문제가 아니라 표현만 걸렸다면 한 번만 다시 씁니다.
+     */
+    const styleOnly = checked.issues.length > 0
+      && checked.issues.every((issue) => checked.styleIssues.includes(issue));
+    if (styleOnly) {
+      const repaired = await requestGemini(`
+다음 JSON은 표현 규칙에 걸린 한국어 비즈니스 칼럼 초안입니다.
+아래 지적된 표현만 자연스러운 다른 말로 바꾸고, 그 밖의 내용·구조·출처·FAQ는 그대로 두세요.
+분량을 줄이지 말고, 사실을 새로 만들지 마세요. JSON만 반환하세요.
+
+[고칠 점]
+${checked.issues.map((issue) => `- ${issue}`).join("\n")}
+
+${JSON.stringify(generated)}
+`);
+      repaired.bodyHtml = sanitizeGeneratedHtml(repaired.bodyHtml || "");
+      repaired.faqs = (repaired.faqs || []).map((faq) => ({
+        question: sanitizeInlineHtml(faq.question || ""),
+        answer: sanitizeInlineHtml(faq.answer || ""),
+      }));
+      const repairedCheck = inspect(repaired);
+      // 고친 글이 더 나을 때만 씁니다. 더 나빠지면 처음 글을 그대로 둡니다.
+      if (repairedCheck.issues.length < checked.issues.length) {
+        generated = repaired;
+        checked = repairedCheck;
+      }
     }
-    if (generated.contentKind !== "informational" && usedKnowledgeIds.length === 0) {
-      issues.push("대표님의 승인 원천자료를 실제로 사용하지 않았습니다.");
-    }
-    if (generated.contentKind !== "informational" && blockquoteCount < 1) {
-      issues.push("대표님의 실제 표현을 보존한 인용문이 없습니다.");
-    }
-    if (/<script|<iframe|on\w+=|javascript:/i.test(generated.bodyHtml)) issues.push("허용되지 않은 HTML이 있습니다.");
+
+    const usedSources = checked.usedSources;
+    const usedKnowledgeIds = checked.usedKnowledgeIds;
+    const issues = checked.issues;
+    const charCount = checked.charCount;
+    const h2Count = checked.h2Count;
+    const blockquoteCount = checked.blockquoteCount;
 
     const blocked = issues.length > 0;
     if (blocked) {

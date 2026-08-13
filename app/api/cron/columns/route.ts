@@ -3,17 +3,16 @@ import { generateColumn } from "@/lib/columns/generate";
 import { GeminiAutomationBlocked, runBudgetedGeminiAutomation } from "@/lib/gemini/automation";
 import { ensureInterviewRequest } from "@/lib/columns/interview-requests";
 import { createAdminClient } from "@/lib/supabase/admin";
+import {
+  COLUMN_CATCHUP_LOOKBACK_DAYS,
+  columnCatchupCount,
+  dueColumnDates,
+  isoWeek,
+} from "@/lib/columns/catchup";
 
 // 칼럼 본문 생성은 몇 분이 걸립니다. 30초로는 만들다가 끊깁니다.
 export const maxDuration = 300;
 const AUTOMATION_EMAIL = "automation@woolimcompany.kr";
-
-function isoWeek(date: Date) {
-  const value = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
-  value.setUTCDate(value.getUTCDate() + 4 - (value.getUTCDay() || 7));
-  const yearStart = new Date(Date.UTC(value.getUTCFullYear(), 0, 1));
-  return Math.ceil((((value.getTime() - yearStart.getTime()) / 86_400_000) + 1) / 7);
-}
 
 function topicHintForDay(day: number, hasKnowledge: boolean) {
   if (day === 2) return "최신 공식자료 기반 정보형 주제";
@@ -57,6 +56,28 @@ export async function GET(request: Request) {
   if (day === 6 && isoWeek(kst) % 2 !== 0) {
     await completeRun("skipped", { aiCalls: 0, reason: "Alternating Saturday" });
     return NextResponse.json({ skipped: true, aiCalls: 0, reason: "Alternating Saturday" });
+  }
+
+  /**
+   * 지난 일주일에 놓친 회차를 셉니다.
+   *
+   * 크론은 하루 한 번만 돌고, 그날 실패하면 그 회차는 그대로 사라졌습니다.
+   * 실제로 두 편이 그렇게 없어졌습니다. 이제 다음 회차에서 한 편씩 채웁니다.
+   * 사람이 직접 쓴 글도 나온 것으로 세므로, 손으로 채웠으면 다시 만들지 않습니다.
+   */
+  async function countMissedColumns() {
+    if (process.env.COLUMN_CATCHUP === "false") return 0;
+    const dueDates = dueColumnDates(kst, COLUMN_CATCHUP_LOOKBACK_DAYS);
+    if (!dueDates.length) return 0;
+    // 오늘 만든 글은 세지 않습니다. 세면 어제까지 빠진 회차가 가려집니다.
+    const since = new Date(now.getTime() - COLUMN_CATCHUP_LOOKBACK_DAYS * 86_400_000);
+    const until = new Date(`${dateKey}T00:00:00+09:00`);
+    const { count, error: countError } = await admin.from("column_posts")
+      .select("id", { count: "exact", head: true })
+      .gte("created_at", since.toISOString())
+      .lt("created_at", until.toISOString());
+    if (countError) return 0;
+    return columnCatchupCount(dueDates.length, Number(count || 0));
   }
 
   const scheduleKey = `${dateKey}-${day}`;
@@ -113,21 +134,39 @@ export async function GET(request: Request) {
     return NextResponse.json({ success: true, ...metrics });
   }
 
+  const writeOne = (hint: string, key: string) => runBudgetedGeminiAutomation({
+    operation: "cron-column-generate",
+    actor: "cron",
+    // 조사 1회 + 본문 생성 1회 + 분량 미달 시 재생성 1회 + 문체만 걸렸을 때 1회
+    plannedCalls: 4,
+  }, () => generateColumn({
+    topicHint: hint,
+    createdBy: AUTOMATION_EMAIL,
+    scheduleKey: key,
+  }));
+
   try {
-    const result = await runBudgetedGeminiAutomation({
-      operation: "cron-column-generate",
-      actor: "cron",
-      // 조사 1회 + 본문 생성 1회 + 분량 미달 시 재생성 1회
-      plannedCalls: 3,
-    }, () => generateColumn({
-      topicHint,
-      createdBy: AUTOMATION_EMAIL,
-    }));
+    const result = await writeOne(topicHint, scheduleKey);
+    // 오늘 것을 만든 뒤, 지난주에 빠진 회차가 있으면 한 편만 더 채웁니다.
+    let caughtUp = 0;
+    let catchupReason = "";
+    if (await countMissedColumns() > 0) {
+      try {
+        await writeOne(topicHint, `${scheduleKey}-catchup`);
+        caughtUp = 1;
+      } catch (catchupError) {
+        catchupReason = catchupError instanceof Error
+          ? catchupError.message
+          : "밀린 칼럼을 채우지 못했습니다.";
+      }
+    }
     const metrics = {
       code: "COLUMN_AUTO_GENERATION_ON",
-      aiCalls: 3,
+      aiCalls: 4 + caughtUp * 4,
       scheduleKey,
       interviewRequest,
+      caughtUp,
+      catchupReason,
       blocked: Boolean(result?.blocked),
       reason: result?.blocked ? "초안을 만들었으나 검증에서 보류되었습니다." : "칼럼 초안을 생성했습니다.",
     };
