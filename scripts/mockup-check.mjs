@@ -23,6 +23,7 @@ import {
   automaticDesignEligibleSlideIndexes,
   validateLocalRedactionManifest,
 } from "../lib/pc-worker/redaction-manifest.ts";
+import { resolveCoverSlide } from "../lib/portfolio/cover-slide.ts";
 import { MIN_LOCAL_REDACTION_WORKER_VERSION } from "../lib/pc-worker/capabilities.ts";
 
 // ── 환경변수 읽기 (doctor 와 같은 방식) ─────────────────────
@@ -90,7 +91,7 @@ if (url && key) {
     const ids = items.map((item) => item.id);
     const { data: jobs, error: jobsError } = await db
       .from("content_jobs")
-      .select("id,work_item_id,candidate_id,job_type,status,result,error_message,updated_at")
+      .select("id,work_item_id,candidate_id,job_type,status,result,error_message,updated_at,attempts,max_attempts,next_retry_at,started_at")
       .in("work_item_id", ids.length ? ids : ["none"])
       .in("job_type", ["download", "convert", "mockup", "draft"]);
     if (jobsError) {
@@ -167,12 +168,19 @@ if (url && key) {
             if (eligible.length < 18) {
               manifestNote += " · 긴 문서 기준 18장에 미달";
             }
-            if (!parsed.manifest.slides.some((slide) => slide.sourceSlideNumber === 1)) {
-              reasons.push("표지(원본 1장)가 변환에서 빠져 썸네일을 만들 수 없습니다");
-            } else if (eligible.length && !eligible.includes(
-              parsed.manifest.slides.find((slide) => slide.sourceSlideNumber === 1).slideIndex,
-            )) {
-              reasons.push("표지가 가림 검사에서 제외되어 썸네일을 만들 수 없습니다");
+            // 표지 판정은 화면과 같은 규칙을 씁니다. 여기서 규칙을 따로 쓰면
+            // 도구와 화면이 서로 다른 말을 합니다. 실제로 그런 적이 있습니다.
+            const cover = resolveCoverSlide({
+              slides: parsed.manifest.slides,
+              eligibleSlideIndexes: eligible,
+            });
+            if (cover.coverIndex === undefined) {
+              manifestNote += " · 쓸 수 있는 장표가 없어 썸네일을 만들 수 없음";
+              reasons.push("가림 검사를 통과한 장표가 하나도 없습니다");
+            } else if (cover.blockedReason === "not_converted") {
+              manifestNote += ` · 표지 대신 ${cover.substitutedSourceSlideNumber}번 장표 사용(변환 실패)`;
+            } else if (cover.blockedReason === "redaction_excluded") {
+              manifestNote += ` · 표지 대신 ${cover.substitutedSourceSlideNumber}번 장표 사용(가림 제외)`;
             }
           }
           if (!versionAtLeast(workerVersion, MIN_LOCAL_REDACTION_WORKER_VERSION)) {
@@ -183,7 +191,36 @@ if (url && key) {
           }
         }
 
-        verdicts.push({ item, reasons, workerVersion, manifestNote, mockupStatus: mockup[0]?.status });
+        /** 목업·초안 작업이 지금 어떤 상태로 멈춰 있는지 한 줄로 만듭니다. */
+        function jobNote(job, label) {
+          if (!job) return `${label} 기록 없음`;
+          const parts = [`${label} ${job.status}`];
+          if (job.attempts) parts.push(`시도 ${job.attempts}/${job.max_attempts ?? "?"}`);
+          if (job.next_retry_at) parts.push(`다음 재시도 ${job.next_retry_at.slice(0, 16).replace("T", " ")}`);
+          if (job.updated_at) parts.push(`마지막 갱신 ${job.updated_at.slice(0, 16).replace("T", " ")}`);
+          if (job.error_message) parts.push(`오류: ${String(job.error_message).slice(0, 160)}`);
+          return parts.join(" · ");
+        }
+        const draft = jobList.filter((job) => job.job_type === "draft");
+        const mockupNote = jobNote(mockup[0], "목업");
+        const draftNote = jobNote(draft[0], "초안");
+
+        // 큐에 남아 있는데 오래 움직이지 않는 작업을 짚어 줍니다.
+        const stalledMinutes = mockup[0]?.updated_at
+          ? Math.round((Date.now() - new Date(mockup[0].updated_at).getTime()) / 60000)
+          : null;
+        if (mockup[0] && ["queued", "running", "failed"].includes(mockup[0].status)
+          && stalledMinutes !== null && stalledMinutes > 20) {
+          reasons.push(`목업 작업이 ${mockup[0].status} 상태로 ${stalledMinutes}분째 멈춰 있습니다`);
+        }
+        if (mockup[0]?.status === "on_hold") {
+          reasons.push("목업 작업이 보류(on_hold) 상태라 자동으로 집어가지 않습니다");
+        }
+
+        verdicts.push({
+          item, reasons, workerVersion, manifestNote,
+          mockupStatus: mockup[0]?.status, mockupNote, draftNote,
+        });
       }
 
       const blocked = verdicts.filter((verdict) => verdict.reasons.length);
@@ -198,6 +235,8 @@ if (url && key) {
         console.log(`■ [${when}] ${(verdict.item.title || "(제목 없음)").slice(0, 50)}`);
         console.log(`   상태 ${verdict.item.status} · 워커 ${verdict.workerVersion} · 목업작업 ${verdict.mockupStatus || "없음"}`);
         if (verdict.manifestNote) console.log(`   ${verdict.manifestNote}`);
+        console.log(`   ${verdict.mockupNote}`);
+        console.log(`   ${verdict.draftNote}`);
         for (const reason of verdict.reasons) console.log(`   → ${reason}`);
         console.log("");
       }
@@ -206,7 +245,9 @@ if (url && key) {
         console.log("── 바로 다시 만들 수 있는 작업 ──");
         for (const verdict of ready) {
           const when = verdict.item.scheduled_at ? verdict.item.scheduled_at.slice(0, 10) : "일정없음";
-          console.log(`   · [${when}] ${(verdict.item.title || "").slice(0, 50)}  (${verdict.manifestNote})`);
+          console.log(`   · [${when}] ${(verdict.item.title || "").slice(0, 50)}`);
+          console.log(`     ${verdict.manifestNote}`);
+          console.log(`     ${verdict.mockupNote}`);
         }
         console.log("");
       }
