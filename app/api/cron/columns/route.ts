@@ -1,8 +1,11 @@
 import { NextResponse } from "next/server";
+import { generateColumn } from "@/lib/columns/generate";
+import { GeminiAutomationBlocked, runBudgetedGeminiAutomation } from "@/lib/gemini/automation";
 import { ensureInterviewRequest } from "@/lib/columns/interview-requests";
 import { createAdminClient } from "@/lib/supabase/admin";
 
-export const maxDuration = 30;
+// 칼럼 본문 생성은 몇 분이 걸립니다. 30초로는 만들다가 끊깁니다.
+export const maxDuration = 300;
 const AUTOMATION_EMAIL = "automation@woolimcompany.kr";
 
 function isoWeek(date: Date) {
@@ -76,34 +79,71 @@ export async function GET(request: Request) {
     return NextResponse.json({ skipped: true, aiCalls: 0, reason: "Expert knowledge depleted", interviewRequest });
   }
 
-  const marker = await admin.from("column_generation_runs").insert({
-    status: "blocked",
-    model: "cost-protection-deterministic-scheduler",
-    request_payload: {
-      scheduleKey,
-      day,
-      topicHint: topicHintForDay(day, hasKnowledge),
-      mode: day === 2 ? "informational" : day === 4 ? "hybrid" : "authority",
-      awaitingAiConfirmation: true,
-    },
-    response_payload: {
-      code: "GEMINI_COST_PROTECTION_ACTIVE",
-      aiCalls: 0,
-      nextAction: "/admin/editorial-maintenance",
-    },
-    created_by: AUTOMATION_EMAIL,
-    completed_at: new Date().toISOString(),
-  }).select("id").single();
-  if (marker.error) return NextResponse.json({ error: marker.error.message }, { status: 500 });
+  const topicHint = topicHintForDay(day, hasKnowledge);
 
-  const metrics = {
-    code: "GEMINI_COST_PROTECTION_ACTIVE",
-    aiCalls: 0,
-    scheduleKey,
-    markerId: marker.data.id,
-    interviewRequest,
-    reason: "일정과 자료 요청만 준비했으며 AI 생성은 실행하지 않았습니다.",
-  };
-  await completeRun("completed", metrics);
-  return NextResponse.json({ success: true, ...metrics });
+  /**
+   * 칼럼 초안을 실제로 만듭니다.
+   *
+   * 예전에는 일정만 적어 두고 AI를 부르지 않아, 칼럼이 한 편도 자동으로 나오지 않았습니다.
+   * 지금은 월·일 지출 상한이 있으므로 상한을 브레이크로 삼아 생성까지 진행합니다.
+   * 상한에 걸리면 기록만 남기고 다음 일정에 다시 시도합니다.
+   * 만들어진 초안은 검토 대기로 들어가며, 발행은 사람이 확인한 뒤에 합니다.
+   *
+   * 끄고 싶으면 환경변수 COLUMN_AUTO_GENERATION 을 false 로 두면 됩니다.
+   */
+  if (process.env.COLUMN_AUTO_GENERATION === "false") {
+    const marker = await admin.from("column_generation_runs").insert({
+      status: "blocked",
+      model: "cost-protection-deterministic-scheduler",
+      request_payload: { scheduleKey, day, topicHint, awaitingAiConfirmation: true },
+      response_payload: { code: "COLUMN_AUTO_GENERATION_OFF", aiCalls: 0 },
+      created_by: AUTOMATION_EMAIL,
+      completed_at: new Date().toISOString(),
+    }).select("id").single();
+    if (marker.error) return NextResponse.json({ error: marker.error.message }, { status: 500 });
+    const metrics = {
+      code: "COLUMN_AUTO_GENERATION_OFF",
+      aiCalls: 0,
+      scheduleKey,
+      markerId: marker.data.id,
+      interviewRequest,
+      reason: "자동 생성이 꺼져 있어 일정만 준비했습니다.",
+    };
+    await completeRun("completed", metrics);
+    return NextResponse.json({ success: true, ...metrics });
+  }
+
+  try {
+    const result = await runBudgetedGeminiAutomation({
+      operation: "cron-column-generate",
+      actor: "cron",
+      // 조사 1회 + 본문 생성 1회 + 분량 미달 시 재생성 1회
+      plannedCalls: 3,
+    }, () => generateColumn({
+      topicHint,
+      createdBy: AUTOMATION_EMAIL,
+    }));
+    const metrics = {
+      code: "COLUMN_AUTO_GENERATION_ON",
+      aiCalls: 3,
+      scheduleKey,
+      interviewRequest,
+      blocked: Boolean(result?.blocked),
+      reason: result?.blocked ? "초안을 만들었으나 검증에서 보류되었습니다." : "칼럼 초안을 생성했습니다.",
+    };
+    await completeRun("completed", metrics);
+    return NextResponse.json({ success: true, ...metrics });
+  } catch (error) {
+    const budgetBlocked = error instanceof GeminiAutomationBlocked;
+    const message = error instanceof Error ? error.message : "칼럼 자동 생성 실패";
+    const metrics = {
+      code: budgetBlocked ? "GEMINI_BUDGET_EXCEEDED" : "COLUMN_AUTO_GENERATION_FAILED",
+      aiCalls: 0,
+      scheduleKey,
+      interviewRequest,
+      reason: message,
+    };
+    await completeRun("skipped", metrics);
+    return NextResponse.json({ skipped: true, ...metrics });
+  }
 }
