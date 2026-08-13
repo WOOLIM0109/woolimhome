@@ -9,8 +9,11 @@ export const LOCAL_REDACTION_WORKER_CAPABILITY = "powerpoint_selective_redaction
  *
  * 2.7.0 에서는 장표의 공개용 제목까지 함께 보냅니다.
  * 그 글자가 없으면 서버가 문서 주제를 몰라 일반론만 쓴 글이 나옵니다.
+ *
+ * 2.8.0 에서는 표지의 전체 배경 그림을 버리지 않고 그대로 씁니다.
+ * 그 전에는 표지가 통째로 변환에서 빠져 대표 썸네일을 만들지 못했습니다.
  */
-export const MIN_LOCAL_REDACTION_WORKER_VERSION = "2.7.0";
+export const MIN_LOCAL_REDACTION_WORKER_VERSION = "2.8.0";
 
 function numericVersion(value: unknown) {
   if (typeof value !== "string") return null;

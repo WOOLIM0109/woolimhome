@@ -6,7 +6,7 @@
 )
 
 $ErrorActionPreference = "Stop"
-$WorkerVersion = "2.7.0"
+$WorkerVersion = "2.8.0"
 
 function Get-WorkerSetting {
   param(
@@ -46,6 +46,8 @@ $ConfiguredPdfRenderer = Get-WorkerSetting -Name "WOOLIM_PDFTOPPM_PATH"
 # 이 글자가 없으면 서버가 문서 주제를 몰라 일반론만 쓴 글이 나옵니다.
 # 식별자로 분류된 줄은 절대 담지 않습니다.
 $script:CurrentSlidePublicTitles = New-Object System.Collections.Generic.List[string]
+# 지금 검사 중인 장표의 원본 번호. 표지(1장)만 다르게 다루기 위해 씁니다.
+$script:CurrentSourceSlideNumber = 0
 $PublicTitleMaxPerSlide = 6
 $PublicTitleMaxLength = 120
 
@@ -1143,6 +1145,16 @@ function Test-ShapeGeometryMatches {
   }
 }
 
+function Test-CanKeepCoverFullSlidePicture {
+  # 표지는 장표 전체를 덮는 배경 그림으로 만드는 경우가 대부분입니다.
+  # 그런 장표를 통째로 버리면 대표 썸네일에 쓸 표지가 사라집니다.
+  # 담당자 판단으로, 표지에 한해 전체 배경 그림을 가리지 않고 그대로 씁니다.
+  # 되돌리려면 환경변수 WOOLIM_COVER_FULL_PICTURE 를 block 으로 두면 됩니다.
+  if ($script:CurrentSourceSlideNumber -ne 1) { return $false }
+  $setting = Get-WorkerSetting -Name "WOOLIM_COVER_FULL_PICTURE" -DefaultValue "keep"
+  return $setting -ne "block"
+}
+
 function Test-CanKeepFullSlideTemplatePicture {
   param(
     [ValidateSet("slide", "layout", "master")][string]$Scope,
@@ -1314,6 +1326,7 @@ function Get-ShapeRedactionRegions {
         -ForceIdentifier $ForceIdentifier.IsPresent) {
         return $regions.ToArray()
       }
+      if (Test-CanKeepCoverFullSlidePicture) { return $regions.ToArray() }
       throw "SLIDE_FULL_BACKGROUND_PICTURE_UNSUPPORTED: A picture or texture shape in the $Scope scope covers the full slide."
     }
     $pictureFillType = if ($ForceIdentifier.IsPresent) {
@@ -1407,6 +1420,7 @@ function Get-ShapeRedactionRegions {
       -ForceIdentifier $ForceIdentifier.IsPresent) {
       return $regions.ToArray()
     }
+    if (Test-CanKeepCoverFullSlidePicture) { return $regions.ToArray() }
     throw "SLIDE_FULL_BACKGROUND_PICTURE_UNSUPPORTED: A picture or texture shape in the $Scope scope covers the full slide."
   }
 
@@ -1767,6 +1781,7 @@ function Convert-Document {
             # A successful inspection may legitimately return no sensitive
             # regions. Such a slide is exported unchanged and marked verified.
             $script:CurrentSlidePublicTitles = New-Object System.Collections.Generic.List[string]
+            $script:CurrentSourceSlideNumber = $slideNumber
             $redactionRegions = @(Get-SlideRedactionRegions `
               -Slide $slide `
               -SlideIndex $exportedSlideIndex `
