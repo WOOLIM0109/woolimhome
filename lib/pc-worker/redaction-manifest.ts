@@ -81,6 +81,56 @@ export const RECOMMENDED_REDACTED_REGION_TYPES = DEFAULT_REDACTED_REGION_TYPES;
  */
 export const DEFAULT_SMALL_TEXT_MAX_HEIGHT = 0.028;
 
+/**
+ * 그 장표의 본문 대비 이 비율보다 작아야 '작은 글씨'로 봅니다.
+ *
+ * 높이 기준만으로는 빽빽한 문서를 감당하지 못했습니다.
+ * A4 가로에 9~10pt로 짜인 연구개발 제안서는 본문 전체가 기준 아래로 내려가,
+ * 장표 하나에서 가림 영역이 60개씩 잡히고 제목만 남은 채 전부 뿌옇게 나왔습니다.
+ *
+ * 그래서 절대 크기 대신 그 장표의 글씨 크기와 견줍니다.
+ * 본문과 비슷한 크기면 본문으로 보고, 본문보다 뚜렷하게 작을 때만 잔글씨로 봅니다.
+ * 이름·연락처처럼 내용으로 잡아내는 영역은 크기와 무관하게 그대로 가립니다.
+ *
+ * 값이 클수록 잔글씨로 보는 범위가 넓어집니다.
+ * 환경변수 PORTFOLIO_SMALL_TEXT_RELATIVE_RATIO 로 조정할 수 있습니다.
+ * 2 이상을 넣으면 상대 비교가 꺼져 예전처럼 높이 기준만 씁니다.
+ */
+export const DEFAULT_SMALL_TEXT_RELATIVE_RATIO = 0.85;
+
+export function smallTextRelativeRatio() {
+  const raw = Number(process.env.PORTFOLIO_SMALL_TEXT_RELATIVE_RATIO);
+  if (Number.isFinite(raw) && raw > 0 && raw <= 4) return raw;
+  return DEFAULT_SMALL_TEXT_RELATIVE_RATIO;
+}
+
+const TEXT_REGION_TYPES = new Set<string>(["small_text", "body_text"]);
+
+/**
+ * 견줄 글씨가 이만큼은 있어야 상대 비교를 씁니다.
+ *
+ * 글줄이 한둘뿐인 장표에서 중앙값을 내면 그 잔글씨 자신이 기준이 되어
+ * 각주가 본문으로 둔갑합니다. 그런 장표는 예전처럼 높이 기준만 씁니다.
+ */
+export const SMALL_TEXT_RELATIVE_MIN_SAMPLES = 3;
+
+/** 그 장표의 대표 글씨 높이(중앙값). 견줄 것이 없으면 0 입니다. */
+export function slideTextReferenceHeight(
+  regions: { type: LocalRedactionRegionType; height?: number }[],
+) {
+  const heights = regions
+    .filter((region) => TEXT_REGION_TYPES.has(region.type))
+    .map((region) => region.height)
+    .filter((height): height is number => typeof height === "number" && height > 0)
+    .sort((left, right) => left - right);
+  if (heights.length < SMALL_TEXT_RELATIVE_MIN_SAMPLES) return 0;
+  const middle = Math.floor(heights.length / 2);
+  if (heights.length % 2 === 1) return heights[middle] ?? 0;
+  const lower = heights[middle - 1] ?? 0;
+  const upper = heights[middle] ?? 0;
+  return (lower + upper) / 2;
+}
+
 const ALL_REGION_TYPES = Object.keys(REGION_LABELS) as LocalRedactionRegionType[];
 
 export function redactedRegionTypes(): Set<LocalRedactionRegionType> {
@@ -123,11 +173,16 @@ export function redactableRegions<T extends { type: LocalRedactionRegionType; he
 ) {
   const allowed = redactedRegionTypes();
   const maxHeight = smallTextMaxHeight();
+  const reference = slideTextReferenceHeight(regions);
+  const ratio = smallTextRelativeRatio();
   return regions.filter((region) => {
     if (!allowed.has(region.type)) return false;
     // 작은 글씨로 기록됐어도 실제 높이가 본문 크기면 남깁니다.
     if (region.type === "small_text" && typeof region.height === "number") {
-      return region.height <= maxHeight;
+      if (region.height > maxHeight) return false;
+      // 그 장표의 다른 글씨와 비슷한 크기면 잔글씨가 아니라 본문입니다.
+      if (reference > 0 && region.height >= reference * ratio) return false;
+      return true;
     }
     return true;
   });

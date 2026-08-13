@@ -572,7 +572,20 @@ export function portfolioMockupIndexes(
       minimumKept: mode === "long" ? 18 : 5,
     })
     : { keptSlideIndexes: eligibleSlideIndexes, excludedSlideIndexes: [] };
+  /**
+   * 표지는 사진 제외 규칙보다 먼저 확보합니다.
+   *
+   * 표지는 장표 전체가 사진인 경우가 흔합니다. 사진 제외 규칙을 먼저 걸면
+   * 표지가 통째로 빠져 엉뚱한 장표가 대표 썸네일이 됩니다. 실제로 그렇게 됐습니다.
+   * 그래서 가림 검사만 통과했으면 표지는 사진이든 아니든 그대로 씁니다.
+   */
+  const cover = resolveCoverSlide({
+    slides: localManifest?.slides,
+    eligibleSlideIndexes,
+  });
+  const coverIndex = cover.coverIndex;
   const eligible = new Set(usable.keptSlideIndexes);
+  if (coverIndex !== undefined) eligible.add(coverIndex);
   const selection = localManifest
     ? selectPortfolioSlides({
       slideCount,
@@ -587,13 +600,6 @@ export function portfolioMockupIndexes(
   const selectedIndexes = selection.selectedSlideIndexes
     .filter((index) => index >= 0 && index < slideCount && eligible.has(index));
   const groups = mode === "long" ? buildSixGridGroups(selectedIndexes) : [];
-  // 대표 썸네일은 원본 PPT의 표지(1장)만 씁니다.
-  // 워커가 변환하지 못한 장표를 건너뛰면 번호가 밀리므로 원본 장표 번호로 찾습니다.
-  const cover = resolveCoverSlide({
-    slides: localManifest?.slides,
-    eligibleSlideIndexes: eligible,
-  });
-  const coverIndex = cover.coverIndex;
   const indexes = [...new Set([
     ...(coverIndex === undefined ? [] : [coverIndex]),
     ...selectedIndexes,
@@ -607,7 +613,8 @@ export function portfolioMockupIndexes(
     coverIndex,
     coverBlockedReason: cover.blockedReason,
     // 사진·표로 뒤덮여 뺀 장표. 화면에서 몇 장이 빠졌는지 알려 주는 데 씁니다.
-    lowValueSlideIndexes: usable.excludedSlideIndexes,
+    // 표지는 다시 살렸으므로 뺀 장표로 세지 않습니다.
+    lowValueSlideIndexes: usable.excludedSlideIndexes.filter((index) => index !== coverIndex),
     coverSubstitutedSourceSlideNumber: cover.substitutedSourceSlideNumber,
     eligibleSlideIndexes,
     blockedSlideIndexes: localManifest

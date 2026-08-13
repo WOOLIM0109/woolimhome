@@ -36,6 +36,14 @@ type PhotoSlide = {
 export const PHOTO_HEAVY_MIN_COVERAGE = 0.3;
 /** 이 개수 이상 흩어져 있어야 '사진을 늘어놓은 장표'로 봅니다. */
 export const PHOTO_HEAVY_MIN_REGIONS = 3;
+/**
+ * 사진 한 장이 이 비율을 넘게 덮으면 조각 수와 관계없이 뺍니다.
+ *
+ * 조각 세 개 규칙만 두었더니 큰 사진 한두 장으로 꽉 찬 장표가 그대로 남아,
+ * 가리고 나면 화면 절반이 뿌연 목업이 올라갔습니다.
+ * 캐릭터나 아이콘은 이만큼 넓게 깔리지 않으므로 이 기준에 걸리지 않습니다.
+ */
+export const PHOTO_DOMINANT_MIN_COVERAGE = 0.45;
 
 function envNumber(name: string, fallback: number, max = 1) {
   const value = Number(process.env[name]);
@@ -105,11 +113,16 @@ export function isTableHeavySlide(slide: PhotoSlide) {
 
 export function isPhotoHeavySlide(slide: PhotoSlide) {
   const photos = slide.regions.filter((region) => region.type === "embedded_photo");
+  if (!photos.length) return false;
+  const coverage = photoCoverage(slide.regions);
+  // 큰 사진 한 장으로 꽉 찬 장표도 뺍니다. 조각 수를 따지지 않습니다.
+  if (coverage >= envNumber("PORTFOLIO_PHOTO_DOMINANT_MIN_COVERAGE", PHOTO_DOMINANT_MIN_COVERAGE)) {
+    return true;
+  }
   if (photos.length < envNumber("PORTFOLIO_PHOTO_HEAVY_MIN_REGIONS", PHOTO_HEAVY_MIN_REGIONS, 50)) {
     return false;
   }
-  return photoCoverage(slide.regions)
-    >= envNumber("PORTFOLIO_PHOTO_HEAVY_MIN_COVERAGE", PHOTO_HEAVY_MIN_COVERAGE);
+  return coverage >= envNumber("PORTFOLIO_PHOTO_HEAVY_MIN_COVERAGE", PHOTO_HEAVY_MIN_COVERAGE);
 }
 
 /**
