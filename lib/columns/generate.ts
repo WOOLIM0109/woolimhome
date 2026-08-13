@@ -263,6 +263,20 @@ JSON만 반환:
     return parseGeminiJson<Generated>(text);
   };
 
+  /** 글 전체가 아니라 바뀔 조각만 돌려받습니다. 응답이 잘릴 위험을 줄입니다. */
+  const requestGeminiPart = async (promptText: string) => {
+    const { text } = await generateGeminiText({
+      model: MODEL,
+      parts: [{ text: promptText }],
+      generationConfig: {
+        responseMimeType: "application/json",
+        maxOutputTokens: AI_OUTPUT_LIMITS.columnBody,
+      },
+      timeoutMs: 120_000,
+    });
+    return parseGeminiJson<Pick<Generated, "bodyHtml" | "faqs">>(text);
+  };
+
   try {
     let generated = await requestGemini(prompt);
     generated.bodyHtml = sanitizeGeneratedHtml(generated.bodyHtml || "");
@@ -347,21 +361,49 @@ ${JSON.stringify(generated)}
       const styleOnly = checked.issues.length > 0
         && checked.issues.every((issue) => checked.styleIssues.includes(issue));
       if (!styleOnly) break;
-      const repaired = await requestGemini(`
-다음 JSON은 표현 규칙에 걸린 한국어 비즈니스 칼럼 초안입니다.
-아래 지적된 표현만 자연스러운 다른 말로 바꾸고, 그 밖의 내용·구조·출처·FAQ는 그대로 두세요.
-분량을 줄이지 말고, 사실을 새로 만들지 마세요. JSON만 반환하세요.
+      /**
+       * 고쳐 쓰기가 실패해도 원래 글은 지킵니다.
+       *
+       * 예전에는 글 전체를 다시 받아 오게 했더니 응답이 잘려 JSON 이 깨졌고,
+       * 그 오류가 위로 튀어 멀쩡히 써 둔 3,500자까지 함께 사라졌습니다.
+       * 그래서 바뀔 부분만 돌려받고, 실패하면 조용히 원래 글을 씁니다.
+       */
+      let repaired: Generated | null = null;
+      try {
+        const patch = await requestGeminiPart(`
+다음은 표현 규칙에 걸린 한국어 비즈니스 칼럼입니다.
+아래 지적된 곳만 자연스러운 다른 말로 바꾸세요.
+내용·구조·출처·분량은 그대로 두고, 사실을 새로 만들지 마세요.
+
+{"bodyHtml": "고친 본문 HTML", "faqs": [{"question": "...", "answer": "..."}]}
+위 두 항목만 담은 JSON 하나만 반환하세요. 다른 항목은 넣지 마세요.
 
 [고칠 점]
 ${checked.issues.map((issue) => `- ${issue}`).join("\n")}
 
-${JSON.stringify(generated)}
+[본문]
+${generated.bodyHtml}
+
+[FAQ]
+${JSON.stringify(generated.faqs)}
 `);
-      repaired.bodyHtml = sanitizeGeneratedHtml(repaired.bodyHtml || "");
-      repaired.faqs = (repaired.faqs || []).map((faq) => ({
-        question: sanitizeInlineHtml(faq.question || ""),
-        answer: sanitizeInlineHtml(faq.answer || ""),
-      }));
+        const bodyHtml = sanitizeGeneratedHtml(patch.bodyHtml || "");
+        if (!bodyHtml.trim()) break;
+        repaired = {
+          ...generated,
+          bodyHtml,
+          faqs: (Array.isArray(patch.faqs) && patch.faqs.length
+            ? patch.faqs
+            : generated.faqs).map((faq) => ({
+            question: sanitizeInlineHtml(faq.question || ""),
+            answer: sanitizeInlineHtml(faq.answer || ""),
+          })),
+        };
+      } catch {
+        // 고쳐 쓰지 못했을 뿐입니다. 원래 글을 그대로 두고 넘어갑니다.
+        break;
+      }
+      if (!repaired) break;
       const repairedCheck = inspect(repaired);
       // 고친 글이 더 나을 때만 씁니다. 더 나빠지면 처음 글을 그대로 둡니다.
       if (repairedCheck.issues.length >= checked.issues.length) break;
