@@ -586,19 +586,47 @@ export function portfolioMockupIndexes(
   const coverIndex = cover.coverIndex;
   const eligible = new Set(usable.keptSlideIndexes);
   if (coverIndex !== undefined) eligible.add(coverIndex);
-  const selection = localManifest
-    ? selectPortfolioSlides({
-      slideCount,
-      assessments: review?.slideAssessments || [],
-      eligibleSlideIndexes: usable.keptSlideIndexes,
-      modeOverride: mode === "insufficient" ? undefined : mode,
-    })
+  const chooseSlides = (pool: number[]) => selectPortfolioSlides({
+    slideCount,
+    assessments: review?.slideAssessments || [],
+    eligibleSlideIndexes: pool,
+    modeOverride: mode === "insufficient" ? undefined : mode,
+  });
+  const keepInRange = (indexes: number[], pool: Set<number>) => indexes
+    .filter((index) => index >= 0 && index < slideCount && pool.has(index));
+
+  /** 목업을 만들려면 이만큼은 골라야 합니다. 못 채우면 작업이 보류됩니다. */
+  const minimumSelected = mode === "long" ? 18 : 5;
+  let selection = localManifest
+    ? chooseSlides(usable.keptSlideIndexes)
     : review?.selection || selectPortfolioSlides({
       slideCount,
       assessments: review?.slideAssessments || [],
     });
-  const selectedIndexes = selection.selectedSlideIndexes
-    .filter((index) => index >= 0 && index < slideCount && eligible.has(index));
+  let selectedIndexes = keepInRange(selection.selectedSlideIndexes, eligible);
+  let lowValueSlideIndexes: number[] = usable.excludedSlideIndexes;
+
+  /**
+   * 사진·표 장표를 뺐더니 고를 것이 모자라면 뺀 것을 다시 넣고 고릅니다.
+   *
+   * 선정 단계는 비슷한 화면을 다시 걸러 내므로, 남긴 장수보다 결과가 적습니다.
+   * 그래서 뺄 때 최소 장수만 맞춰 두면 선정에서 그 아래로 내려가 작업이 멈춥니다.
+   * 실제로 43장짜리 제안서가 12장만 골라져 보류됐습니다.
+   * 보기 좋은 장표를 고르는 것보다 목업이 나오는 것이 먼저입니다.
+   */
+  if (localManifest && selectedIndexes.length < minimumSelected
+    && usable.excludedSlideIndexes.length) {
+    const wholePool = new Set(eligibleSlideIndexes);
+    if (coverIndex !== undefined) wholePool.add(coverIndex);
+    const retry = chooseSlides(eligibleSlideIndexes);
+    const retryIndexes = keepInRange(retry.selectedSlideIndexes, wholePool);
+    if (retryIndexes.length > selectedIndexes.length) {
+      selection = retry;
+      selectedIndexes = retryIndexes;
+      lowValueSlideIndexes = [];
+      for (const index of retryIndexes) eligible.add(index);
+    }
+  }
   const groups = mode === "long" ? buildSixGridGroups(selectedIndexes) : [];
   const indexes = [...new Set([
     ...(coverIndex === undefined ? [] : [coverIndex]),
@@ -614,7 +642,7 @@ export function portfolioMockupIndexes(
     coverBlockedReason: cover.blockedReason,
     // 사진·표로 뒤덮여 뺀 장표. 화면에서 몇 장이 빠졌는지 알려 주는 데 씁니다.
     // 표지는 다시 살렸으므로 뺀 장표로 세지 않습니다.
-    lowValueSlideIndexes: usable.excludedSlideIndexes.filter((index) => index !== coverIndex),
+    lowValueSlideIndexes: lowValueSlideIndexes.filter((index) => index !== coverIndex),
     coverSubstitutedSourceSlideNumber: cover.substitutedSourceSlideNumber,
     eligibleSlideIndexes,
     blockedSlideIndexes: localManifest

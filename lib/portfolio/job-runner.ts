@@ -51,7 +51,7 @@ import {
   ownsPortfolioTerminalHold,
   type PortfolioTerminalHoldOwner,
 } from "./pipeline-generation";
-import { reflowPortfolioBodyFigures } from "./body-layout";
+import { reflowPortfolioBodyFigures, swapPortfolioBodyImages } from "./body-layout";
 import {
   completedMockupOnlyState,
   preserveMockupOnlyRestoreState,
@@ -121,34 +121,20 @@ function hasEnoughAutomaticDesignSlides(manifest: LocalRedactionManifest) {
     >= minimumAutomaticDesignSlideCount(manifest);
 }
 
+/** 본문의 그림만 새 목업으로 갈아 끼웁니다. 규칙은 body-layout 에 있습니다. */
 function replaceGeneratedPortfolioBodyAssets(
   generated: unknown,
-  previousAssets: GeneratedPortfolioAsset[],
   nextAssets: GeneratedPortfolioAsset[],
 ) {
   if (!generated || typeof generated !== "object" || Array.isArray(generated)) return null;
   const value = generated as Record<string, unknown>;
-  if (typeof value.bodyHtml !== "string" || !value.bodyHtml.trim()) return null;
-  const previousBodyAssets = previousAssets.filter((asset) => asset.kind === "body_image");
-  const nextBodyAssets = nextAssets.filter((asset) => asset.kind === "body_image");
-  if (!previousBodyAssets.length || previousBodyAssets.length !== nextBodyAssets.length) return null;
-
-  const replacements = new Map(previousBodyAssets.map((asset, index) => [
-    asset.url.replaceAll("&amp;", "&"),
-    nextBodyAssets[index].url,
-  ]));
-  let replacementCount = 0;
-  const bodyHtml = value.bodyHtml.replace(
-    /(<img\b[^>]*\bsrc\s*=\s*["'])([^"']+)(["'][^>]*>)/gi,
-    (match, prefix: string, rawUrl: string, suffix: string) => {
-      const nextUrl = replacements.get(rawUrl.replaceAll("&amp;", "&"));
-      if (!nextUrl) return match;
-      replacementCount += 1;
-      return `${prefix}${nextUrl}${suffix}`;
-    },
-  );
-  if (replacementCount !== previousBodyAssets.length) return null;
-  return { ...value, bodyHtml: sanitizeGeneratedHtml(reflowPortfolioBodyFigures(bodyHtml)) };
+  if (typeof value.bodyHtml !== "string") return null;
+  const nextUrls = nextAssets
+    .filter((asset) => asset.kind === "body_image")
+    .map((asset) => asset.url);
+  const swapped = swapPortfolioBodyImages(value.bodyHtml, nextUrls);
+  if (!swapped) return null;
+  return { ...value, bodyHtml: sanitizeGeneratedHtml(swapped.bodyHtml) };
 }
 
 function isPortfolioSlideRedactionProof(value: unknown): value is PortfolioSlideRedactionProof {
@@ -690,9 +676,17 @@ async function rejectCandidate(input: {
   }
 }
 
-export async function processNextPortfolioMockup(candidateId?: string) {
+export async function processNextPortfolioMockup(
+  candidateId?: string,
+  options: { deadlineAt?: number } = {},
+) {
   const admin = contentAdmin();
-  const executionDeadlineAt = Date.now() + 225_000;
+  // 한 번 실행에서 여러 건을 이어 처리할 때, 뒤에 오는 건이 제한 시간을 넘기지 않도록
+  // 부르는 쪽이 남은 시간을 함께 넘깁니다.
+  const executionDeadlineAt = Math.min(
+    Date.now() + 225_000,
+    options.deadlineAt ?? Number.POSITIVE_INFINITY,
+  );
   const shouldYield = () => Date.now() >= executionDeadlineAt - 65_000;
   const staleBefore = new Date(Date.now() - 8 * 60 * 1000).toISOString();
   const staleAt = new Date().toISOString();
@@ -1047,9 +1041,6 @@ export async function processNextPortfolioMockup(candidateId?: string) {
       .single();
     if (workItemError) throw new Error(workItemError.message);
     const workItemMetadata = { ...(workItem?.metadata || {}) } as Record<string, unknown>;
-    const previousPortfolioAssets = Array.isArray(workItemMetadata.portfolioAssets)
-      ? workItemMetadata.portfolioAssets.filter(isGeneratedPortfolioAsset)
-      : [];
     // 표지를 못 써서 다른 장표로 대신한 경우, 그 사실을 화면에 남깁니다.
     if (coverSubstitution) {
       workItemMetadata.coverSubstitution = coverSubstitution;
@@ -1058,14 +1049,10 @@ export async function processNextPortfolioMockup(candidateId?: string) {
     }
     const restoreState = mockupOnly ? workItemMetadata.mockupOnlyRestoreState : null;
     const refreshedGenerated = mockupOnly
-      ? replaceGeneratedPortfolioBodyAssets(
-        workItemMetadata.generated,
-        previousPortfolioAssets,
-        assets,
-      )
+      ? replaceGeneratedPortfolioBodyAssets(workItemMetadata.generated, assets)
       : null;
     if (mockupOnly && !refreshedGenerated) {
-      throw new Error("기존 본문의 이미지와 새 목업을 안전하게 일대일 교체하지 못했습니다.");
+      throw new Error("본문에서 바꿀 그림을 찾지 못해 목업만 교체할 수 없습니다. 글부터 다시 만들어야 합니다.");
     }
     if (!mockupOnly) {
       for (const key of ["generated", "validation", "generatedAt", "draftCompletedAt"]) {

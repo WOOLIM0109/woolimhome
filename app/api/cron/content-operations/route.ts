@@ -42,6 +42,9 @@ const AUTO_GENERATION_MAX_ATTEMPTS = 2;
 
 export const maxDuration = 300;
 
+/** 한 번 실행에서 이어 처리할 목업 최대 건수. 남은 시간이 없으면 그 전에 멈춥니다. */
+const MOCKUPS_PER_RUN = 4;
+
 function kstParts(date: Date) {
   const formatter = new Intl.DateTimeFormat("en-CA", {
     timeZone: "Asia/Seoul", year: "numeric", month: "2-digit", day: "2-digit",
@@ -84,9 +87,29 @@ export async function GET(request: Request) {
   try {
     const restoredCandidates = await restorePcEligibleOversizedCandidates();
     if (restoredCandidates) localProgress.push({ stage: "pc_direct_restore", restoredCandidates });
-    const mockup = await processNextPortfolioMockup();
-    if (mockup) localProgress.push(mockup);
-    if (!mockup) {
+    /**
+     * 밀린 목업을 한 번에 여러 건 처리합니다.
+     *
+     * 예전에는 한 번 실행에 한 건만 집어갔습니다. 크론이 한 시간에 한 번 도니
+     * 여섯 건을 다시 만들면 여섯 시간이 걸렸습니다. 실제로 그랬습니다.
+     * 첫 건은 예전과 똑같이 넉넉한 시간을 쓰고, 시간이 남을 때만 다음 건을 잇습니다.
+     */
+    const mockupStartedAt = Date.now();
+    const mockupDeadlineAt = mockupStartedAt + 240_000;
+    let processedMockups = 0;
+    let lastMockup: unknown = null;
+    while (processedMockups < MOCKUPS_PER_RUN) {
+      const mockup = processedMockups === 0
+        ? await processNextPortfolioMockup()
+        : await processNextPortfolioMockup(undefined, { deadlineAt: mockupDeadlineAt });
+      if (!mockup) break;
+      localProgress.push(mockup);
+      lastMockup = mockup;
+      processedMockups += 1;
+      // 남은 시간이 한 건을 더 끝낼 만큼 없으면 다음 실행으로 넘깁니다.
+      if (Date.now() - mockupStartedAt > 120_000) break;
+    }
+    if (!lastMockup) {
       const download = await processNextPortfolioDownload();
       if (download) localProgress.push(download);
     }
