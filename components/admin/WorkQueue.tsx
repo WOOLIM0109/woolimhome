@@ -1502,6 +1502,29 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
                   </button>
                 </>
               )}
+              {/*
+                예약 일정이 만들어 둔 '주제 후보' 를 실제로 시작하는 버튼입니다.
+
+                크론은 비용 보호를 위해 자리만 만들어 두고 AI를 부르지 않습니다.
+                그런데 사람이 확인해서 시작할 버튼이 없어서, 이 항목들이 아무것도
+                하지 않은 채 계속 쌓이기만 했습니다. 요약 문구는 "관리자 확인 후에만
+                실행됩니다"라고 하는데 확인할 방법이 없던 상태입니다.
+                홈페이지 칼럼은 칼럼 관리자에서 따로 만들므로 제외합니다.
+              */}
+              {item.format !== "portfolio"
+                && item.channel !== "homepage"
+                && item.status === "topic_candidate" && (
+                <button
+                  onClick={() => void update(item.id, { action: "regenerate" })}
+                  disabled={regeneratingId === item.id}
+                  className="inline-flex items-center gap-2 rounded-xl border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-950 hover:bg-emerald-100 disabled:cursor-wait disabled:opacity-60"
+                >
+                  <RotateCcw size={15} className={regeneratingId === item.id ? "animate-spin" : ""} />
+                  {regeneratingId === item.id
+                    ? "주제 조사부터 만드는 중…"
+                    : "지금 원고 만들기 · AI 사용"}
+                </button>
+              )}
               {item.format !== "portfolio"
                 && (
                   item.status === "creating"
