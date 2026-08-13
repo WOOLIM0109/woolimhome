@@ -26,8 +26,17 @@ function autoGenerationEnabled() {
   return process.env.CONTENT_AUTO_GENERATION !== "false";
 }
 
-/** 한 번 도는 동안 만들 원고 수. 시간과 비용을 함께 아끼려고 한 편씩만 만듭니다. */
-const AUTO_GENERATION_PER_RUN = 1;
+/**
+ * 한 번 도는 동안 만들 원고 수.
+ *
+ * 크론은 매시간 돌기 때문에 한 편씩만 만들어도 하루 스물몇 편까지 소화됩니다.
+ * 한 번에 여러 편을 만들면 5분 실행 제한에 걸려 중간에 끊깁니다.
+ * 밀린 양이 많아 더 빨리 당기고 싶으면 환경변수로 올릴 수 있습니다.
+ */
+const AUTO_GENERATION_PER_RUN = Math.max(
+  1,
+  Math.min(3, Number(process.env.CONTENT_AUTO_GENERATION_PER_RUN) || 1),
+);
 /** 같은 자리에서 실패를 반복하며 예산을 태우지 않도록 시도 횟수를 제한합니다. */
 const AUTO_GENERATION_MAX_ATTEMPTS = 2;
 
@@ -186,6 +195,47 @@ export async function GET(request: Request) {
    * 상한을 넘으면 GeminiAutomationBlocked 로 멈추고 다음 시간에 다시 시도합니다.
    * 만들어진 원고는 검토요청으로 들어가며, 발행은 사람이 승인해야 진행됩니다.
    */
+  /**
+   * 지난 날짜에 만들어져 아직 원고가 없는 자리도 함께 당겨옵니다.
+   *
+   * 오늘 예약분만 처리하면 그동안 쌓인 '주제 후보'는 영원히 그대로 남습니다.
+   * 오래된 것부터 한 편씩 채워 나가며, 상한에 걸리면 다음 시간에 이어서 합니다.
+   */
+  if (autoGenerationEnabled() && autoTargets.length < AUTO_GENERATION_PER_RUN) {
+    const { data: backlog } = await admin
+      .from("content_work_items")
+      .select("id,channel,format,status,schedule_key,scheduled_at,metadata")
+      .eq("status", "topic_candidate")
+      .in("channel", ["naver_consulting", "naver_design"])
+      .neq("format", "portfolio")
+      .not("schedule_key", "is", null)
+      .order("scheduled_at", { ascending: true })
+      .limit(20);
+    for (const item of backlog || []) {
+      if (autoTargets.length >= AUTO_GENERATION_PER_RUN) break;
+      if (autoTargets.some((target) => target.workItem.id === item.id)) continue;
+      const metadata = (item.metadata || {}) as Record<string, unknown>;
+      const attempts = Number(metadata.autoGenerationAttempts || 0);
+      if (attempts >= AUTO_GENERATION_MAX_ATTEMPTS) continue;
+      const configured = EDITORIAL_SLOTS.find((slot) => slot.key === metadata.slotKey);
+      const scheduledDate = item.scheduled_at ? new Date(item.scheduled_at) : now;
+      const slot: EditorialSlot = configured || {
+        key: item.schedule_key as string,
+        channel: item.channel as EditorialSlot["channel"],
+        format: item.format as EditorialSlot["format"],
+        weekday: scheduledDate.getDay(),
+        hour: scheduledDate.getHours(),
+        label: "밀린 예약 자리",
+      };
+      autoTargets.push({
+        slot,
+        scheduleKey: item.schedule_key as string,
+        workItem: { id: item.id, status: item.status, metadata: item.metadata },
+        attempts,
+      });
+    }
+  }
+
   const autoGeneration: unknown[] = [];
   let aiCalls = 0;
   if (autoGenerationEnabled()) {
