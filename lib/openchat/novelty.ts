@@ -23,6 +23,16 @@ function keywordOverlap(left: string[], right: string[]) {
   return Math.round((intersection / denominator) * 70);
 }
 
+/**
+ * 두 공고가 얼마나 닮았는지 0~100 으로 봅니다.
+ *
+ * 같은 사업의 지역만 다른 공고, 회차만 다른 공고가 하루 걸러 올라옵니다.
+ * 제목과 분류에 쓰인 낱말이 겹치는 정도로 가늠합니다.
+ */
+export function textSimilarity(left: string, right: string) {
+  return jaccard(tokens(left), tokens(right));
+}
+
 export function assessHistoricalSimilarity(
   candidate: { title: string; body: string; keywords: string[] },
   history: { id: string; title: string; summary?: string | null; keywords?: string[] | null }[],

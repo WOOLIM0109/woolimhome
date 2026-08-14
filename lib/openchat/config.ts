@@ -1,5 +1,22 @@
 export const OPENCHAT_ROOM_NAME = "[울림컴퍼니]정부지원사업 정보 + 사업계획서 작성법";
-export const MORNING_PROGRAM_LIMIT = 10;
+/**
+ * 하루에 내보낼 오전 공고 수.
+ *
+ * 열 건은 읽는 사람에게도 검토하는 사람에게도 많았습니다.
+ * 넘치는 후보는 버리지 않고 다음 영업일로 넘깁니다.
+ * 환경변수 OPENCHAT_MORNING_LIMIT 로 조정할 수 있습니다.
+ */
+export const MORNING_PROGRAM_LIMIT = 5;
+
+/** 상세정보가 빠진 공고를 한 번에 손볼 최대 건수. 내보내는 수와는 별개입니다. */
+export const MORNING_REPAIR_LIMIT = 10;
+
+export function morningProgramLimit() {
+  const value = Number(process.env.OPENCHAT_MORNING_LIMIT);
+  return Number.isFinite(value) && value >= 1 && value <= 30
+    ? Math.floor(value)
+    : MORNING_PROGRAM_LIMIT;
+}
 export const NOVELTY_LOOKBACK_DAYS = 90;
 
 export const CONSULTATION_FOOTER = `기업의 성장이 울림컴퍼니가 추구하는 최우선의 가치입니다.

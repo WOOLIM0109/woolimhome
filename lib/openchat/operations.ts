@@ -1,7 +1,8 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { analyzeProgramDeterministically, analyzePrograms, generateAfternoonContent } from "./ai";
 import { collectSource, hydratePrograms } from "./collectors";
-import { MORNING_PROGRAM_LIMIT } from "./config";
+import { MORNING_REPAIR_LIMIT, morningProgramLimit } from "./config";
+import { pickDistinctPrograms } from "./daily-pick";
 import { sendOpenchatNotification } from "./push";
 import type { CollectedProgram, OpenchatCronTask, OpenchatSource } from "./types";
 import { kstDate, kstWeekday, normalizeText, programDetailIssue, programFingerprint, programTitleKey } from "./utils";
@@ -86,7 +87,7 @@ async function repairIncompleteMorningPrograms(date: string) {
       deadlineAt: row.deadline_at,
     }))
     .sort((left, right) => Number(!/k-startup\.go\.kr/i.test(left.source_url)) - Number(!/k-startup\.go\.kr/i.test(right.source_url)))
-    .slice(0, MORNING_PROGRAM_LIMIT);
+    .slice(0, MORNING_REPAIR_LIMIT);
   if (!incomplete.length) return { attempted: 0, repaired: 0, stillIncomplete: 0, excluded: 0 };
 
   const candidates: CollectedProgram[] = incomplete.map((row) => {
@@ -99,7 +100,7 @@ async function repairIncompleteMorningPrograms(date: string) {
       sourcePayload: row.raw_payload || {},
     };
   });
-  const hydrated = await hydratePrograms(candidates, MORNING_PROGRAM_LIMIT);
+  const hydrated = await hydratePrograms(candidates, MORNING_REPAIR_LIMIT);
   const detailFetchFailures = hydrated.flatMap((program) => {
     const directError = program.sourcePayload?.detailFetchError;
     const readerError = program.sourcePayload?.detailReaderError;
@@ -318,14 +319,67 @@ async function collectMorningPrograms(date: string) {
   const { error: insertError } = await admin.from("openchat_programs")
     .upsert(rows, { onConflict: "fingerprint", ignoreDuplicates: true });
   if (insertError) throw new Error(insertError.message);
+  const trimmed = await limitDailyReviewQueue(date);
   return {
     collected: collected.length,
+    dailyLimit: trimmed,
     newPrograms: rows.filter((row) => row.status === "review_required").length,
     excluded: rows.filter((row) => row.status === "excluded").length,
     incomplete: rows.filter((row) => row.exclusion_reason?.startsWith("상세정보 수집 미완료")).length,
     repair,
     failures,
   };
+}
+
+/**
+ * 그날 검토할 공고를 정한 수만큼만 남깁니다.
+ *
+ * 수집된 것을 모두 올리면 하루에 열 건이 넘게 쌓이고,
+ * 같은 사업의 지역·회차만 다른 공고가 어제와 나란히 올라옵니다.
+ * 그래서 최근에 내보낸 것과 겹치지 않는 쪽을 먼저 고르고,
+ * 남는 것은 버리지 않고 다음 영업일 후보로 넘깁니다.
+ */
+async function limitDailyReviewQueue(date: string) {
+  const admin = createAdminClient();
+  const limit = morningProgramLimit();
+  const { data: todays, error } = await admin.from("openchat_programs")
+    .select("id,title,categories")
+    .eq("draft_for", date)
+    .eq("status", "review_required")
+    .order("priority")
+    .order("deadline_at");
+  if (error) throw new Error(error.message);
+  const candidates = todays || [];
+  if (candidates.length <= limit) return { kept: candidates.length, deferred: 0 };
+
+  // 최근에 내보낸 공고와 견줍니다. 어제 것과 판박이인 공고를 걸러 내는 자리입니다.
+  const since = new Date(`${date}T12:00:00+09:00`);
+  since.setUTCDate(since.getUTCDate() - 14);
+  const { data: recent, error: recentError } = await admin.from("openchat_programs")
+    .select("title,categories")
+    .in("status", ["ready", "published", "approved"])
+    .gte("draft_for", kstDate(since))
+    .lt("draft_for", date)
+    .limit(200);
+  if (recentError) throw new Error(recentError.message);
+
+  const decision = pickDistinctPrograms({
+    candidates: candidates.map((row) => ({
+      id: row.id,
+      title: row.title,
+      categories: row.categories,
+    })),
+    recent: recent || [],
+    limit,
+  });
+  if (!decision.deferred.length) return { kept: decision.picked.length, deferred: 0 };
+
+  const carryDate = await nextBusinessDay(date);
+  const { error: deferError } = await admin.from("openchat_programs")
+    .update({ status: "deferred", draft_for: carryDate, updated_at: new Date().toISOString() })
+    .in("id", decision.deferred);
+  if (deferError) throw new Error(deferError.message);
+  return { kept: decision.picked.length, deferred: decision.deferred.length, carryDate };
 }
 
 async function finalizeMorningCutoff(date: string) {
@@ -348,7 +402,7 @@ async function makeMorningReady(date: string) {
     .eq("status", "approved")
     .order("priority")
     .order("deadline_at")
-    .limit(MORNING_PROGRAM_LIMIT);
+    .limit(morningProgramLimit());
   if (approvedError) throw new Error(approvedError.message);
   const ids = (approved || []).map((row) => row.id);
   if (ids.length) {
