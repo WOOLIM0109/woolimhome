@@ -137,8 +137,8 @@ export async function GET(request: Request) {
   const writeOne = (hint: string, key: string) => runBudgetedGeminiAutomation({
     operation: "cron-column-generate",
     actor: "cron",
-    // 조사 1회 + 본문 생성 1회 + 분량 미달 시 1회 + 문체만 걸렸을 때 2회
-    plannedCalls: 5,
+    // 조사 1 + 작성 1 + 응답 실패 시 1 + 분량 미달 시 1 + 문체 2
+    plannedCalls: 6,
   }, () => generateColumn({
     topicHint: hint,
     createdBy: AUTOMATION_EMAIL,
@@ -162,7 +162,7 @@ export async function GET(request: Request) {
     }
     const metrics = {
       code: "COLUMN_AUTO_GENERATION_ON",
-      aiCalls: 5 + caughtUp * 5,
+      aiCalls: 6 + caughtUp * 6,
       scheduleKey,
       interviewRequest,
       caughtUp,

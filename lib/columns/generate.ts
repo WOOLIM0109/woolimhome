@@ -278,7 +278,21 @@ JSON만 반환:
   };
 
   try {
-    let generated = await requestGemini(prompt);
+    /**
+     * 응답을 읽지 못하면 한 번만 다시 부릅니다.
+     *
+     * 모델이 JSON 뒤에 설명을 덧붙이거나 응답이 잘리는 일이 있습니다.
+     * 그럴 때 그대로 실패시키면 조사에 쓴 호출까지 함께 버려집니다.
+     * 실제로 칼럼 한 편이 이 자리에서 사라졌습니다.
+     */
+    let generated: Generated;
+    try {
+      generated = await requestGemini(prompt);
+    } catch {
+      generated = await requestGemini(`${prompt}
+
+반드시 JSON 객체 하나만 반환하세요. 앞뒤에 설명 문장이나 코드 울타리를 붙이지 마세요.`);
+    }
     generated.bodyHtml = sanitizeGeneratedHtml(generated.bodyHtml || "");
     generated.faqs = (generated.faqs || []).map((faq) => ({
       question: sanitizeInlineHtml(faq.question || ""),
