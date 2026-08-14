@@ -3,6 +3,8 @@ import { analyzeProgramDeterministically, analyzePrograms, generateAfternoonCont
 import { collectSource, hydratePrograms } from "./collectors";
 import { MORNING_REPAIR_LIMIT, morningProgramLimit } from "./config";
 import { pickDistinctPrograms } from "./daily-pick";
+import { condenseProgramSummaries } from "./condense-run";
+import { GeminiAutomationBlocked, runBudgetedGeminiAutomation } from "@/lib/gemini/automation";
 import { sendOpenchatNotification } from "./push";
 import type { CollectedProgram, OpenchatCronTask, OpenchatSource } from "./types";
 import { kstDate, kstWeekday, normalizeText, programDetailIssue, programFingerprint, programTitleKey } from "./utils";
@@ -320,9 +322,11 @@ async function collectMorningPrograms(date: string) {
     .upsert(rows, { onConflict: "fingerprint", ignoreDuplicates: true });
   if (insertError) throw new Error(insertError.message);
   const trimmed = await limitDailyReviewQueue(date);
+  const condensed = await condenseDailyPrograms(date);
   return {
     collected: collected.length,
     dailyLimit: trimmed,
+    condensed,
     newPrograms: rows.filter((row) => row.status === "review_required").length,
     excluded: rows.filter((row) => row.status === "excluded").length,
     incomplete: rows.filter((row) => row.exclusion_reason?.startsWith("상세정보 수집 미완료")).length,
@@ -380,6 +384,61 @@ async function limitDailyReviewQueue(date: string) {
     .in("id", decision.deferred);
   if (deferError) throw new Error(deferError.message);
   return { kept: decision.picked.length, deferred: decision.deferred.length, carryDate };
+}
+
+/**
+ * 그날 내보낼 공고의 요약을 한 줄로 줄입니다.
+ *
+ * 수집한 원문은 기호와 단서가 겹겹이 붙어 그대로는 읽기 어렵습니다.
+ * 다섯 건을 한 번에 묶어 한 번만 부르므로 지출에 주는 부담이 작습니다.
+ * 상한에 걸리거나 실패하면 원문 요약을 그대로 둡니다. 게시가 멈추면 안 됩니다.
+ */
+async function condenseDailyPrograms(date: string) {
+  if (process.env.OPENCHAT_CONDENSE === "false") return { condensed: 0 };
+  const admin = createAdminClient();
+  const { data: todays, error } = await admin.from("openchat_programs")
+    .select("id,title,applicant_summary,support_summary,raw_payload")
+    .eq("draft_for", date)
+    .in("status", ["review_required", "approved"])
+    .order("priority")
+    .limit(morningProgramLimit());
+  if (error) throw new Error(error.message);
+  // 이미 줄인 공고는 다시 부르지 않습니다. 표시는 기존 raw_payload 에 남깁니다.
+  const targets = (todays || []).filter((row) => !(row.raw_payload || {}).condensedAt);
+  if (!targets.length) return { condensed: 0 };
+
+  try {
+    const rows = await runBudgetedGeminiAutomation({
+      operation: "openchat-morning-condense",
+      actor: "cron",
+      plannedCalls: 1,
+    }, () => condenseProgramSummaries(targets.map((row) => ({
+      id: row.id,
+      title: row.title,
+      applicantSummary: row.applicant_summary || "",
+      supportSummary: row.support_summary || "",
+    }))));
+    const now = new Date().toISOString();
+    for (const row of rows) {
+      const original = targets.find((item) => item.id === row.id);
+      if (!original) continue;
+      const { error: updateError } = await admin.from("openchat_programs").update({
+        applicant_summary: row.target || original.applicant_summary,
+        support_summary: row.support || original.support_summary,
+        raw_payload: { ...(original.raw_payload || {}), condensedAt: now },
+        updated_at: now,
+      }).eq("id", row.id);
+      if (updateError) throw new Error(updateError.message);
+    }
+    return { condensed: rows.length };
+  } catch (error) {
+    // 줄이지 못했을 뿐입니다. 원문 요약으로 그대로 내보냅니다.
+    const blocked = error instanceof GeminiAutomationBlocked;
+    return {
+      condensed: 0,
+      skipped: blocked ? "지출 상한" : (error instanceof Error ? error.message : "요약 압축 실패"),
+    };
+  }
 }
 
 async function finalizeMorningCutoff(date: string) {
