@@ -6,7 +6,7 @@
 )
 
 $ErrorActionPreference = "Stop"
-$WorkerVersion = "2.8.0"
+$WorkerVersion = "2.9.0"
 
 function Get-WorkerSetting {
   param(
@@ -71,6 +71,102 @@ function Write-WorkerLog {
   param([string]$Message)
   $line = "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') [$WorkerId] $Message"
   Add-Content -LiteralPath $LogPath -Value $line -Encoding UTF8
+}
+
+<#
+  워커 스스로 최신인지 확인하기
+
+  설치 스크립트는 저장소의 worker.ps1 을 %LOCALAPPDATA%\WoolimWorker\app 으로
+  복사하고, 작업 스케줄러는 그 복사본을 돌립니다.
+  그래서 저장소에서 git pull 만 해서는 돌고 있는 워커가 바뀌지 않았습니다.
+  실제로 한 PC 가 옛 버전으로 남아 변환마다 WORKER_UPGRADE_REQUIRED 를 냈습니다.
+
+  이제 워커가 뜰 때마다 설치해 온 저장소를 스스로 확인합니다.
+    · 저장소를 최신으로 당깁니다 (앞으로 감기만 합니다)
+    · 저장소의 worker.ps1 이 더 새 버전이면 설치 폴더에 다시 복사합니다
+    · 복사했으면 새 파일로 자신을 다시 띄우고 물러납니다
+
+  무엇 하나 실패해도 지금 버전으로 계속 일합니다. 멈추는 쪽이 더 나쁩니다.
+  끄려면 WOOLIM_WORKER_AUTO_UPDATE=off 로 두면 됩니다.
+#>
+function Get-WorkerScriptVersion {
+  param([Parameter(Mandatory = $true)][string]$Path)
+  try {
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return $null }
+    foreach ($line in Get-Content -LiteralPath $Path -TotalCount 40 -Encoding UTF8) {
+      if ($line -match '^\s*\$WorkerVersion\s*=\s*"([0-9]+\.[0-9]+\.[0-9]+)"') { return $Matches[1] }
+    }
+  } catch {
+    return $null
+  }
+  return $null
+}
+
+function Test-WorkerVersionNewer {
+  param([string]$Candidate, [string]$Current)
+  if (-not $Candidate -or -not $Current) { return $false }
+  try {
+    return ([version]$Candidate) -gt ([version]$Current)
+  } catch {
+    return $false
+  }
+}
+
+function Invoke-WorkerSelfUpdate {
+  if ($env:WOOLIM_WORKER_AUTO_UPDATE -eq "off") { return $false }
+  $source = [Environment]::GetEnvironmentVariable("WOOLIM_WORKER_SOURCE", "User")
+  if ([string]::IsNullOrWhiteSpace($source)) { return $false }
+  if (-not (Test-Path -LiteralPath $source -PathType Container)) {
+    Write-WorkerLog "Self-update skipped: source folder is missing."
+    return $false
+  }
+
+  # 저장소를 앞으로 감기로만 당깁니다. 로컬 변경이 있으면 git 이 스스로 멈춥니다.
+  $repo = Split-Path -Parent (Split-Path -Parent $source)
+  if (Test-Path -LiteralPath (Join-Path $repo ".git")) {
+    try {
+      $null = & git -C $repo fetch --quiet origin 2>&1
+      $pullOutput = & git -C $repo pull --ff-only --quiet origin main 2>&1
+      if ($LASTEXITCODE -ne 0) {
+        Write-WorkerLog "Self-update: repository was left as is. $pullOutput"
+      }
+    } catch {
+      Write-WorkerLog "Self-update: git is unavailable. Using the files already on disk."
+    }
+  }
+
+  $sourceWorker = Join-Path $source "worker.ps1"
+  $sourceVersion = Get-WorkerScriptVersion -Path $sourceWorker
+  if (-not (Test-WorkerVersionNewer -Candidate $sourceVersion -Current $WorkerVersion)) { return $false }
+
+  $installRoot = Join-Path $WorkerRoot "app"
+  try {
+    New-Item -ItemType Directory -Force -Path $installRoot | Out-Null
+    foreach ($fileName in @("worker.ps1", "install.ps1", "uninstall.ps1", "setup.ps1", "diagnose.ps1", "README.md")) {
+      $from = Join-Path $source $fileName
+      if (Test-Path -LiteralPath $from -PathType Leaf) {
+        Copy-Item -LiteralPath $from -Destination (Join-Path $installRoot $fileName) -Force
+      }
+    }
+  } catch {
+    Write-WorkerLog "Self-update failed while copying files: $($_.Exception.Message)"
+    return $false
+  }
+
+  Write-WorkerLog "Self-update: $WorkerVersion -> $sourceVersion. Restarting with the new file."
+  try {
+    $installedWorker = Join-Path $installRoot "worker.ps1"
+    # 경로에 공백이 있어도 끊기지 않도록 install.ps1 과 같은 방식으로 감쌉니다.
+    $relaunchArguments = "-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$installedWorker`""
+    Start-Process `
+      -FilePath "powershell.exe" `
+      -ArgumentList $relaunchArguments `
+      -WindowStyle Hidden | Out-Null
+  } catch {
+    Write-WorkerLog "Self-update: could not relaunch. The new file starts at the next logon."
+    return $false
+  }
+  return $true
 }
 
 function New-WorkerHeaders {
@@ -2005,6 +2101,10 @@ try {
   }
 
   Remove-StaleJobDirectories
+  if (Invoke-WorkerSelfUpdate) {
+    Write-Host "A newer worker was installed. This process is handing over."
+    exit 0
+  }
   Write-WorkerLog "Starting worker $WorkerVersion as '$WorkerName' for $ServerUrl."
 
 do {

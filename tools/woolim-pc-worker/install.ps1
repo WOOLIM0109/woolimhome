@@ -29,6 +29,17 @@ $DestinationWorker = Join-Path $InstallRoot "worker.ps1"
 $TaskName = "Woolim Worker - $WorkerId"
 $actionArguments = "-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$DestinationWorker`""
 
+# 어느 폴더에서 설치했는지 남깁니다.
+# 워커는 이 경로를 보고 스스로 최신인지 확인합니다.
+# 이 기록이 없으면 저장소에서 git pull 을 해도 돌고 있는 워커는 그대로였습니다.
+if (-not [System.IO.Path]::GetFullPath($PSScriptRoot).StartsWith(
+  [System.IO.Path]::GetFullPath($InstallRoot), [StringComparison]::OrdinalIgnoreCase)) {
+  if ($PSCmdlet.ShouldProcess("Current Windows user", "Remember the worker source folder")) {
+    [Environment]::SetEnvironmentVariable("WOOLIM_WORKER_SOURCE", $PSScriptRoot, "User")
+    [Environment]::SetEnvironmentVariable("WOOLIM_WORKER_SOURCE", $PSScriptRoot, "Process")
+  }
+}
+
 if ($PSCmdlet.ShouldProcess($InstallRoot, "Install Woolim worker files")) {
   New-Item -ItemType Directory -Force -Path $InstallRoot | Out-Null
   foreach ($fileName in @("worker.ps1", "install.ps1", "uninstall.ps1", "setup.ps1", "diagnose.ps1", "README.md")) {
@@ -102,3 +113,8 @@ if ($NoAutoStart) {
   Write-Host "Autostart task: $TaskName"
 }
 Write-Host "No secret was written to the script or scheduled-task arguments."
+$recordedSource = [Environment]::GetEnvironmentVariable("WOOLIM_WORKER_SOURCE", "User")
+if ($recordedSource) {
+  Write-Host "Update source: $recordedSource"
+  Write-Host "The worker checks this folder at startup and installs a newer version by itself."
+}
