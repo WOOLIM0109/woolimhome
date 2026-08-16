@@ -2,14 +2,12 @@
 
 import {
   CalendarDays,
-  ChevronDown,
   FileText,
   LogIn,
   LogOut,
   Palette,
   ShieldCheck,
 } from "lucide-react";
-import TwoWeekSchedule from "@/components/admin/TwoWeekSchedule";
 import { useAuth } from "@/hooks/useAuth";
 import PartnerQueue from "./PartnerQueue";
 
@@ -76,74 +74,79 @@ export default function PartnerPortal() {
 
         <PartnerQueue onUnauthorized={() => void signOut()} />
 
+        {/*
+          발행 횟수만 적습니다.
+
+          예전에는 '향후 2주 초안 일정'을 그대로 보여 줬습니다.
+          그 날짜는 원고를 만드는 날이지 네이버에 올리는 날이 아닙니다.
+          포스팅하는 분에게는 날짜가 어긋난 표로만 보여 혼란을 줬습니다.
+          실제 올리는 날은 원고가 준비된 뒤에 정해지므로, 주간 횟수만 안내합니다.
+        */}
         <section className="mt-10">
           <div className="mb-4 flex items-start gap-3">
             <span className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-orange-50 text-[var(--primary)]">
               <CalendarDays size={20} />
             </span>
             <div>
-              <h2 className="text-2xl font-bold">향후 2주 블로그 초안 일정</h2>
+              <h2 className="text-2xl font-bold">블로그 발행 횟수</h2>
               <p className="mt-1 text-sm leading-6 text-[var(--muted)]">
-                필요한 블로그 일정만 펼쳐서 확인해 주세요. 대표님 승인이 끝난 원고만 위 작업 목록에 표시됩니다.
+                대표님 승인이 끝난 원고만 위 작업 목록에 나타납니다. 목록에 뜨는 대로 올려 주시면 됩니다.
               </p>
             </div>
           </div>
 
-          <div className="space-y-3">
-            <details className="group overflow-hidden rounded-2xl border border-[var(--line)] bg-white">
-              <summary className="flex cursor-pointer list-none items-center justify-between gap-4 px-5 py-5 marker:content-none sm:px-6">
-                <span className="flex min-w-0 items-center gap-3">
-                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-orange-50 text-[var(--primary)]">
-                    <FileText size={19} />
-                  </span>
-                  <span className="min-w-0">
-                    <strong className="block">컨설팅 블로그 일정</strong>
-                    <small className="mt-0.5 block text-[var(--muted)]">정보형·울림 콘텐츠형 초안</small>
-                  </span>
-                </span>
-                <span className="flex shrink-0 items-center gap-2 text-sm font-bold text-[var(--muted)]">
-                  <span className="group-open:hidden">일정 보기</span>
-                  <span className="hidden group-open:inline">일정 접기</span>
-                  <ChevronDown className="transition-transform group-open:rotate-180" size={18} />
-                </span>
-              </summary>
-              <div className="border-t border-[var(--line)] p-3 sm:p-5">
-                <TwoWeekSchedule
-                  channel="naver_consulting"
-                  statusHeading="작업실 표시"
-                  statusText="대표 승인 후 작업 목록에 표시"
-                />
-              </div>
-            </details>
-
-            <details className="group overflow-hidden rounded-2xl border border-[var(--line)] bg-white">
-              <summary className="flex cursor-pointer list-none items-center justify-between gap-4 px-5 py-5 marker:content-none sm:px-6">
-                <span className="flex min-w-0 items-center gap-3">
-                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-stone-100 text-stone-600">
-                    <Palette size={19} />
-                  </span>
-                  <span className="min-w-0">
-                    <strong className="block">디자인 블로그 일정</strong>
-                    <small className="mt-0.5 block text-[var(--muted)]">포트폴리오·기획·디자인 콘텐츠 초안</small>
-                  </span>
-                </span>
-                <span className="flex shrink-0 items-center gap-2 text-sm font-bold text-[var(--muted)]">
-                  <span className="group-open:hidden">일정 보기</span>
-                  <span className="hidden group-open:inline">일정 접기</span>
-                  <ChevronDown className="transition-transform group-open:rotate-180" size={18} />
-                </span>
-              </summary>
-              <div className="border-t border-[var(--line)] p-3 sm:p-5">
-                <TwoWeekSchedule
-                  channel="naver_design"
-                  statusHeading="작업실 표시"
-                  statusText="대표 승인 후 작업 목록에 표시"
-                />
-              </div>
-            </details>
+          <div className="grid gap-3 sm:grid-cols-2">
+            {PUBLISHING_CADENCE.map((blog) => {
+              const Icon = blog.icon;
+              return (
+                <div key={blog.name} className="rounded-2xl border border-[var(--line)] bg-white p-5 sm:p-6">
+                  <div className="flex items-center gap-3">
+                    <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${blog.tone}`}>
+                      <Icon size={19} />
+                    </span>
+                    <div className="min-w-0">
+                      <strong className="block">{blog.name}</strong>
+                      <small className="mt-0.5 block text-[var(--muted)]">주 {blog.perWeek}회</small>
+                    </div>
+                  </div>
+                  <ul className="mt-4 space-y-2 text-sm leading-6">
+                    {blog.parts.map((part) => (
+                      <li key={part.label} className="flex items-baseline justify-between gap-3">
+                        <span className="text-[var(--muted)]">{part.label}</span>
+                        <span className="font-bold">주 {part.count}회</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              );
+            })}
           </div>
         </section>
       </div>
     </section>
   );
 }
+
+/** 블로그별 주간 발행 횟수. 실제 올리는 날짜는 원고가 준비된 뒤에 정해집니다. */
+const PUBLISHING_CADENCE = [
+  {
+    name: "컨설팅 블로그",
+    perWeek: 5,
+    icon: FileText,
+    tone: "bg-orange-50 text-[var(--primary)]",
+    parts: [
+      { label: "울림 콘텐츠형", count: 2 },
+      { label: "정보성", count: 3 },
+    ],
+  },
+  {
+    name: "디자인 블로그",
+    perWeek: 2,
+    icon: Palette,
+    tone: "bg-stone-100 text-stone-600",
+    parts: [
+      { label: "포트폴리오", count: 1 },
+      { label: "정보형 또는 인사이트형", count: 1 },
+    ],
+  },
+];
