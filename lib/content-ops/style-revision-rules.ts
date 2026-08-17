@@ -2,9 +2,9 @@ import { createHash } from "node:crypto";
 
 /**
  * 이 값을 올리면 이미 정리해 둔 원고도 한 번 더 대상이 됩니다.
- * 줄바꿈을 저장 단계로 옮기면서, 예전 방식으로 저장된 원고를 다시 훑기 위해 올렸습니다.
+ * 말투 다듬기를 소제목 단위로 바꾸면서, 앞선 방식으로 넘어간 원고를 다시 훑기 위해 올렸습니다.
  */
-export const FRIENDLY_STYLE_VERSION = "friendly-partner-v4-sentence-breaks";
+export const FRIENDLY_STYLE_VERSION = "friendly-partner-v5-section-rewrite";
 
 export const STYLE_REVISION_PENDING_STATUSES = [
   "review_required",
@@ -102,6 +102,9 @@ export function shouldRewritePendingStyleItem(item: RevisionCandidate) {
 
   const revision = record(metadata.styleRevision);
   const fingerprint = styleRevisionFingerprint(generated);
-  return revision.version !== FRIENDLY_STYLE_VERSION
-    || revision.fingerprint !== fingerprint;
+  if (revision.version !== FRIENDLY_STYLE_VERSION) return true;
+  if (revision.fingerprint !== fingerprint) return true;
+  // 말투 다듬기가 중간에 넘어간 원고는 다음 실행에서 다시 시도합니다.
+  // 이 표시가 없으면 예전 방식으로 저장된 원고이므로 손대지 않습니다.
+  return revision.styleComplete === false;
 }

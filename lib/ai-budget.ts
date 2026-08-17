@@ -46,9 +46,11 @@ export const AI_OUTPUT_LIMITS = {
   topicPlan: envInt("AI_OUT_TOPIC_PLAN", 6000),
   articleBody: envInt("AI_OUT_ARTICLE_BODY", 12000),
   columnBody: envInt("AI_OUT_COLUMN_BODY", 14000),
-  // 12000 에서는 긴 원고의 JSON 이 끝을 맺지 못하고 잘려, 그 호출이 통째로 버려졌습니다.
-  // 잘린 호출도 요금은 그대로 나가므로 여유를 두는 편이 오히려 절약입니다.
-  styleRevision: envInt("AI_OUT_STYLE_REVISION", 16000),
+  // 말투 다듬기는 소제목 한 구간씩 맡깁니다. 답이 짧아 잘릴 일이 거의 없습니다.
+  // 원고를 통째로 넘기던 시절에는 12000 에서도 JSON 이 끝을 맺지 못하고 잘렸습니다.
+  styleRevisionSection: envInt("AI_OUT_STYLE_SECTION", 6000),
+  // 요약과 FAQ 는 본문보다 훨씬 짧습니다.
+  styleRevisionHead: envInt("AI_OUT_STYLE_HEAD", 4000),
 } as const;
 
 /** 한 번의 관리자 클릭이 처리할 최대 건수 — 밀린 물량 일괄 소진 방지 */
