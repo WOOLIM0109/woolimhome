@@ -8,6 +8,7 @@ import { CONSULTING_INFORMATIONAL_TOPIC_TYPES } from "./config";
 import { PORTFOLIO_WRITING_RULES } from "./portfolio-rules";
 import { FRIENDLY_EDITORIAL_STYLE_RULES } from "./editorial-style";
 import { editorialPublicationIssues } from "./editorial-policy";
+import { insertSentenceBreaks } from "./sentence-breaks-html";
 import type { EditorialSlot } from "./types";
 import {
   generationCancellationRequested,
@@ -629,7 +630,9 @@ export async function generateContentWorkItem(
         prompt: `${basePrompt}${repairInstruction}`,
         scheduleKey,
       });
-      generated.bodyHtml = sanitizeGeneratedHtml(generated.bodyHtml || "");
+      // 규칙대로 문장마다 줄을 바꿔 저장합니다.
+      // 화면에서만 바꾸던 때에는 미리보기마다 모습이 달랐습니다.
+      generated.bodyHtml = insertSentenceBreaks(sanitizeGeneratedHtml(generated.bodyHtml || ""));
       generated.faq = (generated.faq || []).map((faq) => ({
         ...faq,
         question: sanitizeInlineHtml(faq.question || ""),

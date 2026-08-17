@@ -1,6 +1,7 @@
 import { contentAdmin } from "@/lib/content-ops/data";
 import { FRIENDLY_EDITORIAL_STYLE_RULES } from "@/lib/content-ops/editorial-style";
 import { editorialPublicationIssues } from "@/lib/content-ops/editorial-policy";
+import { insertSentenceBreaks } from "@/lib/content-ops/sentence-breaks-html";
 import { validatePortfolioBodyHtml } from "@/lib/content-ops/portfolio-rules";
 import { generateGeminiJson } from "./gemini";
 import type { GeneratedPortfolioAsset } from "./mockup";
@@ -198,7 +199,8 @@ ${input.previousLength ? `- 지난 본문은 공백 제외 ${input.previousLengt
 }
 
 function draftIssues(draft: PortfolioDraft) {
-  const bodyHtml = safeDraftHtml(draft.bodyHtml || "");
+  // 포트폴리오 원고도 문장마다 줄을 바꿔 저장합니다. 다른 채널과 같은 모습이 됩니다.
+  const bodyHtml = insertSentenceBreaks(safeDraftHtml(draft.bodyHtml || ""));
   const plainLength = clean(bodyHtml).replace(/\s/g, "").length;
   const h2Count = (bodyHtml.match(/<h2[\s>]/gi) || []).length;
   const paragraphCount = (bodyHtml.match(/<p[\s>]/gi) || []).length;

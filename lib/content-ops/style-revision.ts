@@ -5,6 +5,7 @@ import {
   stripFaqPrefix,
 } from "@/lib/content-ops/editorial-style";
 import { editorialPublicationIssues } from "@/lib/content-ops/editorial-policy";
+import { insertSentenceBreaks } from "@/lib/content-ops/sentence-breaks-html";
 import type { GeneratedContent } from "@/lib/content-ops/generated-content";
 import {
   assertSameNumericFacts,
@@ -162,7 +163,8 @@ ${JSON.stringify(input)}
   const result = {
     ...generated,
     summary: restoredSummary,
-    bodyHtml: restoredBody,
+    // 다듬은 원고도 문장마다 줄을 바꿔 둡니다.
+    bodyHtml: insertSentenceBreaks(restoredBody),
     faq: restoredFaq,
   };
   const issues = editorialPublicationIssues(item.format, result);
