@@ -46,7 +46,9 @@ export const AI_OUTPUT_LIMITS = {
   topicPlan: envInt("AI_OUT_TOPIC_PLAN", 6000),
   articleBody: envInt("AI_OUT_ARTICLE_BODY", 12000),
   columnBody: envInt("AI_OUT_COLUMN_BODY", 14000),
-  styleRevision: envInt("AI_OUT_STYLE_REVISION", 12000),
+  // 12000 에서는 긴 원고의 JSON 이 끝을 맺지 못하고 잘려, 그 호출이 통째로 버려졌습니다.
+  // 잘린 호출도 요금은 그대로 나가므로 여유를 두는 편이 오히려 절약입니다.
+  styleRevision: envInt("AI_OUT_STYLE_REVISION", 16000),
 } as const;
 
 /** 한 번의 관리자 클릭이 처리할 최대 건수 — 밀린 물량 일괄 소진 방지 */

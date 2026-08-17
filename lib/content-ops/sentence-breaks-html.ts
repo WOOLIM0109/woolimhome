@@ -77,3 +77,18 @@ export function insertSentenceBreaks(html: string) {
   // 이미 줄바꿈이 있던 원고에 또 넣지 않도록 세 개 이상은 두 개로 줄입니다.
   return result.replace(/(?:<br\s*\/?>\s*){3,}/gi, BREAK);
 }
+
+/**
+ * 원고 묶음에서 본문만 줄바꿈을 넣어 돌려줍니다.
+ *
+ * 줄바꿈은 규칙이 정해져 있어 사람 손도 인공지능도 필요하지 않습니다.
+ * 그래서 말투를 다듬는 인공지능 호출과 떼어 놓습니다.
+ * 인공지능이 실패해도 줄바꿈은 그대로 적용되게 하려는 목적입니다.
+ *
+ * 바뀐 것이 없으면 원래 객체를 그대로 돌려줍니다.
+ */
+export function bodyWithSentenceBreaks<T extends { bodyHtml: string }>(generated: T): T {
+  if (!generated || typeof generated.bodyHtml !== "string") return generated;
+  const bodyHtml = insertSentenceBreaks(generated.bodyHtml);
+  return bodyHtml === generated.bodyHtml ? generated : { ...generated, bodyHtml };
+}

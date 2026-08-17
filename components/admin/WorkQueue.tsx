@@ -867,8 +867,15 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
         .filter((result: { success: boolean }) => !result.success)
         .map((result: { title: string; error: string }) => `${result.title}: ${result.error}`)
         .join(" / ");
+      // 줄바꿈만 들어간 건과 말투까지 다듬은 건을 나눠서 알려 줍니다.
+      const styleNotes = (data.results || [])
+        .filter((result: { success: boolean; note?: string }) => result.success && result.note)
+        .map((result: { title: string; note?: string }) => `${result.title}: ${result.note}`)
+        .join(" / ");
       setStyleResult(
-        `대기 원고 ${data.found}건 중 ${data.updated}건을 다듬었습니다.${data.failed ? ` 실패 ${data.failed}건은 원문을 유지했습니다.${failureDetails ? ` 사유: ${failureDetails}` : ""}` : ""}`,
+        `대기 원고 ${data.found}건 중 ${data.updated}건을 정리했습니다.`
+        + (data.styleSkipped ? ` 그중 ${data.styleSkipped}건은 줄바꿈만 적용하고 말투는 원문을 유지했습니다.${styleNotes ? ` 사유: ${styleNotes}` : ""}` : "")
+        + (data.failed ? ` 실패 ${data.failed}건은 원문을 유지했습니다.${failureDetails ? ` 사유: ${failureDetails}` : ""}` : ""),
       );
       await load();
     } finally {

@@ -1,6 +1,10 @@
 import { createHash } from "node:crypto";
 
-export const FRIENDLY_STYLE_VERSION = "friendly-partner-v3-safe-migration";
+/**
+ * 이 값을 올리면 이미 정리해 둔 원고도 한 번 더 대상이 됩니다.
+ * 줄바꿈을 저장 단계로 옮기면서, 예전 방식으로 저장된 원고를 다시 훑기 위해 올렸습니다.
+ */
+export const FRIENDLY_STYLE_VERSION = "friendly-partner-v4-sentence-breaks";
 
 export const STYLE_REVISION_PENDING_STATUSES = [
   "review_required",

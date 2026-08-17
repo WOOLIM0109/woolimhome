@@ -5,7 +5,7 @@ import {
   stripFaqPrefix,
 } from "@/lib/content-ops/editorial-style";
 import { editorialPublicationIssues } from "@/lib/content-ops/editorial-policy";
-import { insertSentenceBreaks } from "@/lib/content-ops/sentence-breaks-html";
+import { bodyWithSentenceBreaks, insertSentenceBreaks } from "@/lib/content-ops/sentence-breaks-html";
 import type { GeneratedContent } from "@/lib/content-ops/generated-content";
 import {
   assertSameNumericFacts,
@@ -209,9 +209,21 @@ export async function rewritePendingPartnerStyle(channel: ContentChannel, approv
       const previousGenerated = metadata.generated as GeneratedContent;
       const inputFingerprint = styleRevisionFingerprint(previousGenerated);
       const existingIssues = editorialPublicationIssues(item.format, previousGenerated);
-      const generated = existingIssues.length
-        ? await rewriteGenerated(item, previousGenerated)
-        : previousGenerated;
+      // 줄바꿈은 규칙이 분명해 인공지능이 필요 없습니다. 먼저 넣어 둡니다.
+      // 말투 다듬기가 실패해도 줄바꿈만은 남게 하려는 순서입니다.
+      let generated = bodyWithSentenceBreaks(previousGenerated);
+      let rewritten = false;
+      let note: string | undefined;
+      if (existingIssues.length) {
+        try {
+          generated = await rewriteGenerated(item, previousGenerated);
+          rewritten = true;
+        } catch (styleError) {
+          // 말투만 못 다듬었을 뿐 원고는 살아 있습니다. 통째로 버리지 않습니다.
+          note = styleError instanceof Error ? styleError.message : "알 수 없는 말투 수정 오류";
+        }
+      }
+      const remainingIssues = rewritten ? [] : editorialPublicationIssues(item.format, generated);
       const appliedAt = new Date().toISOString();
       const validation = (metadata.validation || {}) as Record<string, unknown>;
       const { data: updated, error: updateError } = await admin.from("content_work_items").update({
@@ -224,7 +236,7 @@ export async function rewritePendingPartnerStyle(channel: ContentChannel, approv
             plainLength: plainLength(generated.bodyHtml),
             h2Count: (generated.bodyHtml.match(/<h2[\s>]/gi) || []).length,
             faqCount: generated.faq.length,
-            issues: [],
+            issues: remainingIssues,
           },
           styleRevision: createStyleRevisionStamp(generated, {
             appliedAt,
@@ -248,7 +260,8 @@ export async function rewritePendingPartnerStyle(channel: ContentChannel, approv
         id: item.id,
         title: item.title,
         success: true as const,
-        rewritten: existingIssues.length > 0,
+        rewritten,
+        note,
       };
     } catch (rewriteError) {
       return {
@@ -266,6 +279,8 @@ export async function rewritePendingPartnerStyle(channel: ContentChannel, approv
     deferred: skippedForLimit,
     updated: results.filter((result) => result.success).length,
     failed: results.filter((result) => !result.success).length,
+    /** 줄바꿈은 넣었지만 말투 다듬기는 넘어간 건수 */
+    styleSkipped: results.filter((result) => result.success && result.note).length,
     results,
   };
 }
