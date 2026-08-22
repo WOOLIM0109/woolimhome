@@ -411,7 +411,12 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
 
   const load = useCallback(async () => {
     setLoading(true);
-    const response = await fetch(`/api/admin/content${channel ? `?channel=${channel}` : ""}`, { cache: "no-store" });
+    // 걸러 낼 것을 서버에 먼저 알려 주면, 화면에서 버릴 것을 받아 오지 않습니다.
+    const params = new URLSearchParams();
+    if (channel) params.set("channel", channel);
+    if (reviewMode) params.set("reviewMode", "1");
+    const query = params.toString();
+    const response = await fetch(`/api/admin/content${query ? `?${query}` : ""}`, { cache: "no-store" });
     const data = await response.json();
     if (!response.ok) setError(data.error || "작업 목록을 불러오지 못했습니다.");
     else {
