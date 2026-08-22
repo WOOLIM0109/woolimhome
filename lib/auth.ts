@@ -9,7 +9,17 @@
  * 대신 개발과 프리뷰에서는 기본값을 그대로 두어 로컬 작업이 막히지 않게 합니다.
  */
 
-const DEVELOPMENT_ADMIN_EMAILS = ["miseong0928@gmail.com"];
+/**
+ * 개발과 프리뷰에서만 쓰는 기본값입니다.
+ *
+ * 운영에서 누가 들어올 수 있는지는 이 목록이 아니라 Vercel 의 ADMIN_EMAILS
+ * 가 정합니다. 여기에 적어 두는 것은 로컬에서 매번 환경변수를 챙기지 않아도
+ * 되게 하려는 것뿐입니다.
+ */
+const DEVELOPMENT_ADMIN_EMAILS = [
+  "miseong0928@gmail.com",
+  "selavento.geo@gmail.com",
+];
 
 export type AuthEnvironment = {
   ADMIN_EMAILS?: string;
