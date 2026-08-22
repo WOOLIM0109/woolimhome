@@ -10,6 +10,7 @@ import { processNextPortfolioMockup } from "@/lib/portfolio/job-runner";
 import { generateContentWorkItem } from "@/lib/content-ops/generate";
 import { GeminiAutomationBlocked, runBudgetedGeminiAutomation } from "@/lib/gemini/automation";
 import type { EditorialSlot } from "@/lib/content-ops/types";
+import { authorizeCron } from "@/lib/cron-auth";
 
 /**
  * 예약 일정에 맞춰 원고까지 자동으로 만들지 여부.
@@ -67,10 +68,8 @@ function isoWeek(date: Date) {
 }
 
 export async function GET(request: Request) {
-  const secret = process.env.CRON_SECRET;
-  if (!secret || request.headers.get("authorization") !== `Bearer ${secret}`) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const unauthorized = authorizeCron(request);
+  if (unauthorized) return unauthorized;
   const admin = createAdminClient();
   const now = new Date();
   const invocationKey = now.toISOString().slice(0, 13);
