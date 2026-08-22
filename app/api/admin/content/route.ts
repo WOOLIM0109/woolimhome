@@ -181,21 +181,73 @@ export async function GET(request: Request) {
 
   const url = new URL(request.url);
   const channel = url.searchParams.get("channel");
-  let query = contentAdmin()
+  // 검토 화면은 손이 필요한 두 가지 상태만 봅니다. 화면에서 걸러 내던 것을
+  // 여기서 먼저 거르면 나머지를 아예 가져오지 않습니다.
+  const reviewMode = url.searchParams.get("reviewMode") === "1";
+
+  const selection = "*, content_review_assets(*), content_jobs(id,job_type,status,next_retry_at,last_error_code,updated_at)";
+  const withCommonFilters = <T extends { eq(column: string, value: string): T }>(query: T) => (
+    channel ? query.eq("channel", channel) : query
+  );
+
+  /**
+   * 진행 중인 작업은 전부 가져옵니다.
+   *
+   * 이 묶음은 손이 필요한 일감이라 저절로 늘어나지 않습니다. 처리하면
+   * 발행 완료로 넘어가 아래 묶음으로 빠집니다.
+   */
+  let activeQuery = contentAdmin()
     .from("content_work_items")
-    .select("*, content_review_assets(*), content_jobs(id,job_type,status,next_retry_at,last_error_code,updated_at)")
+    .select(selection)
+    .neq("status", "published")
     .order("scheduled_at", { ascending: true, nullsFirst: false })
     .order("created_at", { ascending: false });
-  if (channel) query = query.eq("channel", channel);
+  activeQuery = withCommonFilters(activeQuery);
+  if (reviewMode) activeQuery = activeQuery.in("status", ["review_required", "on_hold"]);
 
-  const { data, error } = await query;
+  /**
+   * 발행이 끝난 작업은 최근 것만 가져옵니다.
+   *
+   * 예전에는 여기서 테이블을 통째로 읽었습니다. 발행 완료 건은 계속 쌓이기만
+   * 하는데 metadata 에 기사 본문이 들어 있어, 관리자 화면을 열 때마다 지금까지
+   * 쓴 모든 원고를 내려받고 있었습니다. 시간이 갈수록 느려지고, 어느 순간
+   * Supabase 의 행 수 상한에 걸리면 조용히 잘려 오래된 작업이 목록에서
+   * 사라집니다. 검토 화면에는 아예 필요 없어 건너뜁니다.
+   */
+  const PUBLISHED_WINDOW = 50;
+  const publishedQuery = withCommonFilters(
+    contentAdmin()
+      .from("content_work_items")
+      .select(selection)
+      .eq("status", "published")
+      .order("published_at", { ascending: false, nullsFirst: false })
+      .limit(PUBLISHED_WINDOW),
+  );
+
+  const [activeResult, publishedResult] = await Promise.all([
+    activeQuery,
+    reviewMode ? Promise.resolve({ data: [], error: null }) : publishedQuery,
+  ]);
+  const error = activeResult.error || publishedResult.error;
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  // 과거에 관리자가 고르거나 직접 쓴 표지 문구를 모읍니다.
-  // 같은 성격의 문서에서 다시 추천되므로, 고치는 일이 점점 줄어듭니다.
+  const data = [...(activeResult.data || []), ...(publishedResult.data || [])];
+  /**
+   * 과거에 관리자가 고르거나 직접 쓴 표지 문구를 모읍니다.
+   * 같은 성격의 문서에서 다시 추천되므로, 고치는 일이 점점 줄어듭니다.
+   *
+   * 목록에 실린 작업에서만 모으면 안 됩니다. 위에서 발행 완료 건을 최근
+   * 것으로 줄였기 때문에, 그대로 두면 쌓아 온 문구가 시간이 갈수록 사라집니다.
+   * 그래서 문구만 따로, 가볍게 가져옵니다.
+   */
+  const { data: coverTitleRows, error: coverTitleError } = await contentAdmin()
+    .from("content_work_items")
+    .select("metadata->coverTitle")
+    .not("metadata->coverTitle", "is", null)
+    .order("updated_at", { ascending: false })
+    .limit(300);
+  if (coverTitleError) return NextResponse.json({ error: coverTitleError.message }, { status: 500 });
   const coverTitleHistory = parseCoverTitleHistory(
-    (data || [])
-      .map((row) => (row.metadata as Record<string, unknown> | null)?.coverTitle)
-      .filter(Boolean),
+    (coverTitleRows || []).map((row) => (row as { coverTitle?: unknown }).coverTitle).filter(Boolean),
   ).sort((left, right) => right.savedAt.localeCompare(left.savedAt));
 
   const items = (data || []).map((rawItem) => {
