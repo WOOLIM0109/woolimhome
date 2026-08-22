@@ -6,6 +6,11 @@ const generatedOptions: sanitizeHtml.IOptions = {
   allowedTags: [
     "h2", "h3", "h4", "p", "ul", "ol", "li", "strong", "em", "blockquote",
     "a", "br", "figure", "figcaption", "img", "span", "section",
+    // 비교 표는 글로 풀어 쓰기 어려운 내용을 한눈에 보여 줍니다. 예전에는
+    // 이 태그들이 허용 목록에 없어서, 표를 넣어도 칸이 사라지고 글자만
+    // 줄줄이 남았습니다. 표에는 스크립트가 붙을 자리가 없어 그대로 둡니다.
+    "table", "thead", "tbody", "tfoot", "tr", "th", "td", "caption",
+    "colgroup", "col",
   ],
   allowedAttributes: {
     a: ["href", "title", "target", "rel"],
@@ -15,6 +20,12 @@ const generatedOptions: sanitizeHtml.IOptions = {
     section: ["class"],
     p: ["class"],
     span: ["class"],
+    table: ["class"],
+    // 칸 합치기와 머리글 방향은 표의 뜻을 이루는 정보라 살립니다.
+    th: ["class", "colspan", "rowspan", "scope"],
+    td: ["class", "colspan", "rowspan"],
+    col: ["span"],
+    colgroup: ["span"],
   },
   allowedClasses: {
     figure: ["*"],
@@ -22,6 +33,9 @@ const generatedOptions: sanitizeHtml.IOptions = {
     section: ["column-faq", "column-sources"],
     p: ["*"],
     span: ["*"],
+    table: ["*"],
+    th: ["*"],
+    td: ["*"],
   },
   allowedSchemes: ["http", "https"],
   allowedSchemesByTag: { img: ["http", "https", "data"] },
