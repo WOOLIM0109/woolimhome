@@ -66,8 +66,19 @@ function positiveNumber(value: string | undefined, fallback: number) {
 
 export function geminiBudgetConfig(): GeminiBudgetConfig {
   return {
-    dailyCalls: Math.floor(positiveNumber(process.env.GEMINI_DAILY_CALL_LIMIT, 3)),
-    monthlyCalls: Math.floor(positiveNumber(process.env.GEMINI_MONTHLY_CALL_LIMIT, 30)),
+    /**
+     * 횟수 상한은 일이 돌아갈 만큼은 되어야 합니다.
+     *
+     * 예전 기본값은 하루 3회, 한 달 30회였습니다. 그런데 칼럼 한 편을 쓰는
+     * 데만 6회를 미리 잡습니다. 하루 3회로는 한 번도 시작할 수 없어서,
+     * 예산이 모자란 것이 아니라 기능 자체가 멈춰 있었습니다. 칼럼은
+     * 화·목·격주 토에 나가니 한 달이면 예약만 예순 번을 넘습니다.
+     *
+     * 실제로 돈을 막는 것은 아래 비용 상한입니다. 횟수는 폭주를 막는
+     * 보조 장치라, 하루 몇 편을 만들 수 있는 정도로 맞춥니다.
+     */
+    dailyCalls: Math.floor(positiveNumber(process.env.GEMINI_DAILY_CALL_LIMIT, 20)),
+    monthlyCalls: Math.floor(positiveNumber(process.env.GEMINI_MONTHLY_CALL_LIMIT, 300)),
     dailyCostUsd: positiveNumber(process.env.GEMINI_DAILY_COST_LIMIT_USD, 1),
     monthlyCostUsd: positiveNumber(process.env.GEMINI_MONTHLY_COST_LIMIT_USD, 10),
     // Conservative defaults intentionally overestimate cost until an operator
@@ -454,6 +465,29 @@ export function budgetDecision(
   plannedCalls = 1,
 ) {
   const reservedCalls = Math.max(1, Math.floor(plannedCalls));
+
+  /**
+   * 작업 하나가 상한보다 크면, 아무리 기다려도 실행되지 않습니다.
+   *
+   * 예산을 다 써서 막히는 것과는 다른 상황인데 예전에는 같은 말이 나왔습니다.
+   * "상한을 초과합니다" 만 보고는 내일 다시 되겠거니 하게 됩니다. 실제로는
+   * 상한을 올리기 전까지 영영 돌지 않습니다. 그래서 따로 알려 줍니다.
+   */
+  if (reservedCalls > config.dailyCalls) {
+    return {
+      allowed: false,
+      reason: `이 작업은 한 번에 ${reservedCalls}회를 예약하는데 일일 상한이 ${config.dailyCalls}회입니다.`
+        + " 상한을 올리기 전에는 실행되지 않습니다.",
+    };
+  }
+  if (reservedCalls > config.monthlyCalls) {
+    return {
+      allowed: false,
+      reason: `이 작업은 한 번에 ${reservedCalls}회를 예약하는데 월간 상한이 ${config.monthlyCalls}회입니다.`
+        + " 상한을 올리기 전에는 실행되지 않습니다.",
+    };
+  }
+
   if (usage.dailyCallsUsed + reservedCalls > config.dailyCalls) return { allowed: false, reason: "일일 Gemini 호출 상한을 초과합니다." };
   if (usage.monthlyCallsUsed + reservedCalls > config.monthlyCalls) return { allowed: false, reason: "월간 Gemini 호출 상한을 초과합니다." };
   if (usage.dailyCostUsed + estimatedCostUsd > config.dailyCostUsd) return { allowed: false, reason: "일일 Gemini 비용 상한을 초과합니다." };
