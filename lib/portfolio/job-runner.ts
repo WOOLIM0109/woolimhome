@@ -2338,10 +2338,16 @@ export async function reflowPortfolioDraftImages(workItemId: string) {
 export async function retryPortfolioDraft(workItemId: string) {
   const admin = contentAdmin();
   const { data: workItem, error } = await admin.from("content_work_items")
-    .select("id,metadata")
+    .select("id,status,metadata")
     .eq("id", workItemId)
     .single();
   if (error) throw new Error(error.message);
+  // 다른 재시도·재빌드 함수와 같은 자리를 지킵니다. 발행이 끝난 작업을 다시
+  // 만들기 시작하면 이미 네이버에 올라간 글과 어긋나고, 보존 정책이 정리한
+  // 장표를 다시 읽으려 들게 됩니다.
+  if (workItem.status === "published") {
+    throw new Error("이미 발행된 작업은 본문을 다시 생성할 수 없습니다.");
+  }
   const metadata = (workItem.metadata || {}) as Record<string, unknown> & {
     candidateId?: string;
   };
