@@ -75,9 +75,22 @@ export default function AdminPortal({
   if (!access.admin) {
     return (
       <section className="min-h-[70vh] bg-[#fffaf7] px-5 py-20 text-center">
-        <h1 className="text-2xl font-bold text-red-700">접근 권한이 없습니다.</h1>
+        <h1 className="text-2xl font-bold text-red-700">
+          {access.error ? "권한을 확인하지 못했습니다." : "접근 권한이 없습니다."}
+        </h1>
         <p className="mt-3">{access.error || `${user.email} 계정에는 관리자 권한이 없습니다.`}</p>
-        <button onClick={() => void signOut()} className="mt-6 underline">로그아웃</button>
+        <div className="mt-6 flex items-center justify-center gap-5">
+          {/*
+            확인 자체가 실패한 경우에는 다시 시도할 길을 줍니다. 예전에는 잠깐의
+            네트워크 오류 하나로 이 화면에 굳어서, 새로고침 말고는 방법이 없었습니다.
+          */}
+          {access.error && (
+            <button onClick={access.retry} className="btn-gradient rounded-xl px-5 py-2.5 font-bold text-white">
+              다시 확인
+            </button>
+          )}
+          <button onClick={() => void signOut()} className="underline">로그아웃</button>
+        </div>
       </section>
     );
   }

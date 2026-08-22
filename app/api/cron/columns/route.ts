@@ -9,6 +9,7 @@ import {
   dueColumnDates,
   isoWeek,
 } from "@/lib/columns/catchup";
+import { authorizeCron } from "@/lib/cron-auth";
 
 // 칼럼 본문 생성은 몇 분이 걸립니다. 30초로는 만들다가 끊깁니다.
 export const maxDuration = 300;
@@ -21,10 +22,8 @@ function topicHintForDay(day: number, hasKnowledge: boolean) {
 }
 
 export async function GET(request: Request) {
-  const secret = process.env.CRON_SECRET;
-  if (!secret || request.headers.get("authorization") !== `Bearer ${secret}`) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const unauthorized = authorizeCron(request);
+  if (unauthorized) return unauthorized;
   const admin = createAdminClient();
   const now = new Date();
   const kst = new Date(now.getTime() + 9 * 60 * 60 * 1_000);
