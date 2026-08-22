@@ -266,6 +266,45 @@
   margin-top: 1rem;
 }
 
+/*
+  본문 표.
+
+  좁은 화면에서는 표가 페이지를 밀어내지 않도록 표 안에서만 옆으로
+  넘깁니다. 표를 감싸는 상자를 따로 두지 않아도 되게 표 자체를 스크롤
+  영역으로 씁니다.
+*/
+.column-body table {
+  display: block;
+  overflow-x: auto;
+  width: 100%;
+  margin-top: 1.5rem;
+  border-collapse: collapse;
+  font-size: 0.95rem;
+  line-height: 1.7;
+}
+
+.column-body table th,
+.column-body table td {
+  border: 1px solid var(--line);
+  padding: 0.7rem 0.9rem;
+  text-align: left;
+  vertical-align: top;
+}
+
+.column-body table th {
+  background: #f7efe9;
+  color: #14100c;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.column-body table caption {
+  margin-bottom: 0.5rem;
+  color: var(--muted);
+  font-size: 0.9rem;
+  text-align: left;
+}
+
 .column-body .column-faq h3 {
   margin-top: 1rem;
   border: 1px solid var(--line);
