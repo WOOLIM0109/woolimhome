@@ -39,6 +39,10 @@
     {
       "path": "/api/cron/openchat/afternoon-ready",
       "schedule": "0 9 * * *"
+    },
+    {
+      "path": "/api/cron/retention",
+      "schedule": "40 20 * * *"
     }
   ]
 }
