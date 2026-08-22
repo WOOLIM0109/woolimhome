@@ -40,17 +40,17 @@ import {
   isHyundaiManualMockupTitle,
   hyundaiManualApprovalMetadata,
 } from "@/lib/portfolio/hyundai-manual-mockups";
+import {
+  isTourismMarketingWorkItem,
+  TOURISM_MANUAL_ASSET_NAMES,
+  tourismManualAssetUrls,
+  tourismManualBodyAssets,
+  tourismManualMockupFields,
+  withoutGeneratedBodyImages,
+} from "@/lib/portfolio/manual-overrides";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
-
-const TOURISM_MARKETING_WORK_ITEM_ID = "6579c77c-86fd-4b6a-9e65-654394597c8f";
-const TOURISM_MARKETING_MANUAL_ASSETS = [
-  { name: "short-main.jpg", slideIndexes: [2, 4, 5, 9, 10], width: 1600, height: 1600 },
-  { name: "short-detail-1.jpg", slideIndexes: [0, 1, 3], width: 1600, height: 900 },
-  { name: "short-detail-2.jpg", slideIndexes: [6, 7, 8], width: 1600, height: 900 },
-  { name: "short-detail-3.jpg", slideIndexes: [11, 12, 13], width: 1600, height: 900 },
-] as const;
 
 function tourismManualApprovalMetadata(
   id: string,
@@ -58,7 +58,7 @@ function tourismManualApprovalMetadata(
   origin: string,
   approvedBy: string,
 ) {
-  if (id !== TOURISM_MARKETING_WORK_ITEM_ID) return null;
+  if (!isTourismMarketingWorkItem(id)) return null;
   const value = metadata || {};
   const generated = value.generated && typeof value.generated === "object"
     ? value.generated as { bodyHtml?: unknown }
@@ -66,9 +66,7 @@ function tourismManualApprovalMetadata(
   const bodyHtml = typeof generated.bodyHtml === "string" ? generated.bodyHtml : "";
   const imageSources = [...bodyHtml.matchAll(/<img\b[^>]*\bsrc\s*=\s*["']([^"']+)["'][^>]*>/gi)]
     .map((match) => match[1].replaceAll("&amp;", "&"));
-  const expectedUrls = TOURISM_MARKETING_MANUAL_ASSETS.map(
-    (asset) => `${origin}/portfolio/manual/tourism-marketing/${asset.name}`,
-  );
+  const expectedUrls = tourismManualAssetUrls(origin);
   const figureCount = (bodyHtml.match(/<figure[\s>]/gi) || []).length;
   if (figureCount !== expectedUrls.length
     || imageSources.length !== expectedUrls.length
@@ -76,42 +74,21 @@ function tourismManualApprovalMetadata(
     return null;
   }
 
-  const previousAssets = Array.isArray(value.portfolioAssets)
-    ? value.portfolioAssets.filter((asset) => (
-      asset && typeof asset === "object" && (asset as Record<string, unknown>).kind !== "body_image"
-    ))
-    : [];
-  const manualAssets = TOURISM_MARKETING_MANUAL_ASSETS.map((asset) => ({
-    kind: "body_image" as const,
-    name: asset.name,
-    url: `${origin}/portfolio/manual/tourism-marketing/${asset.name}`,
-    caption: "원본 PowerPoint의 글꼴과 배치를 유지한 수동 확정 목업",
-    slideIndexes: [...asset.slideIndexes],
-    slideAspectRatio: 16 / 9,
-    width: asset.width,
-    height: asset.height,
-    mockupMode: "short_psd" as const,
-    aspectClass: "16:9" as const,
-  }));
+  const previousAssets = withoutGeneratedBodyImages(value.portfolioAssets);
+  const manualAssets = tourismManualBodyAssets(
+    origin,
+    "원본 PowerPoint의 글꼴과 배치를 유지한 수동 확정 목업",
+  );
   const approvedAt = new Date().toISOString();
   return {
     ...value,
     portfolioAssets: [...previousAssets, ...manualAssets],
-    portfolioMockup: {
-      ...(value.portfolioMockup && typeof value.portfolioMockup === "object"
-        ? value.portfolioMockup as Record<string, unknown>
-        : {}),
-      mode: "short_psd",
-      bodyBoardCount: 4,
-      aspectClass: "16:9",
-      selectedSlideIndexes: TOURISM_MARKETING_MANUAL_ASSETS.flatMap((asset) => [...asset.slideIndexes]),
-      manualFontPreservingOverride: true,
-    },
+    portfolioMockup: tourismManualMockupFields(value.portfolioMockup),
     manualMockupOverride: {
       kind: "powerpoint_native_unredacted",
       approvedAt,
       approvedBy,
-      assetNames: TOURISM_MARKETING_MANUAL_ASSETS.map((asset) => asset.name),
+      assetNames: TOURISM_MANUAL_ASSET_NAMES,
     },
   };
 }
@@ -568,19 +545,8 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
   if (body.action === "restore_portfolio_draft") {
     try {
       const origin = new URL(request.url).origin;
-      const bodyAssets = id === TOURISM_MARKETING_WORK_ITEM_ID
-        ? TOURISM_MARKETING_MANUAL_ASSETS.map((asset) => ({
-          kind: "body_image" as const,
-          name: asset.name,
-          url: `${origin}/portfolio/manual/tourism-marketing/${asset.name}`,
-          caption: "원본 PowerPoint의 글꼴과 배치를 유지한 수동 확정 목업",
-          slideIndexes: [...asset.slideIndexes],
-          slideAspectRatio: 16 / 9,
-          width: asset.width,
-          height: asset.height,
-          mockupMode: "short_psd" as const,
-          aspectClass: "16:9" as const,
-        }))
+      const bodyAssets = isTourismMarketingWorkItem(id)
+        ? tourismManualBodyAssets(origin, "원본 PowerPoint의 글꼴과 배치를 유지한 수동 확정 목업")
         : undefined;
       return NextResponse.json(await restorePortfolioDraft(id, { bodyAssets }));
     } catch (error) {

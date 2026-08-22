@@ -10,6 +10,13 @@ import { isPartnerChannel, partnerVisibilityBlockers } from "@/lib/partner-porta
 import { sanitizeWorkItemMetadata } from "@/lib/security/html";
 import type { WorkflowStatus } from "@/lib/content-ops/types";
 import { applyHyundaiManualMockups } from "@/lib/portfolio/hyundai-manual-mockups";
+import {
+  isTourismMarketingWorkItem,
+  TOURISM_MARKETING_WORK_ITEM_ID,
+  tourismManualBodyAssets,
+  tourismManualMockupFields,
+  withoutGeneratedBodyImages,
+} from "@/lib/portfolio/manual-overrides";
 
 export const dynamic = "force-dynamic";
 
@@ -23,44 +30,21 @@ const PORTFOLIO_JOB_STATUSES = new Set([
   "queued", "running", "completed", "failed", "on_hold",
 ]);
 
-const TOURISM_MARKETING_WORK_ITEM_ID = "6579c77c-86fd-4b6a-9e65-654394597c8f";
-const TOURISM_MARKETING_MANUAL_ASSETS = [
-  { name: "short-main.jpg", slideIndexes: [2, 4, 5, 9, 10], width: 1600, height: 1600 },
-  { name: "short-detail-1.jpg", slideIndexes: [0, 1, 3], width: 1600, height: 900 },
-  { name: "short-detail-2.jpg", slideIndexes: [6, 7, 8], width: 1600, height: 900 },
-  { name: "short-detail-3.jpg", slideIndexes: [11, 12, 13], width: 1600, height: 900 },
-] as const;
-
 function applyManualTourismMockups(item: Record<string, unknown>, origin: string) {
-  if (item.id !== TOURISM_MARKETING_WORK_ITEM_ID) return item;
+  if (!isTourismMarketingWorkItem(item.id)) return item;
   const metadata = item.metadata && typeof item.metadata === "object"
     ? item.metadata as Record<string, unknown>
     : {};
-  const existingPortfolioAssets = Array.isArray(metadata.portfolioAssets)
-    ? metadata.portfolioAssets.filter((asset) => (
-      asset && typeof asset === "object" && (asset as Record<string, unknown>).kind !== "body_image"
-    ))
-    : [];
+  const existingPortfolioAssets = withoutGeneratedBodyImages(metadata.portfolioAssets);
   const existingReviewAssets = Array.isArray(item.content_review_assets)
     ? item.content_review_assets.filter((asset) => (
       asset && typeof asset === "object" && (asset as Record<string, unknown>).asset_type !== "body_image"
     ))
     : [];
-  const manualAssets = TOURISM_MARKETING_MANUAL_ASSETS.map((asset) => {
-    const url = `${origin}/portfolio/manual/tourism-marketing/${asset.name}`;
-    return {
-      kind: "body_image",
-      name: asset.name,
-      url,
-      caption: "원본 PowerPoint 폰트를 보존한 무가림 수동 확정 목업",
-      slideIndexes: [...asset.slideIndexes],
-      slideAspectRatio: 16 / 9,
-      width: asset.width,
-      height: asset.height,
-      mockupMode: "short_psd",
-      aspectClass: "16:9",
-    };
-  });
+  const manualAssets = tourismManualBodyAssets(
+    origin,
+    "원본 PowerPoint 폰트를 보존한 무가림 수동 확정 목업",
+  );
   return {
     ...item,
     content_review_assets: [
@@ -78,16 +62,7 @@ function applyManualTourismMockups(item: Record<string, unknown>, origin: string
     metadata: {
       ...metadata,
       portfolioAssets: [...existingPortfolioAssets, ...manualAssets],
-      portfolioMockup: {
-        ...(metadata.portfolioMockup && typeof metadata.portfolioMockup === "object"
-          ? metadata.portfolioMockup as Record<string, unknown>
-          : {}),
-        mode: "short_psd",
-        bodyBoardCount: 4,
-        aspectClass: "16:9",
-        selectedSlideIndexes: TOURISM_MARKETING_MANUAL_ASSETS.flatMap((asset) => [...asset.slideIndexes]),
-        manualFontPreservingOverride: true,
-      },
+      portfolioMockup: tourismManualMockupFields(metadata.portfolioMockup),
       manualMockupOverride: {
         kind: "powerpoint_native_unredacted",
         appliedAt: "2026-08-05T20:45:00+09:00",
