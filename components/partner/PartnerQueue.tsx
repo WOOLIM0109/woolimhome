@@ -31,6 +31,7 @@ type PartnerItem = {
   publishedAt: string | null;
   publishedUrl: string | null;
   publicationWarning: string | null;
+  bodyPurgedAt: string | null;
   completedAt: string | null;
   previewHtml: string;
   copyHtml: string;
@@ -576,6 +577,14 @@ export default function PartnerQueue({ onUnauthorized }: { onUnauthorized: () =>
                     {item.publicationWarning && (
                       <p className="mt-3 rounded-xl border border-amber-300 bg-amber-50 p-3 text-xs font-bold leading-5 text-amber-950" role="alert">
                         {item.publicationWarning}
+                      </p>
+                    )}
+                    {/* 본문이 비어 보이는 이유를 알려 줍니다. 글이 없어진 것이
+                        아니라 발행 뒤에 정리한 것입니다. */}
+                    {item.bodyPurgedAt && (
+                      <p className="mt-3 rounded-xl border border-[var(--line)] bg-[#f7efe9] p-3 text-xs leading-5 text-[#5d4c43]">
+                        발행이 끝나 원고 본문은 정리했습니다({formatDate(item.bodyPurgedAt)}).
+                        올라간 글은 위 발행 주소에서 확인하실 수 있습니다.
                       </p>
                     )}
                   </section>

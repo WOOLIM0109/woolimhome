@@ -57,6 +57,8 @@ type WorkItemRow = {
     publicationValidation?: {
       duplicateLegacyUrl?: boolean;
     };
+    // 보존 정책이 발행 완료 원고의 본문을 비운 시각.
+    bodyPurgedAt?: string;
   } | null;
   content_review_assets: ReviewAsset[] | null;
 };
@@ -115,6 +117,9 @@ export async function GET(request: Request) {
         publicationWarning: hasLegacyDuplicateUrl
           ? "기존 발행 URL이 다른 작업과 중복되어 관리자 확인이 필요합니다."
           : null,
+        // 발행이 끝난 원고는 보존 정책이 본문을 비웁니다. 글이 없어진 것과
+        // 정리된 것을 화면에서 구분할 수 있어야 작가가 헤매지 않습니다.
+        bodyPurgedAt: item.metadata?.bodyPurgedAt || null,
         completedAt: item.metadata?.partnerHandoff?.completedAt || null,
         previewHtml: replaceAdminAssetUrls(originalBodyHtml, storedAssets),
         copyHtml: replaceFiguresWithMarkers(originalBodyHtml),

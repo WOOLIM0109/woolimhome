@@ -63,24 +63,26 @@ export const RETENTION_RULES: RetentionRule[] = [
     key: "portfolio_source_files",
     table: "content_jobs",
     bucket: "portfolio-sources",
-    label: "변환이 끝난 원본 PPTX",
+    label: "발행이 끝난 작업의 원본 PPTX",
     action: "delete_files",
-    afterDays: 0,
-    basis: "변환 작업 성공 시각",
-    guard: "원본이 네이버웍스 드라이브에 그대로 있고 external_file_id 로 다시"
-      + " 받을 수 있어 즉시 지웁니다. 변환이 성공한 건만 대상입니다.",
+    afterDays: 3,
+    basis: "발행 완료 시각",
+    guard: "변환 직후가 아니라 발행 뒤에 지웁니다. retryPortfolioConversion 이"
+      + " 원본의 스토리지 경로를 요구하기 때문에, 발행 전에 지우면 재변환이"
+      + " 깨집니다. 발행 완료 건은 모든 재빌드 함수가 거부하므로 안전합니다.",
   },
   {
     key: "portfolio_rendered_slides",
     table: "content_jobs",
     bucket: "portfolio-rendered",
-    label: "초안까지 끝난 슬라이드 PNG",
+    label: "발행이 끝난 작업의 슬라이드 PNG",
     action: "delete_files",
     afterDays: 3,
-    basis: "초안 작업 완료 시각",
+    basis: "발행 완료 시각",
     guard: "재빌드 함수들이 conversionResult.slidePaths 를 다시 읽습니다."
-      + " 지울 때 slidesPurgedAt 을 남겨, 재빌드가 드라이브 재다운로드부터"
-      + " 다시 타도록 만든 뒤에만 이 규칙을 켭니다.",
+      + " 그래서 초안 완료가 아니라 발행 완료를 기준으로 삼습니다. 발행된"
+      + " 작업은 재빌드·재변환·복구가 모두 거부하므로 이 파일을 다시 읽을"
+      + " 일이 없습니다.",
   },
   {
     key: "published_review_assets",
