@@ -4,6 +4,7 @@ import { generateGeminiText } from "@/lib/gemini/client";
 import { stripVerificationControlText } from "@/lib/columns/verification";
 import { researchOfficialFacts } from "@/lib/research/official";
 import { briefPlanningRules, briefWritingRules, splitBriefSourceUrls, type ContentBrief } from "./brief";
+import { assertStageFits, deadlineExceeded } from "./deadline";
 import { AI_ATTEMPTS, AI_INPUT_LIMITS, AI_OUTPUT_LIMITS, RESEARCH_REUSE_HOURS } from "@/lib/ai-budget";
 import { CONSULTING_INFORMATIONAL_TOPIC_TYPES } from "./config";
 import { PORTFOLIO_WRITING_RULES } from "./portfolio-rules";
@@ -405,11 +406,18 @@ export async function generateContentWorkItem(
     forceNewTopic?: boolean;
     /** 사람이 건넨 주문서. 없으면 지금까지처럼 알아서 주제를 고릅니다. */
     brief?: ContentBrief | null;
+    /**
+     * 이 시각까지만 씁니다(Date.now() 기준 밀리초).
+     * 남은 시간이 한 단계를 끝낼 만큼 없으면 시작하지 않고 멈춥니다.
+     * 돈을 쓰고 죽는 것보다 쓰지 않고 미루는 편이 낫습니다.
+     */
+    deadlineAt?: number | null;
   } = {},
 ) {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) throw new Error("GEMINI_API_KEY가 설정되지 않았습니다.");
   const brief = options.brief || null;
+  const deadlineAt = options.deadlineAt || null;
   if (slot.channel === "naver_design" && slot.format === "portfolio") {
     throw new Error("포트폴리오형은 실제 프로젝트 원본과 완성 이미지가 연결된 뒤에만 생성합니다.");
   }
@@ -533,16 +541,14 @@ export async function generateContentWorkItem(
     knowledgeIds: storedMetadata.generated.usedKnowledgeIds || [],
   } : null;
   const priorRevisionPlan = previousPlan || fallbackPlan;
+  // 주제를 새로 뽑아야 하는 경우에만 시간을 봅니다.
+  // 수정 재작성은 기존 기획을 그대로 쓰므로 AI 를 부르지 않습니다.
+  if (!(revisionNote && !options.forceNewTopic && priorRevisionPlan)) {
+    assertStageFits("topicPlan", deadlineAt);
+  }
   const requestedPlans = revisionNote && !options.forceNewTopic && priorRevisionPlan
     ? [contentPlanForRevision(priorRevisionPlan)]
-    : await requestTopicPlans({
-      slot,
-      sources,
-      knowledge,
-      existing,
-      scheduleKey,
-      brief,
-    });
+    : await requestTopicPlans({ slot, sources, knowledge, existing, scheduleKey, brief });
   const approvedKnowledgeIds = new Set(knowledge.map((item) => item.id));
   const planned = requestedPlans.map((plan) => ({
     plan: {
@@ -630,8 +636,11 @@ export async function generateContentWorkItem(
   for (const { plan } of eligiblePlans.slice(0, MAX_ARTICLE_ATTEMPTS)) {
     const selectedKnowledge = knowledge.filter((item) => plan.knowledgeIds.includes(item.id));
     const researchKey = `${plan.topicFamily}|${plan.primaryTopic}`;
-    const research: StoredResearch = researchCache.get(researchKey)
-      ?? (reusableResearch?.topicKey === researchKey ? reusableResearch : null)
+    const cachedResearch = researchCache.get(researchKey)
+      ?? (reusableResearch?.topicKey === researchKey ? reusableResearch : null);
+    // 이미 조사해 둔 것이 있으면 시간을 보지 않습니다. 부를 일이 없으니까요.
+    if (!cachedResearch) assertStageFits("research", deadlineAt);
+    const research: StoredResearch = cachedResearch
       ?? await researchOfficialFacts({
         topic: `${plan.workingTitle} — ${plan.primaryTopic}`,
         sourceContext: JSON.stringify({
@@ -673,6 +682,13 @@ export async function generateContentWorkItem(
     );
     let repairInstruction = "";
     for (let repairAttempt = 0; repairAttempt < AI_ATTEMPTS.articleRepair; repairAttempt += 1) {
+      // 본문을 시작할 시간이 없으면 여기서 멈춥니다. 이미 고른 후보가 있으면
+      // 그것을 저장하고, 없으면 아무것도 쓰지 않은 채 다음 기회로 넘깁니다.
+      if (selected) {
+        if (deadlineExceeded("articleBody", deadlineAt)) break articlePlans;
+      } else {
+        assertStageFits("articleBody", deadlineAt);
+      }
       const generated = await requestGeneratedContent({
         prompt: `${basePrompt}${repairInstruction}`,
         scheduleKey,

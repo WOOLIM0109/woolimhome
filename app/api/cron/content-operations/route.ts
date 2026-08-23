@@ -11,6 +11,8 @@ import { generateContentWorkItem } from "@/lib/content-ops/generate";
 import { GeminiAutomationBlocked, runBudgetedGeminiAutomation } from "@/lib/gemini/automation";
 import type { EditorialSlot } from "@/lib/content-ops/types";
 import { authorizeCron } from "@/lib/cron-auth";
+import { GENERATION_BUDGET_MS, isDeadlineError } from "@/lib/content-ops/deadline";
+import { sweepStuckWorkItems } from "@/lib/content-ops/stuck-items";
 
 /**
  * 예약 일정에 맞춰 원고까지 자동으로 만들지 여부.
@@ -42,6 +44,24 @@ const AUTO_GENERATION_PER_RUN = Math.max(
 const AUTO_GENERATION_MAX_ATTEMPTS = 2;
 
 export const maxDuration = 300;
+
+/**
+ * 한 번 실행에서 쓸 수 있는 전체 시간. 함수 상한보다 조금 짧게 잡아 둡니다.
+ * 상한에 정확히 맞추면 마무리 기록을 남기기 전에 죽습니다.
+ */
+const RUN_BUDGET_MS = 280_000;
+
+/*
+ * 원고 생성 몫은 lib/content-ops/deadline.ts 의 GENERATION_BUDGET_MS 를 그대로 씁니다.
+ *
+ * 예전에는 목업 처리가 앞에서 최대 240초를 쓰고, 남은 시간으로 원고를 만들었습니다.
+ * 그래서 원고 생성이 시작하자마자 함수가 죽는 일이 반복됐습니다. 요금은 나가고
+ * 글은 안 나오고, 작업 항목만 어중간하게 남았습니다.
+ *
+ * 원고는 발행 일정이 걸려 있어 미루면 그날 글이 빕니다. 목업은 다음 시간에
+ * 이어서 해도 됩니다. 그래서 원고 몫을 먼저 떼고, 목업은 남은 시간만 씁니다.
+ * 값을 한곳에 두는 이유는, 단계별 예산과 어긋나면 한 편도 못 만들기 때문입니다.
+ */
 
 /** 한 번 실행에서 이어 처리할 목업 최대 건수. 남은 시간이 없으면 그 전에 멈춥니다. */
 const MOCKUPS_PER_RUN = 4;
@@ -82,41 +102,22 @@ export async function GET(request: Request) {
   if (claimError) return NextResponse.json({ error: claimError.message }, { status: 500 });
   if (!runId) return NextResponse.json({ skipped: true, reason: "This cron window is already recorded" });
 
+  const runStartedAt = Date.now();
+  const runDeadlineAt = runStartedAt + RUN_BUDGET_MS;
   const localProgress: unknown[] = [];
+
+  /**
+   * 중간에 죽어 굳은 항목부터 풀어 줍니다. AI 를 부르지 않아 거의 시간이 안 듭니다.
+   * 이걸 먼저 해야 '제작 중'인 채로 영영 남는 항목이 쌓이지 않습니다.
+   */
   try {
-    const restoredCandidates = await restorePcEligibleOversizedCandidates();
-    if (restoredCandidates) localProgress.push({ stage: "pc_direct_restore", restoredCandidates });
-    /**
-     * 밀린 목업을 한 번에 여러 건 처리합니다.
-     *
-     * 예전에는 한 번 실행에 한 건만 집어갔습니다. 크론이 한 시간에 한 번 도니
-     * 여섯 건을 다시 만들면 여섯 시간이 걸렸습니다. 실제로 그랬습니다.
-     * 첫 건은 예전과 똑같이 넉넉한 시간을 쓰고, 시간이 남을 때만 다음 건을 잇습니다.
-     */
-    const mockupStartedAt = Date.now();
-    const mockupDeadlineAt = mockupStartedAt + 240_000;
-    let processedMockups = 0;
-    let lastMockup: unknown = null;
-    while (processedMockups < MOCKUPS_PER_RUN) {
-      const mockup = processedMockups === 0
-        ? await processNextPortfolioMockup()
-        : await processNextPortfolioMockup(undefined, { deadlineAt: mockupDeadlineAt });
-      if (!mockup) break;
-      localProgress.push(mockup);
-      lastMockup = mockup;
-      processedMockups += 1;
-      // 남은 시간이 한 건을 더 끝낼 만큼 없으면 다음 실행으로 넘깁니다.
-      if (Date.now() - mockupStartedAt > 120_000) break;
-    }
-    if (!lastMockup) {
-      const download = await processNextPortfolioDownload();
-      if (download) localProgress.push(download);
-    }
+    const swept = await sweepStuckWorkItems(now);
+    if (swept) localProgress.push(swept);
   } catch (error) {
     localProgress.push({
-      stage: "local_portfolio_processing",
+      stage: "stuck_sweep",
       status: "failed",
-      error: error instanceof Error ? error.message : "로컬 포트폴리오 처리 실패",
+      error: error instanceof Error ? error.message : "멈춘 항목 정리 실패",
     });
   }
 
@@ -128,6 +129,8 @@ export async function GET(request: Request) {
     .filter((slot) => slot.weekday === kst.weekday && slot.hour <= kst.hour)
     .filter((slot) => slot.key !== "home-sat" || isoWeek(currentKoreaDate) % 2 === 0);
   const scheduled: unknown[] = [];
+  /** 자동 생성 시도를 다 써서 사람 손이 필요한 자리. */
+  const exhausted: { id: string; scheduleKey: string }[] = [];
   const autoTargets: {
     slot: EditorialSlot;
     scheduleKey: string;
@@ -206,6 +209,11 @@ export async function GET(request: Request) {
         );
         if (attempts < AUTO_GENERATION_MAX_ATTEMPTS) {
           autoTargets.push({ slot, scheduleKey, workItem, attempts });
+        } else {
+          // 시도를 다 쓴 자리를 그냥 건너뛰면 아무 일도 일어나지 않은 것처럼
+          // 보입니다. 그날 글이 왜 비었는지 알 길이 없어집니다. 보류로 올려
+          // 검토 목록에 보이게 합니다.
+          exhausted.push({ id: workItem.id, scheduleKey });
         }
       }
     }
@@ -258,6 +266,21 @@ export async function GET(request: Request) {
     }
   }
 
+  /**
+   * 시도를 다 쓴 자리를 보류로 올립니다.
+   *
+   * 예전에는 조용히 건너뛰었습니다. 그래서 그날 글이 왜 비었는지 화면 어디에도
+   * 나오지 않았고, 아침에 사람이 하나하나 눌러 보고서야 알았습니다.
+   */
+  for (const item of exhausted) {
+    await admin.from("content_work_items").update({
+      status: "on_hold",
+      review_note: `자동 생성을 ${AUTO_GENERATION_MAX_ATTEMPTS}번 시도했지만 만들지 못했습니다. `
+        + "직접 만들거나, 주제를 정해 다시 시도해 주세요.",
+      updated_at: new Date().toISOString(),
+    }).eq("id", item.id).eq("status", "topic_candidate");
+  }
+
   const autoGeneration: unknown[] = [];
   let aiCalls = 0;
   if (autoGenerationEnabled()) {
@@ -276,19 +299,36 @@ export async function GET(request: Request) {
           actor: "cron",
           // 주제 기획 + 후보별 조사 + 본문 생성
           plannedCalls: 6,
-        }, () => generateContentWorkItem(target.slot, target.scheduleKey));
+        }, () => generateContentWorkItem(target.slot, target.scheduleKey, {
+          // 원고 몫으로 떼어 둔 시간 안에서만 씁니다. 한 단계를 끝낼 만큼
+          // 남지 않았으면 부르지 않고 멈춥니다.
+          deadlineAt: Math.min(runDeadlineAt, runStartedAt + GENERATION_BUDGET_MS),
+        }));
         aiCalls += 6;
         autoGeneration.push({ scheduleKey: target.scheduleKey, status: "generated", result });
       } catch (error) {
         const blocked = error instanceof GeminiAutomationBlocked;
-        const message = error instanceof Error ? error.message : "자동 생성 실패";
+        /**
+         * 시간이 모자라 시작조차 하지 않은 것은 실패가 아닙니다.
+         *
+         * 이걸 실패로 세면 두 번 미뤄진 것만으로 그 자리가 영영 건너뛰어집니다.
+         * 그러면 아침마다 사람이 손으로 돌려야 하고, 손으로 돌려도 같은 자리에서
+         * 또 걸립니다. 시도 횟수를 되돌려 다음 시간에 다시 잡게 합니다.
+         */
+        const deferred = isDeadlineError(error);
+        // 미뤘다고 해서 요금이 0 이라는 뜻은 아닙니다. 앞 단계(주제·조사)를
+        // 지나 본문 앞에서 멈췄다면 거기까지는 이미 부른 뒤입니다.
+        // 사실이 아닌 말을 적어 두면 나중에 요금을 볼 때 서로 어긋납니다.
+        const message = deferred
+          ? "이번 실행에 남은 시간이 모자라 다음 시간으로 미뤘습니다."
+          : (error instanceof Error ? error.message : "자동 생성 실패");
         autoGeneration.push({
           scheduleKey: target.scheduleKey,
-          status: blocked ? "budget_blocked" : "failed",
+          status: blocked ? "budget_blocked" : (deferred ? "deferred" : "failed"),
           reason: message,
         });
-        // 상한 때문에 멈춘 것이면 시도 횟수를 되돌려 다음 기회를 남깁니다.
-        if (blocked) {
+        // 상한이나 시간 때문에 멈춘 것이면 시도 횟수를 되돌려 다음 기회를 남깁니다.
+        if (blocked || deferred) {
           await admin.from("content_work_items").update({
             metadata: {
               ...((target.workItem.metadata as Record<string, unknown> | null) || {}),
@@ -308,6 +348,38 @@ export async function GET(request: Request) {
     }
   }
 
+  /**
+   * 목업과 내려받기는 원고를 만들고 남은 시간으로 합니다.
+   *
+   * 예전에는 이 블록이 맨 앞에 있었고 최대 240초까지 썼습니다. 그러면 원고
+   * 생성은 시작하자마자 함수 상한에 걸려 죽었습니다. 요금은 나가고 글은
+   * 안 나왔습니다. 목업은 다음 시간에 이어서 해도 되지만, 원고는 그날
+   * 발행이 걸려 있어 미루면 그대로 빕니다. 그래서 순서를 바꿨습니다.
+   */
+  try {
+    const restoredCandidates = await restorePcEligibleOversizedCandidates();
+    if (restoredCandidates) localProgress.push({ stage: "pc_direct_restore", restoredCandidates });
+    let processedMockups = 0;
+    let lastMockup: unknown = null;
+    while (processedMockups < MOCKUPS_PER_RUN && Date.now() < runDeadlineAt) {
+      const mockup = await processNextPortfolioMockup(undefined, { deadlineAt: runDeadlineAt });
+      if (!mockup) break;
+      localProgress.push(mockup);
+      lastMockup = mockup;
+      processedMockups += 1;
+    }
+    if (!lastMockup && Date.now() < runDeadlineAt) {
+      const download = await processNextPortfolioDownload();
+      if (download) localProgress.push(download);
+    }
+  } catch (error) {
+    localProgress.push({
+      stage: "local_portfolio_processing",
+      status: "failed",
+      error: error instanceof Error ? error.message : "로컬 포트폴리오 처리 실패",
+    });
+  }
+
   const completedAt = new Date().toISOString();
   const metrics = {
     code: autoGenerationEnabled() ? "CONTENT_AUTO_GENERATION_ON" : "GEMINI_COST_PROTECTION_ACTIVE",
@@ -315,6 +387,7 @@ export async function GET(request: Request) {
     localProgress,
     scheduledCount: scheduled.length,
     autoGeneration,
+    exhaustedCount: exhausted.length,
     // 문체 재작성과 포트폴리오 본문은 여전히 사람이 눌러야 시작합니다.
     skippedAiStages: ["style_retry", "portfolio_draft"],
   };
