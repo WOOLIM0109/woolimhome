@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { ExternalLink, FileCheck2, ImageIcon, Lightbulb, ShieldCheck } from "lucide-react";
 import AdminPortal from "@/components/admin/AdminPortal";
+import ManualDraftButton from "@/components/admin/ManualDraftButton";
 import ManualGenerateButton from "@/components/admin/ManualGenerateButton";
 import WorkQueue from "@/components/admin/WorkQueue";
 import TwoWeekSchedule from "@/components/admin/TwoWeekSchedule";
@@ -16,6 +17,7 @@ export default function NaverDesignAdminPage() {
         <>
           <PortfolioGenerateButton />
           <ManualGenerateButton />
+          <ManualDraftButton channel="naver_design" />
           <a href="https://blog.naver.com/wl_0109" target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 rounded-xl border border-[var(--line)] bg-white px-4 py-3 font-bold">
             블로그 열기 <ExternalLink size={17} />
           </a>

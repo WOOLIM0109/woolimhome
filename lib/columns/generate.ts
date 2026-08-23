@@ -2,6 +2,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { generateGeminiText, geminiRetryDecision } from "@/lib/gemini/client";
 import { parseGeminiJson } from "@/lib/gemini/json";
 import { researchOfficialFacts } from "@/lib/research/official";
+import { trustedSourceUrl } from "@/lib/research/trusted-sources";
 import { AI_INPUT_LIMITS, AI_OUTPUT_LIMITS, COLUMN_MIN_BODY_CHARS } from "@/lib/ai-budget";
 import { sanitizeGeneratedHtml, sanitizeInlineHtml } from "@/lib/security/html";
 import {
@@ -23,10 +24,6 @@ const OFFICIAL_FEEDS = [
   { url: "https://mss.go.kr/rss/smba/board/310.do", publisher: "중소벤처기업부", label: "사업공고" },
   { url: "https://mss.go.kr/rss/smba/board/86.do", publisher: "중소벤처기업부", label: "보도자료" },
   { url: "https://mss.go.kr/rss/smba/board/126.do", publisher: "중소벤처기업부", label: "법령공고" },
-];
-const TRUSTED_SUFFIXES = [
-  ".go.kr", ".or.kr", ".ac.kr", "law.go.kr", "k-startup.go.kr", "bizinfo.go.kr",
-  "kostat.go.kr", "kosis.kr", "doi.org", "oecd.org", "worldbank.org",
 ];
 
 type Candidate = ColumnSource & { summary: string };
@@ -76,19 +73,8 @@ async function rssCandidates(): Promise<Candidate[]> {
   return results.flatMap((result) => result.status === "fulfilled" ? result.value : []);
 }
 
-function trustedUrl(input: string) {
-  try {
-    const url = new URL(input);
-    if (url.protocol !== "https:") return false;
-    const host = url.hostname.toLowerCase();
-    return TRUSTED_SUFFIXES.some((suffix) => host === suffix.replace(/^\./, "") || host.endsWith(suffix));
-  } catch {
-    return false;
-  }
-}
-
 async function suppliedCandidate(url: string): Promise<Candidate | null> {
-  if (!trustedUrl(url)) return null;
+  if (!trustedSourceUrl(url)) return null;
   try {
     const response = await fetch(url, { cache: "no-store", signal: AbortSignal.timeout(12_000) });
     if (!response.ok) return null;
@@ -214,7 +200,12 @@ ${FRIENDLY_EDITORIAL_STYLE_RULES}
 - 불필요한 비유와 수식어를 빼고 결론부터 쓴다. 한 문장에는 한 가지 판단이나 행동만 담고, 100자를 넘기기 전에 나눈다.
 - FAQ 답변은 결론부터 1~2문장으로 쓰고 공백 제외 180자를 넘기지 않는다.
 - 목표는 한글 가시문자 3,500자 이상이다. 불필요한 반복으로 늘리지 않는다.
-- HTML은 h2,h3,p,ul,ol,li,strong,blockquote,a 태그만 사용한다.
+- HTML은 h2,h3,p,ul,ol,li,strong,blockquote,a 와 표(table,thead,tbody,tr,th,td) 태그만 사용한다.
+- 표는 글로 풀면 오히려 읽기 힘든 곳에만 쓴다. 두 제도를 항목별로 견주거나,
+  연도·금액·대상 같은 값이 여럿 나란히 놓일 때가 그런 자리다.
+  줄글로 충분한 내용을 표로 바꾸지 않는다. 한 편에 많아야 두 개까지 쓴다.
+- 표를 쓸 때는 첫 줄을 th 로 된 머리글 행으로 만들고, 칸 안은 짧게 끊어 쓴다.
+  긴 설명이 필요하면 표 대신 문단으로 쓴다.
 - FAQ와 참고자료 섹션은 bodyHtml에 넣지 않는다(시스템이 붙인다).
 - 노하우 자료에 없는 경험·성과·사례는 절대 창작하지 않는다.
 - hybrid와 authority도 노하우 원문을 요약하는 글이 아니다. 최소 2개의 공식 외부 출처로 사실과 검색 수요를 보강하고,

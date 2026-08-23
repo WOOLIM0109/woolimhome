@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { authenticatedAdmin, contentAdmin } from "@/lib/content-ops/data";
 import { generateContentWorkItem } from "@/lib/content-ops/generate";
+import { parseContentBrief } from "@/lib/content-ops/brief";
 import { GeminiAutomationBlocked, runBudgetedGeminiAutomation } from "@/lib/gemini/automation";
 import type { EditorialSlot } from "@/lib/content-ops/types";
 import {
@@ -26,12 +27,17 @@ export async function POST(request: Request) {
   const scheduleKey = channel === "naver_consulting"
     ? `manual-consulting-${requestId}`
     : `manual-design-${requestId}`;
+  // 주제 한 줄이나 붙여넣은 자료가 있으면 그 안에서 주제를 잡습니다.
+  // 아무것도 없으면 지금까지처럼 알아서 고릅니다.
+  const brief = parseContentBrief(body);
   const label = channel === "naver_consulting"
     ? (format === "authority" ? "컨설팅 울림 콘텐츠형" : "컨설팅 정보형")
     : "디자인 블로그 시험 초안";
   const slot: EditorialSlot = { key: scheduleKey, channel, format, weekday: new Date().getDay(), hour: new Date().getHours(), label };
   const { error } = await contentAdmin().from("content_work_items").upsert({
-    channel: slot.channel, format: slot.format, title: `${label} 생성 중`, summary: "공식 자료를 확인하고 초안을 생성하고 있습니다.",
+    channel: slot.channel, format: slot.format,
+    title: brief?.topicHint ? `${label} 생성 중 — ${brief.topicHint}` : `${label} 생성 중`,
+    summary: "공식 자료를 확인하고 초안을 생성하고 있습니다.",
     status: "creating", schedule_key: scheduleKey, created_by: user.email,
     metadata: { manual: true, manualRequestId: requestId },
   }, { onConflict: "schedule_key" });
@@ -51,7 +57,7 @@ export async function POST(request: Request) {
       actor: user.email || "admin",
       // 주제 기획 + 후보별 조사와 본문 생성
       plannedCalls: 6,
-    }, () => generateContentWorkItem(slot, scheduleKey)));
+    }, () => generateContentWorkItem(slot, scheduleKey, { brief })));
   } catch (generationError) {
     if (generationError instanceof GeminiAutomationBlocked) {
       await contentAdmin().from("content_work_items")
