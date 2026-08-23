@@ -497,6 +497,10 @@ export async function generateContentWorkItem(
     channels: [slot.channel],
   }))))
     .filter((source): source is Source & { snapshot: string } => Boolean(source));
+  // 주소는 통과했는데 그 페이지를 못 읽은 경우도 알려 줍니다.
+  // 링크를 붙였는데 아무 일도 일어나지 않으면 왜 반영이 안 됐는지 알 길이 없습니다.
+  const readBriefUrls = new Set(briefSources.map((source) => source.base_url));
+  const unreadableBriefUrls = allowedBriefUrls.filter((url) => !readBriefUrls.has(url));
   const sources = mergeAvailableSources([...briefSources, ...registeredSources]);
   if (sources.length < 2) throw new Error("읽을 수 있는 채널 전용 공식 출처가 2개 미만입니다.");
 
@@ -776,6 +780,10 @@ ${JSON.stringify(generated)}
       ? [`읽지 않은 링크 ${rejectedBriefUrls.length}개: ${rejectedBriefUrls.join(", ")}`
         + " (정부·공공기관·학교·공식 통계 주소만 조사에 사용합니다)"]
       : []),
+    ...(unreadableBriefUrls.length
+      ? [`열지 못한 링크 ${unreadableBriefUrls.length}개: ${unreadableBriefUrls.join(", ")}`
+        + " (주소가 바뀌었거나 응답이 없었습니다)"]
+      : []),
     ...(brief && novelty.duplicate
       ? [`지정하신 주제라 그대로 진행했지만, 기존 글과 겹치는 정도가 ${novelty.riskScore}점입니다.`
         + `${novelty.matches[0] ? ` 가장 비슷한 글: ${novelty.matches[0].title}` : ""}`]
@@ -815,8 +823,9 @@ ${JSON.stringify(generated)}
         brief: {
           topicHint: brief.topicHint || null,
           hasSourceMaterial: Boolean(brief.sourceMaterial),
-          sourceUrls: allowedBriefUrls,
+          sourceUrls: [...readBriefUrls],
           rejectedSourceUrls: rejectedBriefUrls,
+          unreadableSourceUrls: unreadableBriefUrls,
           requestedAt: generatedAt,
         },
       } : {}),
