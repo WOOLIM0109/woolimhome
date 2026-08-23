@@ -2,6 +2,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { generateGeminiText, geminiRetryDecision } from "@/lib/gemini/client";
 import { parseGeminiJson } from "@/lib/gemini/json";
 import { researchOfficialFacts } from "@/lib/research/official";
+import { trustedSourceUrl } from "@/lib/research/trusted-sources";
 import { AI_INPUT_LIMITS, AI_OUTPUT_LIMITS, COLUMN_MIN_BODY_CHARS } from "@/lib/ai-budget";
 import { sanitizeGeneratedHtml, sanitizeInlineHtml } from "@/lib/security/html";
 import {
@@ -23,10 +24,6 @@ const OFFICIAL_FEEDS = [
   { url: "https://mss.go.kr/rss/smba/board/310.do", publisher: "중소벤처기업부", label: "사업공고" },
   { url: "https://mss.go.kr/rss/smba/board/86.do", publisher: "중소벤처기업부", label: "보도자료" },
   { url: "https://mss.go.kr/rss/smba/board/126.do", publisher: "중소벤처기업부", label: "법령공고" },
-];
-const TRUSTED_SUFFIXES = [
-  ".go.kr", ".or.kr", ".ac.kr", "law.go.kr", "k-startup.go.kr", "bizinfo.go.kr",
-  "kostat.go.kr", "kosis.kr", "doi.org", "oecd.org", "worldbank.org",
 ];
 
 type Candidate = ColumnSource & { summary: string };
@@ -76,19 +73,8 @@ async function rssCandidates(): Promise<Candidate[]> {
   return results.flatMap((result) => result.status === "fulfilled" ? result.value : []);
 }
 
-function trustedUrl(input: string) {
-  try {
-    const url = new URL(input);
-    if (url.protocol !== "https:") return false;
-    const host = url.hostname.toLowerCase();
-    return TRUSTED_SUFFIXES.some((suffix) => host === suffix.replace(/^\./, "") || host.endsWith(suffix));
-  } catch {
-    return false;
-  }
-}
-
 async function suppliedCandidate(url: string): Promise<Candidate | null> {
-  if (!trustedUrl(url)) return null;
+  if (!trustedSourceUrl(url)) return null;
   try {
     const response = await fetch(url, { cache: "no-store", signal: AbortSignal.timeout(12_000) });
     if (!response.ok) return null;

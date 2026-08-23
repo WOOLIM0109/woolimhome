@@ -3,6 +3,7 @@ import { sanitizeGeneratedHtml, sanitizeInlineHtml } from "@/lib/security/html";
 import { generateGeminiText } from "@/lib/gemini/client";
 import { stripVerificationControlText } from "@/lib/columns/verification";
 import { researchOfficialFacts } from "@/lib/research/official";
+import { briefPlanningRules, briefWritingRules, splitBriefSourceUrls, type ContentBrief } from "./brief";
 import { AI_ATTEMPTS, AI_INPUT_LIMITS, AI_OUTPUT_LIMITS, RESEARCH_REUSE_HOURS } from "@/lib/ai-budget";
 import { CONSULTING_INFORMATIONAL_TOPIC_TYPES } from "./config";
 import { PORTFOLIO_WRITING_RULES } from "./portfolio-rules";
@@ -153,6 +154,7 @@ function promptFor(
   knowledge: ExpertKnowledge[],
   researchDossier: string,
   revision?: { note: string; previous?: GeneratedContent },
+  brief?: ContentBrief | null,
 ) {
   const requiresKnowledge = knowledgeRequiredForSlot(slot);
   const designRules = slot.channel === "naver_design" ? `
@@ -185,6 +187,7 @@ ${designRules}
 ${slot.format === "portfolio" ? PORTFOLIO_WRITING_RULES : ""}
 ${formatRules}
 ${revisionRules}
+${briefWritingRules(brief ?? null)}
 ${FRIENDLY_EDITORIAL_STYLE_RULES}
 
 선정된 주제 기획:
@@ -234,12 +237,14 @@ async function requestTopicPlans({
   knowledge,
   existing,
   scheduleKey,
+  brief,
 }: {
   slot: EditorialSlot;
   sources: (Source & { snapshot: string })[];
   knowledge: ExpertKnowledge[];
   existing: ComparableContent[];
   scheduleKey: string;
+  brief?: ContentBrief | null;
 }) {
   if (await generationCancellationRequested(scheduleKey)) {
     await removeCancelledGeneration(scheduleKey);
@@ -259,7 +264,12 @@ async function requestTopicPlans({
    * 공식 출처가 그쪽에 몰려 있어 후보 5개가 매번 비슷하게 나왔습니다.
    * 실제 블로그에서 검색 유입이 꾸준한 서류·시스템·용어 정리 글을 함께 만들게 합니다.
    */
-  const informationalVarietyRules = slot.channel === "naver_consulting" && slot.format === "informational"
+  const informationalVarietyRules = slot.channel === "naver_consulting"
+    && slot.format === "informational"
+    // 주제를 지정받았을 때는 유형을 골고루 섞으라는 규칙을 끕니다.
+    // 이 규칙에는 '지원사업 안내는 5개 중 1개까지' 같은 조건이 들어 있어서,
+    // 지정한 주제가 거기 걸리면 후보가 엉뚱한 쪽으로 밀려납니다.
+    && !brief
     ? `
 - 후보 5개 중 최소 3개는 아래 유형에서 서로 다른 유형으로 고른다. 같은 유형을 두 개 이상 넣지 않는다.
 - '지원사업·정책자금 안내' 유형은 5개 중 최대 1개까지만 허용한다.
@@ -278,6 +288,7 @@ ${JSON.stringify(CONSULTING_INFORMATIONAL_TOPIC_TYPES)}`
 ${authorityRules}
 ${informationalVarietyRules}
 ${designRules}
+${briefPlanningRules(brief ?? null)}
 
 [최근 90일 같은 채널 콘텐츠 — 주제·제도·관점·목차가 겹치면 안 됨]
 ${JSON.stringify(recentContentSummary(existing))}
@@ -389,10 +400,16 @@ async function requestGeneratedContent({
 export async function generateContentWorkItem(
   slot: EditorialSlot,
   scheduleKey: string,
-  options: { revisionNote?: string | null; forceNewTopic?: boolean } = {},
+  options: {
+    revisionNote?: string | null;
+    forceNewTopic?: boolean;
+    /** 사람이 건넨 주문서. 없으면 지금까지처럼 알아서 주제를 고릅니다. */
+    brief?: ContentBrief | null;
+  } = {},
 ) {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) throw new Error("GEMINI_API_KEY가 설정되지 않았습니다.");
+  const brief = options.brief || null;
   if (slot.channel === "naver_design" && slot.format === "portfolio") {
     throw new Error("포트폴리오형은 실제 프로젝트 원본과 완성 이미지가 연결된 뒤에만 생성합니다.");
   }
@@ -465,8 +482,22 @@ export async function generateContentWorkItem(
   if (requiresKnowledge && !knowledge.length) {
     throw new Error(`${knowledgeFormatLabel(slot)}에 필요한 승인된 인터뷰·노하우 원천자료가 없습니다.`);
   }
-  const sources = (await Promise.all((registered || []).map(sourceSnapshot)))
+  const registeredSources = (await Promise.all((registered || []).map(sourceSnapshot)))
     .filter((source): source is Source & { snapshot: string } => Boolean(source));
+  // 대표가 붙인 링크를 실제로 읽어 조사 재료에 넣습니다.
+  // 등록 출처만으로는 새로 뜬 공고처럼 아직 목록에 없는 자료를 다룰 수 없습니다.
+  const { allowed: allowedBriefUrls, rejected: rejectedBriefUrls } = splitBriefSourceUrls(brief);
+  const briefSources = (await Promise.all(allowedBriefUrls.map((url) => sourceSnapshot({
+    name: (() => {
+      try { return new URL(url).hostname.replace(/^www\./, ""); } catch { return url; }
+    })(),
+    base_url: url,
+    source_grade: 1,
+    topic_families: [],
+    channels: [slot.channel],
+  }))))
+    .filter((source): source is Source & { snapshot: string } => Boolean(source));
+  const sources = mergeAvailableSources([...briefSources, ...registeredSources]);
   if (sources.length < 2) throw new Error("읽을 수 있는 채널 전용 공식 출처가 2개 미만입니다.");
 
   const existing = (recentItems || [])
@@ -506,6 +537,7 @@ export async function generateContentWorkItem(
       knowledge,
       existing,
       scheduleKey,
+      brief,
     });
   const approvedKnowledgeIds = new Set(knowledge.map((item) => item.id));
   const planned = requestedPlans.map((plan) => ({
@@ -524,8 +556,12 @@ export async function generateContentWorkItem(
       stage: "plan",
     }),
   }));
+  // 대표가 주제를 지정했으면 소재가 겹친다고 취소하지 않습니다.
+  // 지정한 주제로 써 달라는 요청 자체가 중복을 감수하겠다는 뜻입니다.
+  // 대신 얼마나 겹치는지는 아래에서 검토 메모로 남깁니다.
+  const skipDuplicateBlock = Boolean(brief) || Boolean(revisionNote && !options.forceNewTopic);
   const eligiblePlans = planned.filter(({ plan, assessment }) =>
-    (revisionNote && !options.forceNewTopic || !assessment.duplicate)
+    (skipDuplicateBlock || !assessment.duplicate)
     && (!requiresKnowledge || plan.knowledgeIds.length > 0));
   if (!eligiblePlans.length) {
     const strongest = planned
@@ -596,6 +632,12 @@ export async function generateContentWorkItem(
         topic: `${plan.workingTitle} — ${plan.primaryTopic}`,
         sourceContext: JSON.stringify({
           plan,
+          ...(brief ? {
+            // 붙여넣은 자료를 조사 담당에게 그대로 넘깁니다.
+            // 여기에 적힌 숫자와 기한이 조사 대상이 되고, 확인된 것만 본문에 남습니다.
+            requestedTopic: brief.topicHint || null,
+            suppliedMaterial: brief.sourceMaterial || null,
+          } : {}),
           woolimKnowledge: selectedKnowledge,
           registeredOfficialSources: sources.map((source) => ({
             name: source.name,
@@ -623,6 +665,7 @@ export async function generateContentWorkItem(
       revisionNote && !options.forceNewTopic
         ? { note: revisionNote, previous: storedMetadata.generated }
         : undefined,
+      brief,
     );
     let repairInstruction = "";
     for (let repairAttempt = 0; repairAttempt < AI_ATTEMPTS.articleRepair; repairAttempt += 1) {
@@ -663,11 +706,14 @@ export async function generateContentWorkItem(
         ...(authorityMissingKnowledge ? [`${knowledgeFormatLabel(slot)}에 승인된 원천자료가 사용되지 않음`] : []),
         ...editorialPublicationIssues(slot.format, generated),
       ];
+      const duplicateNote = novelty.duplicate
+        ? `기존 글과 중복 위험 ${novelty.riskScore}점${novelty.matches[0] ? `: ${novelty.matches[0].title}` : ""}`
+        : "";
       const issues = [
         ...structuralIssues,
-        ...(novelty.duplicate
-          ? [`기존 글과 중복 위험 ${novelty.riskScore}점${novelty.matches[0] ? `: ${novelty.matches[0].title}` : ""}`]
-          : []),
+        // 주제를 지정받았을 때의 중복은 막을 일이 아니라 알려 줄 일입니다.
+        // 아래 경고로 남겨 검토 화면에서 보이게 합니다.
+        ...(duplicateNote && !skipDuplicateBlock ? [duplicateNote] : []),
       ];
       attempts.push({
         title: generated.title,
@@ -723,6 +769,18 @@ ${JSON.stringify(generated)}
     throw new Error("GENERATION_CANCELLED");
   }
   const status = issues.length ? "on_hold" : "review_required";
+  // 막지는 않았지만 알고 계셔야 하는 것들입니다.
+  // 읽지 못한 링크와, 지정 주제라서 넘긴 중복 경고가 여기 모입니다.
+  const advisories = [
+    ...(rejectedBriefUrls.length
+      ? [`읽지 않은 링크 ${rejectedBriefUrls.length}개: ${rejectedBriefUrls.join(", ")}`
+        + " (정부·공공기관·학교·공식 통계 주소만 조사에 사용합니다)"]
+      : []),
+    ...(brief && novelty.duplicate
+      ? [`지정하신 주제라 그대로 진행했지만, 기존 글과 겹치는 정도가 ${novelty.riskScore}점입니다.`
+        + `${novelty.matches[0] ? ` 가장 비슷한 글: ${novelty.matches[0].title}` : ""}`]
+      : []),
+  ];
   const usedSourceNames = sourcePool
     .filter((source) => generated.sourceUrls.some((url) => {
       try {
@@ -746,13 +804,22 @@ ${JSON.stringify(generated)}
     last_error_code: null,
     last_error_context: {},
     review_note: status === "on_hold"
-      ? `${novelty.duplicate ? "중복 검사" : "자동 검증"} 보류: ${issues.join(", ")}`
-      : null,
+      ? [`${novelty.duplicate ? "중복 검사" : "자동 검증"} 보류: ${issues.join(", ")}`, ...advisories].join(" / ")
+      : (advisories.join(" / ") || null),
     source_label: (usedSourceNames.length ? usedSourceNames : sourcePool.map((source) => source.name)).join(", "),
     source_reference: JSON.stringify(generated.sourceUrls || []),
     metadata: {
       ...successfulMetadata,
       generated,
+      ...(brief ? {
+        brief: {
+          topicHint: brief.topicHint || null,
+          hasSourceMaterial: Boolean(brief.sourceMaterial),
+          sourceUrls: allowedBriefUrls,
+          rejectedSourceUrls: rejectedBriefUrls,
+          requestedAt: generatedAt,
+        },
+      } : {}),
       ...(status === "review_required" ? {
         styleRevision: createStyleRevisionStamp(generated, {
           appliedAt: generatedAt,
