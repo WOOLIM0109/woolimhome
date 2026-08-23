@@ -316,8 +316,11 @@ export async function GET(request: Request) {
          * 또 걸립니다. 시도 횟수를 되돌려 다음 시간에 다시 잡게 합니다.
          */
         const deferred = isDeadlineError(error);
+        // 미뤘다고 해서 요금이 0 이라는 뜻은 아닙니다. 앞 단계(주제·조사)를
+        // 지나 본문 앞에서 멈췄다면 거기까지는 이미 부른 뒤입니다.
+        // 사실이 아닌 말을 적어 두면 나중에 요금을 볼 때 서로 어긋납니다.
         const message = deferred
-          ? "이번 실행에 남은 시간이 모자라 다음 시간으로 미뤘습니다. 요금은 쓰지 않았습니다."
+          ? "이번 실행에 남은 시간이 모자라 다음 시간으로 미뤘습니다."
           : (error instanceof Error ? error.message : "자동 생성 실패");
         autoGeneration.push({
           scheduleKey: target.scheduleKey,
