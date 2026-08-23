@@ -79,10 +79,28 @@ export function geminiBudgetConfig(): GeminiBudgetConfig {
      */
     dailyCalls: Math.floor(positiveNumber(process.env.GEMINI_DAILY_CALL_LIMIT, 20)),
     monthlyCalls: Math.floor(positiveNumber(process.env.GEMINI_MONTHLY_CALL_LIMIT, 300)),
-    dailyCostUsd: positiveNumber(process.env.GEMINI_DAILY_COST_LIMIT_USD, 1),
-    monthlyCostUsd: positiveNumber(process.env.GEMINI_MONTHLY_COST_LIMIT_USD, 10),
-    // Conservative defaults intentionally overestimate cost until an operator
-    // records the exact price for the selected model.
+    /**
+     * 비용 상한은 폭주를 막는 마지막 방어선입니다. 매일 쓰는 브레이크가 아닙니다.
+     *
+     * 하루 $1, 한 달 $10 이던 때에는 한 달에 194회를 쓰고 막혔습니다. 횟수는
+     * 500회 중 194회로 한참 남았는데 비용 쪽이 먼저 닫힌 것입니다. 아래
+     * 단가가 실제보다 크게 잡혀 있어서, 실제로 나간 돈보다 훨씬 앞서 걸립니다.
+     *
+     * 그래서 비용은 여유 있게 두고, 하루에 몇 편을 만들지는 위의 횟수 상한으로
+     * 정합니다. 횟수가 먼저 걸리게 해 두면 무엇을 조절해야 하는지도 분명해집니다.
+     */
+    dailyCostUsd: positiveNumber(process.env.GEMINI_DAILY_COST_LIMIT_USD, 5),
+    monthlyCostUsd: positiveNumber(process.env.GEMINI_MONTHLY_COST_LIMIT_USD, 60),
+    /**
+     * 단가는 실제 값이 아니라 크게 잡은 추정치입니다.
+     *
+     * 호출 한 번을 입력 2만 토큰, 출력 6천 토큰으로 잡고 여기에 이 단가를
+     * 곱해 $0.08 정도로 셉니다. 실제 Flash 계열 단가는 이보다 몇 배 낮으므로,
+     * 기록된 금액은 실제 청구액이 아니라 넉넉히 부풀린 값으로 읽어야 합니다.
+     *
+     * 실제 청구액을 확인하면 아래 두 환경변수에 넣어 주세요. 그때부터 상한이
+     * 진짜 지출을 뜻하게 됩니다.
+     */
     inputUsdPerMillionTokens: positiveNumber(process.env.GEMINI_INPUT_USD_PER_MILLION_TOKENS, 1),
     outputUsdPerMillionTokens: positiveNumber(process.env.GEMINI_OUTPUT_USD_PER_MILLION_TOKENS, 10),
   };
