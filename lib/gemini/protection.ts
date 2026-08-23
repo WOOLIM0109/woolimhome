@@ -458,6 +458,11 @@ export function estimatedGeminiCostUsd(
     + (outputTokens / 1_000_000) * config.outputUsdPerMillionTokens;
 }
 
+/** 돈을 사람이 읽는 모습으로. 소수점 넷째 자리까지 봐야 작은 금액이 0 으로 보이지 않습니다. */
+function usdLabel(value: number) {
+  return `$${value < 0.01 ? value.toFixed(4) : value.toFixed(2)}`;
+}
+
 export function budgetDecision(
   usage: GeminiUsageSnapshot,
   estimatedCostUsd: number,
@@ -478,6 +483,7 @@ export function budgetDecision(
       allowed: false,
       reason: `이 작업은 한 번에 ${reservedCalls}회를 예약하는데 일일 상한이 ${config.dailyCalls}회입니다.`
         + " 상한을 올리기 전에는 실행되지 않습니다.",
+      detail: "환경변수 GEMINI_DAILY_CALL_LIMIT",
     };
   }
   if (reservedCalls > config.monthlyCalls) {
@@ -485,14 +491,49 @@ export function budgetDecision(
       allowed: false,
       reason: `이 작업은 한 번에 ${reservedCalls}회를 예약하는데 월간 상한이 ${config.monthlyCalls}회입니다.`
         + " 상한을 올리기 전에는 실행되지 않습니다.",
+      detail: "환경변수 GEMINI_MONTHLY_CALL_LIMIT",
     };
   }
 
-  if (usage.dailyCallsUsed + reservedCalls > config.dailyCalls) return { allowed: false, reason: "일일 Gemini 호출 상한을 초과합니다." };
-  if (usage.monthlyCallsUsed + reservedCalls > config.monthlyCalls) return { allowed: false, reason: "월간 Gemini 호출 상한을 초과합니다." };
-  if (usage.dailyCostUsed + estimatedCostUsd > config.dailyCostUsd) return { allowed: false, reason: "일일 Gemini 비용 상한을 초과합니다." };
-  if (usage.monthlyCostUsed + estimatedCostUsd > config.monthlyCostUsd) return { allowed: false, reason: "월간 Gemini 비용 상한을 초과합니다." };
-  return { allowed: true, reason: null };
+  /**
+   * 무엇에 걸렸는지와 그 숫자를 함께 돌려줍니다.
+   *
+   * 예전에는 막힌 이유만 돌려주고, 화면에는 늘 호출 횟수를 붙였습니다.
+   * 그래서 비용에 걸렸을 때 "비용 상한을 초과합니다 (194회 / 상한 500회)"
+   * 처럼 서로 맞지 않는 말이 나왔습니다. 아직 여유가 있는 숫자를 보여 주니
+   * 왜 막혔는지 알 수가 없었습니다.
+   */
+  if (usage.dailyCallsUsed + reservedCalls > config.dailyCalls) {
+    return {
+      allowed: false,
+      reason: "일일 Gemini 호출 상한을 초과합니다.",
+      detail: `오늘 사용 ${usage.dailyCallsUsed}회 + 이번 작업 ${reservedCalls}회 / 상한 ${config.dailyCalls}회`,
+    };
+  }
+  if (usage.monthlyCallsUsed + reservedCalls > config.monthlyCalls) {
+    return {
+      allowed: false,
+      reason: "월간 Gemini 호출 상한을 초과합니다.",
+      detail: `이번 달 사용 ${usage.monthlyCallsUsed}회 + 이번 작업 ${reservedCalls}회 / 상한 ${config.monthlyCalls}회`,
+    };
+  }
+  if (usage.dailyCostUsed + estimatedCostUsd > config.dailyCostUsd) {
+    return {
+      allowed: false,
+      reason: "일일 Gemini 비용 상한을 초과합니다.",
+      detail: `오늘 사용 ${usdLabel(usage.dailyCostUsed)} + 이번 작업 예상 ${usdLabel(estimatedCostUsd)}`
+        + ` / 상한 ${usdLabel(config.dailyCostUsd)} (환경변수 GEMINI_DAILY_COST_LIMIT_USD)`,
+    };
+  }
+  if (usage.monthlyCostUsed + estimatedCostUsd > config.monthlyCostUsd) {
+    return {
+      allowed: false,
+      reason: "월간 Gemini 비용 상한을 초과합니다.",
+      detail: `이번 달 사용 ${usdLabel(usage.monthlyCostUsed)} + 이번 작업 예상 ${usdLabel(estimatedCostUsd)}`
+        + ` / 상한 ${usdLabel(config.monthlyCostUsd)} (환경변수 GEMINI_MONTHLY_COST_LIMIT_USD)`,
+    };
+  }
+  return { allowed: true, reason: null, detail: null };
 }
 
 export function koreaUsageWindow(now = new Date()) {

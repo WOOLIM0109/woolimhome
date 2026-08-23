@@ -207,7 +207,10 @@ export async function runBudgetedGeminiAutomation<T>(
   if (!decision.allowed) {
     throw new GeminiAutomationBlocked(
       "GEMINI_BUDGET_EXCEEDED",
-      `${decision.reason || "Gemini 예산 상한에 도달했습니다."} (이번 달 사용 ${usage.monthlyCallsUsed}회 / 상한 ${config.monthlyCalls}회)`,
+      // 걸린 항목의 숫자를 그대로 씁니다. 호출 횟수를 늘 붙이던 때에는
+      // 비용에 걸렸는데 아직 여유가 있는 횟수가 보여 앞뒤가 맞지 않았습니다.
+      [decision.reason || "Gemini 예산 상한에 도달했습니다.", decision.detail ? `(${decision.detail})` : ""]
+        .filter(Boolean).join(" "),
     );
   }
 
