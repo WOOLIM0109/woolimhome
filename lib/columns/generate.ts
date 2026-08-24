@@ -327,9 +327,25 @@ export async function generateColumn(input: {
    * 켜고 문제가 있으면 배포를 기다리지 않고 바로 되돌릴 수 있어야 합니다.
    */
   const drawDiagrams = diagramsEnabled();
+  /*
+   * 도식을 그리게 하는 말.
+   *
+   * 예전에는 "~한 곳에만", "바꾸지 않는다", "넣을 곳이 없으면 넣지 않는다"로
+   * 두 줄 안에 말리는 말을 세 번 넣었습니다. "최대 1개"도 목표가 아니라 상한으로
+   * 읽힙니다. 그러니 안 그리는 쪽이 늘 안전한 선택이 되어, 켜 두어도 도식이
+   * 한 번도 나오지 않았습니다.
+   *
+   * 그래서 기본을 뒤집습니다. 그리는 것이 기본이고, 정말 그릴 것이 없을 때만
+   * 건너뜁니다. 아무 데나 그리지 않게 "어디에 그리는지"는 그대로 좁혀 둡니다.
+   */
   const diagramRules = drawDiagrams ? `
-- 단계·흐름·비중처럼 글이나 표로는 관계가 드러나지 않는 곳에만 도식(SVG)을 한 편에 최대 1개 넣는다.
-  줄글이나 표로 충분한 내용을 도식으로 바꾸지 않는다. 넣을 곳이 없으면 넣지 않는다.
+- 도식(SVG)을 한 편에 1개 넣는다. 아래 중 하나라도 글에 있으면 그 자리에 반드시 넣는다.
+  · 순서가 있는 단계(신청 → 심사 → 통보)
+  · 갈림길이나 조건(이 경우엔 A, 저 경우엔 B)
+  · 크기·비중의 비교(8,000명 대 2,000명)
+  · 시간의 흐름이나 기한
+  대부분의 칼럼에는 이 중 하나가 있다. 넘어가기 전에 먼저 찾아본다.
+  줄글이나 표로 충분히 드러나는 내용을 굳이 도식으로 바꾸지는 않는다.
 - 도식에 쓸 수 있는 태그는 이것뿐이다:
   svg g defs marker path rect circle ellipse line polyline polygon text tspan title desc linearGradient stop
   이 목록 밖의 태그(foreignObject, use, image, script, style, animate 등)를 쓰면 저장할 때 도식이 통째로 사라진다.
@@ -728,6 +744,12 @@ ${JSON.stringify(generated.faqs)}
          */
         ...(topicPlan ? { topicPlan } : {}),
         feedTally,
+        /*
+         * 도식을 그리라고 시켰는지 남깁니다.
+         * 이게 없으면 "도식이 없는" 글을 보고도 기능이 꺼진 것인지 AI 가 안 그린
+         * 것인지 알 수 없습니다. 실제로 그것 때문에 한참 헤맸습니다.
+         */
+        diagramsRequested: drawDiagrams,
       },
       author_email: input.createdBy,
     }).select().single();
@@ -769,7 +791,15 @@ ${JSON.stringify(generated.faqs)}
         blockquoteCount,
         faqCount: generated.faqs.length,
         sourceCount: sourceRecords.length,
+        /*
+         * 도식을 시켰는지, 실제로 몇 개 들어갔는지 화면에 보냅니다.
+         * 이게 없으면 도식 없는 글을 보고도 기능이 꺼진 것인지 AI 가 안 그린
+         * 것인지 알 수 없어, 고칠 자리를 못 찾습니다.
+         */
+        diagramsRequested: drawDiagrams,
+        diagramCount: (generated.bodyHtml.match(/<svg\b/gi) || []).length,
       },
+      topicFamily: topicPlan?.topicFamily || null,
     };
   } catch (error) {
     const retry = geminiRetryDecision(error, 0);
