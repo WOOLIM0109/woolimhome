@@ -222,6 +222,8 @@ export default function KnowledgePage() {
           <div>
             <h2 className="font-bold">인터뷰·강의 자료 파일로 가져오기</h2>
             <p className="mt-1 text-sm text-[var(--muted)]">TXT 또는 DOCX 파일을 올리면 대표님의 실제 표현과 맥락을 유지해 주제별 노하우 카드로 나눕니다. 공개 사실은 글 작성 단계에서 주장마다 공식 원문을 자동 조사하며, 외부에서 확인할 수 없는 개인정보·내부 사실만 대표님 확인 대상으로 남깁니다.</p>
+            {/* 미승인으로 들어간다는 것을 올리기 전에 알려 줍니다. 올린 뒤에 알면 늦습니다. */}
+            <p className="mt-2 text-sm font-bold text-amber-800">나뉜 카드는 &ldquo;미승인&rdquo;으로 저장됩니다. 내용을 확인하고 승인하셔야 칼럼에 쓰입니다.</p>
           </div>
         </div>
         <div className="mt-5 flex flex-col gap-3 sm:flex-row">
@@ -287,7 +289,21 @@ export default function KnowledgePage() {
                       {flagged && <span className="inline-flex items-center gap-1 rounded-sm bg-amber-100 px-2 py-1 text-amber-900"><AlertTriangle size={13} /> 확인 필요 {verification.items.length}건</span>}
                       {automaticResearch && <span className="inline-flex items-center gap-1 rounded-sm bg-sky-50 px-2 py-1 text-sky-800"><Search size={13} /> 자동 조사 {verification.automaticItems.length}건</span>}
                       {!flagged && verification.completed && <span className="inline-flex items-center gap-1 rounded-sm bg-sky-50 px-2 py-1 text-sky-800"><BadgeCheck size={13} /> 확인 완료{verification.completedAt ? ` · ${verification.completedAt}` : ""}</span>}
-                      {Number(item.use_count || 0) >= 3 && <span className="text-amber-800">새 자료 권장</span>}
+                      {/*
+                        이 표시를 보고 카드를 지우시면 안 됩니다.
+                        세 번 썼다는 뜻일 뿐이고, 자료를 고를 때 덜 쓴 것부터
+                        가져가므로(selectRotatingKnowledge) 이 카드는 이미 순번이
+                        뒤로 밀려 있습니다. 지우면 그 노하우만 사라집니다.
+                        무슨 뜻인지 화면에 안 적혀 있어 오해를 샀습니다.
+                      */}
+                      {Number(item.use_count || 0) >= 3 && (
+                        <span
+                          className="text-amber-800"
+                          title="이미 세 번 이상 쓴 자료입니다. 지우지 마세요 — 시스템이 덜 쓴 자료를 먼저 쓰므로 이 카드는 이미 뒤로 밀려 있습니다. 여유 될 때 새 인터뷰나 사례를 추가해 주시면 됩니다."
+                        >
+                          새 자료 권장
+                        </span>
+                      )}
                     </div>
                     <h3 className="mt-3 text-lg font-bold">{item.topic}</h3>
                     {!expanded && <p className="prose-muted mt-3 line-clamp-3 text-sm">{item.raw_text}</p>}

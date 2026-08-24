@@ -55,7 +55,16 @@ export default function AiNewColumnPage() {
     <Page>
       <Link href="/admin/columns" className="text-sm text-[var(--muted)]">← 칼럼 관리</Link>
       <h1 className="mt-5 text-3xl font-bold">AI 칼럼 초안</h1>
-      <p className="prose-muted mt-3">주제를 비워두면 중소벤처기업부 공식 공고와 보도자료에서 시의성 있는 주제를 자동으로 고릅니다.</p>
+      {/*
+        화면 설명은 실제로 하는 일과 같아야 합니다.
+        예전에는 중기부 공고에서 주제를 골랐고 그래서 늘 지원사업 이야기만
+        나왔습니다. 지금은 주제군 15개를 돌려 가며 고릅니다. 설명을 그대로
+        두면 대표님이 "고쳤다는데 화면은 그대로네" 하고 믿을 수 없게 됩니다.
+      */}
+      <p className="prose-muted mt-3">
+        주제를 비워두면 경영전략·마케팅·재무·인증·수출 등 15개 분야를 돌려 가며,
+        최근 칼럼에서 덜 다룬 쪽으로 주제를 고릅니다. 자료는 그 주제에 맞춰 찾습니다.
+      </p>
 
       <div className="mt-8 flex gap-3 rounded-sm border border-orange-200 bg-orange-50 p-5 text-sm leading-6">
         <ShieldCheck className="mt-0.5 shrink-0 text-[var(--primary)]" size={20} />
@@ -66,11 +75,17 @@ export default function AiNewColumnPage() {
         <label className="block">
           <span className="font-bold">주제 힌트 <span className="font-normal text-[var(--muted)]">(선택)</span></span>
           <input value={topicHint} onChange={(event) => setTopicHint(event.target.value)} className="mt-2 w-full rounded-sm border border-[var(--line)] px-4 py-3" placeholder="예: 정책자금 상담 전에 기업이 먼저 점검해야 할 것" />
+          <span className="mt-2 block text-xs text-[var(--muted)]">
+            적으시면 그 주제로 씁니다. 비워 두면 아래 분야를 돌려 가며 알아서 고릅니다.
+          </span>
         </label>
         <label className="block">
           <span className="font-bold">추가 공식자료 URL <span className="font-normal text-[var(--muted)]">(선택, 한 줄에 하나)</span></span>
           <textarea value={sourceUrls} onChange={(event) => setSourceUrls(event.target.value)} rows={4} className="mt-2 w-full rounded-sm border border-[var(--line)] px-4 py-3" placeholder={"https://www.bizinfo.go.kr/...\nhttps://www.mss.go.kr/..."} />
-          <span className="mt-2 block text-xs text-[var(--muted)]">정부·공공기관·대학·원문 연구 등 승인된 도메인만 읽습니다.</span>
+          <span className="mt-2 block text-xs text-[var(--muted)]">
+            직접 넣는 링크는 정부·공공기관·대학·주요 언론사 등 승인된 곳만 읽습니다.
+            비워 두면 주제에 맞는 공식 자료를 알아서 찾습니다.
+          </span>
         </label>
         <button onClick={() => void generate()} disabled={generating} className="btn-gradient inline-flex w-full items-center justify-center gap-2 rounded-sm px-6 py-3 font-bold text-white disabled:opacity-50">
           {generating ? <Loader2 className="animate-spin" size={18} /> : <Bot size={18} />}
