@@ -13,7 +13,11 @@ type Result = {
   /** 저장은 했지만 다듬을 곳. 글을 버리지 않고 함께 알려 줍니다. */
   styleWarnings?: string[];
   expertQuestions?: string[];
-  validation?: { charCount: number; h2Count: number; faqCount: number; sourceCount: number };
+  validation?: {
+    charCount: number; h2Count: number; faqCount: number; sourceCount: number;
+    diagramsRequested?: boolean; diagramCount?: number;
+  };
+  topicFamily?: string | null;
   error?: string;
 };
 
@@ -109,7 +113,23 @@ export default function AiNewColumnPage() {
             {result.styleWarnings?.length ? "비공개 초안을 저장했습니다. 다듬을 곳이 있습니다." : "비공개 초안이 생성되었습니다."}
           </h2>
           <p className="mt-2">{result.post.title}</p>
+          {result.topicFamily && <p className="mt-1 text-sm text-[var(--muted)]">주제 분야: {result.topicFamily}</p>}
           {result.validation && <p className="mt-3 text-sm">본문 {result.validation.charCount.toLocaleString("ko-KR")}자 · H2 {result.validation.h2Count}개 · FAQ {result.validation.faqCount}개 · 출처 {result.validation.sourceCount}개</p>}
+          {/*
+            도식이 없을 때 왜 없는지 화면에서 바로 알 수 있게 합니다.
+            예전에는 기능이 꺼진 것인지 AI 가 안 그린 것인지 구분할 수 없어,
+            도식이 안 나오는 이유를 찾는 데 한참 걸렸습니다.
+          */}
+          {result.validation && (
+            <p className="mt-1 text-sm">
+              도식:{" "}
+              {!result.validation.diagramsRequested
+                ? "꺼져 있음 (환경변수 COLUMN_DIAGRAMS 를 true 로 두면 켜집니다)"
+                : result.validation.diagramCount
+                  ? `${result.validation.diagramCount}개 들어감`
+                  : "켜져 있으나 이번 글에는 넣지 않았습니다"}
+            </p>
+          )}
           {result.styleWarnings?.length ? (
             <div className="mt-4 rounded-sm border border-amber-200 bg-amber-50 p-4">
               <p className="font-bold">발행 전에 손볼 곳</p>

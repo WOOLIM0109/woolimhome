@@ -1,4 +1,8 @@
 import { CONSULTING_TOPIC_FAMILIES } from "../content-ops/config.ts";
+import {
+  topicRotationRules,
+  underusedFamilies as rotateFamilies,
+} from "../content-ops/topic-rotation.ts";
 
 /**
  * 칼럼 주제를 고르게 펴는 장치.
@@ -63,30 +67,15 @@ export function familyOfPost(post: {
 /**
  * 최근에 덜 쓴 주제군을 앞에 놓습니다.
  *
- * 한 번도 안 쓴 주제군이 먼저 오고, 그다음은 오래전에 쓴 순서입니다.
- * 목록 순서를 그대로 두면 늘 앞쪽 주제군만 뽑히므로, 쓴 횟수로 다시 세웁니다.
+ * 세는 규칙은 세 채널이 함께 씁니다(content-ops/topic-rotation).
+ * 여기서 하는 일은 칼럼 글에서 주제군 이름을 꺼내 넘기는 것뿐입니다.
+ * 규칙을 채널마다 따로 두면 한쪽만 조용히 좁아집니다.
  */
 export function underusedFamilies(
   posts: Parameters<typeof familyOfPost>[0][],
   limit = 6,
 ) {
-  const counts = new Map<string, number>(COLUMN_TOPIC_FAMILIES.map((family) => [family, 0]));
-  const lastSeen = new Map<string, number>();
-  posts.forEach((post, index) => {
-    const family = familyOfPost(post);
-    if (!family) return;
-    counts.set(family, (counts.get(family) || 0) + 1);
-    // posts 는 최신순입니다. index 가 작을수록 최근입니다.
-    if (!lastSeen.has(family)) lastSeen.set(family, index);
-  });
-  return [...counts.entries()]
-    .sort((left, right) => {
-      if (left[1] !== right[1]) return left[1] - right[1];
-      // 같은 횟수면 더 오래전에 쓴 쪽을 앞에 둡니다.
-      return (lastSeen.get(right[0]) ?? Infinity) - (lastSeen.get(left[0]) ?? Infinity);
-    })
-    .slice(0, limit)
-    .map(([family]) => family);
+  return rotateFamilies(posts.map(familyOfPost), COLUMN_TOPIC_FAMILIES, limit);
 }
 
 /**
@@ -198,15 +187,13 @@ export function columnTopicPlanningRules({
 울림컴퍼니 홈페이지 칼럼에 쓸 주제 후보 5개를 만든다.
 
 먼저 아래를 지킨다.
-- 후보의 topicFamily 는 [우선 주제군] 안에서 고른다. 다섯 후보의 주제군이 서로 달라야 한다.
 - [최근 칼럼]과 같은 제도·사업·관점을 다시 쓰지 않는다.
 - 정부가 무엇을 발표했는지가 아니라, **기업이 무엇을 해야 하는지**를 주제로 삼는다.
   "OO사업 지원대상 선정"은 주제가 아니다. "지원사업에 떨어진 뒤 다음에 할 일"은 주제다.
 - 이미 끝났거나 폐지된 제도는 주제로 삼지 않는다. 시점이 불확실하면 고르지 않는다.
 - audience 는 "중소기업 대표" 같은 뭉뚱그린 말 대신 한 사람으로 적는다.
 
-[우선 주제군 — 최근에 덜 다룬 순서]
-${families.map((family, index) => `${index + 1}. ${family}`).join("\n")}
+${topicRotationRules(families)}
 
 [최근 칼럼 — 주제·관점이 겹치면 안 됨]
 ${JSON.stringify(recent)}
