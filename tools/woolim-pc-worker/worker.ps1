@@ -6,7 +6,19 @@
 )
 
 $ErrorActionPreference = "Stop"
-$WorkerVersion = "2.9.0"
+$WorkerVersion = "2.9.1"
+
+# The console window cannot be hidden reliably: PowerPoint COM needs the
+# interactive session. So the window will be seen, and an unlabeled PowerShell
+# window looks like leftover junk to close. It was closed, and the PC then
+# showed offline for a full working day. Say what it is on the title bar.
+if (-not $Once -and -not $Check -and -not $HeartbeatOnly -and -not $LibraryOnly) {
+  try {
+    $Host.UI.RawUI.WindowTitle = "울림 문서 변환 워커 - 닫지 마세요 (닫으면 PPT 변환이 멈춥니다)"
+  } catch {
+    # A title is a convenience. Never let it stop the worker from running.
+  }
+}
 
 function Get-WorkerSetting {
   param(
