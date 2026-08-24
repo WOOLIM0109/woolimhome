@@ -16,6 +16,7 @@ import {
 } from "./knowledge-rotation";
 import { stripVerificationControlText } from "./verification";
 import { diagramIssues, diagramsEnabled, stripDiagrams } from "@/lib/content-ops/diagram";
+import { normalizeDraft } from "./normalize";
 import type { ColumnFaq, ColumnKind, ColumnSource, ColumnStatus } from "./types";
 import {
   COLUMN_TOPIC_PLAN_SCHEMA,
@@ -535,10 +536,19 @@ JSON만 반환:
      */
     let diagramFindings: string[] = [];
     const cleanBody = (draft: Generated) => {
-      const raw = draft.bodyHtml || "";
+      /*
+       * 모든 초안이 이 자리를 지나갑니다.
+       *
+       * 스키마를 주어도 항목 하나가 빠져 오는 일이 있습니다. 예전에는 그때
+       * draft.usedSourceUrls.map 이 바로 터져서, 다 써 둔 3,500자와 거기까지 쓴
+       * 요금이 함께 사라지고 화면에는 프로그래머 오류만 남았습니다.
+       * 빠진 것은 빈 값으로 두고, 판정은 아래 검사에 맡깁니다.
+       */
+      Object.assign(draft, normalizeDraft(draft));
+      const raw = draft.bodyHtml;
       draft.bodyHtml = sanitizeGeneratedHtml(raw);
       diagramFindings = drawDiagrams ? diagramIssues(raw, draft.bodyHtml) : [];
-      draft.faqs = (draft.faqs || []).map((faq) => ({
+      draft.faqs = draft.faqs.map((faq) => ({
         question: sanitizeInlineHtml(faq.question || ""),
         answer: sanitizeInlineHtml(faq.answer || ""),
       }));
