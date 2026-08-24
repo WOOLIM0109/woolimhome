@@ -28,7 +28,12 @@ export async function POST(request: Request) {
       sourceUrls: Array.isArray(body.sourceUrls) ? body.sourceUrls : [],
       createdBy: user.email!,
     }));
-    return NextResponse.json(result, { status: result.blocked ? 422 : 201 });
+    /*
+     * 기준을 못 넘겨도 글은 저장됩니다. 그러니 실패(422)가 아니라 생성(201)입니다.
+     * 예전에는 422 로 돌려주고 화면이 붉은 오류 상자를 띄웠는데, 정작 글은
+     * 버려져서 대표님이 할 수 있는 일이 없었습니다.
+     */
+    return NextResponse.json(result, { status: 201 });
   } catch (error) {
     if (error instanceof GeminiAutomationBlocked) {
       return NextResponse.json({ error: error.message, code: error.code }, { status: 409 });

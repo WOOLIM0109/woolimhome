@@ -594,7 +594,22 @@ ${JSON.stringify(generated)}
       if (draft.faqs.length < 3 || draft.faqs.length > 4) found.push("FAQ는 3~4개여야 합니다.");
       const styleIssues = friendlyStyleIssues(proseOf(draft.bodyHtml), draft.faqs);
       found.push(...styleIssues);
-      if (sources.length < 2) found.push("독립된 공식 출처가 2개 미만입니다.");
+      if (sources.length < 2) {
+        /*
+         * 어떤 주소가 인정되지 않았는지 함께 알려 줍니다.
+         *
+         * "출처가 2개 미만입니다"만 보면 대표님이 할 수 있는 일이 없습니다.
+         * AI 가 아예 주소를 안 달았는지, 달았는데 승인 목록 밖이라 빠졌는지에
+         * 따라 해야 할 일이 다릅니다. 앞은 다시 돌리는 것이고, 뒤는 그 도메인을
+         * 목록에 넣거나 직접 링크를 붙이는 것입니다.
+         */
+        const rejected = draft.usedSourceUrls
+          .filter((url) => !candidates.some((source) => sameSourceUrl(source.url, url)))
+          .slice(0, 4);
+        found.push(rejected.length
+          ? `독립된 공식 출처가 2개 미만입니다(인정 ${sources.length}개). 인정되지 않은 주소: ${rejected.join(", ")}`
+          : "독립된 공식 출처가 2개 미만입니다. AI 가 참고 주소를 달지 않았습니다.");
+      }
       found.push(...diagramFindings);
       if (draft.contentKind !== "informational" && !writingKnowledge.length) {
         found.push("하이브리드·권위형에 필요한 승인된 원천자료가 없습니다.");
@@ -701,15 +716,6 @@ ${JSON.stringify(generated.faqs)}
      */
     const styleWarnings = issues.filter((issue) => checked.styleIssues.includes(issue));
     const blocked = issues.length > styleWarnings.length;
-    if (blocked) {
-      await admin.from("column_generation_runs").update({
-        status: "blocked",
-        response_payload: generated,
-        validation_result: { issues, charCount, h2Count, blockquoteCount },
-        completed_at: new Date().toISOString(),
-      }).eq("id", run.data.id);
-      return { blocked: true, issues, expertQuestions: generated.expertQuestions || [] };
-    }
 
     const slugBase = safeSlug(generated.slug || generated.title);
     const { data: duplicate } = await admin.from("column_posts").select("id").eq("slug", slugBase).maybeSingle();
@@ -740,7 +746,17 @@ ${JSON.stringify(generated.faqs)}
        * 통째로 거절당했습니다. 다듬을 곳은 바로 아래 styleWarnings 에 그대로
        * 남고 화면에도 뜨므로, 딱지까지 따로 만들 이유가 없습니다.
        */
-      generation_status: "generated" satisfies ColumnStatus,
+      /*
+       * 기준을 못 넘긴 글도 버리지 않고 비공개로 저장합니다.
+       *
+       * 예전에는 여기서 통째로 버렸습니다. 조사와 작성에 이미 요금을 다 쓰고
+       * 3,500자를 써 놓은 뒤에, 화면에는 "저장하지 않았습니다"와 고칠 방법 없는
+       * 지적만 남았습니다. 출처가 하나 모자란 것이 글 전체를 버릴 이유는 아닙니다.
+       *
+       * needs_expert_input 은 저장소가 원래 받아 주는 딱지인데 쓰이지 않고
+       * 있었습니다. 발행은 어차피 사람이 확인한 뒤에 합니다.
+       */
+      generation_status: (blocked ? "needs_expert_input" : "generated") satisfies ColumnStatus,
       generation_metadata: {
         run_id: run.data.id,
         sources: sourceRecords,
@@ -748,6 +764,8 @@ ${JSON.stringify(generated.faqs)}
         knowledge_ids: usedKnowledgeIds,
         validation: { charCount, h2Count, blockquoteCount, sourceCount: sourceRecords.length },
         styleWarnings,
+        // 무엇 때문에 보류됐는지 글에 붙여 둡니다. 나중에 열어 봐도 알 수 있게.
+        ...(blocked ? { blockingIssues: issues, expertQuestions: generated.expertQuestions } : {}),
         /*
          * 어느 주제군으로 썼는지 남깁니다. 다음 글이 이걸 읽고 다른 주제군을
          * 고릅니다. 안 남기면 매번 처음부터 짐작해야 하고, 짐작은 틀립니다.
@@ -778,10 +796,10 @@ ${JSON.stringify(generated.faqs)}
 
     await admin.from("column_generation_runs").update({
       post_id: post.id,
-      status: "generated",
+      status: blocked ? "blocked" : "generated",
       response_payload: generated,
       validation_result: {
-        issues: [],
+        issues,
         styleWarnings,
         charCount,
         h2Count,
@@ -791,7 +809,8 @@ ${JSON.stringify(generated.faqs)}
       completed_at: new Date().toISOString(),
     }).eq("id", run.data.id);
     return {
-      blocked: false,
+      blocked,
+      issues,
       post,
       styleWarnings,
       expertQuestions: generated.expertQuestions || [],

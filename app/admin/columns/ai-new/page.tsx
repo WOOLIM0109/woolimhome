@@ -98,19 +98,19 @@ export default function AiNewColumnPage() {
       </div>
 
       {result?.error && <ResultBox tone="error"><p className="font-bold">{result.error}</p></ResultBox>}
-      {result?.blocked && (
-        <ResultBox tone="error">
-          <h2 className="font-bold">품질 기준을 통과하지 못해 저장하지 않았습니다.</h2>
-          {result.issues?.map((issue) => <p key={issue} className="mt-2 text-sm">· {issue}</p>)}
-          {result.expertQuestions?.length ? (
-            <div className="mt-5"><p className="font-bold">대표님께 확인할 질문</p>{result.expertQuestions.map((question) => <p key={question} className="mt-2 text-sm">· {question}</p>)}</div>
-          ) : null}
-        </ResultBox>
-      )}
       {result?.post && (
         <ResultBox tone="success">
+          {/*
+            기준을 못 넘겨도 글은 저장됩니다. 예전에는 여기서 통째로 버렸고,
+            화면에는 "저장하지 않았습니다"와 고칠 방법 없는 지적만 남았습니다.
+            요금은 이미 다 나간 뒤였습니다.
+          */}
           <h2 className="font-bold">
-            {result.styleWarnings?.length ? "비공개 초안을 저장했습니다. 다듬을 곳이 있습니다." : "비공개 초안이 생성되었습니다."}
+            {result.blocked
+              ? "비공개 초안을 저장했습니다. 발행하려면 아래를 채워야 합니다."
+              : result.styleWarnings?.length
+                ? "비공개 초안을 저장했습니다. 다듬을 곳이 있습니다."
+                : "비공개 초안이 생성되었습니다."}
           </h2>
           <p className="mt-2">{result.post.title}</p>
           {result.topicFamily && <p className="mt-1 text-sm text-[var(--muted)]">주제 분야: {result.topicFamily}</p>}
@@ -130,6 +130,16 @@ export default function AiNewColumnPage() {
                   : "켜져 있으나 이번 글에는 넣지 않았습니다"}
             </p>
           )}
+          {result.blocked && result.issues?.length ? (
+            <div className="mt-4 rounded-sm border border-amber-300 bg-amber-50 p-4">
+              <p className="font-bold">발행 전에 반드시 채울 것</p>
+              {result.issues.map((issue) => <p key={issue} className="mt-2 text-sm">· {issue}</p>)}
+              <p className="mt-3 text-xs text-[var(--muted)]">
+                편집기에서 고치면 그대로 발행할 수 있습니다. 출처가 모자라면 참고자료 항목에
+                공식 원문 링크를 직접 넣으셔도 됩니다.
+              </p>
+            </div>
+          ) : null}
           {result.styleWarnings?.length ? (
             <div className="mt-4 rounded-sm border border-amber-200 bg-amber-50 p-4">
               <p className="font-bold">발행 전에 손볼 곳</p>
