@@ -71,6 +71,27 @@ if ($NoAutoStart) {
   $currentUser = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
   $action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument $actionArguments -WorkingDirectory $InstallRoot
   $trigger = New-ScheduledTaskTrigger -AtLogOn -User $currentUser
+
+  # The worker drives PowerPoint through COM, so it must run in the interactive
+  # session and its console window stays visible. A visible window eventually
+  # gets closed, and closing it is a normal exit, so RestartCount never fires:
+  # the worker then stayed down until the next logon. One office PC sat offline
+  # for a whole working day that way.
+  #
+  # Repeat the logon trigger every 5 minutes instead. MultipleInstances is
+  # IgnoreNew, so a running worker is left alone and a closed one comes back
+  # within 5 minutes on its own.
+  try {
+    $repetition = New-CimInstance `
+      -ClassName MSFT_TaskRepetitionPattern `
+      -Namespace Root/Microsoft/Windows/TaskScheduler `
+      -ClientOnly `
+      -Property @{ Interval = "PT5M"; StopAtDurationEnd = $false }
+    $trigger.Repetition = $repetition
+  } catch {
+    # Losing self-healing is bad, but not installing at all is worse.
+    Write-Warning "Could not add the 5-minute repetition; the worker will only start at logon. $($_.Exception.Message)"
+  }
   $principal = New-ScheduledTaskPrincipal -UserId $currentUser -LogonType Interactive -RunLevel Limited
   $settings = New-ScheduledTaskSettingsSet `
     -AllowStartIfOnBatteries `
