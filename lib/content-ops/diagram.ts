@@ -23,6 +23,15 @@ export function stripDiagrams(html: string) {
   return String(html || "").replace(/<svg\b[\s\S]*?<\/svg>/gi, " ");
 }
 
+/**
+ * 도식 하나가 이보다 길면 잡습니다.
+ *
+ * 도식은 본문과 한 덩어리로 넘어옵니다. 너무 크면 글을 다 쓰기 전에 출력 한도에
+ * 닿아 응답이 통째로 끊깁니다. 실제로 그렇게 한 번 죽었습니다. 한도를 올리는
+ * 것만으로는 다음에 더 큰 도식이 오면 또 터지므로, 크기 자체를 제한합니다.
+ */
+export const MAX_DIAGRAM_CHARS = 3_000;
+
 export function countDiagrams(html: string) {
   return (String(html || "").match(/<svg\b/gi) || []).length;
 }
@@ -66,6 +75,13 @@ export function diagramIssues(rawHtml: string, cleanedHtml: string, limit = 1) {
     // 글자가 하나도 없으면 그림이 아니라 색칠한 상자에 지나지 않습니다.
     if (!/<text\b[^>]*>\s*\S/i.test(block)) {
       issues.push("도식에 글자가 하나도 없습니다. 무엇을 나타내는지 알 수 없습니다.");
+    }
+    // 너무 크면 글이 다 나오기 전에 응답이 끊깁니다.
+    if (block.length > MAX_DIAGRAM_CHARS) {
+      issues.push(
+        `도식이 ${block.length.toLocaleString("ko-KR")}자로 너무 큽니다. `
+        + `${MAX_DIAGRAM_CHARS.toLocaleString("ko-KR")}자 안쪽으로 줄여야 본문이 끊기지 않습니다.`,
+      );
     }
   }
   return [...new Set(issues)];

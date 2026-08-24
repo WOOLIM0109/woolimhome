@@ -2,7 +2,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { generateGeminiText, geminiRetryDecision } from "@/lib/gemini/client";
 import { parseGeminiJson } from "@/lib/gemini/json";
 import { researchOfficialFacts } from "@/lib/research/official";
-import { trustedSourceUrl } from "@/lib/research/trusted-sources";
+import { sameSourceUrl, trustedSourceUrl } from "@/lib/research/trusted-sources";
 import { AI_INPUT_LIMITS, AI_OUTPUT_LIMITS, COLUMN_MIN_BODY_CHARS } from "@/lib/ai-budget";
 import { sanitizeGeneratedHtml, sanitizeInlineHtml } from "@/lib/security/html";
 import {
@@ -213,7 +213,9 @@ export async function generateColumn(input: {
 - 글자는 <text> 로 넣는다. 그림 파일이 아니라 글자이므로 한글이 깨지지 않는다.
 - 색은 style 속성이 아니라 fill 과 stroke 로 지정한다. style 은 저장할 때 사라진다.
   색은 #ef762f(강조), #241a15(진한 글자), #7a716b(보조 글자), #fff3ea(연한 배경), #e6ded8(선)만 쓴다.
-- id 는 글 안에서 겹치지 않게 짓는다. 화살촉 정의를 여러 도식이 함께 쓰면 엉킨다.` : "";
+- id 는 글 안에서 겹치지 않게 짓는다. 화살촉 정의를 여러 도식이 함께 쓰면 엉킨다.
+- 도식 하나는 3,000자를 넘기지 않는다. 도형은 열 개 안쪽으로 하고, 설명은 도식이 아니라 본문에 쓴다.
+  도식이 크면 글을 다 쓰기 전에 응답이 끊겨 글 전체가 사라진다.` : "";
 
   const prompt = `
 당신은 울림컴퍼니의 수석 콘텐츠 기획자다. 한국 기업 고객이 문제를 해결하고 성장하도록 돕는 전문적이면서 친근한 칼럼을 작성한다.
@@ -230,6 +232,9 @@ ${FRIENDLY_EDITORIAL_STYLE_RULES}
 - 위 내부 칸 이름과 번호를 소제목으로 노출하지 말고 자연스러운 H2/H3로 바꾼다.
 - 쉬운 말로 쓰되 전문적 알맹이는 유지한다.
 - 사실·금액·기한은 아래 출처에서만 사용한다. 선정, 대출, 지원 결과를 보장하지 않는다.
+- 출처에는 정부·공공기관 자료와 언론 기사가 함께 들어 있다. 둘 다 근거로 쓸 수 있다.
+  다만 금액·마감일·자격 요건은 같은 내용을 담은 공고 원문이 있으면 원문 쪽을 먼저 쓴다.
+  기사가 원문의 숫자를 잘못 옮기는 일이 있기 때문이다.
 - 제도명, 금액, 기간, 대상, 자격, 지원 조건, 통계, 법령, 기술 기준은 각각 별도의 주장으로 보고 아래 개별 조사 결과와 대조한다.
 - [공식 확인 완료] 사실만 사용하고, [공식자료 미확인 · 본문 제외] 항목은 '확인 필요'라고 독자나 대표에게 넘기지 말고 본문에서 제외한다.
 - [외부 조사 불가 · 대표 확인 필요] 항목은 공개 동의가 확인된 승인 원천자료가 아니면 본문에 쓰지 않는다.
@@ -281,27 +286,59 @@ JSON만 반환:
  "expertQuestions":["hybrid/authority인데 원천자료가 부족할 때 대표에게 물을 질문 2~3개"]
 }`;
 
-  const requestGemini = async (promptText: string) => {
-    const { text } = await generateGeminiText({
+  /**
+   * 이번 글에 줄 출력 한도.
+   *
+   * 도식이 켜져 있으면 본문에 도식 코드가 얹혀 그만큼 길어집니다. 늘어난 만큼
+   * 자리를 주지 않으면 다 쓰기 전에 끊깁니다. 출력 한도는 쓴 만큼만 요금이
+   * 붙으므로, 넉넉히 잡는다고 요금이 오르지 않습니다. 오히려 넘쳐서 통째로
+   * 버리는 쪽이 낭비입니다.
+   *
+   * 다시 부를 때는 배수로 올립니다. 같은 한도로 다시 부르면 같은 자리에서
+   * 또 끊기고, 요금만 두 번 나갑니다.
+   */
+  const outputLimit = (attempt = 0) => {
+    const base = drawDiagrams
+      ? Math.round(AI_OUTPUT_LIMITS.columnBody * 1.5)
+      : AI_OUTPUT_LIMITS.columnBody;
+    return base * (attempt + 1);
+  };
+
+  /**
+   * 다 쓰기 전에 끊긴 것을 사람이 읽을 수 있는 말로 바꿉니다.
+   *
+   * 예전에는 이 확인이 없어서, 반쪽짜리 응답을 그대로 읽으려다 난
+   * `Unterminated string in JSON at position 5013` 같은 말이 화면에 그대로
+   * 떴습니다. 무엇이 문제인지도, 무엇을 해야 하는지도 알 수 없었습니다.
+   */
+  const TRUNCATED = "COLUMN_OUTPUT_TRUNCATED";
+  const assertComplete = (finishReason: string | null | undefined) => {
+    if (finishReason === "MAX_TOKENS") throw new Error(TRUNCATED);
+  };
+
+  const requestGemini = async (promptText: string, attempt = 0) => {
+    const { text, finishReason } = await generateGeminiText({
       model: MODEL,
       parts: [{ text: promptText }],
-      generationConfig: { responseMimeType: "application/json", maxOutputTokens: AI_OUTPUT_LIMITS.columnBody },
+      generationConfig: { responseMimeType: "application/json", maxOutputTokens: outputLimit(attempt) },
       timeoutMs: 120_000,
     });
+    assertComplete(finishReason);
     return parseGeminiJson<Generated>(text);
   };
 
   /** 글 전체가 아니라 바뀔 조각만 돌려받습니다. 응답이 잘릴 위험을 줄입니다. */
   const requestGeminiPart = async (promptText: string) => {
-    const { text } = await generateGeminiText({
+    const { text, finishReason } = await generateGeminiText({
       model: MODEL,
       parts: [{ text: promptText }],
       generationConfig: {
         responseMimeType: "application/json",
-        maxOutputTokens: AI_OUTPUT_LIMITS.columnBody,
+        maxOutputTokens: outputLimit(),
       },
       timeoutMs: 120_000,
     });
+    assertComplete(finishReason);
     return parseGeminiJson<Pick<Generated, "bodyHtml" | "faqs">>(text);
   };
 
@@ -316,8 +353,20 @@ JSON만 반환:
     let generated: Generated;
     try {
       generated = await requestGemini(prompt);
-    } catch {
-      generated = await requestGemini(`${prompt}
+    } catch (error) {
+      /**
+       * 두 가지 실패를 다르게 다룹니다.
+       *
+       * 다 쓰기 전에 끊긴 것이면 한도를 올려 다시 부릅니다. 같은 한도로 다시
+       * 부르면 같은 자리에서 또 끊기고 요금만 두 번 나갑니다.
+       *
+       * 그 밖의 읽기 실패(설명을 덧붙였다거나 하는)는 예전처럼 형식을 다시
+       * 일러 주고 부릅니다.
+       */
+      const truncated = error instanceof Error && error.message === TRUNCATED;
+      generated = truncated
+        ? await requestGemini(prompt, 1)
+        : await requestGemini(`${prompt}
 
 반드시 JSON 객체 하나만 반환하세요. 앞뒤에 설명 문장이나 코드 울타리를 붙이지 마세요.`);
     }
@@ -359,8 +408,13 @@ ${JSON.stringify(generated)}
     }
 
     const inspect = (draft: typeof generated) => {
+      /*
+       * 주소가 글자 하나까지 같아야만 인정하던 것을 고쳤습니다.
+       * 끝의 슬래시나 추적용 꼬리표 때문에 멀쩡한 출처가 없는 것으로 세어졌고,
+       * 그래서 "출처 2개 미만" 으로 보류되는 일이 있었습니다.
+       */
       const sources = draft.usedSourceUrls
-        .map((url) => candidates.find((source) => source.url === url))
+        .map((url) => candidates.find((source) => sameSourceUrl(source.url, url)))
         .filter((source): source is Candidate => Boolean(source));
       const approvedKnowledgeIds = new Set(writingKnowledge.map((item) => item.id));
       const knowledgeIds = [...new Set(draft.usedKnowledgeIds || [])]
