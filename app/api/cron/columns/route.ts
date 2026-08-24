@@ -21,7 +21,11 @@ const RUN_BUDGET_MS = 280_000;
 const COLUMN_BUDGET_MS = 130_000;
 const AUTOMATION_EMAIL = "automation@woolimcompany.kr";
 
-function topicHintForDay(day: number, hasKnowledge: boolean) {
+/**
+ * 이 회차를 어떤 형식으로 쓸지 정합니다. 무엇을 쓸지는 정하지 않습니다.
+ * 주제는 generateColumn 안의 주제 기획이 주제군을 돌려 가며 고릅니다.
+ */
+function formatHintForDay(day: number, hasKnowledge: boolean) {
   if (day === 2) return "최신 공식자료 기반 정보형 주제";
   if (day === 4) return hasKnowledge ? "공식자료와 승인 원천자료를 결합한 실무 주제" : "최신 공식자료 기반 정보형 주제";
   return "승인된 인터뷰·사례 기반 노하우 주제";
@@ -124,7 +128,7 @@ export async function GET(request: Request) {
     return NextResponse.json({ skipped: true, aiCalls: 0, reason: "Expert knowledge depleted", interviewRequest });
   }
 
-  const topicHint = topicHintForDay(day, hasKnowledge);
+  const formatHint = formatHintForDay(day, hasKnowledge);
 
   /**
    * 칼럼 초안을 실제로 만듭니다.
@@ -140,7 +144,7 @@ export async function GET(request: Request) {
     const marker = await admin.from("column_generation_runs").insert({
       status: "blocked",
       model: "cost-protection-deterministic-scheduler",
-      request_payload: { scheduleKey, day, topicHint, awaitingAiConfirmation: true },
+      request_payload: { scheduleKey, day, formatHint, awaitingAiConfirmation: true },
       response_payload: { code: "COLUMN_AUTO_GENERATION_OFF", aiCalls: 0 },
       created_by: AUTOMATION_EMAIL,
       completed_at: new Date().toISOString(),
@@ -161,16 +165,16 @@ export async function GET(request: Request) {
   const writeOne = (hint: string, key: string) => runBudgetedGeminiAutomation({
     operation: "cron-column-generate",
     actor: "cron",
-    // 조사 1 + 작성 1 + 응답 실패 시 1 + 분량 미달 시 1 + 문체 2
-    plannedCalls: 6,
+    // 주제 기획 1 + 조사 1 + 작성 1 + 응답 실패 시 1 + 분량 미달 시 1 + 문체 2
+    plannedCalls: 7,
   }, () => generateColumn({
-    topicHint: hint,
+    formatHint: hint,
     createdBy: AUTOMATION_EMAIL,
     scheduleKey: key,
   }));
 
   try {
-    const result = await writeOne(topicHint, scheduleKey);
+    const result = await writeOne(formatHint, scheduleKey);
     // 오늘 것을 만든 뒤, 지난주에 빠진 회차가 있으면 한 편만 더 채웁니다.
     let caughtUp = 0;
     let catchupReason = "";
@@ -186,7 +190,7 @@ export async function GET(request: Request) {
       catchupReason = "이번 실행에 남은 시간이 모자라 밀린 회차는 다음으로 미뤘습니다.";
     } else if (await countMissedColumns() > 0) {
       try {
-        await writeOne(topicHint, `${scheduleKey}-catchup`);
+        await writeOne(formatHint, `${scheduleKey}-catchup`);
         caughtUp = 1;
       } catch (catchupError) {
         catchupReason = catchupError instanceof Error
