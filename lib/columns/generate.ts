@@ -17,10 +17,26 @@ import {
 import { stripVerificationControlText } from "./verification";
 import { diagramIssues, diagramsEnabled, stripDiagrams } from "@/lib/content-ops/diagram";
 import type { ColumnFaq, ColumnKind, ColumnSource, ColumnStatus } from "./types";
+import {
+  COLUMN_TOPIC_PLAN_SCHEMA,
+  columnTopicPlanningRules,
+  parseColumnTopicPlans,
+  pickFreshPlan,
+  recentColumnSummary,
+  underusedFamilies,
+  type ColumnTopicPlan,
+} from "./topic-plan";
 
 const MODEL = "gemini-3.5-flash";
 /** 문체만 걸렸을 때 다시 써 보는 횟수. 한 번 고치면 다른 곳이 걸리는 일이 잦습니다. */
 const STYLE_REPAIR_ATTEMPTS = 2;
+/**
+ * 주제 기획에 주는 시간.
+ *
+ * 본문 쓰기(120초)보다 짧게 잡습니다. 이 단계가 오래 끌면 정작 글 쓸 시간이
+ * 모자라 통째로 끊깁니다. 못 정하면 예전 방식으로 넘어가므로 짧아도 안전합니다.
+ */
+const TOPIC_PLAN_TIMEOUT_MS = 60_000;
 const OFFICIAL_FEEDS = [
   { url: "https://mss.go.kr/rss/smba/board/310.do", publisher: "중소벤처기업부", label: "사업공고" },
   { url: "https://mss.go.kr/rss/smba/board/86.do", publisher: "중소벤처기업부", label: "보도자료" },
@@ -54,12 +70,49 @@ function decodeXml(value: string) {
     .replace(/\s+/g, " ").trim();
 }
 
-async function rssCandidates(): Promise<Candidate[]> {
+/**
+ * 피드 한 번 실패했다고 포기하지 않습니다.
+ *
+ * 중기부 서버는 연결을 무작위로 끊습니다. 같은 주소를 세 번 눌러 보면 두 번은
+ * 되고 한 번은 끊깁니다. 그런데 예전에는 재시도가 없어서, 실패한 피드는 그냥
+ * 0건이 되었습니다. 어떤 날은 주제 후보가 피드 3개가 아니라 1개에서만 나왔고,
+ * 그만큼 주제가 좁아졌습니다. 직접 눌러 보고 알았습니다.
+ */
+const FEED_ATTEMPTS = 3;
+
+async function fetchFeedXml(url: string) {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < FEED_ATTEMPTS; attempt += 1) {
+    try {
+      const response = await fetch(url, { cache: "no-store", signal: AbortSignal.timeout(12_000) });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      return await response.text();
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error("피드를 읽지 못했습니다.");
+}
+
+/** 어느 피드가 몇 건을 물어왔는지. 죽은 주소가 조용히 넘어가지 않게 남깁니다. */
+export type FeedTally = { publisher: string; label: string; count: number; error?: string };
+
+async function rssCandidates(tally?: FeedTally[]): Promise<Candidate[]> {
   const results = await Promise.allSettled(OFFICIAL_FEEDS.map(async (feed) => {
-    const response = await fetch(feed.url, { cache: "no-store", signal: AbortSignal.timeout(12_000) });
-    if (!response.ok) return [];
-    const xml = await response.text();
-    return [...xml.matchAll(/<item>([\s\S]*?)<\/item>/gi)].slice(0, 8).map((match) => {
+    let xml: string;
+    try {
+      xml = await fetchFeedXml(feed.url);
+    } catch (error) {
+      tally?.push({
+        publisher: feed.publisher,
+        label: feed.label,
+        count: 0,
+        error: error instanceof Error ? error.message : "읽지 못했습니다.",
+      });
+      return [];
+    }
+    {
+    const items = [...xml.matchAll(/<item>([\s\S]*?)<\/item>/gi)].slice(0, 8).map((match) => {
       const item = match[1];
       const field = (name: string) => decodeXml(item.match(new RegExp(`<${name}[^>]*>([\\s\\S]*?)<\\/${name}>`, "i"))?.[1] || "");
       return {
@@ -70,6 +123,9 @@ async function rssCandidates(): Promise<Candidate[]> {
         summary: `${feed.label}: ${field("description")}`.slice(0, 1200),
       };
     }).filter((item) => item.title && item.url);
+    tally?.push({ publisher: feed.publisher, label: feed.label, count: items.length });
+    return items;
+    }
   }));
   return results.flatMap((result) => result.status === "fulfilled" ? result.value : []);
 }
@@ -129,8 +185,58 @@ function escapeHtml(value: string) {
     .replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
 
+/**
+ * 무엇을 쓸지 먼저 정합니다.
+ *
+ * 예전에는 이 단계가 없었습니다. 중기부 RSS 오늘치를 그대로 조사에 넘겼고,
+ * 그래서 나오는 글이 늘 "정부가 무엇을 발표했다"였습니다. 마케팅이나 재무는
+ * 주제군 목록에 이름만 있고 실제로 글이 나올 통로가 없었습니다.
+ *
+ * 조사 단계는 이미 Google 검색을 씁니다(lib/research/official.ts). 주제만
+ * 제대로 정해 주면 그 주제의 공식 원문을 알아서 찾아옵니다. 그래서 피드를
+ * 늘리는 것보다 이 단계를 넣는 것이 먼저였습니다.
+ */
+async function planColumnTopic({
+  recentPosts,
+  feedTitles,
+}: {
+  recentPosts: Parameters<typeof recentColumnSummary>[0];
+  feedTitles: string[];
+}): Promise<ColumnTopicPlan | null> {
+  const families = underusedFamilies(recentPosts, 6);
+  const recent = recentColumnSummary(recentPosts, 30);
+  const prompt = columnTopicPlanningRules({ families, recent, feedTitles });
+  try {
+    const { text } = await generateGeminiText({
+      parts: [{ text: prompt }],
+      generationConfig: {
+        responseMimeType: "application/json",
+        responseSchema: COLUMN_TOPIC_PLAN_SCHEMA,
+        maxOutputTokens: AI_OUTPUT_LIMITS.topicPlan,
+      },
+      timeoutMs: TOPIC_PLAN_TIMEOUT_MS,
+    });
+    const plans = parseColumnTopicPlans(text || "");
+    return pickFreshPlan(plans, recent.map((item) => item.title));
+  } catch {
+    /*
+     * 주제를 못 정했다고 글을 통째로 포기하지 않습니다.
+     * 예전과 똑같이 피드에서 고르게 두면, 나빠지지는 않습니다.
+     */
+    return null;
+  }
+}
+
 export async function generateColumn(input: {
   topicHint?: string;
+  /**
+   * 어떤 형식으로 쓸지. 무엇을 쓸지가 아닙니다.
+   *
+   * 자동 회차는 "정보형", "노하우형" 같은 형식을 정해 놓고 돌립니다. 예전에는
+   * 그 말을 topicHint 자리에 넣었는데, 그러면 사람이 주제를 정한 것으로 보여
+   * 주제 기획을 건너뜁니다. 정작 기획이 가장 필요한 회차가 빠졌습니다.
+   */
+  formatHint?: string;
   sourceUrls?: string[];
   createdBy: string;
   /** 어느 회차로 만든 글인지 기록에 남깁니다. 밀린 회차를 세는 데 씁니다. */
@@ -140,12 +246,17 @@ export async function generateColumn(input: {
   if (!apiKey) throw new Error("GEMINI_API_KEY가 설정되지 않았습니다.");
 
   const admin = createAdminClient();
-  const [{ data: knowledge }, feedSources, supplied] = await Promise.all([
+  const feedTally: FeedTally[] = [];
+  const [{ data: knowledge }, feedSources, supplied, { data: recentPosts }] = await Promise.all([
     // 승인 자료를 넉넉히 읽고, 어떤 열두 개를 쓸지는 아래에서 돌아가며 고릅니다.
     admin.from("column_expert_knowledge").select("*").eq("approved", true)
       .order("created_at", { ascending: false }).limit(KNOWLEDGE_POOL_LIMIT),
-    rssCandidates(),
+    rssCandidates(feedTally),
     Promise.all((input.sourceUrls || []).slice(0, 8).map(suppliedCandidate)),
+    // 최근에 무엇을 썼는지 알아야 같은 주제를 또 쓰지 않습니다.
+    admin.from("column_posts")
+      .select("title, category, tags, created_at, generation_metadata")
+      .order("created_at", { ascending: false }).limit(40),
   ]);
   const writingKnowledge = selectRotatingKnowledge(knowledge || [], KNOWLEDGE_PER_COLUMN).map((item) => ({
     ...item,
@@ -156,8 +267,23 @@ export async function generateColumn(input: {
   }));
   const baseCandidates = [...supplied.filter((item): item is Candidate => Boolean(item)), ...feedSources].slice(0, 24);
   if (baseCandidates.length < 2) throw new Error("검증 가능한 공식 출처를 충분히 수집하지 못했습니다.");
+
+  /*
+   * 대표님이 주제를 적어 주셨으면 그대로 씁니다. 비워 두셨을 때만 기획합니다.
+   * 사람이 정한 주제를 기계가 덮어쓰면 안 됩니다.
+   */
+  const topicPlan = input.topicHint
+    ? null
+    : await planColumnTopic({
+      recentPosts: recentPosts || [],
+      feedTitles: baseCandidates.map((source) => source.title),
+    });
+  const plannedTopic = topicPlan
+    ? `${topicPlan.primaryTopic} — ${topicPlan.angle} (독자: ${topicPlan.audience})`
+    : null;
+
   const research = await researchOfficialFacts({
-    topic: input.topicHint || "울림컴퍼니 기업 컨설팅 칼럼",
+    topic: input.topicHint || plannedTopic || "울림컴퍼니 기업 컨설팅 칼럼",
     sourceContext: JSON.stringify({
       topicHint: input.topicHint || null,
       woolimKnowledge: writingKnowledge,
@@ -262,8 +388,14 @@ ${FRIENDLY_EDITORIAL_STYLE_RULES}
 - 가능하면 각 핵심 구간에 대표의 판단 → 그 이유 → 실제 사례 → 공식 근거 → 독자가 적용할 기준이 이어지게 한다.
 - 제목과 H2/H3는 실제 고객이 검색할 쉬운 말로 쓰고, 객관적 근거 → 울림의 해석 → 실행 방법이 이어지게 한다.
 
-[주제 힌트]
-${input.topicHint || "공식 자료 중 기업 고객에게 시의성 있고 울림의 서비스와 자연스럽게 연결되는 주제를 선택"}
+[주제]
+${input.topicHint || (topicPlan ? `주제군: ${topicPlan.topicFamily}
+다룰 것: ${topicPlan.primaryTopic}
+관점: ${topicPlan.angle}
+읽는 사람: ${topicPlan.audience}
+가제: ${topicPlan.workingTitle}
+위 주제로 쓴다. 공식 자료에 다른 소식이 있어도 주제를 바꾸지 않는다.` : "공식 자료 중 기업 고객에게 시의성 있고 울림의 서비스와 자연스럽게 연결되는 주제를 선택")}
+${input.formatHint ? `\n[이번 회차 형식]\n${input.formatHint}` : ""}
 
 [승인된 울림 원천자료]
 ${writingKnowledge.length ? JSON.stringify(writingKnowledge) : "없음. 이 경우 informational 유형만 선택한다."}
@@ -590,6 +722,12 @@ ${JSON.stringify(generated.faqs)}
         knowledge_ids: usedKnowledgeIds,
         validation: { charCount, h2Count, blockquoteCount, sourceCount: sourceRecords.length },
         styleWarnings,
+        /*
+         * 어느 주제군으로 썼는지 남깁니다. 다음 글이 이걸 읽고 다른 주제군을
+         * 고릅니다. 안 남기면 매번 처음부터 짐작해야 하고, 짐작은 틀립니다.
+         */
+        ...(topicPlan ? { topicPlan } : {}),
+        feedTally,
       },
       author_email: input.createdBy,
     }).select().single();

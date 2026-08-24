@@ -21,8 +21,8 @@ export async function POST(request: Request) {
     const result = await runBudgetedGeminiAutomation({
       operation: "column-generate",
       actor: user.email || "admin",
-      // 조사 1 + 작성 1 + 응답 실패 시 1 + 분량 미달 시 1 + 문체 2
-      plannedCalls: 6,
+      // 주제 기획 1 + 조사 1 + 작성 1 + 응답 실패 시 1 + 분량 미달 시 1 + 문체 2
+      plannedCalls: 7,
     }, () => generateColumn({
       topicHint: typeof body.topicHint === "string" ? body.topicHint.trim() : undefined,
       sourceUrls: Array.isArray(body.sourceUrls) ? body.sourceUrls : [],
