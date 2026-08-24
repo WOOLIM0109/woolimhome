@@ -130,7 +130,8 @@ export default function KnowledgePage() {
       const result = await response.json();
       setImportFile(null);
       await load();
-      window.alert(`${result.count}개의 노하우 카드로 분류했습니다. 공개 사실은 글 작성 시 자동 조사하고, 외부에서 확인할 수 없는 항목만 대표님 확인 대상으로 표시합니다.`);
+      // 승인 전에는 칼럼에 쓰이지 않습니다. 그 사실을 화면에서 분명히 알려 줍니다.
+      window.alert(`${result.count}개의 노하우 카드로 나눴습니다.\n\nAI가 나눈 것이라 아직 "미승인" 상태입니다. 아래 목록에서 내용을 확인하고 승인해 주셔야 칼럼에 쓰입니다.`);
     } else window.alert((await response.json()).error || "파일 분류에 실패했습니다.");
   };
 
