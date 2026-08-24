@@ -16,7 +16,7 @@ import {
 } from "./knowledge-rotation";
 import { stripVerificationControlText } from "./verification";
 import { diagramIssues, diagramsEnabled, stripDiagrams } from "@/lib/content-ops/diagram";
-import type { ColumnFaq, ColumnKind, ColumnSource } from "./types";
+import type { ColumnFaq, ColumnKind, ColumnSource, ColumnStatus } from "./types";
 
 const MODEL = "gemini-3.5-flash";
 /** 문체만 걸렸을 때 다시 써 보는 횟수. 한 번 고치면 다른 곳이 걸리는 일이 잦습니다. */
@@ -342,6 +342,15 @@ JSON만 반환:
     return parseGeminiJson<Pick<Generated, "bodyHtml" | "faqs">>(text);
   };
 
+  /**
+   * 완성된 글은 try 바깥에 둡니다.
+   *
+   * 저장하다 실패하면 다 써 놓은 글이 통째로 사라지고 오류 문구만 남았습니다.
+   * 요금은 이미 나간 뒤입니다. 아래 실패 기록에 이 글을 같이 넣어 두면
+   * 무슨 일이 나도 원고는 꺼내 쓸 수 있습니다.
+   */
+  let generated: Generated | null = null;
+
   try {
     /**
      * 응답을 읽지 못하면 한 번만 다시 부릅니다.
@@ -350,7 +359,6 @@ JSON만 반환:
      * 그럴 때 그대로 실패시키면 조사에 쓴 호출까지 함께 버려집니다.
      * 실제로 칼럼 한 편이 이 자리에서 사라졌습니다.
      */
-    let generated: Generated;
     try {
       generated = await requestGemini(prompt);
     } catch (error) {
@@ -407,7 +415,7 @@ ${JSON.stringify(generated)}
       initialCharCount = proseCharCount(generated.bodyHtml);
     }
 
-    const inspect = (draft: typeof generated) => {
+    const inspect = (draft: Generated) => {
       /*
        * 주소가 글자 하나까지 같아야만 인정하던 것을 고쳤습니다.
        * 끝의 슬래시나 추적용 꼬리표 때문에 멀쩡한 출처가 없는 것으로 세어졌고,
@@ -566,7 +574,15 @@ ${JSON.stringify(generated.faqs)}
       audience: generated.audience,
       core_message: generated.coreMessage,
       published: false,
-      generation_status: styleWarnings.length ? "needs_style_fix" : "generated",
+      /**
+       * 저장소가 받는 딱지만 씁니다.
+       *
+       * 예전에는 문체가 걸리면 needs_style_fix 를 붙였습니다. 그런 딱지는
+       * 저장소에 등록된 적이 없어서, 글을 다 써 놓고 저장하는 마지막 순간에
+       * 통째로 거절당했습니다. 다듬을 곳은 바로 아래 styleWarnings 에 그대로
+       * 남고 화면에도 뜨므로, 딱지까지 따로 만들 이유가 없습니다.
+       */
+      generation_status: "generated" satisfies ColumnStatus,
       generation_metadata: {
         run_id: run.data.id,
         sources: sourceRecords,
@@ -621,6 +637,7 @@ ${JSON.stringify(generated.faqs)}
     const retry = geminiRetryDecision(error, 0);
     await admin.from("column_generation_runs").update({
       status: "failed",
+      response_payload: generated || {},
       error_message: error instanceof Error ? error.message : "Unknown error",
       retry_count: retry.retryCount,
       next_retry_at: retry.nextRetryAt,
