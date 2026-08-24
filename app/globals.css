@@ -283,6 +283,19 @@
   line-height: 1.7;
 }
 
+/*
+  본문 도식.
+
+  크기를 고정하지 않고 화면 폭에 맞춰 비율대로 줄입니다. 도식에는 viewBox 만
+  있고 width·height 가 없어서 이 규칙만으로 폰에서도 잘리지 않습니다.
+*/
+.column-body svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  margin-top: 1.5rem;
+}
+
 .column-body table th,
 .column-body table td {
   border: 1px solid var(--line);
