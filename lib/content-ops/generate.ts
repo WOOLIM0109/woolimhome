@@ -35,6 +35,11 @@ import {
   type NoveltyAssessment,
 } from "./novelty";
 import {
+  familiesForChannel,
+  topicRotationRules,
+  underusedFamilies,
+} from "./topic-rotation";
+import {
   parseTopicPlans,
   TOPIC_PLAN_SCHEMA,
 } from "./topic-planning";
@@ -281,6 +286,19 @@ ${JSON.stringify(CONSULTING_INFORMATIONAL_TOPIC_TYPES)}`
   const designRules = slot.channel === "naver_design" ? `
 - 디자인 채널 후보는 PPT·PDF·비즈니스 문서의 기획, 정보 구조, 레이아웃, 가독성, 시각화에만 한정한다.
 - 정부지원사업·정책자금·기업인증은 후보로 만들지 않는다.` : "";
+
+  /**
+   * 최근에 덜 다룬 주제군을 먼저 고르게 합니다.
+   *
+   * 주제군 목록은 지금까지 관리 화면에만 있었고, 기획에는 한 번도 넘어가지
+   * 않았습니다. 그래서 겹치지만 않으면 어느 쪽으로 쏠려도 막을 것이 없었습니다.
+   * 주제를 지정받았을 때(brief)는 끕니다. 사람이 정한 주제를 밀어내면 안 됩니다.
+   */
+  const rotationRules = brief ? "" : topicRotationRules(underusedFamilies(
+    existing.map((item) => item.fingerprint.topicFamily),
+    familiesForChannel(slot.channel),
+    6,
+  ));
   const prompt = `당신은 울림컴퍼니의 콘텐츠 편집장이다.
 본문을 쓰기 전에 서로 충분히 다른 주제 후보 5개를 기획한다.
 
@@ -289,6 +307,7 @@ ${JSON.stringify(CONSULTING_INFORMATIONAL_TOPIC_TYPES)}`
 ${authorityRules}
 ${informationalVarietyRules}
 ${designRules}
+${rotationRules}
 ${briefPlanningRules(brief ?? null)}
 
 [최근 90일 같은 채널 콘텐츠 — 주제·제도·관점·목차가 겹치면 안 됨]
