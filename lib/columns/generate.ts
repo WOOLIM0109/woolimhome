@@ -15,6 +15,7 @@ import {
   selectRotatingKnowledge,
 } from "./knowledge-rotation";
 import { stripVerificationControlText } from "./verification";
+import { diagramIssues, diagramsEnabled, stripDiagrams } from "@/lib/content-ops/diagram";
 import type { ColumnFaq, ColumnKind, ColumnSource } from "./types";
 
 const MODEL = "gemini-3.5-flash";
@@ -89,6 +90,20 @@ async function suppliedCandidate(url: string): Promise<Candidate | null> {
 
 function visibleText(html: string) {
   return decodeXml(html);
+}
+
+/**
+ * 본문 분량과 문체를 볼 때 쓰는 글.
+ *
+ * 도식 안의 라벨은 본문이 아닙니다. 함께 세면 글을 제대로 쓰지 않고 도식으로
+ * 3,500자를 채울 수 있고, 짧은 라벨이 문장으로 잡혀 문체 판정도 흐려집니다.
+ */
+function proseOf(html: string) {
+  return stripDiagrams(html);
+}
+
+function proseCharCount(html: string) {
+  return visibleText(proseOf(html)).replace(/\s/g, "").length;
 }
 
 function safeSlug(value: string) {
@@ -178,6 +193,28 @@ export async function generateColumn(input: {
   }).select("id").single();
   if (run.error) throw new Error(run.error.message);
 
+  /**
+   * 도식을 그리게 할지.
+   *
+   * 기본은 꺼짐입니다. 켜기 전까지 칼럼은 지금과 똑같이 나옵니다. 화·목에
+   * 자동으로 나가는 회차가 걸려 있어, 확인이 끝난 뒤에 환경변수 하나로
+   * 켜고 문제가 있으면 배포를 기다리지 않고 바로 되돌릴 수 있어야 합니다.
+   */
+  const drawDiagrams = diagramsEnabled();
+  const diagramRules = drawDiagrams ? `
+- 단계·흐름·비중처럼 글이나 표로는 관계가 드러나지 않는 곳에만 도식(SVG)을 한 편에 최대 1개 넣는다.
+  줄글이나 표로 충분한 내용을 도식으로 바꾸지 않는다. 넣을 곳이 없으면 넣지 않는다.
+- 도식에 쓸 수 있는 태그는 이것뿐이다:
+  svg g defs marker path rect circle ellipse line polyline polygon text tspan title desc linearGradient stop
+  이 목록 밖의 태그(foreignObject, use, image, script, style, animate 등)를 쓰면 저장할 때 도식이 통째로 사라진다.
+- svg 에는 viewBox 를 반드시 넣고 width 와 height 는 넣지 않는다. 좁은 화면에서 잘리지 않게 하기 위해서다.
+- svg 안에 <title>과 <desc>를 반드시 넣는다. 사진의 대체 글에 해당하며 검색 노출과 화면 낭독에 쓰인다.
+  svg 태그에 role="img" 와 aria-label 도 함께 넣는다.
+- 글자는 <text> 로 넣는다. 그림 파일이 아니라 글자이므로 한글이 깨지지 않는다.
+- 색은 style 속성이 아니라 fill 과 stroke 로 지정한다. style 은 저장할 때 사라진다.
+  색은 #ef762f(강조), #241a15(진한 글자), #7a716b(보조 글자), #fff3ea(연한 배경), #e6ded8(선)만 쓴다.
+- id 는 글 안에서 겹치지 않게 짓는다. 화살촉 정의를 여러 도식이 함께 쓰면 엉킨다.` : "";
+
   const prompt = `
 당신은 울림컴퍼니의 수석 콘텐츠 기획자다. 한국 기업 고객이 문제를 해결하고 성장하도록 돕는 전문적이면서 친근한 칼럼을 작성한다.
 
@@ -200,12 +237,12 @@ ${FRIENDLY_EDITORIAL_STYLE_RULES}
 - 불필요한 비유와 수식어를 빼고 결론부터 쓴다. 한 문장에는 한 가지 판단이나 행동만 담고, 100자를 넘기기 전에 나눈다.
 - FAQ 답변은 결론부터 1~2문장으로 쓰고 공백 제외 180자를 넘기지 않는다.
 - 목표는 한글 가시문자 3,500자 이상이다. 불필요한 반복으로 늘리지 않는다.
-- HTML은 h2,h3,p,ul,ol,li,strong,blockquote,a 와 표(table,thead,tbody,tr,th,td) 태그만 사용한다.
+- HTML은 h2,h3,p,ul,ol,li,strong,blockquote,a 와 표(table,thead,tbody,tr,th,td) 태그만 사용한다.${drawDiagrams ? " 도식 태그는 아래 도식 규칙에 적힌 것만 예외로 허용한다." : ""}
 - 표는 글로 풀면 오히려 읽기 힘든 곳에만 쓴다. 두 제도를 항목별로 견주거나,
   연도·금액·대상 같은 값이 여럿 나란히 놓일 때가 그런 자리다.
   줄글로 충분한 내용을 표로 바꾸지 않는다. 한 편에 많아야 두 개까지 쓴다.
 - 표를 쓸 때는 첫 줄을 th 로 된 머리글 행으로 만들고, 칸 안은 짧게 끊어 쓴다.
-  긴 설명이 필요하면 표 대신 문단으로 쓴다.
+  긴 설명이 필요하면 표 대신 문단으로 쓴다.${diagramRules}
 - FAQ와 참고자료 섹션은 bodyHtml에 넣지 않는다(시스템이 붙인다).
 - 노하우 자료에 없는 경험·성과·사례는 절대 창작하지 않는다.
 - hybrid와 authority도 노하우 원문을 요약하는 글이 아니다. 최소 2개의 공식 외부 출처로 사실과 검색 수요를 보강하고,
@@ -284,12 +321,26 @@ JSON만 반환:
 
 반드시 JSON 객체 하나만 반환하세요. 앞뒤에 설명 문장이나 코드 울타리를 붙이지 마세요.`);
     }
-    generated.bodyHtml = sanitizeGeneratedHtml(generated.bodyHtml || "");
-    generated.faqs = (generated.faqs || []).map((faq) => ({
-      question: sanitizeInlineHtml(faq.question || ""),
-      answer: sanitizeInlineHtml(faq.answer || ""),
-    }));
-    let initialCharCount = visibleText(generated.bodyHtml).replace(/\s/g, "").length;
+    /**
+     * 정리기를 거치기 전과 뒤를 견주어 도식이 잘렸는지 봅니다.
+     *
+     * 정리한 결과만 보면 애초에 도식이 없었던 것인지, 있었는데 잘린 것인지
+     * 구분할 수 없습니다. 잘린 채 저장하면 홈페이지에 반쪽짜리 그림이 나가고
+     * 아무도 알아채지 못합니다.
+     */
+    let diagramFindings: string[] = [];
+    const cleanBody = (draft: Generated) => {
+      const raw = draft.bodyHtml || "";
+      draft.bodyHtml = sanitizeGeneratedHtml(raw);
+      diagramFindings = drawDiagrams ? diagramIssues(raw, draft.bodyHtml) : [];
+      draft.faqs = (draft.faqs || []).map((faq) => ({
+        question: sanitizeInlineHtml(faq.question || ""),
+        answer: sanitizeInlineHtml(faq.answer || ""),
+      }));
+    };
+
+    cleanBody(generated);
+    let initialCharCount = proseCharCount(generated.bodyHtml);
     // 여기서 걸리면 글 전체를 한 번 더 생성하므로 비용이 두 배가 됩니다.
     if (initialCharCount < COLUMN_MIN_BODY_CHARS) {
       generated = await requestGemini(`
@@ -303,12 +354,8 @@ JSON만 반환하세요.
 
 ${JSON.stringify(generated)}
 `);
-      generated.bodyHtml = sanitizeGeneratedHtml(generated.bodyHtml || "");
-      generated.faqs = (generated.faqs || []).map((faq) => ({
-        question: sanitizeInlineHtml(faq.question || ""),
-        answer: sanitizeInlineHtml(faq.answer || ""),
-      }));
-      initialCharCount = visibleText(generated.bodyHtml).replace(/\s/g, "").length;
+      cleanBody(generated);
+      initialCharCount = proseCharCount(generated.bodyHtml);
     }
 
     const inspect = (draft: typeof generated) => {
@@ -319,15 +366,16 @@ ${JSON.stringify(generated)}
       const knowledgeIds = [...new Set(draft.usedKnowledgeIds || [])]
         .filter((id) => approvedKnowledgeIds.has(id));
       const found: string[] = [];
-      const chars = visibleText(draft.bodyHtml).replace(/\s/g, "").length;
+      const chars = proseCharCount(draft.bodyHtml);
       const headings = (draft.bodyHtml.match(/<h2[\s>]/gi) || []).length;
       const quotes = (draft.bodyHtml.match(/<blockquote[\s>]/gi) || []).length;
       if (chars < COLUMN_MIN_BODY_CHARS) found.push(`본문이 짧습니다(${chars}자).`);
       if (headings < 3) found.push("H2가 3개 미만입니다.");
       if (draft.faqs.length < 3 || draft.faqs.length > 4) found.push("FAQ는 3~4개여야 합니다.");
-      const styleIssues = friendlyStyleIssues(draft.bodyHtml, draft.faqs);
+      const styleIssues = friendlyStyleIssues(proseOf(draft.bodyHtml), draft.faqs);
       found.push(...styleIssues);
       if (sources.length < 2) found.push("독립된 공식 출처가 2개 미만입니다.");
+      found.push(...diagramFindings);
       if (draft.contentKind !== "informational" && !writingKnowledge.length) {
         found.push("하이브리드·권위형에 필요한 승인된 원천자료가 없습니다.");
       }
