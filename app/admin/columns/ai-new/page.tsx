@@ -10,6 +10,7 @@ type Result = {
   post?: { id: string; title: string };
   blocked?: boolean;
   issues?: string[];
+  blockingIssues?: string[];
   /** 저장은 했지만 다듬을 곳. 글을 버리지 않고 함께 알려 줍니다. */
   styleWarnings?: string[];
   expertQuestions?: string[];
@@ -130,10 +131,15 @@ export default function AiNewColumnPage() {
                   : "켜져 있으나 이번 글에는 넣지 않았습니다"}
             </p>
           )}
-          {result.blocked && result.issues?.length ? (
+          {/*
+            문체 지적은 여기 넣지 않습니다. 바로 아래 "손볼 곳"에 나오므로
+            같은 문장이 두 번 보입니다. 그러면 무엇을 꼭 해야 하는지 다시
+            헷갈립니다.
+          */}
+          {result.blockingIssues?.length ? (
             <div className="mt-4 rounded-sm border border-amber-300 bg-amber-50 p-4">
               <p className="font-bold">발행 전에 반드시 채울 것</p>
-              {result.issues.map((issue) => <p key={issue} className="mt-2 text-sm">· {issue}</p>)}
+              {result.blockingIssues.map((issue) => <p key={issue} className="mt-2 text-sm">· {issue}</p>)}
               <p className="mt-3 text-xs text-[var(--muted)]">
                 편집기에서 고치면 그대로 발행할 수 있습니다. 출처가 모자라면 참고자료 항목에
                 공식 원문 링크를 직접 넣으셔도 됩니다.

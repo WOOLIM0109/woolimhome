@@ -8,6 +8,7 @@ import { sanitizeGeneratedHtml, sanitizeInlineHtml } from "@/lib/security/html";
 import {
   FRIENDLY_EDITORIAL_STYLE_RULES,
   friendlyStyleIssues,
+  splitPublicationIssues,
 } from "@/lib/content-ops/editorial-style";
 import {
   KNOWLEDGE_PER_COLUMN,
@@ -714,8 +715,14 @@ ${JSON.stringify(generated.faqs)}
      * 문체만 남았으면 비공개 초안으로 저장하고, 어디를 다듬을지 함께 적어 둡니다.
      * 발행은 어차피 사람이 확인한 뒤에 합니다.
      */
-    const styleWarnings = issues.filter((issue) => checked.styleIssues.includes(issue));
-    const blocked = issues.length > styleWarnings.length;
+    /*
+     * 지적을 두 갈래로 가릅니다. 화면의 두 상자가 이 결과를 그대로 그립니다.
+     * 예전에는 위 상자에 전부를 넣어, 아래 상자와 같은 문장이 두 번 나왔습니다.
+     */
+    const { styleWarnings, blockingIssues, blocked } = splitPublicationIssues(
+      issues,
+      checked.styleIssues,
+    );
 
     const slugBase = safeSlug(generated.slug || generated.title);
     const { data: duplicate } = await admin.from("column_posts").select("id").eq("slug", slugBase).maybeSingle();
@@ -765,7 +772,7 @@ ${JSON.stringify(generated.faqs)}
         validation: { charCount, h2Count, blockquoteCount, sourceCount: sourceRecords.length },
         styleWarnings,
         // 무엇 때문에 보류됐는지 글에 붙여 둡니다. 나중에 열어 봐도 알 수 있게.
-        ...(blocked ? { blockingIssues: issues, expertQuestions: generated.expertQuestions } : {}),
+        ...(blocked ? { blockingIssues, expertQuestions: generated.expertQuestions } : {}),
         /*
          * 어느 주제군으로 썼는지 남깁니다. 다음 글이 이걸 읽고 다른 주제군을
          * 고릅니다. 안 남기면 매번 처음부터 짐작해야 하고, 짐작은 틀립니다.
@@ -811,6 +818,7 @@ ${JSON.stringify(generated.faqs)}
     return {
       blocked,
       issues,
+      blockingIssues,
       post,
       styleWarnings,
       expertQuestions: generated.expertQuestions || [],
