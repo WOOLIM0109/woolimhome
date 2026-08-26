@@ -96,6 +96,45 @@ export function recentColumnSummary(posts: {
   }));
 }
 
+/**
+ * 지난 칼럼을 중복 판정에 넘길 모양으로 바꿉니다.
+ *
+ * 본문까지 읽지는 않습니다. 40편의 본문을 통째로 불러오면 무거운데, 중복을
+ * 잡는 데 가장 센 신호는 주제군과 구체 주제이고 그건 기록에 남아 있습니다.
+ * 본문이 없으면 그만큼 점수가 낮게 나오므로, 애매한 것을 억지로 막지도 않습니다.
+ */
+export function comparableColumns(posts: {
+  id?: string | null;
+  title?: string | null;
+  tags?: string[] | null;
+  category?: string | null;
+  created_at?: string | null;
+  generation_metadata?: Record<string, unknown> | null;
+}[], limit = 30) {
+  return posts.slice(0, limit).map((post, index) => {
+    const plan = (post.generation_metadata as { topicPlan?: Partial<ColumnTopicPlan> } | null)
+      ?.topicPlan;
+    const title = post.title || "";
+    return {
+      id: String(post.id || index),
+      title,
+      format: "column",
+      fingerprint: {
+        title,
+        summary: "",
+        headings: [],
+        bodyText: "",
+        tags: post.tags || [],
+        sourceHosts: [],
+        topicFamily: plan?.topicFamily || familyOfPost(post) || "",
+        primaryTopic: plan?.primaryTopic || title,
+        angle: plan?.angle || "",
+        keyEntities: [...new Set([...(post.tags || []), post.category || ""].filter(Boolean))],
+      },
+    };
+  });
+}
+
 export type ColumnTopicPlan = {
   topicFamily: string;
   primaryTopic: string;
@@ -178,11 +217,44 @@ export function columnTopicPlanningRules({
   families,
   recent,
   feedTitles,
+  topicHint,
 }: {
   families: string[];
   recent: ReturnType<typeof recentColumnSummary>;
   feedTitles: string[];
+  /** 사람이 적어 준 주제. 있으면 이것이 다른 모든 규칙을 이깁니다. */
+  topicHint?: string | null;
 }) {
+  /*
+   * 사람이 주제를 적었으면 그것이 먼저입니다.
+   *
+   * 예전에는 주제를 적으면 기획 단계를 통째로 건너뛰었습니다. 그래서 적어 준
+   * 말이 그대로 글쓰기로 넘어갔고, 누가 읽는 글인지·어떤 관점인지가 정리되지
+   * 않았습니다. 이제는 기획을 돌리되, 주제군 로테이션과 중복 회피를 끄고
+   * 적어 주신 주제를 기획서 모양으로 다듬기만 합니다.
+   */
+  if (topicHint) {
+    return `[주제 기획 — 지정된 주제]
+대표가 아래 주제를 직접 정했다. 이 주제로 쓸 기획안 1개를 만든다.
+
+[지정 주제]
+${topicHint}
+
+지킬 것.
+- **주제를 바꾸지 않는다.** 좁히거나 넓히지 말고 적힌 그대로 다룬다.
+- 최근 칼럼과 겹쳐도 괜찮다. 대표가 알고 정한 것이다.
+- 하는 일은 이 주제를 누가 읽는지, 어떤 관점으로 볼지, 가제를 무엇으로 할지
+  정리하는 것뿐이다.
+- topicFamily 는 이 주제에 가장 가까운 것 하나를 고른다.
+  ${JSON.stringify(families)}
+- audience 는 "중소기업 대표" 같은 뭉뚱그린 말 대신 한 사람으로 적는다.
+
+[최근 칼럼 — 참고만 한다. 겹친다고 주제를 바꾸지 않는다]
+${JSON.stringify(recent.slice(0, 10))}
+
+candidates 에 후보 1개만 담은 JSON 객체를 반환한다.`;
+  }
+
   return `[주제 기획]
 울림컴퍼니 홈페이지 칼럼에 쓸 주제 후보 5개를 만든다.
 

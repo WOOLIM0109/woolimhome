@@ -18,6 +18,7 @@ import {
 import { stripVerificationControlText } from "./verification";
 import { diagramIssues, diagramsEnabled, stripDiagrams } from "@/lib/content-ops/diagram";
 import { normalizeDraft } from "./normalize";
+import { assessNovelty, fingerprintFromGenerated } from "@/lib/content-ops/novelty";
 import { insertSentenceBreaks } from "@/lib/content-ops/sentence-breaks-html";
 import type { ColumnFaq, ColumnKind, ColumnSource, ColumnStatus } from "./types";
 import {
@@ -25,6 +26,7 @@ import {
   columnTopicPlanningRules,
   parseColumnTopicPlans,
   pickFreshPlan,
+  comparableColumns,
   recentColumnSummary,
   underusedFamilies,
   type ColumnTopicPlan,
@@ -202,13 +204,15 @@ function escapeHtml(value: string) {
 async function planColumnTopic({
   recentPosts,
   feedTitles,
+  topicHint,
 }: {
   recentPosts: Parameters<typeof recentColumnSummary>[0];
   feedTitles: string[];
+  topicHint?: string | null;
 }): Promise<ColumnTopicPlan | null> {
   const families = underusedFamilies(recentPosts, 6);
   const recent = recentColumnSummary(recentPosts, 30);
-  const prompt = columnTopicPlanningRules({ families, recent, feedTitles });
+  const prompt = columnTopicPlanningRules({ families, recent, feedTitles, topicHint });
   try {
     const { text } = await generateGeminiText({
       parts: [{ text: prompt }],
@@ -220,6 +224,9 @@ async function planColumnTopic({
       timeoutMs: TOPIC_PLAN_TIMEOUT_MS,
     });
     const plans = parseColumnTopicPlans(text || "");
+    // 주제를 지정받았으면 겹침을 이유로 후보를 건너뛰지 않습니다.
+    // 대표가 알고 정한 주제를 기계가 밀어내면 안 됩니다.
+    if (topicHint) return plans[0] || null;
     return pickFreshPlan(plans, recent.map((item) => item.title));
   } catch {
     /*
@@ -272,15 +279,18 @@ export async function generateColumn(input: {
   if (baseCandidates.length < 2) throw new Error("검증 가능한 공식 출처를 충분히 수집하지 못했습니다.");
 
   /*
-   * 대표님이 주제를 적어 주셨으면 그대로 씁니다. 비워 두셨을 때만 기획합니다.
-   * 사람이 정한 주제를 기계가 덮어쓰면 안 됩니다.
+   * 주제를 적어 주셨어도 기획 단계는 돌립니다.
+   *
+   * 예전에는 적으면 통째로 건너뛰었습니다. 그래서 적어 주신 말이 그대로
+   * 글쓰기로 넘어갔고, 누가 읽는 글인지·어떤 관점인지가 정리되지 않았습니다.
+   * 이제는 주제군 로테이션과 중복 회피만 끄고, 적어 주신 주제를 기획서 모양으로
+   * 다듬습니다. 주제 자체는 바뀌지 않습니다.
    */
-  const topicPlan = input.topicHint
-    ? null
-    : await planColumnTopic({
-      recentPosts: recentPosts || [],
-      feedTitles: baseCandidates.map((source) => source.title),
-    });
+  const topicPlan = await planColumnTopic({
+    recentPosts: recentPosts || [],
+    feedTitles: baseCandidates.map((source) => source.title),
+    topicHint: input.topicHint || null,
+  });
   const plannedTopic = topicPlan
     ? `${topicPlan.primaryTopic} — ${topicPlan.angle} (독자: ${topicPlan.audience})`
     : null;
@@ -329,6 +339,9 @@ export async function generateColumn(input: {
    * 자동으로 나가는 회차가 걸려 있어, 확인이 끝난 뒤에 환경변수 하나로
    * 켜고 문제가 있으면 배포를 기다리지 않고 바로 되돌릴 수 있어야 합니다.
    */
+  // 지난 칼럼을 중복 판정에 쓸 모양으로 미리 바꿔 둡니다.
+  const recentFingerprints = comparableColumns(recentPosts || [], 30);
+
   const drawDiagrams = diagramsEnabled();
   /*
    * 도식을 그리게 하는 말.
@@ -408,12 +421,12 @@ ${FRIENDLY_EDITORIAL_STYLE_RULES}
 - 제목과 H2/H3는 실제 고객이 검색할 쉬운 말로 쓰고, 객관적 근거 → 울림의 해석 → 실행 방법이 이어지게 한다.
 
 [주제]
-${input.topicHint || (topicPlan ? `주제군: ${topicPlan.topicFamily}
+${(topicPlan ? `주제군: ${topicPlan.topicFamily}
 다룰 것: ${topicPlan.primaryTopic}
 관점: ${topicPlan.angle}
 읽는 사람: ${topicPlan.audience}
 가제: ${topicPlan.workingTitle}
-위 주제로 쓴다. 공식 자료에 다른 소식이 있어도 주제를 바꾸지 않는다.` : "공식 자료 중 기업 고객에게 시의성 있고 울림의 서비스와 자연스럽게 연결되는 주제를 선택")}
+위 주제로 쓴다. 공식 자료에 다른 소식이 있어도 주제를 바꾸지 않는다.${input.topicHint ? `\n\n대표가 직접 정한 주제다: ${input.topicHint}` : ""}` : input.topicHint || "공식 자료 중 기업 고객에게 시의성 있고 울림의 서비스와 자연스럽게 연결되는 주제를 선택")}
 ${input.formatHint ? `\n[이번 회차 형식]\n${input.formatHint}` : ""}
 
 [승인된 울림 원천자료]
@@ -624,6 +637,54 @@ ${JSON.stringify(generated)}
           : "공식 출처가 없습니다. AI 가 참고 주소를 달지 않았습니다.");
       }
       found.push(...diagramFindings);
+      /*
+       * 지난 글과 얼마나 닮았는지 점수로 봅니다.
+       *
+       * 예전에는 제목 단어가 60% 겹치는지만 봤습니다. 그래서 주제군이 다르면
+       * 내용이 거의 같아도 통과했습니다. 블로그가 쓰던 판정을 그대로 씁니다.
+       *
+       * 다만 출처 구성은 세지 않습니다(ignoreSources). 칼럼은 같은 공고를
+       * 근거로 다른 관점의 글을 여러 편 씁니다. 그건 중복이 아닙니다.
+       *
+       * 주제를 직접 적어 주셨을 때는 아예 보지 않습니다. 알고 정하신 것입니다.
+       */
+      if (!input.topicHint && recentFingerprints.length) {
+        const novelty = assessNovelty({
+          candidate: fingerprintFromGenerated({
+            generated: {
+              title: draft.title,
+              summary: draft.excerpt,
+              bodyHtml: draft.bodyHtml,
+              tags: draft.tags,
+              sourceUrls: draft.usedSourceUrls,
+              // 중복 판정에는 쓰이지 않지만 형식을 맞춰 줍니다.
+              faq: [],
+              usedKnowledgeIds: [],
+            },
+            plan: topicPlan
+              ? {
+                topicFamily: topicPlan.topicFamily,
+                primaryTopic: topicPlan.primaryTopic,
+                angle: topicPlan.angle,
+                audience: topicPlan.audience,
+                keyEntities: [],
+                workingTitle: topicPlan.workingTitle,
+                rationale: topicPlan.rationale,
+                knowledgeIds: [],
+              }
+              : null,
+          }),
+          existing: recentFingerprints,
+          stage: "article",
+          ignoreSources: true,
+        });
+        if (novelty.duplicate) {
+          found.push(
+            `지난 칼럼과 너무 닮았습니다(위험 ${novelty.riskScore}점`
+            + `${novelty.matches[0] ? `, 가장 가까운 글: ${novelty.matches[0].title}` : ""}).`,
+          );
+        }
+      }
       if (draft.contentKind !== "informational" && !writingKnowledge.length) {
         found.push("하이브리드·권위형에 필요한 승인된 원천자료가 없습니다.");
       }
