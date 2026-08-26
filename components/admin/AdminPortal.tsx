@@ -16,13 +16,15 @@ import {
   Palette,
   ShieldCheck,
   Trash2,
-} from "lucide-react";
+  BookOpen,} from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { useAccess } from "@/hooks/useAccess";
 
 const NAV_ITEMS = [
   { href: "/admin", label: "전체 현황", icon: LayoutDashboard },
   { href: "/admin/columns", label: "홈페이지 칼럼", icon: Newspaper },
+  // 세 채널이 함께 쓰는 자료실입니다. 칼럼 하위에 두면 칼럼 전용처럼 보입니다.
+  { href: "/admin/knowledge", label: "노하우 자료실", icon: BookOpen },
   { href: "/admin/bot-traffic", label: "봇 트래픽", icon: Bot },
   { href: "/admin/naver-consulting", label: "컨설팅 블로그", icon: Home },
   { href: "/admin/naver-design", label: "디자인 블로그", icon: Palette },

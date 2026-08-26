@@ -19,7 +19,7 @@ export default function NaverConsultingAdminPage() {
           <a href="https://blog.naver.com/ygamsjzys" target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 rounded-xl border border-[var(--line)] bg-white px-4 py-3 font-bold">
             블로그 열기 <ExternalLink size={17} />
           </a>
-          <Link href="/admin/columns/knowledge" className="btn-gradient inline-flex items-center gap-2 rounded-xl px-4 py-3 font-bold text-white">
+          <Link href="/admin/knowledge" className="btn-gradient inline-flex items-center gap-2 rounded-xl px-4 py-3 font-bold text-white">
             <BookOpen size={17} /> 노하우 자료실
           </Link>
         </>

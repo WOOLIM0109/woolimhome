@@ -1,5 +1,4 @@
 import { friendlyStyleIssues } from "./editorial-style.ts";
-import { publicSourceUrls } from "./source-section.ts";
 
 type PublicationDraft = {
   bodyHtml?: unknown;
