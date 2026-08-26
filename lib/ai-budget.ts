@@ -71,4 +71,10 @@ export const RESEARCH_REUSE_HOURS = envInt("AI_RESEARCH_REUSE_HOURS", 72);
  * 이 값에 미달하면 글 전체를 한 번 더 생성하므로 비용이 두 배가 됩니다.
  * 목표가 3,500자이므로 재생성 기준은 그보다 낮게 둡니다. 이전 3000 → 2600
  */
-export const COLUMN_MIN_BODY_CHARS = envInt("AI_COLUMN_MIN_BODY_CHARS", 2600);
+/**
+ * 칼럼 본문 하한.
+ *
+ * 블로그는 2,000자인데 칼럼만 2,600자였습니다. 다를 이유가 없어 맞췄습니다.
+ * 이 값에 못 미치면 글 전체를 한 번 더 만들므로 요금이 두 배가 됩니다.
+ */
+export const COLUMN_MIN_BODY_CHARS = envInt("AI_COLUMN_MIN_BODY_CHARS", 2000);

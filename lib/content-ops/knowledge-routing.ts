@@ -21,13 +21,14 @@ const ALL_AREAS: KnowledgeArea[] = [
 
 const CHANNEL_AREAS: Record<ContentChannel, KnowledgeArea[]> = {
   homepage: ALL_AREAS,
-  naver_consulting: [
-    "management",
-    "government_support",
-    "business_plan",
-    "ir_ppt",
-    "general",
-  ],
+  /*
+   * 컨설팅도 홈페이지와 같이 전 분야를 봅니다.
+   *
+   * 예전에는 design 과 planning 을 뺐습니다. 그런데 기획은 울림의 핵심 분야이고,
+   * 컨설팅 글에도 문서·시각화 기획 노하우가 필요합니다. 빼 두면 그 카드들이
+   * 홈페이지 칼럼에서만 쓰여 한쪽으로 쏠립니다.
+   */
+  naver_consulting: ALL_AREAS,
   naver_design: ["design", "ir_ppt", "planning"],
 };
 

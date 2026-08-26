@@ -50,6 +50,13 @@ import {
   mostRelevantKnowledgeId,
 } from "./knowledge-routing";
 import { createStyleRevisionStamp } from "./style-revision-rules";
+import {
+  KNOWLEDGE_POOL_LIMIT,
+  selectRotatingKnowledge,
+} from "@/lib/columns/knowledge-rotation";
+
+/** 블로그 글 한 편에 넘기는 노하우 카드 수. */
+const KNOWLEDGE_PER_BLOG_POST = 8;
 
 type Source = {
   name: string;
@@ -479,22 +486,34 @@ export async function generateContentWorkItem(
       .limit(40),
     requiresKnowledge
       ? admin.from("column_expert_knowledge")
-        .select("id,topic,raw_text,perspective,case_evidence,differentiator,expertise_area,use_count")
+        .select("id,topic,raw_text,perspective,case_evidence,differentiator,expertise_area,use_count,created_at")
         .eq("approved", true)
         .in("expertise_area", allowedKnowledgeAreas)
         .order("use_count", { ascending: true })
         .order("created_at", { ascending: false })
-        .limit(8)
+        // 넉넉히 읽고, 어떤 여덟 장을 쓸지는 아래에서 분야를 번갈아 고릅니다.
+        .limit(KNOWLEDGE_POOL_LIMIT)
       : Promise.resolve({ data: [] as ExpertKnowledge[], error: null }),
   ]);
   if (sourceError) throw new Error(sourceError.message);
   if (recentError) throw new Error(recentError.message);
   if (knowledgeResult.error) throw new Error(knowledgeResult.error.message);
-  let knowledge = (knowledgeResult.data || []) as ExpertKnowledge[];
+  /*
+   * 전문 분야를 번갈아 가며 여덟 장을 고릅니다.
+   *
+   * 예전에는 덜 쓴 순서로 여덟 장을 그냥 잘랐습니다. 그러면 한 분야 카드가
+   * 여덟 자리를 통째로 차지할 수 있어, 그 분야만 소진되고 나머지는 잠듭니다.
+   * 칼럼이 쓰던 규칙을 그대로 가져다 씁니다. 채널마다 따로 두면 한쪽만
+   * 조용히 좁아집니다.
+   */
+  let knowledge = selectRotatingKnowledge(
+    (knowledgeResult.data || []) as ExpertKnowledge[],
+    KNOWLEDGE_PER_BLOG_POST,
+  );
   if (requiresKnowledge && pinnedKnowledgeIds.length) {
     const { data: pinnedKnowledge, error: pinnedKnowledgeError } = await admin
       .from("column_expert_knowledge")
-      .select("id,topic,raw_text,perspective,case_evidence,differentiator,expertise_area,use_count")
+      .select("id,topic,raw_text,perspective,case_evidence,differentiator,expertise_area,use_count,created_at")
       .eq("approved", true)
       .in("expertise_area", allowedKnowledgeAreas)
       .in("id", pinnedKnowledgeIds);

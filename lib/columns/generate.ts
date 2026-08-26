@@ -18,6 +18,7 @@ import {
 import { stripVerificationControlText } from "./verification";
 import { diagramIssues, diagramsEnabled, stripDiagrams } from "@/lib/content-ops/diagram";
 import { normalizeDraft } from "./normalize";
+import { insertSentenceBreaks } from "@/lib/content-ops/sentence-breaks-html";
 import type { ColumnFaq, ColumnKind, ColumnSource, ColumnStatus } from "./types";
 import {
   COLUMN_TOPIC_PLAN_SCHEMA,
@@ -733,7 +734,14 @@ ${JSON.stringify(generated.faqs)}
       publisher: source.publisher,
       publishedAt: source.publishedAt,
     }));
-    const content = `${generated.bodyHtml}${faqHtml(generated.faqs)}${sourceHtml(sourceRecords)}`;
+    /*
+     * 문장마다 빈 줄을 넣습니다.
+     *
+     * 블로그가 하던 것을 칼럼에도 붙였습니다. 표와 도식 안에는 들어가지
+     * 않습니다(SKIP_TAGS). 그게 없으면 표 칸이 세로로 늘어나 망가집니다.
+     * FAQ 와 참고자료는 시스템이 만드는 짧은 덩어리라 그대로 둡니다.
+     */
+    const content = `${insertSentenceBreaks(generated.bodyHtml)}${faqHtml(generated.faqs)}${sourceHtml(sourceRecords)}`;
     const { data: post, error: postError } = await admin.from("column_posts").insert({
       title: generated.title,
       slug,
