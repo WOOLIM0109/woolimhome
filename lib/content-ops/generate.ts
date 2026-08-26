@@ -177,6 +177,24 @@ function promptFor(
 포트폴리오 사례처럼 쓰지 말고, 공식 디자인 자료를 실무자가 적용할 수 있도록 해설하는 기획·디자인 인사이트로 작성한다.
 제목에 채널명이나 [naver_design] 같은 내부 표기를 넣지 않는다.` : "";
   const channel = slot.channel === "naver_design" ? "PPT·PDF·디자인·비즈니스 문서" : "종합 경영컨설팅";
+  /*
+   * 노하우를 글의 중심으로 삼지는 않되, 울림이 이 일을 어떻게 보는지 한두 번
+   * 드러냅니다.
+   *
+   * 정보형과 포트폴리오는 노하우를 아예 안 읽었습니다. 그래서 어느 회사가 쓴
+   * 글인지 알 수 없는 중립적인 정보글만 나왔습니다. 읽고 나서 문의로 이어질
+   * 이유가 없습니다.
+   *
+   * 마지막에 몰지 않습니다. 끝에 회사 소개를 붙이면 홍보글로 읽혀 오히려
+   * 안 읽힙니다. 횟수를 못 박아 두는 이유입니다.
+   */
+  const softVoiceRules = !requiresKnowledge ? `
+- 아래 승인된 울림 원천자료에서 이 주제에 맞는 것을 골라, 울림이 실무에서 무엇을
+  먼저 보고 무엇을 버리는지 **본문 흐름 안에 1~2회만** 자연스럽게 섞는다.
+- 마지막 문단에 몰아 넣지 않는다. 설명하는 중간에 판단 기준으로 한 번 드러내는 식이다.
+- 회사 소개, 서비스 안내, 상담 권유 문구는 쓰지 않는다. 광고처럼 읽히면 안 된다.
+- 맞는 원천자료가 없으면 넣지 않는다. 억지로 만들지 않는다. 그때는 usedKnowledgeIds 를 빈 배열로 둔다.
+- 실제로 활용한 원천자료가 있으면 그 id 를 usedKnowledgeIds 에 넣는다.` : "";
   const formatRules = requiresKnowledge ? `
 이 글은 ${knowledgeFormatLabel(slot)}이다. 승인된 울림 원천자료가 글의 중심이어야 한다.
 공식 자료는 울림의 판단을 뒷받침하는 사실 근거로만 사용하고, 여러 지원사업을 모은 종합 안내문으로 바꾸지 않는다.
@@ -199,6 +217,7 @@ ${revision.previous ? `기존 초안:\n${JSON.stringify(revision.previous)}` : "
 ${designRules}
 ${slot.format === "portfolio" ? PORTFOLIO_WRITING_RULES : ""}
 ${formatRules}
+${softVoiceRules}
 ${revisionRules}
 ${briefWritingRules(brief ?? null)}
 ${FRIENDLY_EDITORIAL_STYLE_RULES}
@@ -487,16 +506,22 @@ export async function generateContentWorkItem(
       .gte("created_at", lookbackAt)
       .order("created_at", { ascending: false })
       .limit(40),
-    requiresKnowledge
-      ? admin.from("column_expert_knowledge")
-        .select("id,topic,raw_text,perspective,case_evidence,differentiator,expertise_area,use_count,created_at")
-        .eq("approved", true)
-        .in("expertise_area", allowedKnowledgeAreas)
-        .order("use_count", { ascending: true })
-        .order("created_at", { ascending: false })
-        // 넉넉히 읽고, 어떤 여덟 장을 쓸지는 아래에서 분야를 번갈아 고릅니다.
-        .limit(KNOWLEDGE_POOL_LIMIT)
-      : Promise.resolve({ data: [] as ExpertKnowledge[], error: null }),
+    /*
+     * 정보형·포트폴리오도 노하우를 읽습니다.
+     *
+     * 예전에는 이 회차에 아예 안 읽혔습니다. 그래서 어느 회사가 쓴 글인지 알
+     * 수 없는 중립적인 정보글만 나왔고, 읽고 나서 문의로 이어질 이유가
+     * 없었습니다. 글의 중심으로 삼지는 않고, 본문 안에 한두 번 판단 기준을
+     * 드러내는 데만 씁니다(softVoiceRules).
+     */
+    admin.from("column_expert_knowledge")
+      .select("id,topic,raw_text,perspective,case_evidence,differentiator,expertise_area,use_count,created_at")
+      .eq("approved", true)
+      .in("expertise_area", allowedKnowledgeAreas)
+      .order("use_count", { ascending: true })
+      .order("created_at", { ascending: false })
+      // 넉넉히 읽고, 어떤 여덟 장을 쓸지는 아래에서 분야를 번갈아 고릅니다.
+      .limit(KNOWLEDGE_POOL_LIMIT),
   ]);
   if (sourceError) throw new Error(sourceError.message);
   if (recentError) throw new Error(recentError.message);
