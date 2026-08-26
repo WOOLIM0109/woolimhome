@@ -7,6 +7,7 @@ import { briefPlanningRules, briefWritingRules, splitBriefSourceUrls, type Conte
 import { assertStageFits, deadlineExceeded } from "./deadline";
 import { AI_ATTEMPTS, AI_INPUT_LIMITS, AI_OUTPUT_LIMITS, RESEARCH_REUSE_HOURS } from "@/lib/ai-budget";
 import { sameHost, trustedSourceUrl } from "@/lib/research/trusted-sources";
+import { appendStatusChange } from "./status-history";
 import {
   CONSULTING_INFORMATIONAL_TOPIC_TYPES,
   DESIGN_INFORMATIONAL_TOPIC_TYPES,
@@ -946,7 +947,7 @@ ${JSON.stringify(generated)}
     source_label: (usedSourceNames.length ? usedSourceNames : sourcePool.map((source) => source.name)).join(", "),
     source_reference: JSON.stringify(generated.sourceUrls || []),
     metadata: {
-      ...successfulMetadata,
+      ...appendStatusChange(successfulMetadata, status, "automation@woolimcompany.kr", generatedAt),
       generated,
       ...(brief ? {
         brief: {

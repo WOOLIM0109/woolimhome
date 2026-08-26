@@ -7,6 +7,8 @@ import type { ContentChannel, WorkflowStatus } from "@/lib/content-ops/types";
 import { faqAnswerHtml, faqQuestionHtml } from "@/lib/content-ops/editorial-style";
 import { formatSentenceLineBreaks } from "@/lib/content-ops/sentence-line-breaks";
 import { readJsonResponse } from "@/lib/http/read-json";
+import { actorLabel, statusHistoryOf } from "@/lib/content-ops/status-history";
+import { STATUS_LABELS } from "@/lib/content-ops/config";
 import {
   PRIVATE_PORTFOLIO_SOURCE_NOTE,
   sourceSectionHtml,
@@ -243,6 +245,41 @@ function legacyMockupMode(assets: LegacyPortfolioAsset[]): PortfolioMockupMode |
   }
   if (bodyAssets.length === 4) return "short_psd";
   return undefined;
+}
+
+/**
+ * 단계마다 언제 넘어갔는지 보여 줍니다.
+ *
+ * 표에는 updated_at 하나뿐이고 그건 덮어씁니다. 그래서 "어제 10시 글이 왜
+ * 안 나왔지" 를 알아보려면 매번 저장소에 직접 질의해야 했습니다.
+ *
+ * 이 기능이 생기기 전에 만들어진 글은 기록이 없습니다. 그때는 빈 표 대신
+ * 아무것도 그리지 않습니다. 빈 표를 보여 주면 고장으로 읽힙니다.
+ */
+function StatusTimeline({ metadata }: { metadata?: WorkItem["metadata"] }) {
+  const history = statusHistoryOf(metadata);
+  if (!history.length) return null;
+  return (
+    <dl className="mt-3 grid grid-cols-[auto_auto_1fr] gap-x-3 gap-y-1 text-xs text-[var(--muted)]">
+      {history.map((change) => (
+        <div key={`${change.status}-${change.at}`} className="contents">
+          <dt className="font-bold text-[var(--foreground)]">
+            {STATUS_LABELS[change.status] || change.status}
+          </dt>
+          <dd>
+            {new Date(change.at).toLocaleString("ko-KR", {
+              timeZone: "Asia/Seoul",
+              month: "2-digit",
+              day: "2-digit",
+              hour: "2-digit",
+              minute: "2-digit",
+            })}
+          </dd>
+          <dd className="truncate">{actorLabel(change.by)}</dd>
+        </div>
+      ))}
+    </dl>
+  );
 }
 
 function PortfolioMockupDetails({ metadata }: { metadata?: WorkItem["metadata"] }) {
@@ -954,6 +991,7 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
                 {item.source_label || "자동 일정"}
                 {item.scheduled_at ? ` · ${new Date(item.scheduled_at).toLocaleString("ko-KR", { timeZone: "Asia/Seoul" })}` : ""}
               </p>
+              <StatusTimeline metadata={item.metadata} />
             </div>
             <StatusBadge status={item.status} />
           </div>

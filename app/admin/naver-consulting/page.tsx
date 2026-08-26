@@ -5,6 +5,7 @@ import ManualDraftButton from "@/components/admin/ManualDraftButton";
 import ManualGenerateButton from "@/components/admin/ManualGenerateButton";
 import WorkQueue from "@/components/admin/WorkQueue";
 import TwoWeekSchedule from "@/components/admin/TwoWeekSchedule";
+import CollapsibleSection from "@/components/admin/CollapsibleSection";
 import { CONSULTING_TOPIC_FAMILIES } from "@/lib/content-ops/config";
 
 export default function NaverConsultingAdminPage() {
@@ -54,10 +55,9 @@ export default function NaverConsultingAdminPage() {
         </div>
       </section>
 
-      <section className="mt-10">
-        <h2 className="mb-4 text-2xl font-bold">향후 2주 일정</h2>
+      <CollapsibleSection storageKey="consulting-schedule" title="향후 2주 일정">
         <TwoWeekSchedule channel="naver_consulting" />
-      </section>
+      </CollapsibleSection>
       <section className="mt-10">
         <h2 className="text-2xl font-bold">실제 자동화 작업 큐</h2>
         <WorkQueue channel="naver_consulting" />
