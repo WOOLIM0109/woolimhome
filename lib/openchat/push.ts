@@ -1,5 +1,4 @@
-import webpush from "web-push";
-import { createAdminClient } from "@/lib/supabase/admin";
+import { sendAdminPush } from "@/lib/notify/web-push";
 import type { OpenchatCronTask } from "./types";
 
 const NOTIFICATIONS: Record<OpenchatCronTask, { title: string; body: (summary: Record<string, unknown>) => string }> = {
@@ -43,41 +42,15 @@ const NOTIFICATIONS: Record<OpenchatCronTask, { title: string; body: (summary: R
   },
 };
 
-function configure() {
-  const publicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
-  const privateKey = process.env.VAPID_PRIVATE_KEY;
-  const subject = process.env.VAPID_SUBJECT || "mailto:woolim@woolimcompany.kr";
-  if (!publicKey || !privateKey) return false;
-  webpush.setVapidDetails(subject, publicKey, privateKey);
-  return true;
-}
-
 export async function sendOpenchatNotification(task: OpenchatCronTask, summary: Record<string, unknown>) {
   if (task === "morning-collect" || task === "morning-repair") return { sent: 0, skipped: "관리자 수동 작업" };
-  if (!configure()) return { sent: 0, skipped: "VAPID 키 미설정" };
-  const admin = createAdminClient();
-  const { data, error } = await admin.from("openchat_push_subscriptions")
-    .select("id,endpoint,p256dh,auth");
-  if (error) throw new Error(error.message);
+  // 보내는 일 자체는 lib/notify/web-push.ts 가 합니다.
+  // 포트폴리오 쪽에서도 같은 기기로 알려야 해서 전송부를 한곳으로 모았습니다.
   const notification = NOTIFICATIONS[task];
-  let sent = 0;
-  for (const subscription of data || []) {
-    try {
-      await webpush.sendNotification({
-        endpoint: subscription.endpoint,
-        keys: { p256dh: subscription.p256dh, auth: subscription.auth },
-      }, JSON.stringify({
-        title: notification.title,
-        body: notification.body(summary),
-        url: "/admin/openchat",
-      }));
-      sent += 1;
-    } catch (pushError) {
-      const statusCode = (pushError as { statusCode?: number }).statusCode;
-      if (statusCode === 404 || statusCode === 410) {
-        await admin.from("openchat_push_subscriptions").delete().eq("id", subscription.id);
-      }
-    }
-  }
-  return { sent };
+  const result = await sendAdminPush({
+    title: notification.title,
+    body: notification.body(summary),
+    url: "/admin/openchat",
+  });
+  return result.skipped ? { sent: result.sent, skipped: result.skipped } : { sent: result.sent };
 }
