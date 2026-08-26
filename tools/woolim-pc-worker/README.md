@@ -82,8 +82,38 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\setup.ps1 `
 한 번 닫으면 다음 로그인까지 계속 꺼져 있었습니다. 실제로 사무실 PC가 하루
 종일 오프라인으로 남은 적이 있습니다.
 
-이 자동 되살리기는 **설정을 다시 실행해야 적용됩니다.** 이미 설치된 PC에서는
-`setup.ps1`을 같은 값으로 한 번 더 실행하세요.
+이 자동 되살리기는 **설치를 다시 실행해야 적용됩니다.** 워커는 시작할 때 스스로
+최신 파일을 받아오지만 예약 작업을 다시 등록하지는 않기 때문에, 이 저장소를
+갱신하는 것만으로는 이미 설치된 PC에 적용되지 않습니다.
+
+이미 설치된 PC에서는 `install.ps1`을 한 번 더 실행하세요. 이름이나 비밀키는
+이미 저장돼 있어 다시 묻지 않고, 돌고 있는 워커도 꺼지지 않습니다.
+(`setup.ps1`이 아닙니다. 그건 이름·비밀키를 다시 받는 파일이고, 하는 일은
+결국 `install.ps1`을 부르는 것입니다.)
+
+```powershell
+powershell -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\WoolimWorker\app\install.ps1"
+```
+
+`-ExecutionPolicy Bypass`가 없으면 기본 정책에서 `UnauthorizedAccess`로 막힙니다.
+끝에 `Self-heal: the worker restarts within 5 minutes...`가 보이면 된 것입니다.
+확인:
+
+```powershell
+(Get-ScheduledTask -TaskName "Woolim Worker*").Triggers.Repetition.Interval
+```
+
+`PT5M`이 나와야 합니다. 빈 줄이 나오면 예약 작업에 반복이 없는 것이니, 직접
+붙입니다(2026-08-26 사무실 PC에서 이 방법으로 해결했습니다).
+
+```powershell
+$t = Get-ScheduledTask -TaskName "Woolim Worker*"
+$t.Triggers[0].Repetition = New-CimInstance -ClassName MSFT_TaskRepetitionPattern -Namespace Root/Microsoft/Windows/TaskScheduler -ClientOnly -Property @{ Interval = "PT5M"; StopAtDurationEnd = $false }
+Set-ScheduledTask -InputObject $t
+```
+
+예약 작업은 그 PC 안에만 있습니다. **워커를 돌리는 PC가 여러 대면 PC마다
+따로 해야 합니다.**
 
 즉시 실행까지 하려면 `-StartNow`를 추가합니다. 자동 시작 등록 없이 시험 설치하려면 `-NoAutoStart`를 사용합니다.
 

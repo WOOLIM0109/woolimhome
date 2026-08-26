@@ -56,6 +56,52 @@ if ($PSCmdlet.ShouldProcess($InstallRoot, "Install Woolim worker files")) {
   }
 }
 
+# The worker drives PowerPoint through COM, so it must run in the interactive
+# session and its console window stays visible. A visible window eventually gets
+# closed, and closing it is a normal exit, so RestartCount never fires: the
+# worker then stayed down until the next logon. One office PC sat offline for a
+# whole working day that way.
+#
+# Repeating the logon trigger every 5 minutes fixes that. MultipleInstances is
+# IgnoreNew, so a running worker is left alone and a closed one comes back
+# within 5 minutes on its own.
+#
+# This has to happen AFTER Register-ScheduledTask. Setting .Repetition on the
+# trigger that New-ScheduledTaskTrigger -AtLogOn returns looks like it works --
+# no exception, no warning -- and Register-ScheduledTask then drops it. The
+# office PC was installed that way on 2026-08-26 and reported success while the
+# registered task had no repetition at all. Do not move this back up.
+#
+# So: read the task back and check the value. An exception is not the failure
+# mode here; a silent no-op is.
+function Set-WorkerSelfHeal {
+  param([Parameter(Mandatory = $true)][string]$TaskName)
+
+  try {
+    $task = Get-ScheduledTask -TaskName $TaskName -ErrorAction Stop
+    if (-not $task.Triggers -or $task.Triggers.Count -lt 1) {
+      Write-Warning "Self-heal: the registered task has no trigger; the worker will only start at logon."
+      return
+    }
+    $task.Triggers[0].Repetition = New-CimInstance `
+      -ClassName MSFT_TaskRepetitionPattern `
+      -Namespace Root/Microsoft/Windows/TaskScheduler `
+      -ClientOnly `
+      -Property @{ Interval = "PT5M"; StopAtDurationEnd = $false }
+    Set-ScheduledTask -InputObject $task -ErrorAction Stop | Out-Null
+
+    $applied = (Get-ScheduledTask -TaskName $TaskName -ErrorAction Stop).Triggers[0].Repetition.Interval
+    if ($applied -eq "PT5M") {
+      Write-Host "Self-heal: the worker restarts within 5 minutes if its window is closed."
+    } else {
+      Write-Warning "Self-heal: Windows did not keep the 5-minute repetition; the worker will only start at logon."
+    }
+  } catch {
+    # Losing self-healing is bad, but not installing at all is worse.
+    Write-Warning "Self-heal: could not add the 5-minute repetition; the worker will only start at logon. $($_.Exception.Message)"
+  }
+}
+
 if ($NoAutoStart) {
   if (Get-Command Get-ScheduledTask -ErrorAction SilentlyContinue) {
     $existingTask = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
@@ -71,27 +117,6 @@ if ($NoAutoStart) {
   $currentUser = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
   $action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument $actionArguments -WorkingDirectory $InstallRoot
   $trigger = New-ScheduledTaskTrigger -AtLogOn -User $currentUser
-
-  # The worker drives PowerPoint through COM, so it must run in the interactive
-  # session and its console window stays visible. A visible window eventually
-  # gets closed, and closing it is a normal exit, so RestartCount never fires:
-  # the worker then stayed down until the next logon. One office PC sat offline
-  # for a whole working day that way.
-  #
-  # Repeat the logon trigger every 5 minutes instead. MultipleInstances is
-  # IgnoreNew, so a running worker is left alone and a closed one comes back
-  # within 5 minutes on its own.
-  try {
-    $repetition = New-CimInstance `
-      -ClassName MSFT_TaskRepetitionPattern `
-      -Namespace Root/Microsoft/Windows/TaskScheduler `
-      -ClientOnly `
-      -Property @{ Interval = "PT5M"; StopAtDurationEnd = $false }
-    $trigger.Repetition = $repetition
-  } catch {
-    # Losing self-healing is bad, but not installing at all is worse.
-    Write-Warning "Could not add the 5-minute repetition; the worker will only start at logon. $($_.Exception.Message)"
-  }
   $principal = New-ScheduledTaskPrincipal -UserId $currentUser -LogonType Interactive -RunLevel Limited
   $settings = New-ScheduledTaskSettingsSet `
     -AllowStartIfOnBatteries `
@@ -111,6 +136,8 @@ if ($NoAutoStart) {
       -Settings $settings `
       -Description "Woolim document conversion worker ($WorkerName)" `
       -Force | Out-Null
+
+    Set-WorkerSelfHeal -TaskName $TaskName
   }
 }
 
