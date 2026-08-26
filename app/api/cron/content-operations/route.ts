@@ -169,10 +169,28 @@ export async function GET(request: Request) {
       }
       try {
         const prepared = await prepareNextPortfolioCandidate({ scheduleKey, scheduledAt });
-        if (prepared) {
+        if (prepared.prepared) {
           scheduled.push(prepared);
           const downloaded = await processNextPortfolioDownload(prepared.candidateId);
           if (downloaded) localProgress.push(downloaded);
+        } else {
+          /*
+           * 고를 후보가 없었다는 사실도 기록으로 남깁니다.
+           *
+           * 예전에는 여기에 else 가 없었습니다. 그래서 후보가 마른 채로 화·금
+           * 여섯 회차가 지나도록 실행 기록에는 아무 흔적이 없었고, 22 일 뒤에야
+           * 사람이 눈치챘습니다. 성공했을 때만 적고 빈손일 때 침묵하면,
+           * 정작 알아야 할 때 아무것도 안 보입니다.
+           */
+          localProgress.push({
+            stage: "deterministic_portfolio_prepare",
+            status: "skipped",
+            slotKey: slot.key,
+            scheduleKey,
+            inspectedCandidates: prepared.inspected,
+            eligibleCandidates: prepared.eligible,
+            reason: prepared.reason,
+          });
         }
       } catch (error) {
         localProgress.push({
