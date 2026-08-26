@@ -50,6 +50,13 @@ import {
   mostRelevantKnowledgeId,
 } from "./knowledge-routing";
 import { createStyleRevisionStamp } from "./style-revision-rules";
+import {
+  KNOWLEDGE_POOL_LIMIT,
+  selectRotatingKnowledge,
+} from "@/lib/columns/knowledge-rotation";
+
+/** 블로그 글 한 편에 넘기는 노하우 카드 수. */
+const KNOWLEDGE_PER_BLOG_POST = 8;
 
 type Source = {
   name: string;
@@ -170,6 +177,24 @@ function promptFor(
 포트폴리오 사례처럼 쓰지 말고, 공식 디자인 자료를 실무자가 적용할 수 있도록 해설하는 기획·디자인 인사이트로 작성한다.
 제목에 채널명이나 [naver_design] 같은 내부 표기를 넣지 않는다.` : "";
   const channel = slot.channel === "naver_design" ? "PPT·PDF·디자인·비즈니스 문서" : "종합 경영컨설팅";
+  /*
+   * 노하우를 글의 중심으로 삼지는 않되, 울림이 이 일을 어떻게 보는지 한두 번
+   * 드러냅니다.
+   *
+   * 정보형과 포트폴리오는 노하우를 아예 안 읽었습니다. 그래서 어느 회사가 쓴
+   * 글인지 알 수 없는 중립적인 정보글만 나왔습니다. 읽고 나서 문의로 이어질
+   * 이유가 없습니다.
+   *
+   * 마지막에 몰지 않습니다. 끝에 회사 소개를 붙이면 홍보글로 읽혀 오히려
+   * 안 읽힙니다. 횟수를 못 박아 두는 이유입니다.
+   */
+  const softVoiceRules = !requiresKnowledge ? `
+- 아래 승인된 울림 원천자료에서 이 주제에 맞는 것을 골라, 울림이 실무에서 무엇을
+  먼저 보고 무엇을 버리는지 **본문 흐름 안에 1~2회만** 자연스럽게 섞는다.
+- 마지막 문단에 몰아 넣지 않는다. 설명하는 중간에 판단 기준으로 한 번 드러내는 식이다.
+- 회사 소개, 서비스 안내, 상담 권유 문구는 쓰지 않는다. 광고처럼 읽히면 안 된다.
+- 맞는 원천자료가 없으면 넣지 않는다. 억지로 만들지 않는다. 그때는 usedKnowledgeIds 를 빈 배열로 둔다.
+- 실제로 활용한 원천자료가 있으면 그 id 를 usedKnowledgeIds 에 넣는다.` : "";
   const formatRules = requiresKnowledge ? `
 이 글은 ${knowledgeFormatLabel(slot)}이다. 승인된 울림 원천자료가 글의 중심이어야 한다.
 공식 자료는 울림의 판단을 뒷받침하는 사실 근거로만 사용하고, 여러 지원사업을 모은 종합 안내문으로 바꾸지 않는다.
@@ -192,6 +217,7 @@ ${revision.previous ? `기존 초안:\n${JSON.stringify(revision.previous)}` : "
 ${designRules}
 ${slot.format === "portfolio" ? PORTFOLIO_WRITING_RULES : ""}
 ${formatRules}
+${softVoiceRules}
 ${revisionRules}
 ${briefWritingRules(brief ?? null)}
 ${FRIENDLY_EDITORIAL_STYLE_RULES}
@@ -203,6 +229,9 @@ ${JSON.stringify(plan)}
 
 [사실조사 적용 규칙]
 - 제도명, 금액, 기간, 대상, 자격, 지원 조건, 통계, 법령, 기술 기준은 각각 별도의 주장으로 보고 개별 조사 결과와 대조합니다.
+- 지원사업·정책자금을 다루는 글이라면 금액, 마감일, 자격 요건을 반드시 본문에 적습니다.
+  읽는 사람이 가장 먼저 찾는 정보입니다. 조사 결과에 있으면 빠뜨리지 않습니다.
+  언론 기사에서 확인된 것도 씁니다. 다만 같은 내용을 담은 공고 원문이 있으면 원문 쪽 숫자를 먼저 씁니다.
 - [공식 확인 완료]에 포함된 사실만 본문에 사용하고 해당 공식 URL을 sourceUrls에 넣습니다.
 - [공식자료 미확인 · 본문 제외] 항목은 표현을 흐리거나 '확인 필요'라고 사용자에게 넘기지 말고 본문에서 완전히 제외합니다.
 - [외부 조사 불가 · 대표 확인 필요] 항목은 공개 동의가 확인된 승인 원천자료가 아니면 본문에 쓰지 않습니다.
@@ -477,24 +506,42 @@ export async function generateContentWorkItem(
       .gte("created_at", lookbackAt)
       .order("created_at", { ascending: false })
       .limit(40),
-    requiresKnowledge
-      ? admin.from("column_expert_knowledge")
-        .select("id,topic,raw_text,perspective,case_evidence,differentiator,expertise_area,use_count")
-        .eq("approved", true)
-        .in("expertise_area", allowedKnowledgeAreas)
-        .order("use_count", { ascending: true })
-        .order("created_at", { ascending: false })
-        .limit(8)
-      : Promise.resolve({ data: [] as ExpertKnowledge[], error: null }),
+    /*
+     * 정보형·포트폴리오도 노하우를 읽습니다.
+     *
+     * 예전에는 이 회차에 아예 안 읽혔습니다. 그래서 어느 회사가 쓴 글인지 알
+     * 수 없는 중립적인 정보글만 나왔고, 읽고 나서 문의로 이어질 이유가
+     * 없었습니다. 글의 중심으로 삼지는 않고, 본문 안에 한두 번 판단 기준을
+     * 드러내는 데만 씁니다(softVoiceRules).
+     */
+    admin.from("column_expert_knowledge")
+      .select("id,topic,raw_text,perspective,case_evidence,differentiator,expertise_area,use_count,created_at")
+      .eq("approved", true)
+      .in("expertise_area", allowedKnowledgeAreas)
+      .order("use_count", { ascending: true })
+      .order("created_at", { ascending: false })
+      // 넉넉히 읽고, 어떤 여덟 장을 쓸지는 아래에서 분야를 번갈아 고릅니다.
+      .limit(KNOWLEDGE_POOL_LIMIT),
   ]);
   if (sourceError) throw new Error(sourceError.message);
   if (recentError) throw new Error(recentError.message);
   if (knowledgeResult.error) throw new Error(knowledgeResult.error.message);
-  let knowledge = (knowledgeResult.data || []) as ExpertKnowledge[];
+  /*
+   * 전문 분야를 번갈아 가며 여덟 장을 고릅니다.
+   *
+   * 예전에는 덜 쓴 순서로 여덟 장을 그냥 잘랐습니다. 그러면 한 분야 카드가
+   * 여덟 자리를 통째로 차지할 수 있어, 그 분야만 소진되고 나머지는 잠듭니다.
+   * 칼럼이 쓰던 규칙을 그대로 가져다 씁니다. 채널마다 따로 두면 한쪽만
+   * 조용히 좁아집니다.
+   */
+  let knowledge = selectRotatingKnowledge(
+    (knowledgeResult.data || []) as ExpertKnowledge[],
+    KNOWLEDGE_PER_BLOG_POST,
+  );
   if (requiresKnowledge && pinnedKnowledgeIds.length) {
     const { data: pinnedKnowledge, error: pinnedKnowledgeError } = await admin
       .from("column_expert_knowledge")
-      .select("id,topic,raw_text,perspective,case_evidence,differentiator,expertise_area,use_count")
+      .select("id,topic,raw_text,perspective,case_evidence,differentiator,expertise_area,use_count,created_at")
       .eq("approved", true)
       .in("expertise_area", allowedKnowledgeAreas)
       .in("id", pinnedKnowledgeIds);

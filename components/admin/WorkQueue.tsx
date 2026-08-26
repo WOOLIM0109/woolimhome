@@ -6,6 +6,7 @@ import StatusBadge from "./StatusBadge";
 import type { ContentChannel, WorkflowStatus } from "@/lib/content-ops/types";
 import { faqAnswerHtml, faqQuestionHtml } from "@/lib/content-ops/editorial-style";
 import { formatSentenceLineBreaks } from "@/lib/content-ops/sentence-line-breaks";
+import { readJsonResponse } from "@/lib/http/read-json";
 import {
   PRIVATE_PORTFOLIO_SOURCE_NOTE,
   sourceSectionHtml,
@@ -215,16 +216,6 @@ function safeSlideIndexes(value: unknown) {
 function safeReasons(value: unknown) {
   if (!Array.isArray(value)) return [];
   return value.filter((reason): reason is string => typeof reason === "string" && reason.trim().length > 0);
-}
-
-async function readJsonResponse(response: Response): Promise<Record<string, unknown>> {
-  const body = await response.text();
-  if (!body) return {};
-  try {
-    return JSON.parse(body) as Record<string, unknown>;
-  } catch {
-    return {};
-  }
 }
 
 function classifyAspectRatio(ratio: number): Exclude<PortfolioAspectClass, "mixed"> {
