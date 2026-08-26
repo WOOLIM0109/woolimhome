@@ -588,6 +588,13 @@ ${JSON.stringify(generated)}
       const knowledgeIds = [...new Set(draft.usedKnowledgeIds || [])]
         .filter((id) => approvedKnowledgeIds.has(id));
       const found: string[] = [];
+      /*
+       * 알려는 주되 발행은 막지 않는 것.
+       *
+       * 아래에서 styleIssues 에 함께 넣습니다. blocked 판정이 "문체가 아닌
+       * 지적이 하나라도 있으면 막는다" 이므로, 여기 들어가면 경고로만 남습니다.
+       */
+      const styleOnlyFindings: string[] = [];
       const chars = proseCharCount(draft.bodyHtml);
       const headings = (draft.bodyHtml.match(/<h2[\s>]/gi) || []).length;
       const quotes = (draft.bodyHtml.match(/<blockquote[\s>]/gi) || []).length;
@@ -608,9 +615,13 @@ ${JSON.stringify(generated)}
         const rejected = draft.usedSourceUrls
           .filter((url) => !candidates.some((source) => sameSourceUrl(source.url, url)))
           .slice(0, 4);
-        found.push(rejected.length
-          ? `독립된 공식 출처가 2개 미만입니다(인정 ${sources.length}개). 인정되지 않은 주소: ${rejected.join(", ")}`
-          : "독립된 공식 출처가 2개 미만입니다. AI 가 참고 주소를 달지 않았습니다.");
+        /*
+         * 출처가 적다고 발행을 막지는 않습니다. 다만 몇 개인지, 어떤 주소가
+         * 인정되지 않았는지는 알려 줍니다. 대표님이 보고 판단하실 일입니다.
+         */
+        styleOnlyFindings.push(rejected.length
+          ? `공식 출처가 ${sources.length}개입니다. 인정되지 않은 주소: ${rejected.join(", ")}`
+          : "공식 출처가 없습니다. AI 가 참고 주소를 달지 않았습니다.");
       }
       found.push(...diagramFindings);
       if (draft.contentKind !== "informational" && !writingKnowledge.length) {
@@ -625,9 +636,11 @@ ${JSON.stringify(generated)}
       if (/<script|<iframe|on\w+=|javascript:/i.test(draft.bodyHtml)) {
         found.push("허용되지 않은 HTML이 있습니다.");
       }
+      found.push(...styleOnlyFindings);
       return {
         issues: found,
-        styleIssues,
+        // 경고 항목을 여기에 함께 넣어야 blocked 판정에서 빠집니다.
+        styleIssues: [...styleIssues, ...styleOnlyFindings],
         usedSources: sources,
         usedKnowledgeIds: knowledgeIds,
         charCount: chars,
