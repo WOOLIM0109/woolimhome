@@ -1,4 +1,12 @@
-export type ColumnKind = "informational" | "hybrid" | "authority";
+/**
+ * 칼럼의 글 형식.
+ *
+ * 목록으로 두는 이유는 딱지(COLUMN_STATUSES)와 같습니다. AI 에게 넘기는
+ * 응답 설계도(draft-schema.ts)가 이 값을 그대로 써야 하는데, 타입만 있으면
+ * 실행할 때는 아무 데도 남지 않아 한쪽만 조용히 어긋납니다.
+ */
+export const COLUMN_KINDS = ["informational", "hybrid", "authority"] as const;
+export type ColumnKind = (typeof COLUMN_KINDS)[number];
 /**
  * 칼럼에 붙일 수 있는 상태 딱지.
  *

@@ -36,13 +36,27 @@ export function knowledgeAreasForChannel(channel: ContentChannel) {
   return [...CHANNEL_AREAS[channel]];
 }
 
+/**
+ * 승인된 원천자료가 반드시 있어야 하는 자리인지 봅니다.
+ *
+ * 디자인 인사이트형은 예전에 여기 포함돼 있었습니다. 그래서 목요일마다 글을
+ * 3,000자 다 써 놓고 마지막 검사에서 "원천자료 미사용" 으로 보류됐습니다.
+ * 쓸 만한 디자인 카드가 없으면 몇 번을 돌려도 같은 자리에서 걸렸습니다.
+ *
+ * 지금은 뺐습니다. 컨설팅 정보형과 같은 길(softVoiceRules)을 탑니다 —
+ * 공식 자료를 조사해 쓰고, 맞는 원천자료가 있으면 본문에 한두 번 섞고,
+ * 없으면 넣지 않고 넘어갑니다.
+ *
+ * 울림 콘텐츠형(authority)과 홈페이지 하이브리드 칼럼은 그대로 둡니다.
+ * 그 둘은 울림의 판단이 글의 중심이라, 원천자료가 없으면 쓸 내용 자체가
+ * 없습니다. 보류되는 것이 맞습니다.
+ */
 export function knowledgeRequiredForSlot(slot: {
   channel: ContentChannel;
   format: ContentFormat;
 }) {
   if (slot.format === "authority") return true;
-  if (slot.channel === "homepage" && slot.format === "column") return true;
-  return slot.channel === "naver_design" && slot.format === "design_insight";
+  return slot.channel === "homepage" && slot.format === "column";
 }
 
 export function knowledgeFormatLabel(slot: {

@@ -38,6 +38,19 @@ export const TRUSTED_SOURCE_SUFFIXES = [
   "hankookilbo.com", "segye.com", "kmib.co.kr", "seoul.co.kr", "munhwa.com",
   // 방송
   "kbs.co.kr", "imbc.com", "sbs.co.kr", "ytn.co.kr", "jtbc.co.kr", "mbn.co.kr",
+
+  /*
+   * 디자인·문서 표준을 내는 곳.
+   *
+   * 디자인 블로그 주제(인쇄 규격, 색, 폰트 저작권, 문서 형식)는 한국 정부
+   * 사이트에 없는 것이 많습니다. 도련이 몇 mm 인지, 별색을 어떻게 지정하는지는
+   * 이런 곳이 원문입니다. 없으면 조사 단계에서 근거를 못 찾아 글이 보류되고,
+   * 그게 지금 목요일 글이 걸리던 자리였습니다.
+   *
+   * 국내 기관은 따로 적지 않습니다. 한국저작권위원회·공공누리는 .or.kr,
+   * e-나라 표준인증은 .go.kr 이라 위에서 이미 통과합니다.
+   */
+  "adobe.com", "microsoft.com", "pantone.com", "w3.org", "material.io", "nngroup.com",
 ];
 
 /**
@@ -71,6 +84,32 @@ export function normalizedSourceUrl(input: string) {
   } catch {
     return "";
   }
+}
+
+/**
+ * 같은 곳에서 나온 주소인지 봅니다.
+ *
+ * 주소가 글자 하나까지 같아야 인정하던 자리가 아직 남아 있었습니다
+ * (lib/content-ops/generate.ts). 그래서 조사가 찾아온 진짜 근거
+ *
+ *     law.go.kr/LSW/admRulLsInfoP.do?admRulSeq=2100000222488
+ *
+ * 가 목록의 law.go.kr 과 안 맞아 버려졌고, 글에는 대문 주소만 실렸습니다.
+ * 독자는 근거 페이지로 갈 수 없었습니다. 모델은 그걸 배워 아예 대문만 답니다.
+ *
+ * 같은 기관이면 어느 페이지든 같은 곳으로 봅니다. www 유무와 http/https 는
+ * 무시합니다.
+ */
+export function sameHost(left: string, right: string) {
+  const host = (value: string) => {
+    try {
+      return new URL(String(value || "").trim()).hostname.toLowerCase().replace(/^www\./, "");
+    } catch {
+      return "";
+    }
+  };
+  const a = host(left);
+  return Boolean(a) && a === host(right);
 }
 
 export function trustedSourceUrl(input: string) {

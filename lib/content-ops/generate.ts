@@ -6,7 +6,12 @@ import { researchOfficialFacts } from "@/lib/research/official";
 import { briefPlanningRules, briefWritingRules, splitBriefSourceUrls, type ContentBrief } from "./brief";
 import { assertStageFits, deadlineExceeded } from "./deadline";
 import { AI_ATTEMPTS, AI_INPUT_LIMITS, AI_OUTPUT_LIMITS, RESEARCH_REUSE_HOURS } from "@/lib/ai-budget";
-import { CONSULTING_INFORMATIONAL_TOPIC_TYPES } from "./config";
+import { sameHost, trustedSourceUrl } from "@/lib/research/trusted-sources";
+import {
+  CONSULTING_INFORMATIONAL_TOPIC_TYPES,
+  DESIGN_INFORMATIONAL_TOPIC_TYPES,
+  DESIGN_TERM_GLOSSARY,
+} from "./config";
 import { PORTFOLIO_WRITING_RULES } from "./portfolio-rules";
 import { FRIENDLY_EDITORIAL_STYLE_RULES } from "./editorial-style";
 import { editorialPublicationIssues } from "./editorial-policy";
@@ -171,11 +176,21 @@ function promptFor(
 ) {
   const requiresKnowledge = knowledgeRequiredForSlot(slot);
   const designRules = slot.channel === "naver_design" ? `
-이 글은 디자인 블로그 전용이다. 주제는 PPT·PDF·비즈니스 문서 기획, 정보 구조, 레이아웃, 가독성, 시각화, 디자인 시스템 중에서만 고른다.
+이 글은 디자인 블로그 전용이다.
+주제는 비즈니스 문서(회사소개서·제안서·IR·PPT), 인쇄물(리플렛·전단·포스터·명함), 디지털 홍보물(상세페이지·카드뉴스),
+그리고 이것들을 만들 때 부딪히는 규격·색·파일·저작권 문제 중에서만 고른다.
+로고·심볼·CI/BI·패키지 디자인은 울림이 수행하지 않으므로 다루지 않는다.
 정부지원사업·정책자금·기업인증·대출·지원금은 제목과 중심 주제로 사용할 수 없다.
 울림이 실제로 수행하지 않은 프로젝트·성과·고객 반응을 만들지 않는다.
-포트폴리오 사례처럼 쓰지 말고, 공식 디자인 자료를 실무자가 적용할 수 있도록 해설하는 기획·디자인 인사이트로 작성한다.
-제목에 채널명이나 [naver_design] 같은 내부 표기를 넣지 않는다.` : "";
+포트폴리오 사례처럼 쓰지 말고, 공식 자료를 실무자가 바로 적용할 수 있도록 해설한다.
+치수·중량·색 규격 같은 숫자는 반드시 출처가 있는 값만 쓴다. 기억으로 적지 않는다.
+제목에 채널명이나 [naver_design] 같은 내부 표기를 넣지 않는다.
+
+[영문 자료를 옮길 때 쓸 말]
+아래 대응표대로 적는다. 처음 나올 때만 "도련(bleed)" 처럼 괄호로 병기하고, 그 뒤로는 한글만 쓴다.
+"블리드", "거터" 처럼 소리 나는 대로 적지 않는다. 독자가 그 말로 검색하지 않는다.
+기관 이름도 한국 독자가 알아볼 수 있게 적는다(예: W3C 웹 접근성 지침(WCAG)).
+${DESIGN_TERM_GLOSSARY.map(([english, korean]) => `${english} → ${korean}`).join(", ")}` : "";
   const channel = slot.channel === "naver_design" ? "PPT·PDF·디자인·비즈니스 문서" : "종합 경영컨설팅";
   /*
    * 노하우를 글의 중심으로 삼지는 않되, 울림이 이 일을 어떻게 보는지 한두 번
@@ -312,9 +327,25 @@ async function requestTopicPlans({
 - 담당자가 실제로 검색하는 말(발급 방법, 유효기간, 차이, 준비서류, 오류 해결)이 주제에 드러나게 한다.
 ${JSON.stringify(CONSULTING_INFORMATIONAL_TOPIC_TYPES)}`
     : "";
+  /*
+   * 디자인 채널의 주제 범위.
+   *
+   * 예전에는 "PPT·PDF·비즈니스 문서의 기획, 정보 구조, 레이아웃, 가독성,
+   * 시각화에만 한정" 이었습니다. 주제군을 인쇄물·규격·저작권까지 넓혔는데
+   * 이 문장을 그대로 두면 모델이 새 주제군을 받고도 거부합니다.
+   *
+   * 울림이 하지 않는 일(로고·CI/BI·패키지)은 여기서 막습니다. 글을 읽고
+   * 문의해도 받을 수 없으면 서로 시간만 씁니다.
+   */
   const designRules = slot.channel === "naver_design" ? `
-- 디자인 채널 후보는 PPT·PDF·비즈니스 문서의 기획, 정보 구조, 레이아웃, 가독성, 시각화에만 한정한다.
-- 정부지원사업·정책자금·기업인증은 후보로 만들지 않는다.` : "";
+- 디자인 채널 후보는 비즈니스 문서(회사소개서·제안서·IR·PPT), 인쇄물(리플렛·전단·포스터·명함),
+  디지털 홍보물(상세페이지·카드뉴스), 그리고 이것들을 만들 때 부딪히는 규격·색·파일·저작권 문제로 한정한다.
+- 로고·심볼·CI/BI·패키지 디자인은 울림이 수행하지 않으므로 후보로 만들지 않는다.
+- 정부지원사업·정책자금·기업인증은 후보로 만들지 않는다.
+${slot.format === "design_insight" && !brief ? `
+- 후보 5개는 서로 다른 유형에서 고른다. 아래 예시는 결을 보여 주는 참고일 뿐이니 제목을 베끼지 않는다.
+- 실무자가 실제로 검색하는 말(사이즈, 규격, 차이, 방법, 저작권)이 주제에 드러나게 한다.
+${JSON.stringify(DESIGN_INFORMATIONAL_TOPIC_TYPES)}` : ""}` : "";
 
   /**
    * 최근에 덜 다룬 주제군을 먼저 고르게 합니다.
@@ -729,7 +760,14 @@ export async function generateContentWorkItem(
     const researchSources: AvailableSource[] = research.sources.map((source) => ({
       name: source.title,
       base_url: source.url,
-      source_grade: 1,
+      /*
+       * 검색이 물어왔다는 이유만으로 1등급을 주지 않습니다.
+       *
+       * 예전에는 전부 1등급이었습니다. 그래서 조사가 딸려 온 tistory.com,
+       * guard1004.com 같은 개인 블로그가 정부 공고와 같은 무게로 풀에
+       * 들어갔습니다. 필터는 빡빡한데 풀은 헐거웠습니다.
+       */
+      source_grade: trustedSourceUrl(source.url) ? 1 : 3,
       topic_families: [plan.topicFamily, plan.primaryTopic],
       channels: [slot.channel],
       snapshot: `Google Search 개별 조사에서 확인된 공식 원문: ${source.title}`,
@@ -769,9 +807,25 @@ export async function generateContentWorkItem(
       }));
       generated.usedKnowledgeIds = [...new Set(generated.usedKnowledgeIds || [])]
         .filter((id) => approvedKnowledgeIds.has(id) && plan.knowledgeIds.includes(id));
-      const allowedSourceUrls = new Set(sourcePool.map((source) => source.base_url));
+      /*
+       * 주소가 글자 하나까지 같아야 인정하던 것을 고쳤습니다.
+       *
+       * 조사가 찾아온 진짜 근거(law.go.kr/LSW/admRulLsInfoP.do?...)가 목록의
+       * base_url(law.go.kr)과 안 맞아 통째로 버려졌습니다. 그래서 글에는 대문
+       * 주소만 실렸고 독자는 근거 페이지로 갈 수 없었습니다. 모델은 그걸 배워
+       * 아예 대문 주소만 답게 됐습니다.
+       *
+       * 이제 "이 주소가 목록에 있는가" 대신 "믿을 수 있는 곳인가" 를 봅니다.
+       * 정부·공공기관·학교·언론·표준기관이면 어느 페이지든 인정합니다.
+       * 새 기관이 생겨도 손댈 것이 없습니다.
+       *
+       * 개인 블로그는 여전히 막힙니다. 티스토리는 플랫폼이라 대학교수 글과
+       * 경쟁사 광고가 같은 꼬리를 씁니다. 도메인으로 품질을 가릴 수 없습니다.
+       * 조사 단계는 지금도 읽습니다 — 맥락은 얻되 근거로만 안 씁니다.
+       */
       generated.sourceUrls = [...new Set(generated.sourceUrls || [])]
-        .filter((url) => allowedSourceUrls.has(url));
+        .filter((url) => trustedSourceUrl(url)
+          || sourcePool.some((source) => sameHost(source.base_url, url)));
       const plainLength = clean(generated.bodyHtml).replace(/\s/g, "").length;
       const h2Count = (generated.bodyHtml.match(/<h2[\s>]/gi) || []).length;
       const faqCount = generated.faq?.length || 0;
@@ -872,14 +926,7 @@ ${JSON.stringify(generated)}
       : []),
   ];
   const usedSourceNames = sourcePool
-    .filter((source) => generated.sourceUrls.some((url) => {
-      try {
-        return new URL(url).hostname.replace(/^www\./, "")
-          === new URL(source.base_url).hostname.replace(/^www\./, "");
-      } catch {
-        return false;
-      }
-    }))
+    .filter((source) => generated.sourceUrls.some((url) => sameHost(source.base_url, url)))
     .map((source) => source.name);
   const successfulMetadata = metadataAfterSuccessfulRevision(storedMetadata);
   const generatedAt = new Date().toISOString();
