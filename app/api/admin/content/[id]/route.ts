@@ -5,6 +5,7 @@ import {
   validatePortfolioSourceState,
 } from "@/lib/content-ops/portfolio-rules";
 import type { WorkflowStatus } from "@/lib/content-ops/types";
+import { appendStatusChange } from "@/lib/content-ops/status-history";
 import { isPartnerChannel, parseStoredAssetUrl, partnerVisibilityBlockers } from "@/lib/partner-portal";
 import { validateNaverPublication } from "@/lib/publication";
 import {
@@ -128,6 +129,8 @@ async function regenerateContentItem(
   item: RegeneratableItem,
   requestedNote: unknown,
   forceNewTopic = false,
+  // 누가 다시 만들라고 했는지 단계 기록에 남깁니다.
+  actor = "admin",
 ) {
   if (!item.schedule_key) throw new Error("재생성에 필요한 작업 키가 없습니다.");
   if (item.status === "published") throw new Error("이미 발행된 글은 자동으로 다시 만들 수 없습니다.");
@@ -137,10 +140,10 @@ async function regenerateContentItem(
   }
 
   const note = resolveRevisionNote(requestedNote, item.review_note, item.metadata);
-  const metadata = {
+  const metadata = appendStatusChange({
     ...(item.metadata || {}),
     ...(note ? { pendingRevision: { note, requestedAt: new Date().toISOString() } } : {}),
-  };
+  }, "creating", actor);
   const { error: startError } = await contentAdmin()
     .from("content_work_items")
     .update({
@@ -163,6 +166,7 @@ async function regenerateContentItem(
       const retry = geminiRetryDecision(error, 0);
       await contentAdmin().from("content_work_items").update({
         status: "on_hold",
+        metadata: appendStatusChange(item.metadata, "on_hold", actor),
         review_note: `자동 재생성 보류: ${message}`,
         retry_count: retry.retryCount,
         next_retry_at: retry.nextRetryAt,
@@ -259,7 +263,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
         published_url_normalized: validation.publication.normalizedUrl,
         published_account: validation.publication.account,
         metadata: {
-          ...metadata,
+          ...appendStatusChange(metadata, "published", user.email || "admin", completedAt),
           partnerHandoff: {
             publishedUrl: validation.publication.normalizedUrl,
             publishedAccount: validation.publication.account,
@@ -374,7 +378,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
         status: "review_required",
         review_note: null,
         metadata: {
-          ...metadata,
+          ...appendStatusChange(metadata, "review_required", user.email || "admin", clearedAt),
           validation: { ...validation, issues: [] },
           // 누가 언제 어떤 사유를 보고 풀었는지 남겨 둡니다.
           holdCleared: {
@@ -479,6 +483,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
         current as RegeneratableItem,
         body.review_note,
         body.action === "replace_topic",
+        user.email || "admin",
       )));
     } catch (error) {
       if (error instanceof GeminiAutomationBlocked) {
@@ -634,7 +639,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     }).map((blocker) => blocker.message);
     const now = new Date().toISOString();
     const metadata = {
-      ...(current.metadata || {}),
+      ...appendStatusChange(current.metadata, "approved", user.email || "admin", now),
       partnerReleaseOverride: {
         approvedAt: now,
         approvedBy: user.email || "admin",
@@ -794,6 +799,19 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
       || metadataBeforeChange
       || {};
     patch.metadata = { ...baseMetadata, mockupOnlyRestoreState: null };
+  }
+  /*
+   * 상태가 바뀌면 여기서 한 줄 남깁니다.
+   *
+   * 위의 특별한 길(발행·보류해제·외주승인)도 각자 남기지만, 검토 화면에서
+   * 누르는 승인·보류는 전부 이 자리를 지납니다. 한 곳이라도 빠뜨리면
+   * 기록에 구멍이 나고, 구멍 난 기록은 아무도 믿지 않게 됩니다.
+   */
+  if (patch.status) {
+    const baseMetadata = (patch.metadata as Record<string, unknown> | undefined)
+      || metadataBeforeChange
+      || {};
+    patch.metadata = appendStatusChange(baseMetadata, patch.status as WorkflowStatus, user.email || "admin");
   }
   if (body.scheduled_at !== undefined) patch.scheduled_at = body.scheduled_at || null;
   if (body.status === "published") patch.published_at = body.published_at || new Date().toISOString();

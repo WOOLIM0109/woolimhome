@@ -1,8 +1,9 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { generateGeminiText, geminiRetryDecision } from "@/lib/gemini/client";
 import { parseGeminiJson } from "@/lib/gemini/json";
+import { COLUMN_BODY_PATCH_SCHEMA, COLUMN_DRAFT_SCHEMA } from "./draft-schema";
 import { researchOfficialFacts } from "@/lib/research/official";
-import { sameSourceUrl, trustedSourceUrl } from "@/lib/research/trusted-sources";
+import { sameHost, sameSourceUrl, trustedSourceUrl } from "@/lib/research/trusted-sources";
 import { AI_INPUT_LIMITS, AI_OUTPUT_LIMITS, COLUMN_MIN_BODY_CHARS } from "@/lib/ai-budget";
 import { sanitizeGeneratedHtml, sanitizeInlineHtml } from "@/lib/security/html";
 import {
@@ -476,6 +477,15 @@ JSON만 반환:
    * 떴습니다. 무엇이 문제인지도, 무엇을 해야 하는지도 알 수 없었습니다.
    */
   const TRUNCATED = "COLUMN_OUTPUT_TRUNCATED";
+
+  /**
+   * 마지막으로 받은 원문. 읽기에 실패했을 때 앞부분을 기록에 남깁니다.
+   *
+   * 08-25 회차가 "position 3640" 이라는 말만 남기고 사라졌습니다. 그 숫자로는
+   * 무엇이 깨졌는지 알 수 없어 코드를 처음부터 읽어야 했습니다. 다음에 또
+   * 나면 기록만 보고 알 수 있어야 합니다.
+   */
+  let lastRawResponse = "";
   const assertComplete = (finishReason: string | null | undefined) => {
     if (finishReason === "MAX_TOKENS") throw new Error(TRUNCATED);
   };
@@ -484,10 +494,15 @@ JSON만 반환:
     const { text, finishReason } = await generateGeminiText({
       model: MODEL,
       parts: [{ text: promptText }],
-      generationConfig: { responseMimeType: "application/json", maxOutputTokens: outputLimit(attempt) },
+      generationConfig: {
+        responseMimeType: "application/json",
+        responseSchema: COLUMN_DRAFT_SCHEMA,
+        maxOutputTokens: outputLimit(attempt),
+      },
       timeoutMs: 120_000,
     });
     assertComplete(finishReason);
+    lastRawResponse = text || "";
     return parseGeminiJson<Generated>(text);
   };
 
@@ -498,11 +513,13 @@ JSON만 반환:
       parts: [{ text: promptText }],
       generationConfig: {
         responseMimeType: "application/json",
+        responseSchema: COLUMN_BODY_PATCH_SCHEMA,
         maxOutputTokens: outputLimit(),
       },
       timeoutMs: 120_000,
     });
     assertComplete(finishReason);
+    lastRawResponse = text || "";
     return parseGeminiJson<Pick<Generated, "bodyHtml" | "faqs">>(text);
   };
 
@@ -536,11 +553,27 @@ JSON만 반환:
        * 일러 주고 부릅니다.
        */
       const truncated = error instanceof Error && error.message === TRUNCATED;
-      generated = truncated
-        ? await requestGemini(prompt, 1)
-        : await requestGemini(`${prompt}
+      /*
+       * 두 번째도 실패하면 사람이 읽을 수 있는 말로 바꿔 던집니다.
+       *
+       * 예전에는 여기에 catch 가 없어서, 모델이 돌려준 오류 문구가 그대로
+       * 화면까지 올라왔습니다. "Expected ',' or '}' after property value in
+       * JSON at position 3640" 을 보고 대표님이 하실 수 있는 일은 없습니다.
+       */
+      try {
+        generated = truncated
+          ? await requestGemini(prompt, 1)
+          : await requestGemini(`${prompt}
 
 반드시 JSON 객체 하나만 반환하세요. 앞뒤에 설명 문장이나 코드 울타리를 붙이지 마세요.`);
+      } catch (retryError) {
+        const detail = retryError instanceof Error ? retryError.message : String(retryError);
+        throw new Error(truncated
+          ? "AI 응답이 두 번 다 끝까지 오지 않았습니다. 잠시 뒤 다시 시도해 주세요."
+            + ` (원문: ${detail})`
+          : "AI 응답을 두 번 읽지 못했습니다. 잠시 뒤 다시 시도해 주세요."
+            + ` (원문: ${detail})`);
+      }
     }
     /**
      * 정리기를 거치기 전과 뒤를 견주어 도식이 잘렸는지 봅니다.
@@ -593,9 +626,32 @@ ${JSON.stringify(generated)}
        * 주소가 글자 하나까지 같아야만 인정하던 것을 고쳤습니다.
        * 끝의 슬래시나 추적용 꼬리표 때문에 멀쩡한 출처가 없는 것으로 세어졌고,
        * 그래서 "출처 2개 미만" 으로 보류되는 일이 있었습니다.
+       *
+       * 그다음이 더 큰 구멍이었습니다. 조사가 찾아온 깊은 페이지
+       * (law.go.kr/LSW/admRulLsInfoP.do?...)는 후보 목록의 대문 주소와
+       * 짝이 안 맞아 통째로 없는 것이 됐습니다. 남는 건 대문 주소뿐이라
+       * 독자가 근거를 확인할 수 없었습니다.
+       *
+       * 이제 세 단계로 봅니다. 같은 문서면 후보 그대로, 같은 기관의 다른
+       * 페이지면 기관 이름을 빌려 그 주소로, 목록에 없어도 믿을 수 있는
+       * 곳이면 주소에서 만들어 씁니다. 개인 블로그는 마지막에서 걸립니다.
        */
+      const sourceFromUrl = (url: string): Candidate | null => {
+        const exact = candidates.find((source) => sameSourceUrl(source.url, url));
+        if (exact) return exact;
+        const sameOrganisation = candidates.find((source) => sameHost(source.url, url));
+        if (sameOrganisation) return { ...sameOrganisation, url };
+        if (!trustedSourceUrl(url)) return null;
+        let host = "";
+        try {
+          host = new URL(url).hostname.replace(/^www\./, "");
+        } catch {
+          return null;
+        }
+        return { title: host, url, publisher: host, summary: "", publishedAt: null };
+      };
       const sources = draft.usedSourceUrls
-        .map((url) => candidates.find((source) => sameSourceUrl(source.url, url)))
+        .map(sourceFromUrl)
         .filter((source): source is Candidate => Boolean(source));
       const approvedKnowledgeIds = new Set(writingKnowledge.map((item) => item.id));
       const knowledgeIds = [...new Set(draft.usedKnowledgeIds || [])]
@@ -626,7 +682,7 @@ ${JSON.stringify(generated)}
          * 목록에 넣거나 직접 링크를 붙이는 것입니다.
          */
         const rejected = draft.usedSourceUrls
-          .filter((url) => !candidates.some((source) => sameSourceUrl(source.url, url)))
+          .filter((url) => !sourceFromUrl(url))
           .slice(0, 4);
         /*
          * 출처가 적다고 발행을 막지는 않습니다. 다만 몇 개인지, 어떤 주소가
@@ -924,7 +980,15 @@ ${JSON.stringify(generated.faqs)}
     const retry = geminiRetryDecision(error, 0);
     await admin.from("column_generation_runs").update({
       status: "failed",
-      response_payload: generated || {},
+      /*
+       * 원고를 못 만들었으면 받은 원문 앞부분이라도 남깁니다.
+       *
+       * 08-25 회차는 "position 3640" 이라는 숫자만 남기고 사라졌습니다.
+       * 그 자리에 무슨 글자가 있었는지 알 방법이 없어 코드를 처음부터
+       * 읽어야 했습니다. 앞 500자면 무엇이 깨졌는지 보입니다.
+       */
+      response_payload: generated
+        || (lastRawResponse ? { rawResponseHead: lastRawResponse.slice(0, 500) } : {}),
       error_message: error instanceof Error ? error.message : "Unknown error",
       retry_count: retry.retryCount,
       next_retry_at: retry.nextRetryAt,

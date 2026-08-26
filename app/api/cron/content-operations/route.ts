@@ -13,6 +13,7 @@ import type { EditorialSlot } from "@/lib/content-ops/types";
 import { authorizeCron } from "@/lib/cron-auth";
 import { GENERATION_BUDGET_MS, isDeadlineError } from "@/lib/content-ops/deadline";
 import { sweepStuckWorkItems } from "@/lib/content-ops/stuck-items";
+import { appendStatusChange } from "@/lib/content-ops/status-history";
 
 /**
  * 예약 일정에 맞춰 원고까지 자동으로 만들지 여부.
@@ -130,7 +131,7 @@ export async function GET(request: Request) {
     .filter((slot) => slot.key !== "home-sat" || isoWeek(currentKoreaDate) % 2 === 0);
   const scheduled: unknown[] = [];
   /** 자동 생성 시도를 다 써서 사람 손이 필요한 자리. */
-  const exhausted: { id: string; scheduleKey: string }[] = [];
+  const exhausted: { id: string; scheduleKey: string; metadata: unknown }[] = [];
   const autoTargets: {
     slot: EditorialSlot;
     scheduleKey: string;
@@ -195,7 +196,12 @@ export async function GET(request: Request) {
       scheduled_at: scheduledAt,
       schedule_key: scheduleKey,
       created_by: "automation@woolimcompany.kr",
-      metadata: { slotKey: slot.key, automated: true, awaitingAiConfirmation: true },
+      metadata: appendStatusChange(
+        { slotKey: slot.key, automated: true, awaitingAiConfirmation: true },
+        "topic_candidate",
+        "automation@woolimcompany.kr",
+        scheduledAt,
+      ),
     }, { onConflict: "schedule_key", ignoreDuplicates: true }).select().maybeSingle();
     if (error) throw new Error(error.message);
     const workItem = data || (await admin.from("content_work_items")
@@ -213,7 +219,7 @@ export async function GET(request: Request) {
           // 시도를 다 쓴 자리를 그냥 건너뛰면 아무 일도 일어나지 않은 것처럼
           // 보입니다. 그날 글이 왜 비었는지 알 길이 없어집니다. 보류로 올려
           // 검토 목록에 보이게 합니다.
-          exhausted.push({ id: workItem.id, scheduleKey });
+          exhausted.push({ id: workItem.id, scheduleKey, metadata: workItem.metadata });
         }
       }
     }
@@ -275,6 +281,7 @@ export async function GET(request: Request) {
   for (const item of exhausted) {
     await admin.from("content_work_items").update({
       status: "on_hold",
+      metadata: appendStatusChange(item.metadata, "on_hold", "automation@woolimcompany.kr"),
       review_note: `자동 생성을 ${AUTO_GENERATION_MAX_ATTEMPTS}번 시도했지만 만들지 못했습니다. `
         + "직접 만들거나, 주제를 정해 다시 시도해 주세요.",
       updated_at: new Date().toISOString(),
@@ -341,6 +348,11 @@ export async function GET(request: Request) {
         }
         await admin.from("content_work_items").update({
           status: "on_hold",
+          metadata: appendStatusChange(
+            target.workItem.metadata,
+            "on_hold",
+            "automation@woolimcompany.kr",
+          ),
           review_note: `자동 생성 보류: ${message}`,
           updated_at: new Date().toISOString(),
         }).eq("id", target.workItem.id);

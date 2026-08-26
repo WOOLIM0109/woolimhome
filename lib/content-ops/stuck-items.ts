@@ -1,4 +1,5 @@
 import { createAdminClient } from "@/lib/supabase/admin";
+import { appendStatusChange } from "./status-history";
 
 /**
  * 중간에 죽어서 굳어 버린 작업을 풀어 줍니다.
@@ -31,7 +32,7 @@ export async function sweepStuckWorkItems(now = new Date()): Promise<StuckSweepR
 
   const { data, error } = await admin
     .from("content_work_items")
-    .select("id,title,updated_at")
+    .select("id,title,updated_at,metadata")
     .eq("status", "creating")
     .lt("updated_at", cutoff)
     .order("updated_at", { ascending: true })
@@ -47,6 +48,7 @@ export async function sweepStuckWorkItems(now = new Date()): Promise<StuckSweepR
       .from("content_work_items")
       .update({
         status: "on_hold",
+        metadata: appendStatusChange(item.metadata, "on_hold", "automation@woolimcompany.kr"),
         review_note: `제작 중에 멈춰 있어 보류로 내렸습니다. `
           + `${STUCK_AFTER_MINUTES}분 넘게 진행이 없었습니다. 다시 만들거나 지워 주세요.`,
         updated_at: new Date().toISOString(),

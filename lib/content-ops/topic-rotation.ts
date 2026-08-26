@@ -15,25 +15,36 @@ import { CONSULTING_TOPIC_FAMILIES } from "./config.ts";
 /**
  * 디자인 블로그 주제군.
  *
- * 컨설팅 목록을 그대로 쓸 수 없습니다. 정책자금이나 기업인증은 디자인 채널의
- * 주제가 아닙니다. 등록된 디자인 출처(Microsoft PowerPoint 지원, Adobe,
- * Material Design, W3C 접근성, Nielsen Norman)가 다루는 범위에 맞췄습니다.
+ * 처음에는 등록된 출처(Material Design, W3C, Nielsen Norman)가 다루는 범위에
+ * 맞춰 뽑았습니다. 순서가 거꾸로였습니다. 그래서 「정보 구조·도식화」
+ * 「접근성·전달력」 같은 이름이 나왔는데, 아무도 그렇게 검색하지 않습니다.
+ *
+ * 컨설팅에는 반대 구조가 이미 있습니다(config.ts 의
+ * CONSULTING_INFORMATIONAL_TOPIC_TYPES). "4대보험 완납증명서 발급방법" 처럼
+ * 입구는 사람들이 실제로 치는 말이고, 깊이는 안에서 공식 자료로 채웁니다.
+ *
+ * 그래서 결과물 종류로 다시 짰습니다. 울림이 하지 않는 일(로고·CI/BI·패키지)은
+ * 뺐습니다 — 글을 읽고 문의해도 받을 수 없으면 서로 시간만 씁니다.
+ * 문서 넷을 앞에 둔 것은 그쪽이 본업이기 때문입니다.
  */
 export const DESIGN_TOPIC_FAMILIES = [
-  "슬라이드 구성·스토리라인",
-  "정보 구조·도식화",
-  "표와 차트 표현",
-  "타이포그래피·가독성",
-  "색·브랜드 일관성",
-  "레이아웃·여백",
-  "문서 템플릿·재사용",
-  "인쇄·PDF 출력 품질",
-  "접근성·전달력",
-  "이미지·아이콘 활용",
-  "제안서·보고서 형식",
-  "발표 자료 다듬기",
+  // 본업
+  "회사소개서·브로슈어",
+  "제안서·기획서",
+  "IR·투자 자료",
+  "발표자료·PPT",
+  // 인쇄물
+  "리플렛·전단·팸플릿",
+  "포스터·배너·현수막",
+  "명함·봉투·레터헤드",
+  // 디지털
+  "상세페이지·웹 포스터",
+  "SNS 홍보물·카드뉴스",
+  // 규격·실무. 사람들이 실제로 막히는 곳이라 유입이 제일 큽니다.
+  "인쇄 규격·재질",
+  "파일 입고·색상",
+  "폰트·이미지 저작권",
 ];
-
 /** 채널이 고를 수 있는 주제군. */
 export function familiesForChannel(channel: string): readonly string[] {
   return channel === "naver_design" ? DESIGN_TOPIC_FAMILIES : CONSULTING_TOPIC_FAMILIES;
