@@ -28,6 +28,20 @@ if ($WorkerId) {
     if ($task) {
       $taskInfo = Get-ScheduledTaskInfo -TaskName $TaskName -ErrorAction SilentlyContinue
       Write-Host "Autostart: registered ($($task.State)); last result $($taskInfo.LastTaskResult)"
+
+      # "registered" alone used to be the whole report, and it looked healthy even
+      # when the 5-minute repetition was missing -- which is what actually keeps
+      # the worker alive after someone closes its window. One office PC ran for
+      # days in exactly that state and this check would not have caught it.
+      $repeat = $null
+      if ($task.Triggers -and $task.Triggers.Count -ge 1 -and $task.Triggers[0].Repetition) {
+        $repeat = $task.Triggers[0].Repetition.Interval
+      }
+      if ($repeat) {
+        Write-Host "Self-heal: restarts within $repeat if the window is closed"
+      } else {
+        Write-Warning "Self-heal: not set. The worker only starts at logon, so closing its window keeps it down until the next login. Re-run install.ps1."
+      }
     } else {
       Write-Warning "Autostart: scheduled task is not registered."
     }
