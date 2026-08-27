@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { EDITORIAL_SLOTS } from "@/lib/content-ops/config";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { prepareNextPortfolioCandidate } from "@/lib/naver-works/portfolio-pipeline";
+import { syncNaverWorksDrive } from "@/lib/naver-works/drive-sync";
 import {
   processNextPortfolioDownload,
   restorePcEligibleOversizedCandidates,
@@ -64,6 +65,13 @@ const RUN_BUDGET_MS = 280_000;
  * 값을 한곳에 두는 이유는, 단계별 예산과 어긋나면 한 편도 못 만들기 때문입니다.
  */
 
+/**
+ * 드라이브 동기화를 돌릴 시각 (KST).
+ *
+ * 포트폴리오 회차가 화·금 9시라, 그보다 한 시간 앞서 후보를 채워 둡니다.
+ */
+const PORTFOLIO_SYNC_HOUR = 8;
+
 /** 한 번 실행에서 이어 처리할 목업 최대 건수. 남은 시간이 없으면 그 전에 멈춥니다. */
 const MOCKUPS_PER_RUN = 4;
 
@@ -122,9 +130,43 @@ export async function GET(request: Request) {
     });
   }
 
+  /*
+   * 포트폴리오 회차 전에 드라이브에서 새 후보를 받아 둡니다.
+   *
+   * 예전에는 이 일이 크론에 없었습니다. 관리자 화면의 버튼을 사람이 눌러야만
+   * 후보가 채워졌고, 마지막으로 누른 7월 27일 이후 8월 4일에 재료를 다 쓴 뒤
+   * 22일 동안 후보가 0이었습니다. 크론은 매시간 정상으로 돌았지만 쓸 것이
+   * 없었고, 빈손이라는 기록조차 남지 않아 아무도 몰랐습니다.
+   *
+   * 포트폴리오를 만드는 날(화·금) 그 시각 전에만 돌립니다. 매시간 훑으면
+   * NAVER WORKS 를 하루 스물몇 번씩 부르게 되는데, 파일은 그렇게 자주
+   * 바뀌지 않습니다.
+   */
+  const kst = kstParts(now);
+  const portfolioDayAhead = (kst.weekday === 2 || kst.weekday === 5)
+    && kst.hour === PORTFOLIO_SYNC_HOUR;
+  if (portfolioDayAhead) {
+    try {
+      const synced = await syncNaverWorksDrive();
+      localProgress.push({
+        stage: "naver_works_sync",
+        status: "completed",
+        indexed: synced.indexed,
+        supported: synced.supported,
+        excludedCandidates: synced.cleanup.excludedCandidates,
+      });
+    } catch (error) {
+      // 동기화가 안 돼도 이미 있는 후보로 이어 갑니다. 다만 기록은 남깁니다.
+      localProgress.push({
+        stage: "naver_works_sync",
+        status: "failed",
+        error: error instanceof Error ? error.message : "드라이브 동기화 실패",
+      });
+    }
+  }
+
   // Keep deterministic scheduling and portfolio preparation alive. Only the
   // prose generation/rewrite stages are forbidden in the background.
-  const kst = kstParts(now);
   const currentKoreaDate = new Date(`${kst.date}T00:00:00Z`);
   const due = EDITORIAL_SLOTS
     .filter((slot) => slot.weekday === kst.weekday && slot.hour <= kst.hour)
@@ -169,10 +211,28 @@ export async function GET(request: Request) {
       }
       try {
         const prepared = await prepareNextPortfolioCandidate({ scheduleKey, scheduledAt });
-        if (prepared) {
+        if (prepared.prepared) {
           scheduled.push(prepared);
           const downloaded = await processNextPortfolioDownload(prepared.candidateId);
           if (downloaded) localProgress.push(downloaded);
+        } else {
+          /*
+           * 고를 후보가 없었다는 사실도 기록으로 남깁니다.
+           *
+           * 예전에는 여기에 else 가 없었습니다. 그래서 후보가 마른 채로 화·금
+           * 여섯 회차가 지나도록 실행 기록에는 아무 흔적이 없었고, 22 일 뒤에야
+           * 사람이 눈치챘습니다. 성공했을 때만 적고 빈손일 때 침묵하면,
+           * 정작 알아야 할 때 아무것도 안 보입니다.
+           */
+          localProgress.push({
+            stage: "deterministic_portfolio_prepare",
+            status: "skipped",
+            slotKey: slot.key,
+            scheduleKey,
+            inspectedCandidates: prepared.inspected,
+            eligibleCandidates: prepared.eligible,
+            reason: prepared.reason,
+          });
         }
       } catch (error) {
         localProgress.push({

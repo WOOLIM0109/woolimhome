@@ -848,7 +848,11 @@ function Test-TextContainsIdentifierSignal {
     [string[]]$SensitiveSourceTokens = @()
   )
 
-  $identifierSignal = '(?i)(@|https?://|www\.|\b(?:client|customer|company\s*name|project\s*(?:name|id|code|no\.?|number)|corporation|corp\.?|inc\.?|ltd\.?)\b|고객사|발주처|수행사|제안사|프로젝트\s*명|과제\s*명|사업\s*명|주식회사|\(주\)|㈜|기관\s*명|회사\s*명|업체\s*명|담당자|연락처|연락\s*처|전화|휴대폰|팩스|주소|대표자|사업자\s*등록|(?:경기도|강원(?:특별자치)?도|충청(?:남|북)도|전라(?:남|북)도|경상(?:남|북)도|제주특별자치도)|[가-힣]{2,12}(?:특별자치도|특별자치시|광역시|특별시|도청|시청|군청|구청))'
+  # 한국어에는 낱말 경계가 없어서, 짧은 낱말을 그대로 넣으면 더 긴 낱말 안에서도 걸립니다.
+  # 실제로 '제안사'가 '제안사항'을, '수행사'가 '수행사업'을, '고객사'가 '고객사례'를
+  # 물어서 제안서 본문이 통째로 가려졌습니다. 뒤에 붙어 다니는 글자를 막아 둡니다.
+  # '@' 하나만으로도 걸리던 것은 메일 주소 모양일 때만 걸리게 좁혔습니다.
+  $identifierSignal = '(?i)([\w.+-]+@[\w-]+\.[A-Za-z]{2,}|https?://|www\.|\b(?:client|customer|company\s*name|project\s*(?:name|id|code|no\.?|number)|corporation|corp\.?|inc\.?|ltd\.?)\b|고객사(?!례)|발주처|수행사(?!업)|제안사(?!항|례)|프로젝트\s*명|과제\s*명|사업\s*명|주식회사|\(주\)|㈜|기관\s*명|회사\s*명|업체\s*명|담당자|연락처|연락\s*처|전화번호|휴대폰|팩스|주소|대표자|사업자\s*등록|(?:경기도|강원(?:특별자치)?도|충청(?:남|북)도|전라(?:남|북)도|경상(?:남|북)도|제주특별자치도)|[가-힣]{2,12}(?:특별자치도|특별자치시|광역시|특별시|도청|시청|군청|구청))'
   $numberSignal = '(?i)(\b\d{2,3}[- .)]?\d{3,4}[- .]?\d{4}\b|\b\d{3}[- ]?\d{2}[- ]?\d{5}\b)'
   if ($ShapeName -match '(?i)(logo|client\s*name|customer\s*name|company\s*name|project\s*(?:name|id|code)|identifier|footer|contact|로고|고객사|회사\s*명|기관\s*명|과제\s*명|연락처)') {
     return $true

@@ -38,6 +38,14 @@ import {
   imageRegionStats,
   photoDetectionEnabled,
 } from "./photo-detect";
+import {
+  type ImageObservation,
+  type ImageRole,
+  resolveImageRoles,
+  shouldRedactImageRole,
+  skinToneShare,
+} from "./image-role.ts";
+import { summarizeRedactions, type RedactionSummaryEntry } from "./redaction-summary.ts";
 
 type SharpOverlayOptions = Parameters<ReturnType<typeof sharp>["composite"]>[0][number];
 
@@ -47,6 +55,8 @@ type LoadedSlide = {
   aspectRatio: number;
   contentHash: string;
   visualHash: string;
+  /** 이 장표에서 무엇을 왜 가렸는지. 결과 화면에 그대로 보여 줍니다. */
+  redactionSummary: RedactionSummaryEntry[];
   redactionProof: PortfolioSlideRedactionProof;
 };
 
@@ -100,69 +110,143 @@ function clampRegion(region: SensitiveRegion, width: number, height: number) {
   return { left, top, width: regionWidth, height: regionHeight };
 }
 
+type RedactionBox = NonNullable<ReturnType<typeof clampRegion>>;
+
+type SlideRegionEntry = {
+  key: string;
+  region: SensitiveRegion;
+  box: RedactionBox;
+};
+
+type PreparedSlide = {
+  index: number;
+  width: number;
+  height: number;
+  oriented: Buffer;
+  entries: SlideRegionEntry[];
+  observations: ImageObservation[];
+};
+
+/** 판정에 쓸 만큼만 줄여서 픽셀을 읽습니다. */
+const IMAGE_SAMPLE = 64;
+
 /**
- * 그림 하나가 실제 사진인지 캐릭터·아이콘인지 봅니다.
+ * 그림 한 조각을 뜯어 판정에 필요한 값을 모읍니다.
  *
- * 캐릭터와 아이콘은 포트폴리오에서 보여 줘야 할 결과물입니다.
- * 실제 사진에는 사람과 현장이 그대로 담기므로 가립니다.
+ * 되풀이 여부는 문서 전체를 봐야 알 수 있어서, 여기서는 재료만 모으고
+ * 실제 판정은 lib/portfolio/image-role.ts 가 한꺼번에 합니다.
  */
-async function looksLikePhotograph(
-  slideBuffer: Buffer,
-  box: { left: number; top: number; width: number; height: number },
-  slideArea: number,
-) {
-  const sample = 64;
+async function observeImageRegion(
+  slide: { data: Buffer; width: number; height: number },
+  box: RedactionBox,
+  key: string,
+  slideIndex: number,
+): Promise<ImageObservation | null> {
   try {
-    const raw = await sharp(slideBuffer)
-      .extract(box)
+    const crop = await sharp(slide.data).extract(box).png().toBuffer();
+    const { visualHash } = await fingerprintPortfolioImage(crop);
+    const raw = await sharp(crop)
       .flatten({ background: "#ffffff" })
       // 이웃끼리 색을 섞으면 일러스트의 평평한 면이 사라집니다.
-      .resize(sample, sample, { fit: "fill", kernel: "nearest" })
+      .resize(IMAGE_SAMPLE, IMAGE_SAMPLE, { fit: "fill", kernel: "nearest" })
       .removeAlpha()
       .raw()
       .toBuffer();
-    const stats = imageRegionStats(raw, sample, (box.width * box.height) / slideArea);
-    return classifyImageRegion(stats).kind === "photograph";
+    const areaShare = (box.width * box.height) / (slide.width * slide.height);
+    const stats = imageRegionStats(raw, IMAGE_SAMPLE, areaShare);
+    return {
+      key,
+      slideIndex,
+      areaShare,
+      edgeDistance: Math.min(
+        box.left / slide.width,
+        box.top / slide.height,
+        (slide.width - box.left - box.width) / slide.width,
+        (slide.height - box.top - box.height) / slide.height,
+      ),
+      visualHash,
+      skinShare: skinToneShare(raw),
+      illustrationLike: classifyImageRegion(stats).kind === "illustration",
+    };
   } catch {
-    // 픽셀을 못 읽으면 사진으로 보고 가립니다.
-    return true;
+    // 픽셀을 못 읽으면 판정을 세우지 않습니다. 부르는 쪽이 가리는 쪽으로 둡니다.
+    return null;
   }
 }
 
-async function redact(buffer: Buffer, regions: SensitiveRegion[]) {
+/** 장표를 규격에 맞춰 펴고, 가릴 후보 영역과 그림 판정 재료를 준비합니다. */
+async function prepareSlide(
+  index: number,
+  buffer: Buffer,
+  regions: SensitiveRegion[],
+): Promise<PreparedSlide> {
   const oriented = await sharp(buffer)
     .rotate()
     .resize({ width: 1400, fit: "inside", withoutEnlargement: true })
     .png()
     .toBuffer({ resolveWithObject: true });
-  if (!regions.length) return {
-    sourceBuffer: oriented.data,
-    buffer: oriented.data,
-    appliedRegionCount: 0,
-  };
-  const slideArea = oriented.info.width * oriented.info.height;
-  const keepIllustrations = photoDetectionEnabled();
-  const boxes: NonNullable<ReturnType<typeof clampRegion>>[] = [];
-  for (const region of regions) {
-    const box = clampRegion(region, oriented.info.width, oriented.info.height);
+  const width = oriented.info.width;
+  const height = oriented.info.height;
+  const entries: SlideRegionEntry[] = [];
+  const observations: ImageObservation[] = [];
+  const inspectImages = photoDetectionEnabled();
+
+  for (const [position, region] of regions.entries()) {
+    const box = clampRegion(region, width, height);
     if (!box) continue;
-    if (keepIllustrations && region.type === "embedded_photo") {
-      if (!await looksLikePhotograph(oriented.data, box, slideArea)) continue;
+    const key = `${index}:${position}`;
+    entries.push({ key, region, box });
+    if (inspectImages && region.type === "embedded_photo") {
+      const observation = await observeImageRegion(
+        { data: oriented.data, width, height },
+        box,
+        key,
+        index,
+      );
+      if (observation) observations.push(observation);
     }
-    boxes.push(box);
   }
-  if (!boxes.length) return {
-    sourceBuffer: oriented.data,
-    buffer: oriented.data,
-    appliedRegionCount: 0,
-  };
-  const blurred = await sharp(oriented.data)
+
+  return { index, width, height, oriented: oriented.data, entries, observations };
+}
+
+/**
+ * 정해진 역할에 따라 실제로 가릴 곳만 골라 냅니다.
+ *
+ * 그림이 아닌 영역(고객사 이름·잔글씨·바닥글 등)은 워커 판정을 그대로 씁니다.
+ * 그림은 image-role.ts 가 정한 역할을 따르고, 판정을 세우지 못했으면 가립니다.
+ */
+function selectRedactionTargets(
+  slide: PreparedSlide,
+  roles: Map<string, ImageRole>,
+) {
+  const boxes: RedactionBox[] = [];
+  const reasons: string[] = [];
+  const inspectImages = photoDetectionEnabled();
+  for (const entry of slide.entries) {
+    if (entry.region.type === "embedded_photo" && inspectImages) {
+      const role = roles.get(entry.key) ?? "person_photo";
+      if (!shouldRedactImageRole(role)) continue;
+      boxes.push(entry.box);
+      reasons.push(role);
+      continue;
+    }
+    boxes.push(entry.box);
+    reasons.push(entry.region.type);
+  }
+  return { boxes, reasons };
+}
+
+/** 고른 곳만 뿌옇게 만듭니다. */
+async function applyRedaction(slide: PreparedSlide, boxes: RedactionBox[]) {
+  if (!boxes.length) return slide.oriented;
+  const blurred = await sharp(slide.oriented)
     .blur(24)
     .modulate({ brightness: 0.98, saturation: 0.72 })
     .png()
     .toBuffer();
   const mask = Buffer.from(
-    `<svg width="${oriented.info.width}" height="${oriented.info.height}" xmlns="http://www.w3.org/2000/svg">`
+    `<svg width="${slide.width}" height="${slide.height}" xmlns="http://www.w3.org/2000/svg">`
     + boxes.map((box) => (
       `<rect x="${box.left}" y="${box.top}" width="${box.width}" height="${box.height}" rx="4" fill="#fff"/>`
     )).join("")
@@ -172,14 +256,10 @@ async function redact(buffer: Buffer, regions: SensitiveRegion[]) {
     .composite([{ input: mask, blend: "dest-in" }])
     .png()
     .toBuffer();
-  return {
-    sourceBuffer: oriented.data,
-    buffer: await sharp(oriented.data)
-      .composite([{ input: maskedBlur, left: 0, top: 0 }])
-      .png()
-      .toBuffer(),
-    appliedRegionCount: boxes.length,
-  };
+  return sharp(slide.oriented)
+    .composite([{ input: maskedBlur, left: 0, top: 0 }])
+    .png()
+    .toBuffer();
 }
 
 async function changedPixelRatio(source: Buffer, redacted: Buffer) {
@@ -209,43 +289,73 @@ async function loadSlides(input: {
   indexes: number[];
   sensitiveRegions: SensitiveRegion[];
 }) {
+  /*
+   * 두 번에 나눠 봅니다.
+   *
+   * 로고인지 아닌지는 장표 하나만 봐서는 알 수 없습니다. 로고는 여러 장표의
+   * 같은 자리에 되풀이되는 그림이기 때문입니다. 그래서 먼저 고른 장표를 모두
+   * 펴 놓고 그림 재료를 모은 뒤, 역할을 한꺼번에 정하고, 그다음에 가립니다.
+   *
+   * 예전에는 장표마다 따로 판정해서 되풀이를 볼 수 없었고, 로고인지를 도형
+   * 이름으로 짐작했습니다. 그래서 같은 로고가 어떤 장표에서는 지워지고
+   * 어떤 장표에서는 남았습니다.
+   */
+  type DownloadedSlide = { index: number; bytes: Buffer };
+  const downloaded: DownloadedSlide[] = [];
+  const concurrency = 3;
+  for (let offset = 0; offset < input.indexes.length; offset += concurrency) {
+    const batch = await Promise.all(input.indexes.slice(offset, offset + concurrency).map(
+      async (index): Promise<DownloadedSlide | null> => {
+        const path = input.slidePaths[index];
+        if (!path) return null;
+        const { data, error } = await contentAdmin().storage.from(input.bucket).download(path);
+        if (error || !data) throw new Error(error?.message || `슬라이드 ${index + 1}을 읽지 못했습니다.`);
+        return { index, bytes: Buffer.from(await data.arrayBuffer()) };
+      },
+    ));
+    downloaded.push(...batch.filter((slide): slide is DownloadedSlide => Boolean(slide)));
+  }
+
+  const prepared: PreparedSlide[] = [];
+  for (const slide of downloaded) {
+    prepared.push(await prepareSlide(
+      slide.index,
+      slide.bytes,
+      input.sensitiveRegions.filter((region) => region.slideIndex === slide.index),
+    ));
+  }
+
+  // 문서 전체를 함께 보고 그림의 역할을 정합니다.
+  const roles = resolveImageRoles(prepared.flatMap((slide) => slide.observations));
+
   const values: LoadedSlide[] = [];
-  const loadOne = async (index: number): Promise<LoadedSlide | null> => {
-    const path = input.slidePaths[index];
-    if (!path) return null;
-    const { data, error } = await contentAdmin().storage.from(input.bucket).download(path);
-    if (error || !data) throw new Error(error?.message || `슬라이드 ${index + 1}을 읽지 못했습니다.`);
-    const bytes = Buffer.from(await data.arrayBuffer());
-    const { contentHash, visualHash } = await fingerprintPortfolioImage(bytes);
-    const redacted = await redact(
-      bytes,
-      input.sensitiveRegions.filter((region) => region.slideIndex === index),
-    );
-    const buffer = redacted.buffer;
-    const pixelChange = await changedPixelRatio(redacted.sourceBuffer, buffer);
+  for (const slide of prepared) {
+    const source = downloaded.find((entry) => entry.index === slide.index);
+    if (!source) continue;
+    const { contentHash, visualHash } = await fingerprintPortfolioImage(source.bytes);
+    const { boxes, reasons } = selectRedactionTargets(slide, roles);
+    const buffer = await applyRedaction(slide, boxes);
+    const pixelChange = await changedPixelRatio(slide.oriented, buffer);
     const metadata = await sharp(buffer).rotate().metadata();
     if (!metadata.width || !metadata.height) {
-      throw new Error(`슬라이드 ${index + 1}의 비율을 불러오지 못했습니다.`);
+      throw new Error(`슬라이드 ${slide.index + 1}의 비율을 불러오지 못했습니다.`);
     }
-    return {
-      index,
+    values.push({
+      index: slide.index,
       buffer,
       aspectRatio: metadata.width / metadata.height,
       contentHash,
       visualHash,
+      // 무엇을 왜 가렸는지 남깁니다. 근거가 보여야 틀렸을 때 짚어낼 수 있습니다.
+      redactionSummary: summarizeRedactions(reasons),
       redactionProof: {
-        slideIndex: index,
-        sourceHash: createHash("sha256").update(redacted.sourceBuffer).digest("hex"),
+        slideIndex: slide.index,
+        sourceHash: createHash("sha256").update(slide.oriented).digest("hex"),
         redactedHash: createHash("sha256").update(buffer).digest("hex"),
-        regionCount: redacted.appliedRegionCount,
+        regionCount: boxes.length,
         changedPixelRatio: pixelChange,
       },
-    };
-  };
-  const concurrency = 3;
-  for (let offset = 0; offset < input.indexes.length; offset += concurrency) {
-    const batch = await Promise.all(input.indexes.slice(offset, offset + concurrency).map(loadOne));
-    values.push(...batch.filter((slide): slide is LoadedSlide => Boolean(slide)));
+    });
     console.info(`[portfolio-mockup] loaded ${values.length}/${input.indexes.length} slide(s)`);
   }
   return values;
@@ -685,6 +795,15 @@ export async function createPortfolioMockups(input: {
   /** 관리자가 골라 둔 표지 문구. 있으면 그대로 씁니다. */
   coverTitle?: string | null;
   onRedactionProof?: (proof: PortfolioSlideRedactionProof[]) => Promise<void> | void;
+  /**
+   * 장표마다 무엇을 왜 가렸는지 알려 줍니다.
+   *
+   * 지금까지는 가린 '개수'만 남아서, 결과를 보고도 왜 뿌옇게 됐는지 알 수
+   * 없었습니다. 규칙이 틀렸을 때 사람이 짚어낼 수 있어야 고칠 수 있습니다.
+   */
+  onRedactionSummary?: (
+    summary: { slideIndex: number; entries: RedactionSummaryEntry[] }[],
+  ) => Promise<void> | void;
 }) {
   console.info(`[portfolio-mockup] starting candidate=${input.candidateId} slides=${input.slidePaths.length}`);
   const plan = portfolioMockupIndexes(
@@ -732,6 +851,14 @@ export async function createPortfolioMockups(input: {
     throw new Error("모든 선정 장표의 로컬 기밀 블러가 실제 이미지에 적용되었는지 확인하지 못했습니다.");
   }
   if (input.onRedactionProof) await input.onRedactionProof(redactionProof);
+  if (input.onRedactionSummary) {
+    await input.onRedactionSummary(plan.indexes
+      .map((index) => {
+        const slide = slideMap.get(index);
+        return slide ? { slideIndex: index, entries: slide.redactionSummary } : null;
+      })
+      .filter((entry): entry is { slideIndex: number; entries: RedactionSummaryEntry[] } => Boolean(entry)));
+  }
   console.info(`[portfolio-mockup] persisted redaction proof for ${redactionProof.length} slide(s)`);
   const groupSlides = plan.groups.map((group) => group
     .map((index) => slideMap.get(index))

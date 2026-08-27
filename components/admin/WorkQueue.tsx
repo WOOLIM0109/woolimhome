@@ -28,6 +28,11 @@ type PortfolioMockupMetadata = {
   redactionRegionCount?: number;
   redactionCoverage?: number;
   redactionStatus?: PortfolioRedactionStatus;
+  redactionSummary?: {
+    slideIndex?: number;
+    description?: string;
+    reasons?: { reason?: string; label?: string; count?: number }[];
+  }[];
   manualSelectiveRedaction?: boolean;
 };
 
@@ -317,6 +322,27 @@ function PortfolioMockupDetails({ metadata }: { metadata?: WorkItem["metadata"] 
     ? Math.min(1, Math.max(0, mockup.redactionCoverage))
     : undefined;
   const redactionStatus = isRedactionStatus(mockup?.redactionStatus) ? mockup.redactionStatus : undefined;
+  /*
+   * 장표마다 무엇을 왜 가렸는지.
+   *
+   * 지금까지는 "가림 영역 12곳" 처럼 개수만 보였습니다. 그래서 뿌옇게 된 것을
+   * 보고도 왜 그런지 알 수가 없었고, 규칙이 틀렸을 때 어디를 고쳐야 하는지도
+   * 알 수 없었습니다. 근거가 보여야 사람이 짚어낼 수 있습니다.
+   */
+  const redactionSummary = (Array.isArray(mockup?.redactionSummary) ? mockup.redactionSummary : [])
+    .filter((slide) => (
+      slide
+      && typeof slide.slideIndex === "number"
+      && Number.isInteger(slide.slideIndex)
+      && slide.slideIndex >= 0
+    ))
+    .map((slide) => ({
+      slideIndex: slide.slideIndex as number,
+      description: typeof slide.description === "string" && slide.description.trim()
+        ? slide.description
+        : "가린 곳 없음",
+    }))
+    .slice(0, 40);
   const hasLegacyRedaction = !redactionStatus && metadata.redactionMode === "confidential";
   const hasDetails = Boolean(
     mode
@@ -328,7 +354,8 @@ function PortfolioMockupDetails({ metadata }: { metadata?: WorkItem["metadata"] 
     || redactionCoverage !== undefined
     || redactionStatus
     || manualSelectiveRedaction
-    || hasLegacyRedaction,
+    || hasLegacyRedaction
+    || redactionSummary.length,
   );
 
   if (!hasDetails) return null;
@@ -391,6 +418,25 @@ function PortfolioMockupDetails({ metadata }: { metadata?: WorkItem["metadata"] 
           </span>
         )}
       </div>
+      {redactionSummary.length > 0 && (
+        <details className="mt-3 text-[var(--muted)]" open>
+          <summary className="cursor-pointer font-bold text-sky-950">
+            무엇을 왜 가렸는지 (장표 {redactionSummary.length}장)
+          </summary>
+          <ul className="mt-2 space-y-1">
+            {redactionSummary.map((slide) => (
+              <li key={slide.slideIndex} className="flex flex-wrap items-baseline gap-2">
+                <span className="font-bold text-sky-950">{slide.slideIndex + 1}쪽</span>
+                <span>{slide.description}</span>
+              </li>
+            ))}
+          </ul>
+          <p className="mt-2 text-xs">
+            로고와 사람이 찍힌 사진만 가립니다. 딸기·농장 같은 소재 사진과 일러스트는 남깁니다.
+            잘못 가린 곳이 있으면 알려 주세요. 기준을 고칠 수 있습니다.
+          </p>
+        </details>
+      )}
       {selectionReasons.length > 0 && (
         <details className="mt-3 text-[var(--muted)]">
           <summary className="cursor-pointer font-bold text-sky-950">장표 선정 이유 {selectionReasons.length}개</summary>

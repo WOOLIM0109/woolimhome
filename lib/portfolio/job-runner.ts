@@ -13,6 +13,7 @@ import {
   portfolioMockupIndexes,
 } from "./mockup";
 import type { GeneratedPortfolioAsset } from "./mockup";
+import { describeRedactions, type RedactionSummaryEntry } from "./redaction-summary.ts";
 import { createLocalPortfolioReview } from "./local-review";
 import {
   createLocalRedactionProof,
@@ -155,6 +156,7 @@ function portfolioMockupMetadata(input: {
   review: PortfolioVisualReview;
   assets: GeneratedPortfolioAsset[];
   verification: { verified: boolean; regionCount: number; coverage: number };
+  redactionSummary?: { slideIndex: number; entries: RedactionSummaryEntry[] }[];
 }) {
   const bodyAssets = input.assets.filter((asset) => asset.kind === "body_image");
   const selectedSlideIndexes = [...new Set(bodyAssets.flatMap((asset) => asset.slideIndexes))];
@@ -172,6 +174,19 @@ function portfolioMockupMetadata(input: {
     redactionRegionCount: input.verification.regionCount,
     redactionCoverage: input.verification.coverage,
     redactionStatus: input.verification.verified ? "verified" as const : "blocked" as const,
+    /*
+     * 장표마다 무엇을 왜 가렸는지 남깁니다.
+     *
+     * 개수만으로는 결과를 보고도 왜 뿌옇게 됐는지 알 수 없었습니다.
+     * 근거가 보여야 규칙이 틀렸을 때 사람이 짚어낼 수 있습니다.
+     */
+    redactionSummary: (input.redactionSummary || [])
+      .filter((slide) => selected.has(slide.slideIndex))
+      .map((slide) => ({
+        slideIndex: slide.slideIndex,
+        reasons: slide.entries,
+        description: describeRedactions(slide.entries),
+      })),
   };
 }
 
@@ -985,6 +1000,8 @@ export async function processNextPortfolioMockup(
       localManifest,
     ) ? result.redactionProof as PortfolioRedactionProof : null;
     let assets = cachedAssets.length >= 4 && redactionProof ? cachedAssets : [];
+    // 가림 근거는 목업을 새로 만들 때만 채워집니다. 캐시를 쓰면 비어 있습니다.
+    let redactionSummary: { slideIndex: number; entries: RedactionSummaryEntry[] }[] = [];
     if (!assets.length || !redactionProof) {
       yieldPortfolioCheckpointIfNeeded(shouldYield);
       console.info(`[portfolio-mockup] entering renderer candidate=${job.candidate_id}`);
@@ -1007,6 +1024,17 @@ export async function processNextPortfolioMockup(
         onRedactionProof: async (proof) => {
           slideProof = proof;
           result = { ...result, redactionSlideProofProgress: proof };
+        },
+        /*
+         * 무엇을 왜 가렸는지 결과에 함께 저장합니다.
+         *
+         * 예전에는 가린 '개수'만 남아서, 결과를 보고도 왜 뿌옇게 됐는지 알 수
+         * 없었습니다. 가림은 앞으로도 가끔 틀립니다. 사람이 짚어낼 수 있어야
+         * 고칠 수 있고, 짚어내려면 근거가 보여야 합니다.
+         */
+        onRedactionSummary: (summary) => {
+          redactionSummary = summary;
+          result = { ...result, redactionSummary: summary };
         },
       });
       const renderedIndexes = renderedPortfolioSlideIndexes(assets);
@@ -1033,6 +1061,7 @@ export async function processNextPortfolioMockup(
       review,
       assets,
       verification: redactionVerification,
+      redactionSummary,
     });
     const completedAt = new Date().toISOString();
     const { data: workItem, error: workItemError } = await admin.from("content_work_items")

@@ -257,26 +257,14 @@ export function driveFileFingerprint(file: WorksDriveFile) {
     .digest("hex");
 }
 
-export function sensitivePortfolioDocument(file: Pick<WorksDriveFile, "fileName" | "filePath">) {
-  const sensitiveDocumentPattern =
-    /주민등록|등본|초본|가족관계|사대보험|4대보험|보험가입|홈택스|부가가치세|원천징수|소득금액|납세|통장|계좌|임대차|근로계약|사업자등록증|법인등기|인감증명|신분증/i;
-  return sensitiveDocumentPattern.test(`${file.filePath || ""}/${file.fileName}`);
-}
-
-export function approvedPortfolioSource(file: Pick<WorksDriveFile, "filePath">) {
-  const segments = (file.filePath || "")
-    .split(/[\\/>]+/)
-    .map((segment) => segment.trim())
-    .filter(Boolean);
-  const completedRoot = segments.findIndex((segment) => segment === "완성본_외부공유금지");
-  if (completedRoot < 0) return false;
-  if (segments.some((segment) => segment === "레퍼런스")) return false;
-  return segments[completedRoot + 1]?.toLowerCase() === "ppt";
-}
-
-export function supportedPortfolioFile(
-  file: Pick<WorksDriveFile, "fileName" | "filePath">,
-) {
-  if (!/\.(ppt|pptx|pdf)$/i.test(file.fileName)) return false;
-  return approvedPortfolioSource(file) && !sensitivePortfolioDocument(file);
-}
+/*
+ * 원본 파일 판정은 lib/naver-works/source-file.ts 로 옮겼습니다.
+ * 이 파일은 Supabase 클라이언트를 불러오는 탓에 시험에서 가져올 수 없어,
+ * 정작 후보를 마르게 만든 판정이 한 번도 시험을 못 거쳤기 때문입니다.
+ * 쓰던 곳이 그대로 동작하도록 여기서 다시 내보냅니다.
+ */
+export {
+  sensitivePortfolioDocument,
+  approvedPortfolioSource,
+  supportedPortfolioFile,
+} from "./source-file.ts";
