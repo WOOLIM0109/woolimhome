@@ -117,6 +117,51 @@ Set-ScheduledTask -InputObject $t
 
 즉시 실행까지 하려면 `-StartNow`를 추가합니다. 자동 시작 등록 없이 시험 설치하려면 `-NoAutoStart`를 사용합니다.
 
+## 켜기와 끄기 (바탕화면 더블클릭)
+
+바탕화면의 **`PC 워커 켜기`** 를 더블클릭하면 워커가 켜집니다. **`PC 워커 끄기`** 는 끕니다.
+관리자 권한은 필요 없습니다. 워커 예약 작업은 로그인한 사용자 이름으로 등록되어 있어,
+그 사용자가 자기 작업을 켜고 끄는 것뿐입니다.
+
+바탕화면 바로가기는 `install.ps1`이 만듭니다. 이미 설치된 PC에는 아직 없으니
+`install.ps1`을 한 번 더 실행하면 생깁니다. 바로가기가 없어도 설치 폴더의
+`worker-on.cmd` / `worker-off.cmd` / `worker-status.cmd`를 직접 더블클릭하면 같습니다.
+
+```text
+%LOCALAPPDATA%\WoolimWorker\app\worker-on.cmd
+```
+
+PowerShell에서 직접 부를 수도 있습니다.
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass `
+  -File "$env:LOCALAPPDATA\WoolimWorker\app\worker-control.ps1" -Action On
+```
+
+`-Action`은 `On`, `Off`, `Status` 중 하나입니다.
+
+### 왜 웹 관리자 화면에는 이 버튼이 없나요
+
+서버가 회사 PC의 프로그램을 켤 방법이 없기 때문입니다. 워커가 꺼져 있으면 서버 쪽에서는
+연결이 아예 없는 상태라 명령을 보낼 곳도 없습니다. 그래서 켜는 일은 그 PC에서 해야 하고,
+그 대신 **더블클릭 한 번**으로 끝나게 만들었습니다.
+
+### 껐다 켰는데 왜 안 살아났나요
+
+`Disable-ScheduledTask`를 걸면 5분마다 도는 자동 되살리기까지 같이 멈춥니다.
+그 상태에서는 `Start-ScheduledTask`가 조용히 무시되기 때문에, 켜는 명령을 쳐도
+아무 일도 일어나지 않습니다. `worker-on.cmd`는 `Enable`을 먼저 하고 그다음 `Start`를 하므로
+이 함정에 빠지지 않습니다.
+
+지금 어떤 상태인지는 `worker-status.cmd`가 보여 줍니다. **자동 시작**과 **지금 상태**를
+따로 적어 두었습니다. 자동 시작이 `꺼짐`이면 5분 뒤에도 스스로 살아나지 않습니다.
+
+### 끄기 전에 확인할 것
+
+워커를 꺼도 **서버에 쌓인 변환 대기 작업은 그대로 남아 있습니다.** 다시 켜면 그것부터
+한꺼번에 처리하느라 PowerPoint가 계속 열리고 닫힙니다. 필요 없는 작업은 다시 켜기 전에
+관리자 화면에서 먼저 지워 주세요.
+
 ## 점검
 
 로컬 설정, PowerPoint, Poppler, 예약 작업만 점검하며 기본적으로 서버나 작업 큐에는 접근하지 않습니다.
@@ -265,7 +310,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\uninstall.ps1
 - `MISSING_PDF_RENDERER`: Poppler 설치를 확인하고 `setup.ps1 -PdfToPpmPath ...`로 정확한 경로를 지정합니다.
 - `INSUFFICIENT_USABLE_SLIDES`: 판독 실패 또는 picture/texture 전체 배경 제외 후 usable slide가 5개 미만입니다. 로그에서 제외된 원본 슬라이드 번호와 사유를 확인합니다.
 - PowerPoint 미감지: Microsoft 365 웹 앱이 아니라 데스크톱 PowerPoint가 설치되어 있어야 합니다.
-- PC가 오프라인으로 표시됨: 해당 Windows 사용자로 로그인되어 있는지, 예약 작업이 실행 중인지, 방화벽에서 HTTPS 연결이 가능한지 확인합니다.
+- PC가 오프라인으로 표시됨: 먼저 바탕화면의 `PC 워커 켜기`를 더블클릭해 보세요. 그래도 그대로면 해당 Windows 사용자로 로그인되어 있는지, `worker-status.cmd`에서 자동 시작이 `켜짐`인지, 방화벽에서 HTTPS 연결이 가능한지 확인합니다.
 - `Unauthorized worker`: 서버의 Worker ID별 비밀키와 이 PC에 입력한 비밀키가 같은지 확인합니다.
 
 워커 전용 Windows 사용자 계정을 쓰는 것이 가장 안전합니다. 사용자 환경변수의 비밀키는 소스나 예약 작업에 노출되지는 않지만, 같은 Windows 사용자 권한으로 실행되는 다른 프로세스에서는 읽을 수 있습니다.
