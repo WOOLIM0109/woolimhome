@@ -12,8 +12,6 @@
 import { contentAdmin } from "@/lib/content-ops/data";
 import { AI_OUTPUT_LIMITS } from "@/lib/ai-budget";
 import { generateGeminiJson } from "@/lib/portfolio/gemini";
-import { appendStatusChange } from "@/lib/content-ops/status-history";
-import type { WorkflowStatus } from "@/lib/content-ops/types";
 import { insertSentenceBreaks } from "@/lib/content-ops/sentence-breaks-html";
 import {
   acceptRevisedSection,
@@ -88,6 +86,8 @@ export type DraftRevisionResult = RevisionOutcome & {
   status: string;
   note: string;
   message: string;
+  /** 보류 상태 그대로라면 왜 보류인지. 글을 고쳐도 풀리지 않는 것들입니다. */
+  heldReason: string | null;
 };
 
 /**
@@ -113,7 +113,7 @@ export async function reviseWorkItemDraft(
   const admin = contentAdmin();
   const { data: current, error: currentError } = await admin
     .from("content_work_items")
-    .select("id,status,title,metadata,updated_at")
+    .select("id,status,title,review_note,metadata,updated_at")
     .eq("id", workItemId)
     .single();
   if (currentError) throw new Error(currentError.message);
@@ -176,7 +176,6 @@ export async function reviseWorkItemDraft(
 
   const nextBodyHtml = insertSentenceBreaks(joinRevisionSections(revised));
   const appliedAt = new Date().toISOString();
-  const nextStatus = (current.status === "on_hold" ? "review_required" : current.status) as WorkflowStatus;
   const validation = metadata.validation && typeof metadata.validation === "object"
     ? metadata.validation as Record<string, unknown>
     : {};
@@ -186,23 +185,28 @@ export async function reviseWorkItemDraft(
     failures,
   };
 
-  const baseMetadata = nextStatus === current.status
-    ? metadata
-    : appendStatusChange(metadata, nextStatus, actor, appliedAt);
-
+  /*
+   * 보류는 풀지 않습니다.
+   *
+   * 처음에는 manual_edit 를 따라 보류를 검토 대기로 올리고 사유도 지웠습니다.
+   * 그런데 포트폴리오가 보류되는 이유는 대개 글이 아니라 목업 기록입니다.
+   * 선정 장표, 원본 지문, 가림 증적 같은 것들인데 글을 고쳐도 그대로입니다.
+   * 사유만 지워지면 왜 막혀 있는지 알 길이 사라지고, 승인을 눌러야 비로소
+   * 빨간 글씨로 쏟아집니다. 실제로 그렇게 됐습니다.
+   *
+   * 글만 고치는 이 기능은 글만 책임집니다. 보류 해제는 사람이 눈으로 보고
+   * '보류 해제' 버튼으로 합니다. 그 버튼은 그러라고 있는 것입니다.
+   */
   const { data: saved, error: saveError } = await admin
     .from("content_work_items")
     .update({
-      status: nextStatus,
-      review_note: null,
       metadata: {
-        ...baseMetadata,
+        ...metadata,
         generated: { ...generated, bodyHtml: nextBodyHtml },
         validation: {
           ...validation,
           plainLength: nextBodyHtml.replace(/<[^>]+>/g, " ").replace(/\s+/g, "").length,
           h2Count: (nextBodyHtml.match(/<h2[\s>]/gi) || []).length,
-          issues: [],
         },
         // 무엇을 요청했고 어디까지 반영됐는지 남겨 둡니다.
         // 결과가 기대와 다를 때 사람이 짚어낼 수 있어야 고칠 수 있습니다.
@@ -229,11 +233,19 @@ export async function reviseWorkItemDraft(
     );
   }
 
+  const heldReason = saved.status === "on_hold" && typeof current.review_note === "string"
+    ? current.review_note
+    : null;
   return {
     id: saved.id,
     status: saved.status,
     note,
-    message: describeRevisionOutcome(outcome),
+    // 보류였다면 그 사실을 결과에 같이 실어 보냅니다. 글은 고쳐졌는데
+    // 승인이 안 되는 이유를 승인 버튼을 눌러 본 뒤에야 아는 일이 없도록.
+    message: heldReason
+      ? `${describeRevisionOutcome(outcome)} 다만 이 작업은 보류 상태 그대로입니다.`
+      : describeRevisionOutcome(outcome),
+    heldReason,
     ...outcome,
   };
 }

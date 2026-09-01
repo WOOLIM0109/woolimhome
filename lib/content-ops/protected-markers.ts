@@ -53,6 +53,15 @@ export function lockValue(source: string, prefix: string, html = false, lockNumb
   let value = String(source || "");
   if (html) {
     value = value.replace(/<figure\b[\s\S]*?<\/figure>/gi, (match) => add(match, true, true));
+    /*
+     * figure 로 감싸지 않고 홀로 놓인 그림도 잠급니다.
+     *
+     * 잠그지 않으면 정리기가 <img> 를 허용 목록 밖 태그로 보고 걷어냅니다.
+     * 주소만 잠긴 경우에도 주소는 태그 속성 안에 있어서 태그와 함께 사라집니다.
+     * 그림이 빠진 본문은 승인 단계에서 "본문 이미지 URL이 목업 자산과 일치하지
+     * 않습니다" 로 막히는데, 그때는 어디서 없어졌는지 알 수가 없습니다.
+     */
+    value = value.replace(/<img\b[^>]*>/gi, (match) => add(match, false, true));
     value = value.replace(/<a\b[^>]*>[\s\S]*?<\/a>/gi, (match) => add(match, false, true));
     value = value.replace(/https?:\/\/[^\s<>"']+/gi, (match) => add(match, false, true));
   }

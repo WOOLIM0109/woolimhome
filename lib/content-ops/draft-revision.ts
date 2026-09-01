@@ -68,6 +68,20 @@ function safeRevisedHtml(value: string) {
     .replace(/<\/?(?:figure|figcaption|img|span|section)\b[^>]*>/gi, "");
 }
 
+/**
+ * 본문에 박힌 그림 주소를 순서대로 모읍니다.
+ *
+ * figure 로 감싼 그림은 통째로 잠기지만, figure 없이 놓인 <img> 는 그렇지
+ * 않습니다. 주소가 상대 경로면 잠글 것도 없어서, 정리기가 <img> 태그를
+ * 걷어내는 순간 아무 소리 없이 사라집니다. 그림이 사라진 본문은 승인 단계에서
+ * "본문 이미지 URL이 목업 자산과 일치하지 않습니다" 로 막힙니다.
+ * 그때 가서 알면 늦으므로 여기서 셉니다.
+ */
+function imageSources(value: string) {
+  return [...String(value || "").matchAll(/<img\b[^>]*\bsrc\s*=\s*["']([^"']+)["']/gi)]
+    .map((match) => match[1]);
+}
+
 /** 소제목이 몇 개인지 셉니다. 요청을 반영하다 목차가 바뀌면 안 됩니다. */
 function headingCount(value: string) {
   return (String(value || "").match(/<h[23](?=[\s>])/gi) || []).length;
@@ -140,6 +154,15 @@ export function acceptRevisedSection(
   // 마커가 하나라도 빠지거나 겹치면 여기서 걸립니다.
   // 그림·링크·기존 수치가 그대로 돌아온다는 보장이 이 한 줄입니다.
   const restored = restoreLocked(safeRevisedHtml(modelBodyHtml), locks);
+
+  const beforeImages = imageSources(originalHtml);
+  const afterImages = imageSources(restored);
+  if (beforeImages.length !== afterImages.length
+    || beforeImages.some((source, index) => source !== afterImages[index])) {
+    throw new Error(
+      `본문 그림이 ${beforeImages.length}개에서 ${afterImages.length}개로 달라졌습니다.`,
+    );
+  }
 
   const beforeHeadings = headingCount(originalHtml);
   const afterHeadings = headingCount(restored);

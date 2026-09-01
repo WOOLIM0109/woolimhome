@@ -794,7 +794,12 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
       const failed = Array.isArray(data.failures) && data.failures.length
         ? ` (구간 ${data.failures.map((failure: { position: number }) => failure.position).join(", ")}은 원문 그대로 두었습니다)`
         : "";
-      setNotice(`${data.message || "요청을 반영했습니다."}${failed} 목업 이미지는 그대로입니다.`);
+      // 보류였다면 왜 보류인지 함께 보여 줍니다. 글은 고쳐졌는데 승인이 막히는
+      // 이유를, 승인 버튼을 눌러 본 뒤에야 알게 되는 일이 없도록 합니다.
+      const held = data.heldReason
+        ? ` 보류 상태는 그대로입니다 — ${data.heldReason}`
+        : "";
+      setNotice(`${data.message || "요청을 반영했습니다."}${failed} 목업 이미지는 그대로입니다.${held}`);
       await load();
     } finally {
       setRevisingId(null);
