@@ -23,9 +23,22 @@ type StatusPayload = {
     last_error?: string;
   };
   fileCount: number;
+  /** 아직 쓰지 않고 기다리는 후보. 0 이면 다음 회차가 빈손이 됩니다. */
   candidateCount: number;
+  /** 승인 폴더 안에서 지켜보는 전체 건수 (제외·사용 완료 포함). */
+  trackedCount?: number;
+  statusCounts?: Record<string, number>;
   candidates: Candidate[];
   error?: string;
+};
+
+/** 후보 상태를 사람 말로 옮깁니다. */
+const CANDIDATE_STATUS_LABELS: Record<string, string> = {
+  candidate: "대기",
+  selected: "제작 중",
+  processed: "사용 완료",
+  excluded: "제외",
+  on_hold: "보류",
 };
 
 export default function NaverWorksDrivePanel() {
@@ -34,6 +47,13 @@ export default function NaverWorksDrivePanel() {
   const [syncing, setSyncing] = useState(false);
   const [preparing, setPreparing] = useState(false);
   const [message, setMessage] = useState("");
+
+  /** 상태별 내역을 사람 말로 한 줄로 적습니다. */
+  const statusBreakdown = Object.entries(data?.statusCounts || {})
+    .filter(([status]) => status !== "candidate")
+    .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
+    .map(([status, count]) => `${CANDIDATE_STATUS_LABELS[status] || status} ${count}`)
+    .join(" · ");
 
   const loadStatus = useCallback(async () => {
     setLoading(true);
@@ -154,9 +174,29 @@ export default function NaverWorksDrivePanel() {
                 <p className="text-xs font-bold text-[var(--muted)]">확인한 파일</p>
                 <p className="mt-2 text-2xl font-black">{data?.fileCount || 0}<span className="ml-1 text-sm">개</span></p>
               </article>
+              {/*
+                * '대기 중인 후보'는 아직 쓰지 않은 것만 셉니다.
+                *
+                * 예전에는 제외된 것과 이미 다 쓴 것까지 합쳐서 셌습니다. 그래서 실제로
+                * 쓸 수 있는 후보가 0 이던 22 일 동안에도 '후보 21개'가 떠 있었고,
+                * 넉넉해 보이는 숫자 때문에 아무도 후보가 마른 줄 몰랐습니다.
+                */}
               <article className="rounded-xl border border-[var(--line)] p-4">
-                <p className="text-xs font-bold text-[var(--muted)]">포트폴리오 후보</p>
-                <p className="mt-2 text-2xl font-black">{data?.candidateCount || 0}<span className="ml-1 text-sm">개</span></p>
+                <p className="text-xs font-bold text-[var(--muted)]">대기 중인 후보</p>
+                <p className={`mt-2 text-2xl font-black ${data?.candidateCount ? "" : "text-red-600"}`}>
+                  {data?.candidateCount || 0}<span className="ml-1 text-sm">개</span>
+                </p>
+                {typeof data?.trackedCount === "number" && (
+                  <p className="mt-1 text-xs text-[var(--muted)]">
+                    지켜보는 전체 {data.trackedCount}개
+                    {statusBreakdown ? ` · ${statusBreakdown}` : ""}
+                  </p>
+                )}
+                {data && !data.candidateCount && (
+                  <p className="mt-2 text-xs font-bold text-red-600">
+                    쓸 수 있는 후보가 없습니다. 지금 동기화를 눌러 주세요.
+                  </p>
+                )}
               </article>
             </div>
 
