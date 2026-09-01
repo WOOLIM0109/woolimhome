@@ -57,7 +57,25 @@ export function lockValue(source: string, prefix: string, html = false, lockNumb
     value = value.replace(/https?:\/\/[^\s<>"']+/gi, (match) => add(match, false, true));
   }
   if (lockNumbers) {
-    value = value.replace(NUMERIC_FACT_PATTERN, (match) => add(match));
+    /*
+     * 태그 안쪽의 숫자는 잠그지 않습니다.
+     *
+     * <h2> 의 2 까지 마커로 바꾸면 태그 이름이 <hWOOLIMLOCKBODYAEND> 가 됩니다.
+     * 정리기는 그런 태그를 모르니 통째로 버리고, 그러면 되돌릴 때 마커가 없어
+     * 그 구간을 전부 잃습니다. 소제목으로 시작하는 구간은 전부 여기서 죽었습니다.
+     *
+     * 지켜야 할 것은 사람이 읽는 수치이지 태그 이름의 숫자가 아닙니다.
+     */
+    value = html
+      ? value
+        .split(/(<[^>]*>)/g)
+        .map((piece) => (
+          piece.startsWith("<") && piece.endsWith(">")
+            ? piece
+            : piece.replace(NUMERIC_FACT_PATTERN, (match) => add(match))
+        ))
+        .join("")
+      : value.replace(NUMERIC_FACT_PATTERN, (match) => add(match));
   }
   const sourceMarkers = value.match(/WOOLIMLOCK[A-Z]+?END/g) || [];
   const sourcePositions = new Map(sourceMarkers.map((marker, index) => [marker, index]));
