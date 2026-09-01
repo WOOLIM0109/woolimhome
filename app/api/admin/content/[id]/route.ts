@@ -25,6 +25,11 @@ import { generateContentWorkItem } from "@/lib/content-ops/generate";
 import { geminiRuntimeStatus } from "@/lib/gemini/protection";
 import { GeminiAutomationBlocked, runBudgetedGeminiAutomation } from "@/lib/gemini/automation";
 import { resolveRevisionNote } from "@/lib/content-ops/generated-content";
+import {
+  DraftRevisionUnavailable,
+  plannedRevisionCalls,
+  reviseWorkItemDraft,
+} from "@/lib/content-ops/revise-draft";
 import { sanitizeGeneratedHtml } from "@/lib/security/html";
 import {
   coverTitleRecord,
@@ -188,6 +193,8 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     || body.action === "replace_topic"
     || body.action === "rebuild_portfolio"
     || body.action === "retry_portfolio_draft"
+    // 요청사항 반영도 Gemini 를 부릅니다. 예산과 잠금을 똑같이 거쳐야 합니다.
+    || body.action === "revise_draft"
     || body.status === "creating";
   // 이전에는 이 지점에서 무조건 막았기 때문에 환경변수를 켜도 열리지 않았습니다.
   // 이제는 잠금 상태와 남은 예산을 실제로 확인해서 판단합니다.
@@ -402,6 +409,35 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
       }, { status: 409 });
     }
     return NextResponse.json({ id: saved.id, status: saved.status, holdCleared: true });
+  }
+
+  /**
+   * 사람이 남긴 요청사항을 인공지능이 기존 원고에 반영합니다.
+   *
+   * 예전에는 '수정 요청'이 글을 처음부터 다시 쓰는 버튼이었고, 포트폴리오에서는
+   * 그마저 막혀 있어 목업 이미지까지 다시 만들라는 안내만 나왔습니다.
+   * 여기서는 목업에 손대지 않고 본문만 고칩니다.
+   */
+  if (body.action === "revise_draft") {
+    try {
+      const result = await runBudgetedGeminiAutomation({
+        operation: "content-revise-draft",
+        actor: user.email || "admin",
+        // 소제목 단위로 한 덩이씩 맡기므로, 덩이 수가 곧 호출 수입니다.
+        plannedCalls: await plannedRevisionCalls(id),
+      }, () => reviseWorkItemDraft(id, body.review_note, user.email || "admin"));
+      return NextResponse.json(result);
+    } catch (error) {
+      if (error instanceof GeminiAutomationBlocked) {
+        return NextResponse.json({ error: error.message, code: error.code }, { status: 409 });
+      }
+      if (error instanceof DraftRevisionUnavailable) {
+        return NextResponse.json({ error: error.message, code: error.code }, { status: 409 });
+      }
+      return NextResponse.json({
+        error: error instanceof Error ? error.message : "요청사항을 반영하지 못했습니다.",
+      }, { status: 500 });
+    }
   }
 
   if (body.action === "manual_edit") {

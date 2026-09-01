@@ -465,6 +465,7 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
   // 눌렀을 때 무슨 일이 일어났는지 알려 주는 안내 문구입니다.
   const [notice, setNotice] = useState("");
   const [draftRewritingId, setDraftRewritingId] = useState<string | null>(null);
+  const [revisingId, setRevisingId] = useState<string | null>(null);
   // 문체 규칙에 걸려 승인이 막힌 작업. 사람이 판단해 넘길 수 있게 버튼을 띄웁니다.
   const [editorialBlocked, setEditorialBlocked] = useState<{ id: string; issues: string[] } | null>(null);
   const [notes, setNotes] = useState<Record<string, string>>({});
@@ -758,6 +759,45 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
       await load();
     } finally {
       setRebuildingId(null);
+    }
+  }
+
+  /**
+   * 적어 둔 요청사항을 인공지능이 기존 글에 반영합니다.
+   *
+   * '수정 요청'은 글을 처음부터 다시 쓰는 버튼이고, 포트폴리오에서는 아예
+   * 막혀 있어 목업부터 다시 만들라는 안내만 나왔습니다. 이 버튼은 목업
+   * 이미지에 손대지 않고, 이미 쓴 글에서 요청받은 부분만 고칩니다.
+   */
+  async function reviseDraft(item: WorkItem) {
+    const note = (notes[item.id] || "").trim();
+    if (!note) {
+      setError("무엇을 고칠지 아래 입력창에 적어 주세요.");
+      return;
+    }
+    setRevisingId(item.id);
+    setError("");
+    setNotice("");
+    try {
+      const response = await fetch(`/api/admin/content/${item.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "revise_draft", review_note: note }),
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        setError(data.error || "요청사항을 반영하지 못했습니다.");
+        return;
+      }
+      // 어디까지 반영됐는지 그대로 전합니다. 일부만 됐을 때 그것을 숨기면
+      // 결과를 보고도 왜 그런지 알 수가 없습니다.
+      const failed = Array.isArray(data.failures) && data.failures.length
+        ? ` (구간 ${data.failures.map((failure: { position: number }) => failure.position).join(", ")}은 원문 그대로 두었습니다)`
+        : "";
+      setNotice(`${data.message || "요청을 반영했습니다."}${failed} 목업 이미지는 그대로입니다.`);
+      await load();
+    } finally {
+      setRevisingId(null);
     }
   }
 
@@ -1429,13 +1469,31 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
               )}
               <textarea className="input" rows={3} value={notes[item.id] || ""} onChange={(event) => setNotes((current) => ({ ...current, [item.id]: event.target.value }))} placeholder="수정 요청이나 가려야 할 내용을 적어주세요." />
               <div className="mt-3 flex flex-wrap gap-2">
+                {/*
+                  적어 둔 요청사항만 인공지능이 반영합니다. 목업 이미지는 그대로 둡니다.
+                  아래 '처음부터 다시 쓰기'와 달리 이미 쓴 글을 살려 둡니다.
+                */}
                 <button
-                  onClick={() => void update(item.id, { status: "creating", review_note: notes[item.id] || "" })}
-                  disabled={regeneratingId === item.id}
-                  className="rounded-xl border border-[var(--line)] bg-white px-4 py-2 text-sm font-bold disabled:cursor-wait disabled:opacity-60"
+                  onClick={() => void reviseDraft(item)}
+                  disabled={revisingId === item.id || regeneratingId === item.id}
+                  className="btn-gradient rounded-xl px-4 py-2 text-sm font-bold text-white disabled:cursor-wait disabled:opacity-60"
                 >
-                  {regeneratingId === item.id ? "수정 반영 중" : "수정 요청"}
+                  {revisingId === item.id ? "요청 반영 중…" : "AI로 이 요청만 반영 (이미지 그대로)"}
                 </button>
+                {/*
+                  포트폴리오에서는 이 버튼이 언제나 오류만 냅니다. 서버가
+                  '목업·본문 다시 만들기를 쓰라'고 되돌려 보내기 때문입니다.
+                  누를 수 있는데 늘 실패하는 버튼은 없는 것만 못합니다.
+                */}
+                {item.format !== "portfolio" && (
+                  <button
+                    onClick={() => void update(item.id, { status: "creating", review_note: notes[item.id] || "" })}
+                    disabled={regeneratingId === item.id || revisingId === item.id}
+                    className="rounded-xl border border-[var(--line)] bg-white px-4 py-2 text-sm font-bold disabled:cursor-wait disabled:opacity-60"
+                  >
+                    {regeneratingId === item.id ? "다시 쓰는 중" : "처음부터 다시 쓰기"}
+                  </button>
+                )}
                 {item.format !== "portfolio" && (
                   <button
                     onClick={() => void replaceTopic(item)}
