@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Check,
   CheckCircle2,
+  ChevronDown,
   Clipboard,
   Download,
   ExternalLink,
@@ -155,6 +156,8 @@ export default function PartnerQueue({ onUnauthorized }: { onUnauthorized: () =>
   const [forceApprovalAvailable, setForceApprovalAvailable] = useState<Record<string, boolean>>({});
   const [publishNotice, setPublishNotice] = useState("");
   const [savingId, setSavingId] = useState("");
+  // 긴 원고와 이미지는 필요한 작업만 펼쳐 볼 수 있게 처음에는 모두 접습니다.
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(() => new Set());
   const statusNavRef = useRef<HTMLElement>(null);
 
   const selectedChannel = useMemo(
@@ -179,6 +182,9 @@ export default function PartnerQueue({ onUnauthorized }: { onUnauthorized: () =>
         previewHtml: formatSentenceLineBreaks(item.previewHtml),
       }));
       setItems(displayItems);
+      setExpandedIds((current) => new Set(
+        [...current].filter((id) => displayItems.some((item) => item.id === id)),
+      ));
       setChannelConfigs(Array.isArray(data.channels) ? data.channels : []);
       setPublishedUrls(
         Object.fromEntries(
@@ -207,6 +213,15 @@ export default function PartnerQueue({ onUnauthorized }: { onUnauthorized: () =>
     [items],
   );
   const visibleItems = statusView === "published" ? publishedItems : pendingItems;
+
+  function toggleExpanded(id: string) {
+    setExpandedIds((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
 
   useEffect(() => {
     const timer = window.setTimeout(() => void load(), 0);
@@ -296,6 +311,7 @@ export default function PartnerQueue({ onUnauthorized }: { onUnauthorized: () =>
       setForceApprovalAvailable((current) => ({ ...current, [item.id]: false }));
       setForceApprovalMemos((current) => ({ ...current, [item.id]: "" }));
       await load();
+      setExpandedIds(new Set());
       setStatusView("published");
       setPublishNotice(`‘${item.title}’ 글을 발행 완료로 옮겼습니다.`);
       window.requestAnimationFrame(() => {
@@ -347,6 +363,7 @@ export default function PartnerQueue({ onUnauthorized }: { onUnauthorized: () =>
       setForceApprovalAvailable((current) => ({ ...current, [item.id]: false }));
       setForceApprovalMemos((current) => ({ ...current, [item.id]: "" }));
       await load();
+      setExpandedIds(new Set());
       setStatusView("published");
       setPublishNotice(`‘${item.title}’ 글을 메모와 함께 강제승인 처리했습니다.`);
       window.requestAnimationFrame(() => {
@@ -378,6 +395,7 @@ export default function PartnerQueue({ onUnauthorized }: { onUnauthorized: () =>
                 setForceApprovalMemos({});
                 setForceApprovalAvailable({});
                 setPublishNotice("");
+                setExpandedIds(new Set());
                 setChannel(item.value);
               }}
               className={`rounded-2xl border p-5 text-left transition ${
@@ -431,13 +449,14 @@ export default function PartnerQueue({ onUnauthorized }: { onUnauthorized: () =>
         </div>
       </div>
 
+      <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
       <nav
         ref={statusNavRef}
-        className="mt-5 inline-flex w-full rounded-2xl border border-[var(--line)] bg-stone-100 p-1 sm:w-auto"
+        className="inline-flex w-full rounded-2xl border border-[var(--line)] bg-stone-100 p-1 sm:w-auto"
         aria-label="작업 상태 선택"
       >
         <button
-          onClick={() => setStatusView("pending")}
+          onClick={() => { setStatusView("pending"); setExpandedIds(new Set()); }}
           aria-pressed={statusView === "pending"}
           className={`flex flex-1 items-center justify-center gap-2 rounded-xl px-5 py-3 text-sm font-bold transition sm:flex-none ${
             statusView === "pending"
@@ -449,7 +468,7 @@ export default function PartnerQueue({ onUnauthorized }: { onUnauthorized: () =>
           <span className="rounded-full bg-blue-50 px-2 py-0.5 text-xs text-blue-700">{pendingItems.length}</span>
         </button>
         <button
-          onClick={() => setStatusView("published")}
+          onClick={() => { setStatusView("published"); setExpandedIds(new Set()); }}
           aria-pressed={statusView === "published"}
           className={`flex flex-1 items-center justify-center gap-2 rounded-xl px-5 py-3 text-sm font-bold transition sm:flex-none ${
             statusView === "published"
@@ -461,6 +480,32 @@ export default function PartnerQueue({ onUnauthorized }: { onUnauthorized: () =>
           <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-xs text-emerald-700">{publishedItems.length}</span>
         </button>
       </nav>
+      {!loading && visibleItems.length > 0 && (
+        <div className="flex flex-wrap justify-end gap-2">
+          <button
+            type="button"
+            onClick={() => setExpandedIds((current) => new Set([
+              ...current,
+              ...visibleItems.map((item) => item.id),
+            ]))}
+            className="rounded-xl border border-[var(--line)] bg-white px-4 py-2.5 text-sm font-bold hover:bg-stone-50"
+          >
+            전체 펼치기
+          </button>
+          <button
+            type="button"
+            onClick={() => setExpandedIds((current) => {
+              const next = new Set(current);
+              visibleItems.forEach((item) => next.delete(item.id));
+              return next;
+            })}
+            className="rounded-xl border border-[var(--line)] bg-white px-4 py-2.5 text-sm font-bold hover:bg-stone-50"
+          >
+            전체 접기
+          </button>
+        </div>
+      )}
+      </div>
 
       {publishNotice && (
         <div className="mt-5 rounded-2xl border border-emerald-200 bg-emerald-50 p-5 text-sm font-bold leading-6 text-emerald-800" role="status">
@@ -501,27 +546,44 @@ export default function PartnerQueue({ onUnauthorized }: { onUnauthorized: () =>
             const fullHtml = `${item.copyHtml}${faqHtml}${sourcesHtml}`;
             const tags = item.tags.map((tag) => `#${tag.replace(/^#/, "")}`).join(" ");
             const isPublished = item.status === "published";
+            const expanded = expandedIds.has(item.id);
+            const detailsId = `partner-work-item-${item.id}`;
 
             return (
               <article key={item.id} className="overflow-hidden rounded-3xl border border-[var(--line)] bg-white shadow-sm">
-                <div className="p-6 sm:p-8">
-                  <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-                    <div>
-                      <div className="flex flex-wrap items-center gap-2 text-xs font-bold">
+                <button
+                  type="button"
+                  aria-expanded={expanded}
+                  aria-controls={detailsId}
+                  onClick={() => toggleExpanded(item.id)}
+                  className="w-full p-5 text-left transition hover:bg-stone-50 sm:p-6"
+                >
+                  <span className="flex items-center justify-between gap-4">
+                    <span className="min-w-0">
+                      <span className="flex flex-wrap items-center gap-2 text-xs font-bold">
                         <span className="rounded-full bg-orange-50 px-3 py-1.5 text-[var(--primary)]">{item.format}</span>
                         <span className={`rounded-full px-3 py-1.5 ${isPublished ? "bg-emerald-50 text-emerald-700" : "bg-blue-50 text-blue-700"}`}>
                           {STATUS_LABELS[item.status]}
                         </span>
-                      </div>
-                      <h3 className="mt-4 text-2xl font-bold leading-snug">{item.title}</h3>
-                      {item.summary && <p className="mt-3 max-w-4xl text-sm leading-7 text-[var(--muted)]">{item.summary}</p>}
+                      </span>
+                      <span className="mt-3 block text-lg font-bold leading-snug sm:text-xl">{item.title}</span>
+                      {item.summary && <span className="mt-2 line-clamp-1 max-w-4xl text-sm text-[var(--muted)]">{item.summary}</span>}
                       {item.scheduledAt && (
-                        <p className="mt-3 text-xs text-[var(--muted)]">예정일: {formatDate(item.scheduledAt)}</p>
+                        <span className="mt-2 block text-xs text-[var(--muted)]">예정일: {formatDate(item.scheduledAt)}</span>
                       )}
-                    </div>
-                  </div>
+                    </span>
+                    <ChevronDown
+                      aria-hidden="true"
+                      size={22}
+                      className={`shrink-0 text-[var(--muted)] transition-transform ${expanded ? "rotate-180" : ""}`}
+                    />
+                  </span>
+                </button>
 
-                  <section className="mt-6 rounded-2xl bg-[#fff8f3] p-4 sm:p-5">
+                {expanded && (
+                <div id={detailsId} className="border-t border-[var(--line)] p-6 sm:p-8">
+
+                  <section className="rounded-2xl bg-[#fff8f3] p-4 sm:p-5">
                     <h4 className="text-sm font-bold">1. 원고 옮기기</h4>
                     <div className="mt-3 flex flex-wrap gap-2">
                       <CopyButton
@@ -745,6 +807,7 @@ export default function PartnerQueue({ onUnauthorized }: { onUnauthorized: () =>
                     )}
                   </section>
                 </div>
+                )}
               </article>
             );
           })}
