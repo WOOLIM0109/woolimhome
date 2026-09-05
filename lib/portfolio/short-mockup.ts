@@ -826,7 +826,7 @@ function splitSlidesAcrossBoards(
  *
  * A board never receives the same slide twice. Across boards we walk one
  * continuous ring, so every selected slide is used before the least-used
- * slides are reused. This keeps the 7/7/4/9 approved layouts full whenever
+ * slides are reused. This keeps the 7/7/4/8 approved layouts full whenever
  * possible without hiding which source slide was placed in each slot.
  */
 function approved16x9SlidesAcrossBoards(slides: PreparedSlide[]) {
