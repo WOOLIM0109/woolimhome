@@ -4,6 +4,10 @@ import {
   isVerifiedPortfolioRedactionProof,
   parseLocalRedactionManifest,
 } from "../portfolio/redaction-proof.ts";
+import {
+  APPROVED_16X9_TEMPLATE_SUITE_ID,
+  APPROVED_16X9_TEMPLATE_VERSION,
+} from "../portfolio/approved-16x9-templates.ts";
 
 export const PORTFOLIO_RULE_VERSION = "2026-08-05-public-visual-overrides-v9";
 
@@ -93,6 +97,8 @@ export function validatePortfolioPublicationMetadata(metadata: unknown) {
       bodyBoardCount?: unknown;
       selectedSlideIndexes?: unknown;
       redactionStatus?: unknown;
+      templateSetId?: unknown;
+      templateVersion?: unknown;
     }
     : {};
   const portfolioAssets = renderedPortfolioAssets(value.portfolioAssets);
@@ -200,7 +206,11 @@ export function validatePortfolioPublicationMetadata(metadata: unknown) {
     flattenedAssetIndexes.push(...indexes);
   }
   const uniqueAssetIndexes = new Set(flattenedAssetIndexes);
-  if (uniqueAssetIndexes.size !== flattenedAssetIndexes.length) invalidAssetIndexes = true;
+  const approvedShortTemplateSet = mockup.mode === "short_psd"
+    && mockup.templateSetId === APPROVED_16X9_TEMPLATE_SUITE_ID
+    && mockup.templateVersion === APPROVED_16X9_TEMPLATE_VERSION;
+  if (!approvedShortTemplateSet
+    && uniqueAssetIndexes.size !== flattenedAssetIndexes.length) invalidAssetIndexes = true;
   if (mockup.mode === "six_grid"
     && recordedBoardCount !== null
     && flattenedAssetIndexes.length !== recordedBoardCount * 6) {

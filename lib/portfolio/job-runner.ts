@@ -36,6 +36,11 @@ import {
 import { isCurrentLocalRedactionWorkerVersion } from "../pc-worker/capabilities";
 import { automaticDesignEligibleSlideIndexes, manifestPublicTitles } from "../pc-worker/redaction-manifest";
 import { coverSlideBlockedMessage, coverSlideSubstitutionNotice } from "./cover-slide";
+import {
+  APPROVED_16X9_BODY_TEMPLATE_LIST,
+  APPROVED_16X9_TEMPLATE_SUITE_ID,
+  APPROVED_16X9_TEMPLATE_VERSION,
+} from "./approved-16x9-templates.ts";
 import { sanitizeGeneratedHtml, sanitizeInlineHtml } from "../security/html";
 import {
   isCompletePortfolioSourceDownload,
@@ -159,6 +164,19 @@ function portfolioMockupMetadata(input: {
   redactionSummary?: { slideIndex: number; entries: RedactionSummaryEntry[] }[];
 }) {
   const bodyAssets = input.assets.filter((asset) => asset.kind === "body_image");
+  const approvedBodyTemplateIds = new Set<string>(
+    APPROVED_16X9_BODY_TEMPLATE_LIST.map((template) => template.id),
+  );
+  const renderedBodyTemplateIds = new Set(
+    bodyAssets.map((asset) => asset.mockupTemplateId).filter((value): value is string => Boolean(value)),
+  );
+  const approvedTemplateSet = bodyAssets.length === APPROVED_16X9_BODY_TEMPLATE_LIST.length
+    && renderedBodyTemplateIds.size === approvedBodyTemplateIds.size
+    && bodyAssets.every((asset) => (
+      asset.mockupTemplateVersion === APPROVED_16X9_TEMPLATE_VERSION
+      && typeof asset.mockupTemplateId === "string"
+      && approvedBodyTemplateIds.has(asset.mockupTemplateId)
+    ));
   const selectedSlideIndexes = [...new Set(bodyAssets.flatMap((asset) => asset.slideIndexes))];
   const selected = new Set(selectedSlideIndexes);
   const selectionReasons = (input.review.selection?.selectedSlides || [])
@@ -169,6 +187,10 @@ function portfolioMockupMetadata(input: {
     mode: input.assets[0]?.mockupMode || (bodyAssets.length === 4 ? "short_psd" : "six_grid"),
     bodyBoardCount: bodyAssets.length,
     aspectClass: input.assets[0]?.aspectClass || "unknown",
+    ...(approvedTemplateSet ? {
+      templateSetId: APPROVED_16X9_TEMPLATE_SUITE_ID,
+      templateVersion: APPROVED_16X9_TEMPLATE_VERSION,
+    } : {}),
     selectedSlideIndexes,
     selectionReasons,
     redactionRegionCount: input.verification.regionCount,
@@ -992,6 +1014,11 @@ export async function processNextPortfolioMockup(
     const cachedAssets = Array.isArray(result.portfolioAssetsProgress)
       ? result.portfolioAssetsProgress.filter(isGeneratedPortfolioAsset)
       : [];
+    const cachedShortTemplateCurrent = cachedAssets.every((asset) => (
+      asset.mockupMode !== "short_psd"
+      || (result.mockupTemplateVersion === APPROVED_16X9_TEMPLATE_VERSION
+        && asset.mockupTemplateVersion === APPROVED_16X9_TEMPLATE_VERSION)
+    ));
     const cachedRenderedIndexes = renderedPortfolioSlideIndexes(cachedAssets);
     let redactionProof = cachedRenderedIndexes && isVerifiedPortfolioRedactionProof(
       result.redactionProof,
@@ -999,7 +1026,9 @@ export async function processNextPortfolioMockup(
       cachedRenderedIndexes,
       localManifest,
     ) ? result.redactionProof as PortfolioRedactionProof : null;
-    let assets = cachedAssets.length >= 4 && redactionProof ? cachedAssets : [];
+    let assets = cachedAssets.length >= 4 && redactionProof && cachedShortTemplateCurrent
+      ? cachedAssets
+      : [];
     // 가림 근거는 목업을 새로 만들 때만 채워집니다. 캐시를 쓰면 비어 있습니다.
     let redactionSummary: { slideIndex: number; entries: RedactionSummaryEntry[] }[] = [];
     if (!assets.length || !redactionProof) {
@@ -1050,6 +1079,7 @@ export async function processNextPortfolioMockup(
       });
       result = { ...result,
         portfolioAssetsProgress: assets,
+        mockupTemplateVersion: APPROVED_16X9_TEMPLATE_VERSION,
         redactionProof,
         portfolioAssetsCompletedAt: new Date().toISOString(),
       };
@@ -1137,6 +1167,7 @@ export async function processNextPortfolioMockup(
         portfolioGenerationId: generationId,
         visualReview: review,
         assets,
+        mockupTemplateVersion: APPROVED_16X9_TEMPLATE_VERSION,
         redactionMode: "confidential",
         confidentialRegions,
         redactionProof,
@@ -3118,6 +3149,7 @@ const PORTFOLIO_MOCKUP_CHECKPOINT_FIELDS = [
   "redactionProof",
   "redactionSlideProofProgress",
   "portfolioAssetsProgress",
+  "mockupTemplateVersion",
 ] as const;
 
 function preservedMockupCheckpoint(

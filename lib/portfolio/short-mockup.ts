@@ -2,6 +2,12 @@ import sharp from "sharp";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { createHash } from "node:crypto";
+import {
+  APPROVED_16X9_BODY_TEMPLATE_LIST,
+  APPROVED_16X9_TEMPLATE_VERSION,
+  resolveApprovedMockupSlots,
+} from "./approved-16x9-templates.ts";
+import { renderApproved16x9Mockup } from "./approved-16x9-renderer.ts";
 
 type SharpOverlay = Parameters<ReturnType<typeof sharp>["composite"]>[0][number];
 
@@ -33,6 +39,9 @@ export type ShortMockupBoard = {
   slideAspectRatio: number;
   width: number;
   height: number;
+  mockupTemplateId?: string;
+  mockupTemplateVersion?: string;
+  slotAssignments?: Array<{ slotId: string; slideIndex: number }>;
 };
 
 export type ShortMockupResult = {
@@ -812,11 +821,57 @@ function splitSlidesAcrossBoards(
   });
 }
 
+/**
+ * Fills the approved 16:9 slots like reusable smart objects.
+ *
+ * A board never receives the same slide twice. Across boards we walk one
+ * continuous ring, so every selected slide is used before the least-used
+ * slides are reused. This keeps the 7/7/4/9 approved layouts full whenever
+ * possible without hiding which source slide was placed in each slot.
+ */
+function approved16x9SlidesAcrossBoards(slides: PreparedSlide[]) {
+  let cursor = 0;
+  return APPROVED_16X9_BODY_TEMPLATE_LIST.map((template) => {
+    const capacity = resolveApprovedMockupSlots(template).length;
+    const count = Math.min(capacity, slides.length);
+    const group = Array.from({ length: count }, () => {
+      const slide = slides[cursor % slides.length];
+      cursor += 1;
+      return slide;
+    });
+    return group;
+  });
+}
+
 async function renderBoard(
   slides: PreparedSlide[],
   boardIndex: number,
   aspectClass: SupportedShortMockupAspectClass,
 ): Promise<ShortMockupBoard> {
+  if (aspectClass === "16:9") {
+    const template = APPROVED_16X9_BODY_TEMPLATE_LIST[boardIndex];
+    if (!template) throw new Error(`승인된 16:9 본문 목업 ${boardIndex + 1}번을 찾지 못했습니다.`);
+    const rendered = await renderApproved16x9Mockup({
+      template,
+      slides: slides.map((slide) => ({ index: slide.index, buffer: slide.buffer })),
+    });
+    return {
+      kind: "body_image",
+      name: BOARD_NAMES[boardIndex],
+      bytes: rendered.bytes,
+      caption: BOARD_CAPTIONS[boardIndex],
+      slideIndexes: rendered.slotAssignments.map((assignment) => assignment.sourceSlideIndex),
+      slideAspectRatio: median(slides.map((slide) => slide.aspectRatio)),
+      width: rendered.width,
+      height: rendered.height,
+      mockupTemplateId: rendered.templateId,
+      mockupTemplateVersion: rendered.templateVersion,
+      slotAssignments: rendered.slotAssignments.map((assignment) => ({
+        slotId: assignment.slotId,
+        slideIndex: assignment.sourceSlideIndex,
+      })),
+    };
+  }
   const canvas = boardIndex === 0 ? MAIN_CANVAS : DETAIL_CANVAS;
   if (psdTemplateAspect(aspectClass)) {
     const bytes = boardIndex === 0
@@ -831,6 +886,12 @@ async function renderBoard(
       slideAspectRatio: median(slides.map((slide) => slide.aspectRatio)),
       width: canvas.width,
       height: canvas.height,
+      mockupTemplateId: `legacy-${aspectClass}-${BOARD_NAMES[boardIndex]}`,
+      mockupTemplateVersion: APPROVED_16X9_TEMPLATE_VERSION,
+      slotAssignments: slides.map((slide, index) => ({
+        slotId: `legacy-slot-${index + 1}`,
+        slideIndex: slide.index,
+      })),
     };
   }
   const slots = boardIndex === 0
@@ -869,6 +930,12 @@ async function renderBoard(
     slideAspectRatio: median(slides.map((slide) => slide.aspectRatio)),
     width: canvas.width,
     height: canvas.height,
+    mockupTemplateId: `legacy-${aspectClass}-${BOARD_NAMES[boardIndex]}`,
+    mockupTemplateVersion: APPROVED_16X9_TEMPLATE_VERSION,
+    slotAssignments: slides.map((slide, index) => ({
+      slotId: `legacy-slot-${index + 1}`,
+      slideIndex: slide.index,
+    })),
   };
 }
 
@@ -877,9 +944,10 @@ async function renderBoard(
  *
  * The input buffers must already have confidential text and images blurred.
  * This module intentionally has no Photoshop runtime dependency. The supplied
- * 16:9 and 4:3 PSD backgrounds, shadows, and paper frames are pre-rendered as
- * fixed assets; A4 pages use the matching light-background layout. Every slide
- * is resized with `contain`, so its contents are never stretched or cropped.
+ * The approved 16:9 suite locks coordinates, angles, shadows, logo and layer
+ * order while swapping only slide buffers. The existing 4:3 and A4 layouts stay
+ * unchanged. Every slide is resized with `contain`, so its contents are never
+ * stretched or cropped.
  */
 export async function renderShortDocumentMockups(input: {
   deckSlideCount: number;
@@ -903,12 +971,13 @@ export async function renderShortDocumentMockups(input: {
     throw new Error("선택한 장표 인덱스가 전체 문서 장수를 벗어났습니다.");
   }
   const prepared = await Promise.all(selected.map(prepareSlide));
-  const groups = splitSlidesAcrossBoards(prepared, input.aspectClass);
-  const boards = await Promise.all(groups.map((group, boardIndex) => renderBoard(
-    group,
-    boardIndex,
-    input.aspectClass,
-  )));
+  const groups = input.aspectClass === "16:9"
+    ? approved16x9SlidesAcrossBoards(prepared)
+    : splitSlidesAcrossBoards(prepared, input.aspectClass);
+  const boards: ShortMockupBoard[] = [];
+  for (const [boardIndex, group] of groups.entries()) {
+    boards.push(await renderBoard(group, boardIndex, input.aspectClass));
+  }
   return {
     mode: "short_psd",
     aspectClass: input.aspectClass,

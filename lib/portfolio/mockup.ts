@@ -16,6 +16,11 @@ import {
   renderShortDocumentMockups,
   type SupportedShortMockupAspectClass,
 } from "./short-mockup";
+import {
+  APPROVED_16X9_TEMPLATES,
+  APPROVED_16X9_TEMPLATE_VERSION,
+} from "./approved-16x9-templates.ts";
+import { renderApproved16x9Mockup } from "./approved-16x9-renderer.ts";
 import { multiPageGridDimensions } from "./grid-layout";
 import {
   findDuplicatePortfolioImage,
@@ -70,6 +75,9 @@ export type GeneratedPortfolioAsset = {
   slideAspectRatio: number;
   mockupMode?: "short_psd" | "six_grid";
   aspectClass?: SlideAspect | "mixed";
+  mockupTemplateId?: string;
+  mockupTemplateVersion?: string;
+  slotAssignments?: Array<{ slotId: string; slideIndex: number }>;
 };
 
 export const PORTFOLIO_REDACTION_SELECTION_ERROR_CODE = "PORTFOLIO_REDACTION_SELECTION_BLOCKED";
@@ -620,6 +628,25 @@ function assertVisuallyUniqueSlides(slides: LoadedSlide[]) {
   throw new Error(`같은 장표 이미지가 ${slides[duplicate.duplicatePosition].index + 1}번과 ${slides[duplicate.position].index + 1}번에 중복되어 목업 제작을 중단했습니다.`);
 }
 
+function approvedSlidesWithCover(
+  cover: LoadedSlide,
+  ranked: LoadedSlide[],
+  limit: number,
+) {
+  const indexes = new Set<number>();
+  const contentHashes = new Set<string>();
+  const visualHashes = new Set<string>();
+  return [cover, ...ranked].filter((slide) => {
+    if (indexes.has(slide.index)
+      || contentHashes.has(slide.contentHash)
+      || visualHashes.has(slide.visualHash)) return false;
+    indexes.add(slide.index);
+    contentHashes.add(slide.contentHash);
+    visualHashes.add(slide.visualHash);
+    return true;
+  }).slice(0, limit);
+}
+
 async function multiPageBoard(slides: LoadedSlide[], variant: number) {
   const selected = slides.slice(0, 6);
   const dimensions = multiPageGridDimensions(
@@ -882,7 +909,10 @@ export async function createPortfolioMockups(input: {
       .map((index) => slideMap.get(index))
       .filter((slide): slide is LoadedSlide => Boolean(slide))
     : selectedSlides;
-  assertVisuallyUniqueSlides(plan.mode === "short" ? rankedShortSlides : selectedSlides);
+  const shortSlidesForRenderer = plan.mode === "short" && aspect.primary === "16:9"
+    ? approvedSlidesWithCover(thumbnailSlide, rankedShortSlides, 14)
+    : rankedShortSlides;
+  assertVisuallyUniqueSlides(plan.mode === "short" ? shortSlidesForRenderer : selectedSlides);
   const captions = [
     "문서 도입부의 구성과 첫인상을 한눈에 보여주는 다중 페이지 목업",
     "초반부 정보 구조와 레이아웃의 반복 원칙을 비교하는 다중 페이지 목업",
@@ -899,7 +929,7 @@ export async function createPortfolioMockups(input: {
       const result = await renderShortDocumentMockups({
         deckSlideCount: input.slidePaths.length,
         aspectClass: aspect.primary,
-        slides: rankedShortSlides.map((slide) => ({ index: slide.index, buffer: slide.buffer })),
+        slides: shortSlidesForRenderer.map((slide) => ({ index: slide.index, buffer: slide.buffer })),
       });
       return result.boards.map((board) => ({
         ...board,
@@ -918,20 +948,50 @@ export async function createPortfolioMockups(input: {
       aspectClass: aspect.aspectClass,
     })));
   console.info(`[portfolio-mockup] rendered ${bodyOutputs.length} body board(s)`);
-  const outputs = [
-    {
+  const coverTitle = privacySafeThumbnailTitle(input.review, input.coverTitle);
+  const approvedThumbnail = plan.mode === "short" && aspect.primary === "16:9"
+    ? await renderApproved16x9Mockup({
+      template: APPROVED_16X9_TEMPLATES["thumbnail-1"],
+      slides: approvedSlidesWithCover(thumbnailSlide, rankedShortSlides, 7)
+        .map((slide) => ({ index: slide.index, buffer: slide.buffer })),
+      title: coverTitle,
+    })
+    : null;
+  const thumbnailOutput = approvedThumbnail
+    ? {
       kind: "thumbnail" as const,
       name: "thumbnail.jpg",
-      bytes: await thumbnail(
-        thumbnailSlide,
-        privacySafeThumbnailTitle(input.review, input.coverTitle),
-      ),
+      bytes: approvedThumbnail.bytes,
+      caption: "문서의 여러 구간을 한 화면에 보여주는 포트폴리오 대표 이미지",
+      slideIndexes: approvedThumbnail.slotAssignments
+        .map((assignment) => assignment.sourceSlideIndex),
+      slideAspectRatio: thumbnailSlide.aspectRatio,
+      mockupMode: "short_psd" as const,
+      aspectClass: aspect.aspectClass,
+      mockupTemplateId: approvedThumbnail.templateId,
+      mockupTemplateVersion: approvedThumbnail.templateVersion,
+      slotAssignments: approvedThumbnail.slotAssignments.map((assignment) => ({
+        slotId: assignment.slotId,
+        slideIndex: assignment.sourceSlideIndex,
+      })),
+    }
+    : {
+      kind: "thumbnail" as const,
+      name: "thumbnail.jpg",
+      bytes: await thumbnail(thumbnailSlide, coverTitle),
       caption: "문서의 여러 구간을 한 화면에 보여주는 포트폴리오 대표 이미지",
       slideIndexes: [thumbnailSlide.index],
       slideAspectRatio: thumbnailSlide.aspectRatio,
       mockupMode: plan.mode === "short" ? "short_psd" as const : "six_grid" as const,
       aspectClass: aspect.aspectClass,
-    },
+      ...(plan.mode === "short" ? {
+        mockupTemplateId: "legacy-thumbnail",
+        mockupTemplateVersion: APPROVED_16X9_TEMPLATE_VERSION,
+        slotAssignments: [{ slotId: "legacy-cover", slideIndex: thumbnailSlide.index }],
+      } : {}),
+    };
+  const outputs = [
+    thumbnailOutput,
     ...bodyOutputs,
   ];
 
@@ -951,6 +1011,11 @@ export async function createPortfolioMockups(input: {
       slideAspectRatio: output.slideAspectRatio,
       mockupMode: output.mockupMode,
       aspectClass: output.aspectClass,
+      mockupTemplateId: "mockupTemplateId" in output ? output.mockupTemplateId : undefined,
+      mockupTemplateVersion: "mockupTemplateVersion" in output
+        ? output.mockupTemplateVersion
+        : undefined,
+      slotAssignments: "slotAssignments" in output ? output.slotAssignments : undefined,
     });
   }
   return assets;
