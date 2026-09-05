@@ -6,13 +6,8 @@ import {
   PARTNER_VISIBLE_STATUSES,
   isPartnerChannel,
   isPartnerVisibleStatus,
-  partnerEditorialPublicationIssues,
 } from "@/lib/partner-portal";
 import { validateNaverPublication } from "@/lib/publication";
-import {
-  validatePortfolioPublicationMetadata,
-  validatePortfolioSourceState,
-} from "@/lib/content-ops/portfolio-rules";
 
 export const dynamic = "force-dynamic";
 
@@ -49,60 +44,8 @@ export async function PATCH(
     return apiError(404, "NOT_FOUND", "처리할 수 없는 작업입니다.");
   }
 
-  if (item.format === "portfolio") {
-    const [mockupJobQuery, conversionJobQuery, draftJobQuery] = await Promise.all([
-      admin.from("content_jobs")
-        .select("status,result")
-        .eq("work_item_id", item.id)
-        .eq("job_type", "mockup")
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle(),
-      admin.from("content_jobs")
-        .select("status,result,updated_at")
-        .eq("work_item_id", item.id)
-        .eq("job_type", "convert")
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle(),
-      admin.from("content_jobs")
-        .select("status,result")
-        .eq("work_item_id", item.id)
-        .eq("job_type", "draft")
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle(),
-    ]);
-    if (mockupJobQuery.error || conversionJobQuery.error || draftJobQuery.error) {
-      return apiError(500, "INTERNAL_ERROR", "최신 목업 작업 상태를 확인하지 못했습니다.", {
-        retryable: true,
-      });
-    }
-    const issues = [
-      ...validatePortfolioPublicationMetadata(item.metadata),
-      ...validatePortfolioSourceState(
-        item.metadata,
-        mockupJobQuery.data,
-        conversionJobQuery.data,
-        draftJobQuery.data,
-      ),
-    ];
-    if (issues.length) {
-      return apiError(409, "PORTFOLIO_REVIEW_REQUIRED", "포트폴리오 기밀·본문 검수가 완료되지 않았습니다.", {
-        nextAction: "관리자 화면에서 목업 재생성과 기밀 검수를 완료해 주세요.",
-        details: { issues },
-      });
-    }
-  }
-
-  const editorialIssues = partnerEditorialPublicationIssues(item);
-  if (editorialIssues.length) {
-    return apiError(409, "EDITORIAL_REVIEW_REQUIRED", "본문 문체·FAQ·출처 규칙 검수가 완료되지 않았습니다.", {
-      nextAction: "관리자 화면에서 포스팅 대기 원고 다듬기를 실행한 뒤 다시 승인해 주세요.",
-      details: { issues: editorialIssues },
-    });
-  }
-
+  // 외주 작업실의 완료 등록은 이미 네이버에 공개된 글의 주소를 기록하는 단계입니다.
+  // 원고·목업 검수 상태는 완료 등록을 막지 않고, 관리자가 등록된 링크에서 따로 확인합니다.
   const validation = validateNaverPublication({
     channel: item.channel,
     publishedUrl: (body as { publishedUrl?: unknown }).publishedUrl,
