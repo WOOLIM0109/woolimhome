@@ -64,6 +64,16 @@ type PartnerVisibilityInput = {
   } | null;
 };
 
+/**
+ * 외주 작업실에서 발행 완료를 등록할 때 적용할 문체 검사입니다.
+ * 관리자가 "이 상태 그대로 외주 작업실에 전달"을 선택했다면 그 결정은
+ * 발행 완료 등록에서도 동일하게 존중해야 합니다.
+ */
+export function partnerEditorialPublicationIssues(item: Pick<PartnerVisibilityInput, "format" | "metadata">) {
+  if (item.metadata?.partnerReleaseOverride?.approvedAt) return [];
+  return editorialPublicationIssues(item.format, item.metadata?.generated);
+}
+
 export function partnerVisibilityBlockers(item: PartnerVisibilityInput): PartnerVisibilityBlocker[] {
   const blockers: PartnerVisibilityBlocker[] = [];
 
@@ -94,7 +104,7 @@ export function partnerVisibilityBlockers(item: PartnerVisibilityInput): Partner
     }
   }
 
-  for (const issue of editorialPublicationIssues(item.format, item.metadata?.generated)) {
+  for (const issue of partnerEditorialPublicationIssues(item)) {
     blockers.push({ code: "editorial", message: issue });
   }
 

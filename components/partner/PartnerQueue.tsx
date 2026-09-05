@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Check,
   CheckCircle2,
@@ -149,7 +149,10 @@ export default function PartnerQueue({ onUnauthorized }: { onUnauthorized: () =>
   const [error, setError] = useState("");
   const [copied, setCopied] = useState("");
   const [publishedUrls, setPublishedUrls] = useState<Record<string, string>>({});
+  const [publishErrors, setPublishErrors] = useState<Record<string, string>>({});
+  const [publishNotice, setPublishNotice] = useState("");
   const [savingId, setSavingId] = useState("");
+  const statusNavRef = useRef<HTMLElement>(null);
 
   const selectedChannel = useMemo(
     () => CHANNELS.find((item) => item.value === channel) || CHANNELS[0],
@@ -248,12 +251,17 @@ export default function PartnerQueue({ onUnauthorized }: { onUnauthorized: () =>
   async function markPublished(item: PartnerItem) {
     const publishedUrl = publishedUrls[item.id]?.trim();
     if (!publishedUrl) {
-      setError("발행한 네이버 블로그 글 주소를 먼저 입력해 주세요.");
+      setPublishErrors((current) => ({
+        ...current,
+        [item.id]: "발행한 네이버 블로그 글 주소를 먼저 입력해 주세요.",
+      }));
       return;
     }
 
     setSavingId(item.id);
     setError("");
+    setPublishNotice("");
+    setPublishErrors((current) => ({ ...current, [item.id]: "" }));
     try {
       const response = await fetch(`/api/partner/content/${item.id}`, {
         method: "PATCH",
@@ -273,8 +281,16 @@ export default function PartnerQueue({ onUnauthorized }: { onUnauthorized: () =>
         );
       }
       await load();
+      setStatusView("published");
+      setPublishNotice(`‘${item.title}’ 글을 발행 완료로 옮겼습니다.`);
+      window.requestAnimationFrame(() => {
+        statusNavRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      });
     } catch (saveError) {
-      setError(saveError instanceof Error ? saveError.message : "발행 완료 상태를 저장하지 못했습니다.");
+      setPublishErrors((current) => ({
+        ...current,
+        [item.id]: saveError instanceof Error ? saveError.message : "발행 완료 상태를 저장하지 못했습니다.",
+      }));
     } finally {
       setSavingId("");
     }
@@ -292,6 +308,8 @@ export default function PartnerQueue({ onUnauthorized }: { onUnauthorized: () =>
               onClick={() => {
                 setStatusView("pending");
                 setItems([]);
+                setPublishErrors({});
+                setPublishNotice("");
                 setChannel(item.value);
               }}
               className={`rounded-2xl border p-5 text-left transition ${
@@ -346,6 +364,7 @@ export default function PartnerQueue({ onUnauthorized }: { onUnauthorized: () =>
       </div>
 
       <nav
+        ref={statusNavRef}
         className="mt-5 inline-flex w-full rounded-2xl border border-[var(--line)] bg-stone-100 p-1 sm:w-auto"
         aria-label="작업 상태 선택"
       >
@@ -374,6 +393,12 @@ export default function PartnerQueue({ onUnauthorized }: { onUnauthorized: () =>
           <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-xs text-emerald-700">{publishedItems.length}</span>
         </button>
       </nav>
+
+      {publishNotice && (
+        <div className="mt-5 rounded-2xl border border-emerald-200 bg-emerald-50 p-5 text-sm font-bold leading-6 text-emerald-800" role="status">
+          {publishNotice}
+        </div>
+      )}
 
       {error && (
         <div className="mt-5 rounded-2xl border border-red-200 bg-red-50 p-5 text-sm font-bold leading-6 text-red-700">
@@ -542,7 +567,10 @@ export default function PartnerQueue({ onUnauthorized }: { onUnauthorized: () =>
                       <input
                         type="url"
                         value={publishedUrls[item.id] || ""}
-                        onChange={(event) => setPublishedUrls((current) => ({ ...current, [item.id]: event.target.value }))}
+                        onChange={(event) => {
+                          setPublishedUrls((current) => ({ ...current, [item.id]: event.target.value }));
+                          setPublishErrors((current) => ({ ...current, [item.id]: "" }));
+                        }}
                         placeholder="https://blog.naver.com/..."
                         disabled={isPublished}
                         className="min-w-0 flex-1 rounded-xl border border-emerald-200 bg-white px-4 py-3 text-sm outline-none focus:border-emerald-500 disabled:bg-stone-50"
@@ -571,6 +599,11 @@ export default function PartnerQueue({ onUnauthorized }: { onUnauthorized: () =>
                         </button>
                       )}
                     </div>
+                    {publishErrors[item.id] && (
+                      <p className="mt-3 rounded-xl border border-red-200 bg-red-50 p-3 text-xs font-bold leading-5 text-red-700" role="alert">
+                        {publishErrors[item.id]}
+                      </p>
+                    )}
                     {isPublished && item.publishedAt && (
                       <p className="mt-3 text-xs font-bold text-emerald-800">완료 등록: {formatDate(item.publishedAt)}</p>
                     )}
