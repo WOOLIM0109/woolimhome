@@ -345,13 +345,21 @@ const PURGERS: Record<string, Purger> = {
     return { rows, remaining: (candidates || []).length >= ROW_LOOP_BATCH };
   },
 
-  /** 끝난 작업 기록. 진행 중이거나 재시도를 기다리는 작업은 건드리지 않습니다. */
+  /**
+   * 발행까지 끝난 작업의 완료·실패 기록.
+   *
+   * 검토 중인 포트폴리오는 오래된 변환 기록도 승인 검증과 재빌드에 씁니다.
+   * 작업 기록 자체가 오래됐다는 이유만으로 지우지 않고, 연결된 원고의 발행
+   * 시각까지 기준일을 지난 경우에만 정리합니다.
+   */
   finished_content_jobs: async (admin, cutoff) => {
     const { ids, remaining } = await idsToPurge(
       admin.from("content_jobs")
-        .select("id")
+        .select("id,content_work_items!inner(id)")
         .in("status", ["completed", "failed"])
         .lt("updated_at", cutoff)
+        .eq("content_work_items.status", "published")
+        .lt("content_work_items.published_at", cutoff)
         .limit(ROW_BATCH),
     );
     return { rows: await deleteByIds(admin, "content_jobs", ids), remaining };

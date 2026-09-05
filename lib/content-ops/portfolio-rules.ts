@@ -273,12 +273,32 @@ export function validatePortfolioSourceState(
   const conversionUpdatedAt = typeof conversionJob?.updated_at === "string"
     ? conversionJob.updated_at
     : "";
-  const normalizedLocalManifest = conversionSlidePaths.length
+  const normalizedConversionManifest = conversionSlidePaths.length
     ? parseLocalRedactionManifest(
       conversionResult.localRedactionManifest,
       conversionSlidePaths.length,
     )
     : null;
+  /**
+   * 완료된 작업 기록은 보존 정책에 따라 지워질 수 있습니다.
+   *
+   * 변환 기록이 아예 사라진 경우에만, 완료된 목업 결과에 함께 보존해 둔
+   * manifest v2를 검증 증거로 사용합니다. 변환 기록이 실패·대기 상태로
+   * 남아 있으면 실제 파이프라인 문제이므로 이 우회로를 사용하지 않습니다.
+   * 아래의 fingerprint·규칙 버전·디자인 세대·proof 일치 검사도 모두 그대로
+   * 통과해야 하므로, manifest 하나만 있다고 승인되지는 않습니다.
+   */
+  const retainedManifestValue = result.localRedactionManifest;
+  const retainedManifestSlideCount = retainedManifestValue
+    && typeof retainedManifestValue === "object"
+    && !Array.isArray(retainedManifestValue)
+    && Number.isInteger((retainedManifestValue as Record<string, unknown>).slideCount)
+    ? Number((retainedManifestValue as Record<string, unknown>).slideCount)
+    : 0;
+  const retainedLocalManifest = !conversionJob && retainedManifestSlideCount
+    ? parseLocalRedactionManifest(retainedManifestValue, retainedManifestSlideCount)
+    : null;
+  const normalizedLocalManifest = normalizedConversionManifest || retainedLocalManifest;
   const currentSourceFingerprint = conversionBucket && conversionSlidePaths.length && conversionUpdatedAt
     ? createPortfolioSourceFingerprint({
       bucket: conversionBucket,
@@ -339,10 +359,11 @@ export function validatePortfolioSourceState(
   if (!metadataFingerprint || !jobFingerprint || metadataFingerprint !== jobFingerprint) {
     issues.push("현재 원본과 완료된 목업의 버전이 일치하지 않습니다.");
   }
-  if (!conversionJob || conversionJob.status !== "completed") {
+  if ((!conversionJob && !retainedLocalManifest)
+    || (conversionJob && conversionJob.status !== "completed")) {
     issues.push("최신 원본 변환 작업이 완료 상태가 아닙니다.");
   }
-  if (!currentSourceFingerprint || currentSourceFingerprint !== jobFingerprint) {
+  if (conversionJob && (!currentSourceFingerprint || currentSourceFingerprint !== jobFingerprint)) {
     issues.push("현재 변환된 원본과 완료된 목업의 버전이 일치하지 않습니다.");
   }
   const draftResult = draftJob?.result && typeof draftJob.result === "object"

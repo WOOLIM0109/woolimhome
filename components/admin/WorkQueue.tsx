@@ -1,14 +1,19 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import { RotateCcw, Sparkles, Trash2, Upload } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { ChevronDown, RotateCcw, Search, Sparkles, Trash2, Upload } from "lucide-react";
 import StatusBadge from "./StatusBadge";
 import type { ContentChannel, WorkflowStatus } from "@/lib/content-ops/types";
 import { faqAnswerHtml, faqQuestionHtml } from "@/lib/content-ops/editorial-style";
 import { formatSentenceLineBreaks } from "@/lib/content-ops/sentence-line-breaks";
 import { readJsonResponse } from "@/lib/http/read-json";
 import { actorLabel, statusHistoryOf } from "@/lib/content-ops/status-history";
-import { STATUS_LABELS } from "@/lib/content-ops/config";
+import { CHANNELS, STATUS_LABELS } from "@/lib/content-ops/config";
+import {
+  filterWorkQueueItems,
+  isChannelWorkspaceItem,
+  isReviewQueueItem,
+} from "@/lib/content-ops/work-queue-view";
 import {
   PRIVATE_PORTFOLIO_SOURCE_NOTE,
   sourceSectionHtml,
@@ -60,6 +65,7 @@ type WorkItem = {
   format: string;
   status: WorkflowStatus;
   source_label: string | null;
+  source_reference?: string | null;
   scheduled_at: string | null;
   review_note: string | null;
   metadata?: {
@@ -160,6 +166,14 @@ const aspectClassLabels: Record<PortfolioAspectClass, string> = {
   a4_portrait: "A4 세로",
   mixed: "혼합 규격",
   unknown: "규격 확인 필요",
+};
+
+const formatLabels: Record<string, string> = {
+  column: "칼럼",
+  informational: "정보형",
+  authority: "울림 콘텐츠형",
+  portfolio: "포트폴리오",
+  design_insight: "기획·디자인",
 };
 
 function isMockupMode(value: unknown): value is PortfolioMockupMode {
@@ -490,6 +504,12 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
   const [sourceLinks, setSourceLinks] = useState<Record<string, string>>({});
   const [rewritingStyle, setRewritingStyle] = useState(false);
   const [styleResult, setStyleResult] = useState("");
+  // 목록은 게시판처럼 먼저 훑을 수 있도록 전부 접힌 상태에서 시작합니다.
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(() => new Set());
+  const [searchQuery, setSearchQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [formatFilter, setFormatFilter] = useState("all");
+  const [channelFilter, setChannelFilter] = useState("all");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -497,6 +517,7 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
     const params = new URLSearchParams();
     if (channel) params.set("channel", channel);
     if (reviewMode) params.set("reviewMode", "1");
+    else if (channel) params.set("workspaceMode", "1");
     const query = params.toString();
     const response = await fetch(`/api/admin/content${query ? `?${query}` : ""}`, { cache: "no-store" });
     const data = await response.json();
@@ -506,11 +527,10 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
         (item: WorkItem) => !item.review_note?.startsWith("generation-cancelled:"),
       );
       const next: WorkItem[] = reviewMode
-        // 목업 이미지까지 끝난 포트폴리오는 본문 대기 상태(on_hold)로 남습니다.
-        // 이 항목을 빼면 이미지가 이미 만들어졌는데도 검토 화면에 아무것도 보이지 않습니다.
-        ? activeItems.filter((item: WorkItem) => item.status === "review_required"
-          || (item.status === "on_hold" && item.metadata?.portfolioStage === "design_completed"))
-        : activeItems;
+        ? activeItems.filter(isReviewQueueItem)
+        : channel
+          ? activeItems.filter(isChannelWorkspaceItem)
+          : activeItems;
       const displayItems = next.map((item) => {
         const generated = item.metadata?.generated;
         if (!generated) return item;
@@ -551,6 +571,9 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
         return String(left.scheduled_at || "").localeCompare(String(right.scheduled_at || ""));
       });
       setItems(sortedItems);
+      setExpandedIds((current) => new Set(
+        [...current].filter((id) => sortedItems.some((item) => item.id === id)),
+      ));
       setNotes(Object.fromEntries(sortedItems.map((item) => [item.id, item.review_note || ""])));
       setError("");
     }
@@ -588,6 +611,7 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
         // 문체 규칙 때문에 막힌 경우에는 그대로 승인할 방법을 함께 보여 줍니다.
         if (data.details?.canOverride && Array.isArray(data.details?.issues)) {
           setEditorialBlocked({ id, issues: data.details.issues });
+          setExpandedIds((current) => new Set(current).add(id));
         }
         return;
       }
@@ -1014,6 +1038,36 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
     }
   }
 
+  const filteredItems = useMemo(() => filterWorkQueueItems(items, {
+    query: searchQuery,
+    status: statusFilter,
+    format: formatFilter,
+    channel: channelFilter,
+  }), [channelFilter, formatFilter, items, searchQuery, statusFilter]);
+  const availableStatuses = useMemo(() => Object.entries(STATUS_LABELS)
+    .filter(([value]) => items.some((item) => item.status === value)), [items]);
+  const availableFormats = useMemo(() => [...new Set(items.map((item) => item.format))], [items]);
+  const hasActiveFilters = Boolean(searchQuery.trim())
+    || statusFilter !== "all"
+    || formatFilter !== "all"
+    || channelFilter !== "all";
+
+  function toggleExpanded(id: string) {
+    setExpandedIds((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function resetFilters() {
+    setSearchQuery("");
+    setStatusFilter("all");
+    setFormatFilter("all");
+    setChannelFilter("all");
+  }
+
   if (loading) return <p className="mt-6 text-sm text-[var(--muted)]">작업 목록을 불러오고 있습니다.</p>;
   if (!items.length) return <p className="mt-6 rounded-xl border border-dashed border-[var(--line)] bg-white p-7 text-center text-sm text-[var(--muted)]">현재 대기 중인 작업이 없습니다.</p>;
 
@@ -1044,55 +1098,154 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
           {error}
         </p>
       )}
-      {editorialBlocked && (
-        <section className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm leading-6 text-amber-950" role="alert">
-          <p className="font-bold">문체 규칙에 걸려 승인이 막혔습니다</p>
-          <ul className="mt-2 list-disc space-y-1 pl-5">
-            {editorialBlocked.issues.map((issue) => <li key={issue}>{issue}</li>)}
-          </ul>
-          <p className="mt-2 text-xs opacity-80">
-            내용에 문제가 없다고 판단하셨다면 이대로 승인할 수 있습니다.
-            기밀 가림과 발행 검증은 그대로 지켜집니다. 누가 넘겼는지는 기록에 남습니다.
-          </p>
-          <div className="mt-3 flex flex-wrap gap-2">
-            <button
-              onClick={() => void update(editorialBlocked.id, {
-                status: "approved",
-                overrideEditorial: true,
-              })}
-              className="rounded-xl bg-amber-950 px-4 py-2 text-xs font-bold text-white hover:bg-amber-900"
-            >
-              규칙 넘기고 이대로 승인
-            </button>
-            <button
-              onClick={() => { setEditorialBlocked(null); setError(""); }}
-              className="rounded-xl border border-amber-300 bg-white px-4 py-2 text-xs font-bold text-amber-900 hover:bg-amber-100"
-            >
-              닫기
-            </button>
-          </div>
-        </section>
-      )}
       {notice && (
         <p className="rounded-xl bg-emerald-50 p-4 text-sm font-bold text-emerald-900" role="status">
           {notice}
         </p>
       )}
-      {items.map((item) => (
-        <article key={item.id} className="card p-5">
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-            <div>
-              <p className="text-xs font-bold text-[var(--primary)]">{item.format}</p>
-              <h3 className="mt-1 text-lg font-bold">{item.title}</h3>
-              {item.summary && <p className="mt-2 text-sm leading-6 text-[var(--muted)]">{item.summary}</p>}
-              <p className="mt-2 text-xs text-[var(--muted)]">
-                {item.source_label || "자동 일정"}
-                {item.scheduled_at ? ` · ${new Date(item.scheduled_at).toLocaleString("ko-KR", { timeZone: "Asia/Seoul" })}` : ""}
-              </p>
-              <StatusTimeline metadata={item.metadata} />
-            </div>
+      <section className="rounded-xl border border-[var(--line)] bg-white p-4" aria-label="작업 목록 필터">
+        <div className={`grid gap-3 ${reviewMode && !channel ? "lg:grid-cols-[minmax(260px,1fr)_repeat(3,minmax(140px,auto))]" : "lg:grid-cols-[minmax(260px,1fr)_repeat(2,minmax(140px,auto))]"}`}>
+          <label className="relative block">
+            <span className="sr-only">제목·요약·원본명 검색</span>
+            <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[var(--muted)]" size={17} />
+            <input
+              type="search"
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+              className="input w-full pl-10"
+              placeholder="제목·요약·원본명 검색"
+            />
+          </label>
+          <label>
+            <span className="sr-only">상태 필터</span>
+            <select className="input w-full" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
+              <option value="all">모든 상태</option>
+              {availableStatuses.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+            </select>
+          </label>
+          <label>
+            <span className="sr-only">글 종류 필터</span>
+            <select className="input w-full" value={formatFilter} onChange={(event) => setFormatFilter(event.target.value)}>
+              <option value="all">모든 글 종류</option>
+              {availableFormats.map((value) => <option key={value} value={value}>{formatLabels[value] || value}</option>)}
+            </select>
+          </label>
+          {reviewMode && !channel && (
+            <label>
+              <span className="sr-only">채널 필터</span>
+              <select className="input w-full" value={channelFilter} onChange={(event) => setChannelFilter(event.target.value)}>
+                <option value="all">모든 채널</option>
+                {CHANNELS.map((entry) => <option key={entry.value} value={entry.value}>{entry.shortLabel}</option>)}
+              </select>
+            </label>
+          )}
+        </div>
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-3 border-t border-[var(--line)] pt-3">
+          <p className="text-sm font-bold text-[var(--muted)]" aria-live="polite">
+            전체 {items.length}건 · 현재 {filteredItems.length}건
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {hasActiveFilters && (
+              <button type="button" onClick={resetFilters} className="rounded-lg px-3 py-2 text-xs font-bold text-[var(--muted)] hover:bg-stone-100">
+                필터 초기화
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => setExpandedIds((current) => new Set([...current, ...filteredItems.map((item) => item.id)]))}
+              className="rounded-lg border border-[var(--line)] bg-white px-3 py-2 text-xs font-bold hover:bg-stone-50"
+            >
+              현재 목록 전체 펼치기
+            </button>
+            <button
+              type="button"
+              onClick={() => setExpandedIds((current) => {
+                const next = new Set(current);
+                filteredItems.forEach((item) => next.delete(item.id));
+                return next;
+              })}
+              className="rounded-lg border border-[var(--line)] bg-white px-3 py-2 text-xs font-bold hover:bg-stone-50"
+            >
+              현재 목록 전체 접기
+            </button>
+          </div>
+        </div>
+      </section>
+      {!filteredItems.length && (
+        <p className="rounded-xl border border-dashed border-[var(--line)] bg-white p-7 text-center text-sm text-[var(--muted)]">
+          조건에 맞는 작업이 없습니다.
+        </p>
+      )}
+      {filteredItems.length > 0 && (
+      <div className="space-y-2">
+        <div className="hidden grid-cols-[minmax(105px,0.6fr)_minmax(0,3fr)_minmax(150px,1.2fr)_auto_20px] gap-3 px-5 text-xs font-bold text-[var(--muted)] sm:grid">
+          <span>글 종류</span>
+          <span>제목</span>
+          <span className="text-right">출처·예정일</span>
+          <span>상태</span>
+          <span aria-hidden="true" />
+        </div>
+      {filteredItems.map((item) => {
+        const expanded = expandedIds.has(item.id);
+        const detailsId = `work-item-${item.id}`;
+        return (
+        <article key={item.id} className="card overflow-hidden p-0">
+          <button
+            type="button"
+            aria-expanded={expanded}
+            aria-controls={detailsId}
+            onClick={() => toggleExpanded(item.id)}
+            className="grid w-full items-center gap-3 px-4 py-4 text-left hover:bg-stone-50 sm:grid-cols-[minmax(105px,0.6fr)_minmax(0,3fr)_minmax(150px,1.2fr)_auto_auto] sm:px-5"
+          >
+            <span className="text-xs font-bold text-[var(--primary)]">{formatLabels[item.format] || item.format}</span>
+            <span className="min-w-0">
+              <span className="block truncate font-bold">{item.title}</span>
+              {item.summary && <span className="mt-1 block truncate text-xs text-[var(--muted)]">{item.summary}</span>}
+            </span>
+            <span className="text-xs text-[var(--muted)] sm:text-right">
+              <span className="block truncate">{item.source_label || "자동 일정"}</span>
+              {item.scheduled_at && (
+                <span className="mt-1 block">
+                  {new Date(item.scheduled_at).toLocaleString("ko-KR", { timeZone: "Asia/Seoul" })}
+                </span>
+              )}
+            </span>
             <StatusBadge status={item.status} />
-           </div>
+            <ChevronDown
+              aria-hidden="true"
+              size={20}
+              className={`text-[var(--muted)] transition-transform ${expanded ? "rotate-180" : ""}`}
+            />
+          </button>
+          {expanded && (
+          <div id={detailsId} className="border-t border-[var(--line)] p-5">
+          <StatusTimeline metadata={item.metadata} />
+          {editorialBlocked?.id === item.id && (
+            <section className="mt-5 rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm leading-6 text-amber-950" role="alert">
+              <p className="font-bold">문체 규칙에 걸려 승인이 막혔습니다</p>
+              <ul className="mt-2 list-disc space-y-1 pl-5">
+                {editorialBlocked.issues.map((issue) => <li key={issue}>{issue}</li>)}
+              </ul>
+              <p className="mt-2 text-xs opacity-80">
+                내용에 문제가 없다고 판단하셨다면 이대로 승인할 수 있습니다.
+                기밀 가림과 발행 검증은 그대로 지켜집니다. 누가 넘겼는지는 기록에 남습니다.
+              </p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button
+                  onClick={() => void update(item.id, { status: "approved", overrideEditorial: true })}
+                  className="rounded-xl bg-amber-950 px-4 py-2 text-xs font-bold text-white hover:bg-amber-900"
+                >
+                  규칙 넘기고 이대로 승인
+                </button>
+                <button
+                  onClick={() => { setEditorialBlocked(null); setError(""); }}
+                  className="rounded-xl border border-amber-300 bg-white px-4 py-2 text-xs font-bold text-amber-900 hover:bg-amber-100"
+                >
+                  닫기
+                </button>
+              </div>
+            </section>
+          )}
           {item.status === "published"
             && item.metadata?.partnerHandoff?.forceApproved === true
             && item.metadata.partnerHandoff.forceApprovalMemo && (
@@ -1741,8 +1894,13 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
               </button>
             </div>
           )}
+          </div>
+          )}
         </article>
-      ))}
+        );
+      })}
+      </div>
+      )}
     </div>
   );
 }

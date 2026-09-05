@@ -9,6 +9,7 @@ import { authenticatedAdmin, contentAdmin } from "@/lib/content-ops/data";
 import { isPartnerChannel, partnerVisibilityBlockers } from "@/lib/partner-portal";
 import { sanitizeWorkItemMetadata } from "@/lib/security/html";
 import type { WorkflowStatus } from "@/lib/content-ops/types";
+import { REVIEW_QUEUE_STATUS } from "@/lib/content-ops/work-queue-view";
 import { applyHyundaiManualMockups } from "@/lib/portfolio/hyundai-manual-mockups";
 import {
   isTourismMarketingWorkItem,
@@ -156,9 +157,10 @@ export async function GET(request: Request) {
 
   const url = new URL(request.url);
   const channel = url.searchParams.get("channel");
-  // 검토 화면은 손이 필요한 두 가지 상태만 봅니다. 화면에서 걸러 내던 것을
+  // 검토 화면은 사람이 완성본을 판단할 상태만 봅니다. 화면에서 걸러 내던 것을
   // 여기서 먼저 거르면 나머지를 아예 가져오지 않습니다.
   const reviewMode = url.searchParams.get("reviewMode") === "1";
+  const workspaceMode = url.searchParams.get("workspaceMode") === "1";
 
   const selection = "*, content_review_assets(*), content_jobs(id,job_type,status,next_retry_at,last_error_code,updated_at)";
   const withCommonFilters = <T extends { eq(column: string, value: string): T }>(query: T) => (
@@ -178,7 +180,11 @@ export async function GET(request: Request) {
     .order("scheduled_at", { ascending: true, nullsFirst: false })
     .order("created_at", { ascending: false });
   activeQuery = withCommonFilters(activeQuery);
-  if (reviewMode) activeQuery = activeQuery.in("status", ["review_required", "on_hold"]);
+  // 검토 요청과 채널별 작성 화면을 완전히 나눕니다.
+  // review_required 가 양쪽에 동시에 보여 같은 일을 두 번 처리하는 것처럼
+  // 보였고, 긴 이미지까지 두 화면에서 모두 내려받고 있었습니다.
+  if (reviewMode) activeQuery = activeQuery.eq("status", REVIEW_QUEUE_STATUS);
+  else if (workspaceMode) activeQuery = activeQuery.neq("status", REVIEW_QUEUE_STATUS);
 
   /**
    * 발행이 끝난 작업은 최근 것만 가져옵니다.
