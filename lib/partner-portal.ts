@@ -9,6 +9,7 @@ export const PARTNER_VISIBLE_STATUSES: WorkflowStatus[] = [
   "scheduled",
   "published",
 ];
+export const PARTNER_FORCE_APPROVAL_MEMO_MAX_LENGTH = 2_000;
 
 export function isPartnerChannel(value: unknown): value is NaverPublicationChannel {
   return typeof value === "string" && PARTNER_CHANNELS.includes(value as NaverPublicationChannel);
@@ -16,6 +17,13 @@ export function isPartnerChannel(value: unknown): value is NaverPublicationChann
 
 export function isPartnerVisibleStatus(value: unknown): value is WorkflowStatus {
   return typeof value === "string" && PARTNER_VISIBLE_STATUSES.includes(value as WorkflowStatus);
+}
+
+export function normalizePartnerForceApprovalMemo(value: unknown) {
+  if (typeof value !== "string") return null;
+  const memo = value.trim();
+  if (!memo || memo.length > PARTNER_FORCE_APPROVAL_MEMO_MAX_LENGTH) return null;
+  return memo;
 }
 
 export function isPartnerReleaseReady(item: {
@@ -65,9 +73,9 @@ type PartnerVisibilityInput = {
 };
 
 /**
- * 외주 작업실에서 발행 완료를 등록할 때 적용할 문체 검사입니다.
+ * 외주 작업실에 원고를 노출할 때 적용할 문체 검사입니다.
  * 관리자가 "이 상태 그대로 외주 작업실에 전달"을 선택했다면 그 결정은
- * 발행 완료 등록에서도 동일하게 존중해야 합니다.
+ * 외주 작업실 노출에서도 동일하게 존중해야 합니다.
  */
 export function partnerEditorialPublicationIssues(item: Pick<PartnerVisibilityInput, "format" | "metadata">) {
   if (item.metadata?.partnerReleaseOverride?.approvedAt) return [];

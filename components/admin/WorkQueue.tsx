@@ -124,6 +124,13 @@ type WorkItem = {
       duplicateLegacyUrl?: boolean;
       duplicateOf?: string;
     };
+    partnerHandoff?: {
+      forceApproved?: boolean;
+      forceApprovalMemo?: string;
+      completedAt?: string;
+      completedBy?: string;
+      publishedUrl?: string;
+    };
     portfolioMockup?: PortfolioMockupMetadata;
     portfolioAssets?: LegacyPortfolioAsset[];
     redactionMode?: "standard" | "confidential";
@@ -1085,7 +1092,20 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
               <StatusTimeline metadata={item.metadata} />
             </div>
             <StatusBadge status={item.status} />
-          </div>
+           </div>
+          {item.status === "published"
+            && item.metadata?.partnerHandoff?.forceApproved === true
+            && item.metadata.partnerHandoff.forceApprovalMemo && (
+            <section className="mt-5 rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm leading-6 text-amber-950">
+              <p className="font-bold">강제승인 메모</p>
+              <p className="mt-1 whitespace-pre-wrap break-all">
+                {item.metadata.partnerHandoff.forceApprovalMemo}
+              </p>
+              <p className="mt-2 text-xs opacity-75">
+                주소 형식을 확인하지 않고 발행 완료로 옮긴 기록입니다. 이 메모를 복사해 직접 확인해 주세요.
+              </p>
+            </section>
+          )}
           {item.format === "portfolio" && <PortfolioRetryStatus jobs={item.portfolio_jobs} />}
           {item.format === "portfolio"
             && ["design_completed", "draft_retry_wait"].includes(String(item.metadata?.portfolioStage || "")) && (
