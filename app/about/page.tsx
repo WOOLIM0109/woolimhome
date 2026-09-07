@@ -1,7 +1,19 @@
-import Link from "next/link";
 import Image from "next/image";
 import type { Metadata } from "next";
-import { ArrowRight, BadgeCheck, Banknote, FileText, Landmark } from "lucide-react";
+import {
+  BadgeCheck,
+  Banknote,
+  Car,
+  Clock,
+  FileText,
+  Landmark,
+  Mail,
+  MapPin,
+  MessageCircle,
+  Phone,
+  Printer,
+  TrainFront,
+} from "lucide-react";
 import ContactBand from "@/components/ContactBand";
 import JsonLd from "@/components/JsonLd";
 import PageHero from "@/components/PageHero";
@@ -24,6 +36,17 @@ const pillars = [
   { icon: FileText, title: "비즈니스문서 기획·디자인", desc: "회사소개서·IR 자료·제안서·PPT 등 기업의 가치를 효과적으로 전달하는 비즈니스 문서를 기획하고 디자인합니다." },
 ];
 
+const mapSrc = `https://www.google.com/maps?q=${encodeURIComponent(site.address)}&hl=ko&z=17&output=embed`;
+
+const contactInfo = [
+  { icon: MapPin, label: "주소", value: site.address },
+  { icon: Phone, label: "대표번호", value: site.phone, href: `tel:${site.phone.replaceAll("-", "")}` },
+  { icon: Printer, label: "팩스", value: site.fax },
+  { icon: Mail, label: "이메일", value: site.email, href: `mailto:${site.email}` },
+  { icon: Clock, label: "운영시간", value: `${site.businessHours} (${site.closedDays} 휴무)` },
+  { icon: MessageCircle, label: "카카오톡 채널", value: "채널로 바로 문의하기", href: site.kakaoUrl },
+];
+
 export default function AboutPage() {
   return (
     <>
@@ -38,19 +61,28 @@ export default function AboutPage() {
       <section className="bg-white">
         <div className="mx-auto grid max-w-7xl gap-12 px-5 py-16 lg:grid-cols-[0.85fr_1fr] lg:px-8 lg:py-24">
           <div className="relative">
-            <div className="relative overflow-hidden rounded-3xl border border-[var(--line)] shadow-[var(--shadow-card)]">
+            <div className="relative flex min-h-[560px] overflow-hidden rounded-3xl border border-[#ead6c9] bg-[var(--deep)] shadow-[var(--shadow-card)]">
+              <div className="absolute inset-0 bg-[linear-gradient(135deg,rgba(29,22,18,0.98)_0%,rgba(61,42,31,0.92)_48%,rgba(178,73,31,0.84)_100%)]" />
+              <div className="absolute right-[-6rem] top-[-6rem] h-72 w-72 rounded-full bg-[#ef8e36]/25 blur-3xl" />
+              <div className="absolute bottom-[-7rem] left-[-6rem] h-80 w-80 rounded-full bg-[#eb6826]/20 blur-3xl" />
+              <div className="relative flex w-full flex-col items-center justify-center px-8 py-14 text-center">
               <Image
-                src={ceo.photo}
-                alt={`${ceo.name} ${site.name} 대표`}
-                width={815}
-                height={1019}
-                className="h-full w-full object-cover"
+                  src="/images/woolim-logo-cropped.png"
+                  alt={`${site.name} 로고`}
+                  width={520}
+                  height={360}
+                  className="h-auto w-full max-w-[340px] drop-shadow-[0_24px_45px_rgba(0,0,0,0.22)]"
                 priority
               />
+                <p className="mt-8 text-sm font-bold text-[#f4aa67]">WOOLIM COMPANY</p>
+                <p className="mt-3 max-w-sm text-2xl font-bold leading-snug text-white">
+                  기업의 가능성을 성과로 연결합니다
+                </p>
+              </div>
             </div>
             <div className="absolute bottom-5 left-5 rounded-2xl bg-white/92 px-5 py-4 shadow-xl backdrop-blur">
-              <p className="text-sm font-bold text-[var(--primary)]">{ceo.name} 대표</p>
-              <p className="mt-1 text-xs text-[var(--muted)]">국가공인 경영지도사 33기</p>
+              <p className="text-sm font-bold text-[var(--primary)]">{site.name}</p>
+              <p className="mt-1 text-xs text-[var(--muted)]">Business Growth Partner</p>
             </div>
           </div>
           <div className="flex flex-col justify-center">
@@ -61,9 +93,6 @@ export default function AboutPage() {
                 <p key={p.slice(0, 12)}>{p}</p>
               ))}
             </div>
-            <Link href="/about/ceo" className="mt-7 inline-flex items-center gap-2 text-sm font-bold text-[var(--primary)]">
-              대표 약력 자세히 보기 <ArrowRight size={16} />
-            </Link>
           </div>
         </div>
       </section>
@@ -105,6 +134,70 @@ export default function AboutPage() {
               <BadgeCheck size={20} className="shrink-0 text-[var(--primary)]" />
               <span className="text-sm font-bold text-[#6a4a12]">{site.award}</span>
             </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="location" className="scroll-mt-24 bg-[var(--surface-strong)]">
+        <div className="mx-auto max-w-7xl px-5 py-16 lg:px-8 lg:py-24">
+          <SectionHeader
+            eyebrow="오시는 길"
+            title="울림컴퍼니 위치"
+            description="방문 상담은 전화 또는 카카오톡 채널로 일정을 먼저 문의해 주세요."
+          />
+          <div className="mt-10 grid gap-8 lg:grid-cols-[1.3fr_1fr]">
+            <div className="overflow-hidden rounded-3xl border border-[var(--line)] bg-white shadow-[var(--shadow-card)]">
+              <iframe
+                title="울림컴퍼니 위치"
+                src={mapSrc}
+                loading="lazy"
+                referrerPolicy="no-referrer-when-downgrade"
+                className="h-[360px] w-full lg:h-full lg:min-h-[460px]"
+              />
+            </div>
+
+            <div className="grid content-start gap-3">
+              {contactInfo.map(({ icon: Icon, label, value, href }) => (
+                <div key={label} className="card flex-row items-start gap-4 p-5">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[var(--accent-soft)] text-[var(--primary)]">
+                    <Icon size={18} />
+                  </div>
+                  <div>
+                    <p className="text-xs font-bold text-[var(--muted)]">{label}</p>
+                    {href ? (
+                      <a
+                        href={href}
+                        target={href.startsWith("http") ? "_blank" : undefined}
+                        rel={href.startsWith("http") ? "noreferrer" : undefined}
+                        className="mt-1 block text-sm font-semibold text-[#2d241d] hover:text-[var(--primary)]"
+                      >
+                        {value}
+                      </a>
+                    ) : (
+                      <p className="mt-1 text-sm font-semibold text-[#2d241d]">{value}</p>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="mt-9 grid items-stretch gap-4 lg:grid-cols-2">
+            <article className="card h-full p-7">
+              <div className="flex items-center gap-3">
+                <TrainFront className="text-[var(--primary)]" size={24} />
+                <h3 className="text-lg font-bold text-[#14100c]">대중교통 이용 시</h3>
+              </div>
+              <p className="prose-muted mt-4 text-sm">{site.directions.transit}</p>
+              <p className="mt-3 text-xs font-semibold text-[var(--accent)]">{site.directions.note}</p>
+            </article>
+            <article className="card h-full p-7">
+              <div className="flex items-center gap-3">
+                <Car className="text-[var(--primary)]" size={24} />
+                <h3 className="text-lg font-bold text-[#14100c]">자가용 이용 시</h3>
+              </div>
+              <p className="prose-muted mt-4 text-sm">{site.directions.parking}</p>
+            </article>
           </div>
         </div>
       </section>

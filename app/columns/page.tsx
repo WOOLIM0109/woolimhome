@@ -21,7 +21,7 @@ export default async function ColumnsPage() {
     <>
       <JsonLd
         data={[
-          breadcrumbSchema([{ name: "홈", href: "/" }, { name: "알림마당", href: "/news" }, { name: "칼럼", href: "/columns" }]),
+          breadcrumbSchema([{ name: "홈", href: "/" }, { name: "인사이트", href: "/news" }, { name: "칼럼", href: "/columns" }]),
           itemListSchema("울림컴퍼니 칼럼", publishedColumns.map((item) => ({
             title: item.title,
             description: item.excerpt || "",

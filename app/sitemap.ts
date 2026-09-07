@@ -6,7 +6,7 @@ import { news } from "@/data/news";
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const now = new Date();
-  const links = navFlatLinks();
+  const links = [...navFlatLinks(), { label: "상담문의", href: "/contact" }];
   const unique = Array.from(new Map(links.map((link) => [link.href, link])).values());
   const columns = await getPublishedColumns();
 

@@ -32,7 +32,7 @@ ${consultingCases.map((c) => `- ${c.company} (${c.field}): ${c.headline} — ${c
 ${pptCases.flatMap((g) => g.items.map((i) => `- [${g.group}] ${i.company}: ${i.title} — ${i.result}`)).join("\n")}
 
 ## Notable Clients (enterprise & public institutions)
-${clients.join(", ")}
+${clients.map((client) => client.name).join(", ")}
 
 ## Why Woolim (vs general competitors)
 ${comparison.map((c) => `- ${c.axis}: 타사 — ${c.others} / 울림컴퍼니 — ${c.woolim}`).join("\n")}
@@ -43,8 +43,14 @@ ${comparison.map((c) => `- ${c.axis}: 타사 — ${c.others} / 울림컴퍼니 �
 - Consulting: ${toAbsoluteUrl("/services/consulting")}
 - Business Documents/PPT: ${toAbsoluteUrl("/services/business-docs")}
 - Design Service: ${toAbsoluteUrl("/services/design")}
-- Cases: ${toAbsoluteUrl("/cases/consulting")}
+- Portfolio: ${toAbsoluteUrl("/portfolio")}
+- PPT Portfolio: ${toAbsoluteUrl("/portfolio/ppt")}
+- Design Portfolio: ${toAbsoluteUrl("/portfolio/design")}
+- Business Plan/IR Portfolio: ${toAbsoluteUrl("/portfolio/business-ir")}
+- Government Support/Policy Funding Success Cases: ${toAbsoluteUrl("/success/funding")}
+- Bidding/Entry Success Cases: ${toAbsoluteUrl("/success/bidding-entry")}
 - News: ${toAbsoluteUrl("/news")}
+- Columns: ${toAbsoluteUrl("/columns")}
 - Contact: ${toAbsoluteUrl("/contact")}
 `;
 

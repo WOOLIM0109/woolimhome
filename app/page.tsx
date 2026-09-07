@@ -8,6 +8,7 @@ import {
   ExternalLink,
   FileCheck2,
   Lightbulb,
+  Quote,
   Presentation,
   TrendingUp,
 } from "lucide-react";
@@ -36,6 +37,57 @@ export default function HomePage() {
     { label: "발표", Icon: Presentation },
   ];
 
+  const testimonials = [
+    {
+      badge: "반려동물 용품",
+      name: "들OOO 대표",
+      company: "예비창업패키지",
+      result: "최종 선정",
+      quote:
+        "우리 업종이 가능한 지원사업을 먼저 찾아주고, 공고 기준에 맞춰 사업계획서 방향을 잡아주셔서 예비창업패키지 최종 선정까지 이어졌습니다.",
+    },
+    {
+      badge: "예술단체",
+      name: "여OOOO 대표",
+      company: "지역 대표예술단체",
+      result: "6억 규모",
+      quote:
+        "공고문을 봐도 어디부터 준비해야 할지 막막했는데, 예산 구성과 발표 흐름까지 정리해주셔서 큰 규모 사업에 선정될 수 있었습니다.",
+    },
+    {
+      badge: "AI",
+      name: "박OO 대표",
+      company: "딥러닝 R&D",
+      result: "R&D 선정",
+      quote:
+        "기술 설명에만 치우쳐 있던 계획서를 개발계획, 시장성, 사업화 가능성 중심으로 다시 정리해주셔서 R&D 선정까지 갈 수 있었습니다.",
+    },
+    {
+      badge: "스포츠 용품",
+      name: "이OO 대표",
+      company: "청년창업사관학교",
+      result: "최종 합격",
+      quote:
+        "아이템 장점만 쓰던 사업계획서를 평가자가 이해하는 구조로 바꿔주셔서 서류 통과 후 최종 합격까지 이어졌습니다.",
+    },
+    {
+      badge: "차량관리",
+      name: "김OO 대표",
+      company: "예비창업패키지",
+      result: "최우수",
+      quote:
+        "발표자료가 단순 회사소개서처럼 보였는데, 심사위원 질문 흐름에 맞춰 재구성해주셔서 발표평가에서 좋은 결과를 받았습니다.",
+    },
+    {
+      badge: "커피 로스팅",
+      name: "오O 대표",
+      company: "부산TP R&D",
+      result: "선정",
+      quote:
+        "정부지원사업은 제조나 기술기업만 가능하다고 생각했는데, 부산TP R&D에서 우리 브랜드에 맞는 항목을 찾아주시고 신청자료 방향을 정리해주셔서 선정될 수 있었습니다.",
+    },
+  ];
+
   return (
     <>
       <JsonLd
@@ -47,7 +99,7 @@ export default function HomePage() {
             projects.map((project) => ({
               title: project.title,
               description: project.note,
-              href: "/projects/business-docs",
+              href: "/portfolio",
             })),
           ),
           newsArticleSchema(),
@@ -86,10 +138,10 @@ export default function HomePage() {
                 <ArrowRight size={17} />
               </Link>
               <Link
-                href="/cases/consulting"
+                href="/success/funding"
                 className="inline-flex h-12 items-center gap-2 rounded-xl border border-[#ead5c7] bg-white/92 px-6 text-sm font-bold text-[#2d241d] shadow-sm transition hover:-translate-y-0.5 hover:shadow-lg"
               >
-                주요사례 보기
+                성공사례 보기
               </Link>
             </div>
           </div>
@@ -202,7 +254,7 @@ export default function HomePage() {
             eyebrow="성과"
             title="숫자로 증명하는 성과"
             description="창업 2년 만에 지원사업 누적 20억 원 이상 유치. 실제 기업과 함께 만든 결과입니다."
-            linkHref="/cases/consulting"
+            linkHref="/success/funding"
             linkLabel="전체 사례 보기"
           />
           <div className="mt-10 grid items-stretch gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -219,6 +271,49 @@ export default function HomePage() {
               );
             })}
           </div>
+        </div>
+      </section>
+
+      {/* TESTIMONIALS */}
+      <section className="bg-[linear-gradient(180deg,#fffaf6_0%,#fff4ea_100%)]">
+        <div className="mx-auto max-w-7xl px-5 py-16 lg:px-8 lg:py-24">
+          <SectionHeader
+            eyebrow="고객 후기"
+            title="선정된 대표님들이 말한 울림컴퍼니의 차이"
+            description="결과를 만든 대표님들은 울림컴퍼니의 차이를 이렇게 말했습니다."
+          />
+          <div className="mt-10 grid items-stretch gap-5 md:grid-cols-2 xl:grid-cols-3">
+            {testimonials.map((item) => (
+              <article
+                key={`${item.name}-${item.company}`}
+                className="card h-full p-6 shadow-[0_18px_45px_rgba(120,67,33,0.08)]"
+              >
+                <div className="flex items-start justify-between gap-4">
+                  <div className="flex items-center gap-4">
+                    <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-[linear-gradient(135deg,#ff8a2a,#ef5d1b)] px-2 text-center text-[11px] font-black leading-tight text-white shadow-[0_12px_28px_rgba(239,93,27,0.24)]">
+                      {item.badge}
+                    </div>
+                    <div>
+                      <h3 className="text-lg font-bold text-[#14100c]">{item.name}</h3>
+                      <p className="mt-1 text-sm text-[var(--muted)]">{item.company}</p>
+                    </div>
+                  </div>
+                  <span className="shrink-0 rounded-full bg-[#fff1e8] px-3 py-1 text-xs font-black text-[var(--primary)]">
+                    {item.result}
+                  </span>
+                </div>
+                <div className="mt-6 rounded-2xl bg-[#fff7f1] p-5">
+                  <Quote className="mb-4 text-[var(--primary)]" size={22} />
+                  <p className="text-[17px] font-bold leading-8 text-[#14100c]">
+                    {item.quote}
+                  </p>
+                </div>
+              </article>
+            ))}
+          </div>
+          <p className="mt-6 text-center text-xs leading-6 text-[var(--muted)]">
+            개인정보 보호를 위해 이름과 일부 표현은 익명 처리했습니다.
+          </p>
         </div>
       </section>
 
@@ -247,10 +342,10 @@ export default function HomePage() {
               로드맵을 제안합니다.
             </p>
             <Link
-              href="/about/ceo"
+              href="/about"
               className="mt-7 inline-flex items-center gap-2 text-sm font-bold text-[#ef8e36]"
             >
-              대표 소개 보기 <ArrowRight size={16} />
+              회사소개 보기 <ArrowRight size={16} />
             </Link>
           </div>
           <div className="grid gap-3">
@@ -267,7 +362,7 @@ export default function HomePage() {
       {/* NEWS */}
       <section className="bg-white">
         <div className="mx-auto max-w-7xl px-5 py-16 lg:px-8 lg:py-20">
-          <SectionHeader eyebrow="소식" title="언론보도와 소식" linkHref="/news" linkLabel="알림마당 보기" />
+          <SectionHeader eyebrow="인사이트" title="소식과 칼럼" linkHref="/news" linkLabel="인사이트 보기" />
           <article className="card mt-9 p-7 lg:flex lg:items-center lg:justify-between">
             <div>
               <p className="text-sm font-bold text-[var(--accent)]">2026.06.23 · 공감신문</p>

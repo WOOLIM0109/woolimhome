@@ -131,7 +131,7 @@ export default function AdminPortal({
           </div>
         </aside>
 
-        <main className="min-w-0 px-5 py-8 sm:px-8 lg:px-10 lg:py-10">
+        <div className="min-w-0 px-5 py-8 sm:px-8 lg:px-10 lg:py-10">
           <header className="flex flex-col gap-5 border-b border-[var(--line)] pb-7 sm:flex-row sm:items-end sm:justify-between">
             <div>
               <h1 className="text-3xl font-bold">{title}</h1>
@@ -140,7 +140,7 @@ export default function AdminPortal({
             {actions && <div className="flex flex-wrap gap-3">{actions}</div>}
           </header>
           {children}
-        </main>
+        </div>
       </div>
     </section>
   );

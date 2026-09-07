@@ -8,7 +8,7 @@ import JsonLd from "@/components/JsonLd";
 import PageHero from "@/components/PageHero";
 import SectionHeader from "@/components/SectionHeader";
 import RelatedServices from "@/components/RelatedServices";
-import { docProcess, docTypes, services } from "@/data/content";
+import { docProcess, docTypes, portfolioProjects, services } from "@/data/content";
 import { buildCanonical } from "@/lib/site-config";
 import { breadcrumbSchema, faqSchema } from "@/lib/schema";
 
@@ -29,7 +29,7 @@ const targets = [
   "입찰·제휴·납품·영업용 제안서가 필요한 기업",
 ];
 
-const samples = ["/images/portfolio/p-37.png", "/images/portfolio/p-33.png", "/images/portfolio/p-18.png"];
+const samples = portfolioProjects.slice(0, 3);
 
 export default function BusinessDocsPage() {
   return (
@@ -111,17 +111,27 @@ export default function BusinessDocsPage() {
           <SectionHeader
             eyebrow="제작 사례"
             title="실제 제작 사례"
-            description="대기업·공공기관과 함께한 기획형 문서 디자인. 더 많은 사례는 프로젝트에서 확인하실 수 있습니다."
-            linkHref="/projects/business-docs"
-            linkLabel="프로젝트 전체 보기"
+            description="실제 제작한 기획형 문서 디자인입니다. 더 많은 사례는 포트폴리오에서 확인하실 수 있습니다."
+            linkHref="/portfolio"
+            linkLabel="포트폴리오 전체 보기"
           />
           <div className="mt-10 grid items-stretch gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {samples.map((src, i) => (
-              <div key={src} className="card overflow-hidden p-0">
+            {samples.map((project) => (
+              <Link key={project.id} href="/portfolio" className="card card-hover overflow-hidden p-0">
                 <div className="relative aspect-[4/3] w-full bg-white">
-                  <Image src={src} alt={`비즈니스문서 제작 사례 ${i + 1}`} fill sizes="(max-width:768px) 100vw, 33vw" className="object-cover" />
+                  <Image
+                    src={`/images/projects/${project.id}/thumbnail.webp`}
+                    alt={`${project.company} ${project.type} 제작 사례`}
+                    fill
+                    sizes="(max-width:768px) 100vw, 33vw"
+                    className="object-contain"
+                  />
                 </div>
-              </div>
+                <div className="px-5 py-4">
+                  <p className="text-xs font-bold text-[var(--primary)]">{project.type}</p>
+                  <p className="mt-1 text-sm font-semibold text-[#2d241d]">{project.company}</p>
+                </div>
+              </Link>
             ))}
           </div>
         </div>
