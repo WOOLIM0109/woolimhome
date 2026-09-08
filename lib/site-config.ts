@@ -1,17 +1,22 @@
 import { site } from "@/data/site";
 
+const OFFICIAL_SITE_URL = "https://woolimcompany.kr";
+
 export const SITE_URL = normalizeSiteUrl(site.url);
 export const SITE_URL_OBJECT = new URL(`${SITE_URL}/`);
 export const DEFAULT_OG_IMAGE = toAbsoluteUrl("/images/woolim-logo-cropped.png");
 
 function normalizeSiteUrl(input?: string | null): string {
-  const fallback = "https://woolimcompany.kr";
+  const fallback = OFFICIAL_SITE_URL;
   const candidate = input?.trim();
   if (!candidate) return fallback;
 
   try {
     const parsed = new URL(candidate);
     if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      return fallback;
+    }
+    if (parsed.hostname.endsWith(".vercel.app")) {
       return fallback;
     }
     parsed.pathname = "/";
