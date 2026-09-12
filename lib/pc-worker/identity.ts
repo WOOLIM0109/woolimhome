@@ -1,7 +1,8 @@
 import { timingSafeEqual } from "node:crypto";
+import { isRetiredWorker } from "./retired.ts";
 
 export const PC_WORKER_ID = "becky-office-pc";
-export const PC_WORKER_NAME = "울림 집 PC (기존)";
+export const PC_WORKER_NAME = "?몃┝ 吏?PC (湲곗〈)";
 
 // Updated workers renew this lease while a document is being converted. Truly
 // legacy workers do not send an identity and get a longer lease so an in-flight
@@ -97,6 +98,8 @@ export function authorizeWorkerCredential(
     PC_WORKER_ALLOW_LEGACY: process.env.PC_WORKER_ALLOW_LEGACY,
   },
 ) {
+  // Covers both explicit home-PC IDs and the ID-less legacy home worker.
+  if (isRetiredWorker(identity.id)) return false;
   if (!authorization?.startsWith("Bearer ")) return false;
   const supplied = authorization.slice("Bearer ".length);
   if (!supplied) return false;
