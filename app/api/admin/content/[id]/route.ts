@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { authenticatedAdmin, contentAdmin } from "@/lib/content-ops/data";
+import { hasProductionPortfolioImageSelection } from "@/lib/portfolio/production-image-projection";
+import { readVerifiedProductionPublicationIssues } from "@/lib/portfolio/production-publication";
 import {
   validatePortfolioPublicationMetadata,
   validatePortfolioSourceState,
@@ -698,6 +700,10 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
       .eq("id", id)
       .single();
     if (currentError) return NextResponse.json({ error: currentError.message }, { status: 500 });
+    if (hasProductionPortfolioImageSelection(current.metadata)) {
+      return NextResponse.json({ error: "확정 이미지 세트에는 이전 수동 목업 정정을 적용할 수 없습니다. 본문은 일반 편집에서 수정해 주세요.",
+        code: "IMAGE_SET_LEGACY_WRITE_BLOCKED" }, { status: 409 });
+    }
     if (current.format !== "portfolio" || !isHyundaiManualMockupTitle(current.title)) {
       return NextResponse.json({ error: "해당 생활폐기물 입찰제안서 작업을 찾지 못했습니다." }, { status: 404 });
     }
@@ -727,7 +733,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     const admin = contentAdmin();
     const { data: current, error: currentError } = await admin
       .from("content_work_items")
-      .select("format,title,status,metadata,updated_at")
+      .select("id,format,title,status,metadata,updated_at,content_review_assets(*)")
       .eq("id", id)
       .single();
     if (currentError) return NextResponse.json({ error: currentError.message }, { status: 500 });
@@ -735,56 +741,67 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     statusBeforeChange = typeof current.status === "string" ? current.status : null;
     metadataBeforeChange = (current.metadata || null) as Record<string, unknown> | null;
     if (current.format === "portfolio") {
-      approvedMetadata = tourismManualApprovalMetadata(
-        id,
-        current.metadata,
-        new URL(request.url).origin,
-        user.email || "admin",
-      ) || hyundaiManualApprovalMetadata(
-        current.title,
-        current.metadata,
-        new URL(request.url).origin,
-        user.email || "admin",
-      );
-      const [mockupJobQuery, conversionJobQuery, draftJobQuery] = await Promise.all([
-        admin.from("content_jobs")
-          .select("status,result")
-          .eq("work_item_id", id)
-          .eq("job_type", "mockup")
-          .order("created_at", { ascending: false })
-          .limit(1)
-          .maybeSingle(),
-        admin.from("content_jobs")
-          .select("status,result,updated_at")
-          .eq("work_item_id", id)
-          .eq("job_type", "convert")
-          .order("created_at", { ascending: false })
-          .limit(1)
-          .maybeSingle(),
-        admin.from("content_jobs")
-          .select("status,result")
-          .eq("work_item_id", id)
-          .eq("job_type", "draft")
-          .order("created_at", { ascending: false })
-          .limit(1)
-          .maybeSingle(),
-      ]);
-      if (mockupJobQuery.error || conversionJobQuery.error || draftJobQuery.error) {
-        return NextResponse.json({
-          error: mockupJobQuery.error?.message
-            || conversionJobQuery.error?.message
-            || draftJobQuery.error?.message,
-        }, { status: 500 });
-      }
-      const issues = approvedMetadata ? [] : [
-        ...validatePortfolioPublicationMetadata(current.metadata),
-        ...validatePortfolioSourceState(
+      let issues: string[];
+      if (hasProductionPortfolioImageSelection(current.metadata)) {
+        try {
+          issues = await readVerifiedProductionPublicationIssues(current, admin);
+        } catch (proofError) {
+          const message = proofError instanceof Error ? proofError.message : "";
+          return NextResponse.json({ error: "현재 원본·기밀 검수·확정 이미지 연결을 확인하지 못해 승인을 중단했습니다.",
+            code: /^(?:MOCKUP|IMAGE_SET|THUMBNAIL)_[A-Z_]+$/.test(message) ? message : "MOCKUP_PUBLICATION_PROOF_INVALID" }, { status: 409 });
+        }
+      } else {
+        approvedMetadata = tourismManualApprovalMetadata(
+          id,
           current.metadata,
-          mockupJobQuery.data,
-          conversionJobQuery.data,
-          draftJobQuery.data,
-        ),
-      ];
+          new URL(request.url).origin,
+          user.email || "admin",
+        ) || hyundaiManualApprovalMetadata(
+          current.title,
+          current.metadata,
+          new URL(request.url).origin,
+          user.email || "admin",
+        );
+        const [mockupJobQuery, conversionJobQuery, draftJobQuery] = await Promise.all([
+          admin.from("content_jobs")
+            .select("status,result")
+            .eq("work_item_id", id)
+            .eq("job_type", "mockup")
+            .order("created_at", { ascending: false })
+            .limit(1)
+            .maybeSingle(),
+          admin.from("content_jobs")
+            .select("status,result,updated_at")
+            .eq("work_item_id", id)
+            .eq("job_type", "convert")
+            .order("created_at", { ascending: false })
+            .limit(1)
+            .maybeSingle(),
+          admin.from("content_jobs")
+            .select("status,result")
+            .eq("work_item_id", id)
+            .eq("job_type", "draft")
+            .order("created_at", { ascending: false })
+            .limit(1)
+            .maybeSingle(),
+        ]);
+        if (mockupJobQuery.error || conversionJobQuery.error || draftJobQuery.error) {
+          return NextResponse.json({
+            error: mockupJobQuery.error?.message
+              || conversionJobQuery.error?.message
+              || draftJobQuery.error?.message,
+          }, { status: 500 });
+        }
+        issues = approvedMetadata ? [] : [
+          ...validatePortfolioPublicationMetadata(current.metadata),
+          ...validatePortfolioSourceState(
+            current.metadata,
+            mockupJobQuery.data,
+            conversionJobQuery.data,
+            draftJobQuery.data,
+          ),
+        ];
+      }
       if (issues.length) {
         return NextResponse.json(
           { error: `포트폴리오 기본 규칙을 확인해 주세요: ${issues.join(" ")}` },

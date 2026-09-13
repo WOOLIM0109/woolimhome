@@ -12,6 +12,10 @@ import type { WorkflowStatus } from "@/lib/content-ops/types";
 import { REVIEW_QUEUE_STATUS } from "@/lib/content-ops/work-queue-view";
 import { applyHyundaiManualMockups } from "@/lib/portfolio/hyundai-manual-mockups";
 import {
+  hasProductionPortfolioImageSelection, loadProductionImageManifests,
+  projectProductionPortfolioImages, productionImageProjectionErrorCode,
+} from "@/lib/portfolio/production-image-projection";
+import {
   isTourismMarketingWorkItem,
   TOURISM_MARKETING_WORK_ITEM_ID,
   tourismManualBodyAssets,
@@ -211,7 +215,14 @@ export async function GET(request: Request) {
   ]);
   const error = activeResult.error || publishedResult.error;
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  const data = [...(activeResult.data || []), ...(publishedResult.data || [])];
+  let data = [...(activeResult.data || []), ...(publishedResult.data || [])];
+  try {
+    const manifests = await loadProductionImageManifests(data, contentAdmin());
+    data = projectProductionPortfolioImages(data, manifests);
+  } catch (projectionError) {
+    return NextResponse.json({ error: "확정 이미지 연결을 확인하지 못했습니다. 관리자 확인이 필요합니다.",
+      code: productionImageProjectionErrorCode(projectionError) }, { status: 409 });
+  }
   /**
    * 과거에 관리자가 고르거나 직접 쓴 표지 문구를 모읍니다.
    * 같은 성격의 문서에서 다시 추천되므로, 고치는 일이 점점 줄어듭니다.
@@ -232,7 +243,7 @@ export async function GET(request: Request) {
   ).sort((left, right) => right.savedAt.localeCompare(left.savedAt));
 
   const items = (data || []).map((rawItem) => {
-    const item = applyHyundaiManualMockups(
+    const item = hasProductionPortfolioImageSelection(rawItem.metadata) ? rawItem : applyHyundaiManualMockups(
       applyManualTourismMockups(rawItem, url.origin),
       url.origin,
     );

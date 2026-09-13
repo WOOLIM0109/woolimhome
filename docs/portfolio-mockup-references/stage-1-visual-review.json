@@ -1,0 +1,172 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-09-07",
+  "kind": "technical-visual-review",
+  "syntheticOnly": true,
+  "productionDeployed": false,
+  "primaryImages": [
+    {
+      "suite": "16:9",
+      "templateId": "thumbnail-1",
+      "file": ".codex-tmp/mockup-stage-1/16x9/thumbnail.jpg",
+      "sha256": "cb2b277be82b122fd171bf3d749294a37116fa8bc39f912799ae0dd2370ec8e1",
+      "geometryHash": "a16460deac60a6cf52ba8de6aca261740515ffae55ec8448b6b28d5684a25618",
+      "reviewedBy": "Codex",
+      "status": "pass",
+      "notes": "중앙 장표 전면·뒤 6장·공통 각도와 짧은 제목 분리 확인"
+    },
+    {
+      "suite": "16:9",
+      "templateId": "body-3-perspective",
+      "file": ".codex-tmp/mockup-stage-1/16x9/short-main.jpg",
+      "sha256": "52602d67e3bdde88b375a187bec3498eaeb1726c4c4304ff0064f34c7625ca50",
+      "geometryHash": "295b77291cd74d21b29c08a618cf546564e0e3a382933b08acff6d5b86312501",
+      "reviewedBy": "Codex",
+      "status": "pass",
+      "notes": "전경 그림자와 뒤 6장 분리, 두 줄 공통 축 확인"
+    },
+    {
+      "suite": "16:9",
+      "templateId": "body-4-corridor",
+      "file": ".codex-tmp/mockup-stage-1/16x9/short-detail-1.jpg",
+      "sha256": "0fcac3761da08ac6f0e5d53b299bb8df13eff99295fcd7fbf1d75307e0abe87d",
+      "geometryHash": "25440988b1732b8e63128455898ac829eb839310bcf2f786a9f3d6fdfcfa66d0",
+      "reviewedBy": "Codex",
+      "status": "pass",
+      "notes": "두 줄의 윗변·아랫변 연결과 의도한 가장자리 잘림 확인"
+    },
+    {
+      "suite": "16:9",
+      "templateId": "body-5-grid",
+      "file": ".codex-tmp/mockup-stage-1/16x9/short-detail-2.jpg",
+      "sha256": "6008d31c09f59510746c12030cb8c8166e1d851e6d5a830dc6bdcdef3f9f2dd6",
+      "geometryHash": "ae9cbc1916e756402fdedadf866250a64d44993dba76f12e86a524748468798d",
+      "reviewedBy": "Codex",
+      "status": "pass",
+      "notes": "2×2 그리드의 간격·상하 정렬 확인"
+    },
+    {
+      "suite": "16:9",
+      "templateId": "body-6-lattice",
+      "file": ".codex-tmp/mockup-stage-1/16x9/short-detail-3.jpg",
+      "sha256": "f53270b7318a931b5c5fe9b0415d232b1040f01446b4afb9fb63ef180c2c8a58",
+      "geometryHash": "30ce6892b1bcad3cc5e1de2ab97b3b3318db681977d94687b877f17e845ed67f",
+      "reviewedBy": "Codex",
+      "status": "pass",
+      "notes": "공통 대각선과 밝은 배경, 8개 슬롯 채움 확인"
+    },
+    {
+      "suite": "A4 가로",
+      "templateId": "a4-landscape-thumbnail-1",
+      "file": ".codex-tmp/mockup-stage-1/a4_landscape/thumbnail.jpg",
+      "sha256": "ea49cf4da87cc4c3e4607b69057a2ecf0e1faca6b8217fc08833a021584ba52e",
+      "geometryHash": "a8408718fe7bfa48d59bcebe17eff1dc93eec3a78c33b5782978a188d4a8b38f",
+      "reviewedBy": "Codex",
+      "status": "pass",
+      "notes": "중앙 A4 가로 장표 비율·뒤 6장·제목 분리 확인"
+    },
+    {
+      "suite": "A4 가로",
+      "templateId": "a4-landscape-body-3-stage",
+      "file": ".codex-tmp/mockup-stage-1/a4_landscape/short-main.jpg",
+      "sha256": "86573d10c1d405acf3b1ba482595180eb8cc64d22a484835e9875b2103a721e9",
+      "geometryHash": "6e598b6f57b10459292ce0c0f08cb4f75c23551e2b9fdbe40c71b59dc69cc221",
+      "reviewedBy": "Codex",
+      "status": "pass",
+      "notes": "전경과 배경의 동일 각도·그림자·7개 슬롯 확인"
+    },
+    {
+      "suite": "A4 가로",
+      "templateId": "a4-landscape-body-4-corridor",
+      "file": ".codex-tmp/mockup-stage-1/a4_landscape/short-detail-1.jpg",
+      "sha256": "da734d82f0b6da784799cadee58430cfdd08bacc45e161acc1bd7623a254a297",
+      "geometryHash": "0baff02c9079f596807d1ead70eaabd4d16c590c3dacada7b571791f9df336fb",
+      "reviewedBy": "Codex",
+      "status": "pass",
+      "notes": "동일 줄의 직선 연결과 7개 슬롯 확인"
+    },
+    {
+      "suite": "A4 가로",
+      "templateId": "a4-landscape-body-5-grid",
+      "file": ".codex-tmp/mockup-stage-1/a4_landscape/short-detail-2.jpg",
+      "sha256": "444651c2c05517701d3e8298be95ae1d5d43f999308d7d7d454b562a4faa6734",
+      "geometryHash": "263459b87c10073d986df47ad979abf507d1826496aa65d7cef837007cf752b7",
+      "reviewedBy": "Codex",
+      "status": "pass",
+      "notes": "2×2의 동일 크기·간격·외곽 여백 확인"
+    },
+    {
+      "suite": "A4 가로",
+      "templateId": "a4-landscape-body-6-lattice",
+      "file": ".codex-tmp/mockup-stage-1/a4_landscape/short-detail-3.jpg",
+      "sha256": "69a8986145f9379021ae2b91125420cd8789c0b861f3a63dc24d801b628d6035",
+      "geometryHash": "ee839eeccbbf8cce8367bcbe3944bd74ee30ae453c95c6111f75deb2ae6d998c",
+      "reviewedBy": "Codex",
+      "status": "pass",
+      "notes": "6개 슬롯의 동일 대각선과 가장자리 잘림 확인"
+    },
+    {
+      "suite": "A4 세로",
+      "templateId": "a4-portrait-thumbnail-1",
+      "file": ".codex-tmp/mockup-stage-1/a4_portrait/thumbnail.jpg",
+      "sha256": "1ffb66507b03841e349e3d1ef923bb04ffe9a3a25f00bac21cbe317cd31d290b",
+      "geometryHash": "5a3fea7b28fb63c352fb1c4d3e0993da80d42a93f5902acd3c03379884dfb011",
+      "reviewedBy": "Codex",
+      "status": "pass",
+      "notes": "두 카드의 동일 상하선·좌우 여백·제목·주황 로고 확인"
+    },
+    {
+      "suite": "A4 세로",
+      "templateId": "a4-portrait-body-1-flatlay",
+      "file": ".codex-tmp/mockup-stage-1/a4_portrait/short-main.jpg",
+      "sha256": "2044e623ce8dfbad07bfa216684c630ccda814ef3e1bf860edf1d3aa3a10df8f",
+      "geometryHash": "5c94ed163d538029f79525134fafd7e79ea87e89e7bc6e1582102cc9ab2ce473",
+      "reviewedBy": "Codex",
+      "status": "pass",
+      "notes": "위 4장·아래 3장 공통 축, 로고 간격 보정 후 재확인"
+    },
+    {
+      "suite": "A4 세로",
+      "templateId": "a4-portrait-body-2-triptych",
+      "file": ".codex-tmp/mockup-stage-1/a4_portrait/short-detail-1.jpg",
+      "sha256": "9ba7b8ce17c996802a5eba7d840c1cc791caca47d64cbac9ea06f9d798e4d16b",
+      "geometryHash": "2145dabb2bb4787736041f798bc3118204181c69d4abe451cb75d1563d1c08df",
+      "reviewedBy": "Codex",
+      "status": "pass",
+      "notes": "중앙 장표와 좌우 장표의 크기 위계·간격 확인"
+    },
+    {
+      "suite": "A4 세로",
+      "templateId": "a4-portrait-body-3-grid",
+      "file": ".codex-tmp/mockup-stage-1/a4_portrait/short-detail-2.jpg",
+      "sha256": "2de5d9370949f00fa593fe8e6da34998d754afc69fc2e0e65254bbe70bc07c33",
+      "geometryHash": "4e7c7ed8b3a9ee0625f1f4f962cbf6ae49a257541849bd45fd2211c3d27cc336",
+      "reviewedBy": "Codex",
+      "status": "pass",
+      "notes": "4장 수평 배열의 상하선·균등 간격 확인"
+    },
+    {
+      "suite": "A4 세로",
+      "templateId": "a4-portrait-body-4-studio",
+      "file": ".codex-tmp/mockup-stage-1/a4_portrait/short-detail-3.jpg",
+      "sha256": "8601647263ae8ad2fb0cb7250bdedaf221986fb8fc9b0ea40bb35ad79047507b",
+      "geometryHash": "db491b13686a613a66ce388bb5f5cc9042643395ccabf91f58fbc1fa1a4ed56f",
+      "reviewedBy": "Codex",
+      "status": "pass",
+      "notes": "두 A4 직사각형 공선, 우드 배경·주황 로고·그림자 및 기준선 확인"
+    }
+  ],
+  "additionalInspection": [
+    "16x9/overview-swap.jpg",
+    "16x9/swap/thumbnail.jpg",
+    "a4_landscape/overview-swap.jpg",
+    "a4_portrait/overview-swap.jpg",
+    "a4_portrait/swap/thumbnail.jpg",
+    "a4_portrait/guides-short-detail-3.jpg"
+  ],
+  "limitations": [
+    "No source PPT conversion or redaction was tested in stage 1.",
+    "Swap overviews were inspected; individual swap-body images were not all opened separately.",
+    "This is a Codex technical review, not a new user approval or production rollout."
+  ]
+}

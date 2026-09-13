@@ -89,14 +89,34 @@ async function keepPurgeablePublished(admin: Admin, workItemIds: string[], cutof
   for (let index = 0; index < workItemIds.length; index += ID_CHUNK) {
     const { data, error } = await admin
       .from("content_work_items")
-      .select("id")
+      .select("id,metadata")
       .in("id", workItemIds.slice(index, index + ID_CHUNK))
       .eq("status", "published")
       .lt("published_at", cutoff);
     if (error) throw new Error(error.message);
-    for (const row of data || []) purgeable.add(row.id as string);
+    const retained = await retainedImageHistoryIds(admin, (data || []).map(row => row.id as string));
+    for (const row of data || []) {
+      const metadata = (row.metadata || {}) as Record<string, unknown>;
+      // Verified image history is intentionally retained for rollback. No
+      // three-day cleanup may remove its current/original manuscript images.
+      if (!Object.hasOwn(metadata,'portfolioImageSet') && !Object.hasOwn(metadata,'portfolioThumbnailVersion') && !retained.has(row.id as string)) purgeable.add(row.id as string);
+    }
   }
   return purgeable;
+}
+
+async function retainedImageHistoryIds(admin: Admin, ids: string[]) {
+  const retained = new Set<string>();
+  if (!ids.length) return retained;
+  for (const table of ["portfolio_image_sets", "portfolio_thumbnail_versions", "portfolio_mockup_sessions"]) {
+   for (let index = 0; index < ids.length; index += ID_CHUNK) {
+    const { data, error } = await admin.from(table).select("work_item_id").in("work_item_id", ids.slice(index,index + ID_CHUNK));
+    // Missing/unavailable preservation history must stop deletion, not permit it.
+    if (error) throw new Error("MOCKUP_RETENTION_HISTORY_UNAVAILABLE");
+    for (const row of data || []) retained.add(row.work_item_id as string);
+   }
+  }
+  return retained;
 }
 
 /**
@@ -120,6 +140,7 @@ async function unpurgedJobs(admin: Admin, jobType: string, marker: string) {
 }
 
 async function removeFiles(admin: Admin, bucket: string, paths: string[], warnings: string[]) {
+  paths = paths.filter(path => !/^verified-(?:local|thumbnail)\//.test(path));
   if (!paths.length) return 0;
   const { error } = await admin.storage.from(bucket).remove(paths);
   if (error) {
@@ -275,8 +296,10 @@ const PURGERS: Record<string, Purger> = {
     if (error) throw new Error(error.message);
 
     let rows = 0;
+    const retained = await retainedImageHistoryIds(admin, (items || []).map(item => item.id as string));
     for (const item of items || []) {
       const metadata = { ...(item.metadata || {}) as Record<string, unknown> };
+      if (Object.hasOwn(metadata,'portfolioImageSet') || Object.hasOwn(metadata,'portfolioThumbnailVersion') || retained.has(item.id as string)) continue;
       delete metadata.generated;
       metadata.bodyPurgedAt = new Date().toISOString();
       const { data: saved, error: saveError } = await admin.from("content_work_items")
@@ -353,16 +376,18 @@ const PURGERS: Record<string, Purger> = {
    * 시각까지 기준일을 지난 경우에만 정리합니다.
    */
   finished_content_jobs: async (admin, cutoff) => {
-    const { ids, remaining } = await idsToPurge(
-      admin.from("content_jobs")
-        .select("id,content_work_items!inner(id)")
+    const { data, error } = await admin.from("content_jobs")
+        .select("id,work_item_id,content_work_items!inner(id)")
         .in("status", ["completed", "failed"])
         .lt("updated_at", cutoff)
         .eq("content_work_items.status", "published")
         .lt("content_work_items.published_at", cutoff)
-        .limit(ROW_BATCH),
-    );
-    return { rows: await deleteByIds(admin, "content_jobs", ids), remaining };
+        .limit(ROW_BATCH);
+    if(error) throw new Error(error.message);
+    const candidates=data||[];
+    const purgeable=await keepPurgeablePublished(admin,[...new Set(candidates.map(row=>row.work_item_id as string))],cutoff);
+    const ids=candidates.filter(row=>purgeable.has(row.work_item_id as string)).map(row=>row.id as string);
+    return { rows: await deleteByIds(admin, "content_jobs", ids), remaining:candidates.length>=ROW_BATCH };
   },
 
   column_generation_runs: async (admin, cutoff) => {

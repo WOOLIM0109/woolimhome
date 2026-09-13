@@ -4,10 +4,7 @@ import {
   isVerifiedPortfolioRedactionProof,
   parseLocalRedactionManifest,
 } from "../portfolio/redaction-proof.ts";
-import {
-  APPROVED_16X9_TEMPLATE_SUITE_ID,
-  APPROVED_16X9_TEMPLATE_VERSION,
-} from "../portfolio/approved-16x9-templates.ts";
+import { matchesApprovedBodyTemplateSet } from "../portfolio/approved-mockup-suites.ts";
 
 export const PORTFOLIO_RULE_VERSION = "2026-08-05-public-visual-overrides-v9";
 
@@ -25,8 +22,9 @@ export function createPortfolioSourceFingerprint(input: {
 export const PORTFOLIO_WRITING_RULES = `
 포트폴리오 글 이미지 배치 규칙:
 - 대표 썸네일은 목록 카드에서만 사용하고 본문용 이미지와 섞지 않는다.
-- 5~19장 문서는 PSD 기반 메인·상세 목업 4장을 사용한다.
-- 20장 이상 문서는 선정 장표를 중복 없이 6장씩 묶어, 완성된 묶음 수에 따라 다중 페이지 목업 3~5장을 사용한다.
+- 5~19장 문서는 장표 교체형 메인·상세 목업 4장을 사용한다.
+- 20장 이상 A4 가로 문서는 승인된 장표 교체형 본문 목업 4장을 사용한다.
+- 그 밖의 20장 이상 문서는 선정 장표를 중복 없이 6장씩 묶어, 완성된 묶음 수에 따라 다중 페이지 목업 3~5장을 사용한다.
 - 도식이 풍부하고 완성도가 높으며 보기 드문 구성을 우선 선택하고, 같은 장표와 유사 레이아웃은 반복하지 않는다.
 - 본문용 이미지는 글 상단에 한꺼번에 나열하지 않는다.
 - 각 이미지는 그 이미지를 설명하는 문단 바로 다음에 figure로 배치한다.
@@ -63,6 +61,9 @@ type PortfolioStoredAsset = {
   kind?: unknown;
   slideIndexes?: unknown;
   url?: unknown;
+  aspectClass?: unknown;
+  mockupTemplateId?: unknown;
+  mockupTemplateVersion?: unknown;
 };
 
 function renderedPortfolioAssets(value: unknown): PortfolioStoredAsset[] {
@@ -97,6 +98,7 @@ export function validatePortfolioPublicationMetadata(metadata: unknown) {
       bodyBoardCount?: unknown;
       selectedSlideIndexes?: unknown;
       redactionStatus?: unknown;
+      aspectClass?: unknown;
       templateSetId?: unknown;
       templateVersion?: unknown;
     }
@@ -147,7 +149,7 @@ export function validatePortfolioPublicationMetadata(metadata: unknown) {
   if (mockup.mode === "short_psd") {
     minimumFigures = 4;
     if (recordedBoardCount !== 4) {
-      issues.push("짧은 문서는 본문 목업 4장이 모두 확인되어야 합니다.");
+      issues.push("장표 교체형 문서는 본문 목업 4장이 모두 확인되어야 합니다.");
     }
   } else if (mockup.mode === "six_grid") {
     const validLongCount = recordedBoardCount !== null
@@ -206,9 +208,24 @@ export function validatePortfolioPublicationMetadata(metadata: unknown) {
     flattenedAssetIndexes.push(...indexes);
   }
   const uniqueAssetIndexes = new Set(flattenedAssetIndexes);
-  const approvedShortTemplateSet = mockup.mode === "short_psd"
-    && mockup.templateSetId === APPROVED_16X9_TEMPLATE_SUITE_ID
-    && mockup.templateVersion === APPROVED_16X9_TEMPLATE_VERSION;
+  const bodyTemplateIds = bodyAssets
+    .map((asset) => asset.mockupTemplateId)
+    .filter((templateId): templateId is string => typeof templateId === "string");
+  const approvedBodyTemplateSet = mockup.mode === "short_psd"
+    && typeof mockup.templateVersion === "string"
+    && bodyAssets.every((asset) => asset.mockupTemplateVersion === mockup.templateVersion)
+    ? matchesApprovedBodyTemplateSet({
+      templateIds: bodyTemplateIds,
+      version: mockup.templateVersion,
+    })
+    : null;
+  const approvedShortTemplateSet = approvedBodyTemplateSet !== null
+    && mockup.templateSetId === approvedBodyTemplateSet.suiteId
+    && mockup.templateVersion === approvedBodyTemplateSet.version
+    && (mockup.aspectClass === approvedBodyTemplateSet.aspectClass || mockup.aspectClass === "mixed")
+    && bodyAssets.every((asset) => (
+      asset.aspectClass === approvedBodyTemplateSet.aspectClass || asset.aspectClass === "mixed"
+    ));
   if (!approvedShortTemplateSet
     && uniqueAssetIndexes.size !== flattenedAssetIndexes.length) invalidAssetIndexes = true;
   if (mockup.mode === "six_grid"

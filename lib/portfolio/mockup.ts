@@ -13,14 +13,16 @@ import {
   type SlideAspect,
 } from "./slide-selection";
 import {
+  renderApprovedTemplateBodyMockups,
   renderShortDocumentMockups,
   type SupportedShortMockupAspectClass,
 } from "./short-mockup";
 import {
-  APPROVED_16X9_TEMPLATES,
   APPROVED_16X9_TEMPLATE_VERSION,
+  resolveApprovedMockupSlots,
 } from "./approved-16x9-templates.ts";
-import { renderApproved16x9Mockup } from "./approved-16x9-renderer.ts";
+import { renderProductionApprovedMockup as renderApprovedMockup } from "./production-approved-renderer.ts";
+import { getApprovedMockupSuite } from "./approved-mockup-suites.ts";
 import { multiPageGridDimensions } from "./grid-layout";
 import {
   findDuplicatePortfolioImage,
@@ -904,15 +906,29 @@ export async function createPortfolioMockups(input: {
     throw new Error(coverSlideBlockedMessage(plan.coverBlockedReason || "redaction_excluded"));
   }
   const aspect = aggregateAspectClass(selectedSlides);
-  const rankedShortSlides = plan.mode === "short"
+  const approvedSuite = aspect.primary ? getApprovedMockupSuite(aspect.primary) : null;
+  const approvedBodyCapacity = approvedSuite?.bodyTemplates.reduce(
+    (sum, template) => sum + resolveApprovedMockupSlots(template).length,
+    0,
+  ) || 0;
+  const rankedMockupSlides = plan.mode === "short"
     ? shortMockupRankedIndexes(plan.selection, aspect.primary === "4:3" ? 13 : 14)
       .map((index) => slideMap.get(index))
       .filter((slide): slide is LoadedSlide => Boolean(slide))
+    : aspect.primary === "a4_landscape"
+      ? shortMockupRankedIndexes(plan.selection, approvedBodyCapacity)
+      .map((index) => slideMap.get(index))
+      .filter((slide): slide is LoadedSlide => Boolean(slide))
     : selectedSlides;
-  const shortSlidesForRenderer = plan.mode === "short" && aspect.primary === "16:9"
-    ? approvedSlidesWithCover(thumbnailSlide, rankedShortSlides, 14)
-    : rankedShortSlides;
-  assertVisuallyUniqueSlides(plan.mode === "short" ? shortSlidesForRenderer : selectedSlides);
+  const shortSlidesForRenderer = plan.mode === "short" && approvedSuite
+    ? approvedSlidesWithCover(thumbnailSlide, rankedMockupSlides, 14)
+    : rankedMockupSlides;
+  const slidesForUniquenessCheck = plan.mode === "short"
+    ? shortSlidesForRenderer
+    : aspect.primary === "a4_landscape"
+      ? rankedMockupSlides
+      : selectedSlides;
+  assertVisuallyUniqueSlides(slidesForUniquenessCheck);
   const captions = [
     "문서 도입부의 구성과 첫인상을 한눈에 보여주는 다중 페이지 목업",
     "초반부 정보 구조와 레이아웃의 반복 원칙을 비교하는 다중 페이지 목업",
@@ -937,6 +953,15 @@ export async function createPortfolioMockups(input: {
         aspectClass: aspect.aspectClass,
       }));
     })()
+    : aspect.primary === "a4_landscape"
+      ? (await renderApprovedTemplateBodyMockups({
+        aspectClass: "a4_landscape",
+        slides: rankedMockupSlides.map((slide) => ({ index: slide.index, buffer: slide.buffer })),
+      })).boards.map((board) => ({
+        ...board,
+        mockupMode: "short_psd" as const,
+        aspectClass: aspect.aspectClass,
+      }))
     : await Promise.all(groupSlides.map(async (group, index) => ({
       kind: "body_image" as const,
       name: `multi-page-${index + 1}.jpg`,
@@ -949,10 +974,15 @@ export async function createPortfolioMockups(input: {
     })));
   console.info(`[portfolio-mockup] rendered ${bodyOutputs.length} body board(s)`);
   const coverTitle = privacySafeThumbnailTitle(input.review, input.coverTitle);
-  const approvedThumbnail = plan.mode === "short" && aspect.primary === "16:9"
-    ? await renderApproved16x9Mockup({
-      template: APPROVED_16X9_TEMPLATES["thumbnail-1"],
-      slides: approvedSlidesWithCover(thumbnailSlide, rankedShortSlides, 7)
+  const approvedThumbnail = approvedSuite
+    && (plan.mode === "short" || aspect.primary === "a4_landscape")
+    ? await renderApprovedMockup({
+      template: approvedSuite.thumbnail,
+      slides: approvedSlidesWithCover(
+        thumbnailSlide,
+        rankedMockupSlides,
+        resolveApprovedMockupSlots(approvedSuite.thumbnail).length,
+      )
         .map((slide) => ({ index: slide.index, buffer: slide.buffer })),
       title: coverTitle,
     })

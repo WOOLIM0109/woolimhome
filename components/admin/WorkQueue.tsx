@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ChevronDown, RotateCcw, Search, Sparkles, Trash2, Upload } from "lucide-react";
 import StatusBadge from "./StatusBadge";
+import ProductionMockupEditor from "./ProductionMockupEditor";
 import type { ContentChannel, WorkflowStatus } from "@/lib/content-ops/types";
 import { faqAnswerHtml, faqQuestionHtml } from "@/lib/content-ops/editorial-style";
 import { formatSentenceLineBreaks } from "@/lib/content-ops/sentence-line-breaks";
@@ -155,7 +156,7 @@ type WorkItem = {
 };
 
 const mockupModeLabels: Record<PortfolioMockupMode, string> = {
-  short_psd: "짧은 문서 · PSD 목업",
+  short_psd: "장표 교체형 목업 · 본문 4장",
   six_grid: "긴 문서 · 6장 구성",
 };
 
@@ -1294,6 +1295,9 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
             </section>
           )}
           <PortfolioMockupDetails metadata={item.metadata} />
+          {item.format === "portfolio" && <div className="mt-4"><ProductionMockupEditor workItemId={item.id} title={item.title}
+            currentAssets={item.content_review_assets || []} onActivated={load}
+            disabled={rebuildingId === item.id || mockupRebuildingId === item.id || uploadingImagesId === item.id || sourceUploadingId === item.id} /></div>}
           {item.metadata?.novelty && item.format !== "portfolio" && (
             <section className={`mt-5 rounded-xl border p-4 text-sm ${
               item.metadata.novelty.duplicate

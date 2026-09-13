@@ -12,6 +12,9 @@ import {
 import { expectedNaverAccount } from "@/lib/publication";
 import { sanitizeGeneratedHtml } from "@/lib/security/html";
 import { PRIVATE_PORTFOLIO_SOURCE_NOTE } from "@/lib/content-ops/source-section";
+import {
+  loadProductionImageManifests, projectProductionPortfolioImages, productionImageProjectionErrorCode,
+} from "@/lib/portfolio/production-image-projection";
 
 export const dynamic = "force-dynamic";
 
@@ -89,11 +92,18 @@ export async function GET(request: Request) {
 
   const { data, error } = await query;
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  let visibleItems = ((data || []) as WorkItemRow[]).filter((item) => isVisibleToPartner(item));
+  try {
+    const manifests = await loadProductionImageManifests(visibleItems, contentAdmin());
+    visibleItems = projectProductionPortfolioImages(visibleItems, manifests);
+  } catch (projectionError) {
+    return NextResponse.json({ error: "확정 이미지 연결을 확인하지 못했습니다. 관리자에게 알려 주세요.",
+      code: productionImageProjectionErrorCode(projectionError) }, { status: 409 });
+  }
 
   // 노출 판단은 lib/partner-portal 한 곳에서만 합니다.
   // 관리자 화면이 같은 함수로 사유를 보여 주므로, 여기서 조용히 빠지는 작업이 없습니다.
-  const items = ((data || []) as WorkItemRow[])
-    .filter((item) => isVisibleToPartner(item))
+  const items = visibleItems
     .map((item) => {
       const hasLegacyDuplicateUrl = item.metadata?.publicationValidation?.duplicateLegacyUrl === true;
       const forceApprovalMemo = item.metadata?.partnerHandoff?.forceApproved === true

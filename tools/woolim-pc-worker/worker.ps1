@@ -6,7 +6,7 @@
 )
 
 $ErrorActionPreference = "Stop"
-$WorkerVersion = "2.9.1"
+$WorkerVersion = "2.10.0"
 
 # The console window cannot be hidden reliably: PowerPoint COM needs the
 # interactive session. So the window will be seen, and an unlabeled PowerShell
@@ -179,6 +179,31 @@ function Invoke-WorkerSelfUpdate {
     return $false
   }
   return $true
+}
+
+function Invoke-WithPowerPointPreparationLock {
+  param([Parameter(Mandatory = $true)][scriptblock]$Operation)
+
+  # Preparation and legacy conversion must never drive PowerPoint together.
+  # Claim only after taking this shared lock: a busy editor preparation must
+  # not consume a conversion attempt or fail an already leased server job.
+  $preparationMutex = New-Object System.Threading.Mutex($false, "Local\WoolimPowerPointPreparation")
+  $ownsPreparationMutex = $false
+  try {
+    try {
+      $ownsPreparationMutex = $preparationMutex.WaitOne(0)
+    } catch [System.Threading.AbandonedMutexException] {
+      $ownsPreparationMutex = $true
+    }
+    if (-not $ownsPreparationMutex) { return $false }
+    & $Operation | Out-Null
+    return $true
+  } finally {
+    if ($ownsPreparationMutex) {
+      try { $preparationMutex.ReleaseMutex() } catch {}
+    }
+    $preparationMutex.Dispose()
+  }
 }
 
 function New-WorkerHeaders {
@@ -2126,6 +2151,7 @@ try {
 do {
   try {
     Send-Heartbeat
+    $conversionCycleRan = Invoke-WithPowerPointPreparationLock -Operation {
     $claim = Invoke-WorkerApi -Path "/api/worker/jobs/claim" -Body @{
       workerVersion = $WorkerVersion
       capabilities = @("powerpoint_selective_redaction_manifest_v2")
@@ -2165,6 +2191,10 @@ do {
           Write-WorkerLog "Could not report failure: $($_.Exception.Message)"
         }
       }
+    }
+    }
+    if (-not $conversionCycleRan) {
+      Write-WorkerLog "Local slide preparation is busy. No conversion job was claimed this cycle."
     }
   } catch {
     Write-WorkerLog "Worker cycle failed: $($_.Exception.Message)"

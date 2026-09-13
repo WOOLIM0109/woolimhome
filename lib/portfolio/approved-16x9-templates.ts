@@ -28,7 +28,10 @@ export type ApprovedMockupBackgroundId =
   | "thumbnail-light"
   | "stage-radial"
   | "corridor-light"
-  | "grid-light";
+  | "grid-light"
+  | "a4-portrait-thumbnail-diagonal"
+  | "a4-portrait-flatlay"
+  | "a4-portrait-dark-wood";
 
 export type ApprovedMockupLayer =
   | "background"
@@ -42,7 +45,17 @@ export type ApprovedMockupSlotRole = "hero" | "support";
 
 export type ApprovedMockupShadow =
   | Readonly<{ kind: "support"; strength: number }>
-  | Readonly<{ kind: "focus" }>;
+  | Readonly<{ kind: "focus" }>
+  | Readonly<{
+      kind: "custom";
+      layers: readonly Readonly<{
+        dx: number;
+        dy: number;
+        blur: number;
+        opacity: number;
+        color?: string;
+      }>[];
+    }>;
 
 export type ApprovedMockupCanvas = Readonly<{
   width: number;
@@ -69,7 +82,35 @@ export type ApprovedMockupBackgroundSpec =
       center: Readonly<{ x: number; y: number }>;
       radius: number;
       stops: readonly Readonly<{ offset: number; color: string }>[];
+    }>
+  | Readonly<{
+      kind: "diagonal-split";
+      base: Readonly<{ from: string; to: string }>;
+      lower: Readonly<{ from: string; to: string }>;
+      leftY: number;
+      rightY: number;
+    }>
+  | Readonly<{
+      kind: "image";
+      assetPath: string;
+      brightness: number;
+      saturation: number;
     }>;
+
+export type ApprovedMockupTitleBox = Readonly<{
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+  fontSize: number;
+  color?: string;
+  align?: "left" | "center" | "right";
+}>;
+
+export const APPROVED_MOCKUP_DEFAULT_TITLE_BOX = {
+  // Keep ink above the rising top rail, including two-line long titles.
+  left: 220, top: 24, width: 500, height: 28, fontSize: 22,
+} as const satisfies ApprovedMockupTitleBox;
 
 export type ApprovedMockupFixedSlotSpec = Readonly<{
   id: string;
@@ -102,20 +143,32 @@ export type ApprovedMockupRailSpec = Readonly<{
   allowCanvasClip: boolean;
 }>;
 
-export type ApprovedMockupTemplateSpec = Readonly<{
-  id: ApprovedMockupTemplateId;
+export type ApprovedMockupTemplateSpec<
+  TId extends string = ApprovedMockupTemplateId,
+  TVersion extends string = typeof APPROVED_16X9_TEMPLATE_VERSION,
+  TRatio extends number = typeof APPROVED_16X9_SLIDE_ASPECT_RATIO,
+> = Readonly<{
+  /** Stable identifier inside one approved template suite. */
+  id: TId;
   templateNumber: 1 | 3 | 4 | 5 | 6;
-  version: typeof APPROVED_16X9_TEMPLATE_VERSION;
+  /** Suite-specific geometry version used for cache invalidation. */
+  version: TVersion;
   outputName: ApprovedMockupOutputName;
   kind: "thumbnail" | "body";
   canvas: ApprovedMockupCanvas;
-  slideAspectRatio: typeof APPROVED_16X9_SLIDE_ASPECT_RATIO;
+  slideAspectRatio: TRatio;
   /** Every card edge in the template inherits this angle. */
   axisAngle: number;
   backgroundId: ApprovedMockupBackgroundId;
   logo: ApprovedMockupLogoSpec;
+  titleBox?: ApprovedMockupTitleBox;
   rails: readonly ApprovedMockupRailSpec[];
   fixedSlots: readonly ApprovedMockupFixedSlotSpec[];
+  /** Optional fixed-card edges that must continue on the same straight line. */
+  edgeAlignments?: readonly Readonly<{
+    slotIds: readonly string[];
+    edges: readonly ("top" | "bottom")[];
+  }>[];
   layerOrder: readonly ApprovedMockupLayer[];
 }>;
 
@@ -188,6 +241,29 @@ export const APPROVED_16X9_BACKGROUNDS = {
       { offset: 1, color: "#f0f2f4" },
     ],
   },
+  "a4-portrait-thumbnail-diagonal": {
+    kind: "diagonal-split",
+    base: { from: "#eef0f2", to: "#cbd0d7" },
+    lower: { from: "#090a0b", to: "#2b2c2e" },
+    leftY: 730,
+    rightY: 330,
+  },
+  "a4-portrait-flatlay": {
+    kind: "radial-gradient",
+    center: { x: 0.52, y: 0.43 },
+    radius: 0.76,
+    stops: [
+      { offset: 0, color: "#fafafa" },
+      { offset: 0.62, color: "#dadcdf" },
+      { offset: 1, color: "#b7bbc0" },
+    ],
+  },
+  "a4-portrait-dark-wood": {
+    kind: "image",
+    assetPath: "/images/mockup-templates/a4-portrait-dark-wood.png",
+    brightness: 0.86,
+    saturation: 0.75,
+  },
 } as const satisfies Readonly<Record<ApprovedMockupBackgroundId, ApprovedMockupBackgroundSpec>>;
 
 /**
@@ -231,7 +307,7 @@ export function expandApprovedMockupRail(
 }
 
 export function resolveApprovedMockupSlots(
-  template: ApprovedMockupTemplateSpec,
+  template: ApprovedMockupTemplateSpec<string, string, number>,
 ): ResolvedApprovedMockupSlot[] {
   const railSlots = template.rails.flatMap((rail) =>
     expandApprovedMockupRail(rail, template.axisAngle, template.slideAspectRatio),
@@ -253,6 +329,7 @@ const THUMBNAIL_1 = {
   version: APPROVED_16X9_TEMPLATE_VERSION,
   outputName: "thumbnail.jpg",
   kind: "thumbnail",
+  titleBox: APPROVED_MOCKUP_DEFAULT_TITLE_BOX,
   canvas: THUMBNAIL_CANVAS,
   slideAspectRatio: APPROVED_16X9_SLIDE_ASPECT_RATIO,
   axisAngle: -9,

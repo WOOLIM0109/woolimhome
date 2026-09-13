@@ -37,10 +37,9 @@ import { isCurrentLocalRedactionWorkerVersion } from "../pc-worker/capabilities"
 import { automaticDesignEligibleSlideIndexes, manifestPublicTitles } from "../pc-worker/redaction-manifest";
 import { coverSlideBlockedMessage, coverSlideSubstitutionNotice } from "./cover-slide";
 import {
-  APPROVED_16X9_BODY_TEMPLATE_LIST,
-  APPROVED_16X9_TEMPLATE_SUITE_ID,
-  APPROVED_16X9_TEMPLATE_VERSION,
-} from "./approved-16x9-templates.ts";
+  getApprovedMockupSuiteByVersion,
+  matchesApprovedBodyTemplateSet,
+} from "./approved-mockup-suites.ts";
 import { sanitizeGeneratedHtml, sanitizeInlineHtml } from "../security/html";
 import {
   isCompletePortfolioSourceDownload,
@@ -63,6 +62,7 @@ import {
   preserveMockupOnlyRestoreState,
 } from "./mockup-only-state";
 import { createStyleRevisionStamp } from "../content-ops/style-revision-rules";
+import { assertLegacyPortfolioImageWriteAllowed } from "./production-image-projection.ts";
 
 class PortfolioClaimLost extends Error {
   constructor() {
@@ -135,10 +135,10 @@ function replaceGeneratedPortfolioBodyAssets(
   if (!generated || typeof generated !== "object" || Array.isArray(generated)) return null;
   const value = generated as Record<string, unknown>;
   if (typeof value.bodyHtml !== "string") return null;
-  const nextUrls = nextAssets
+  const nextImages = nextAssets
     .filter((asset) => asset.kind === "body_image")
-    .map((asset) => asset.url);
-  const swapped = swapPortfolioBodyImages(value.bodyHtml, nextUrls);
+    .map((asset) => ({ url: asset.url, caption: asset.caption }));
+  const swapped = swapPortfolioBodyImages(value.bodyHtml, nextImages);
   if (!swapped) return null;
   return { ...value, bodyHtml: sanitizeGeneratedHtml(swapped.bodyHtml) };
 }
@@ -157,6 +157,14 @@ function isPortfolioSlideRedactionProof(value: unknown): value is PortfolioSlide
     && typeof proof.redactedHash === "string";
 }
 
+function sharedMockupTemplateVersion(assets: GeneratedPortfolioAsset[]) {
+  const versions = new Set(assets
+    .filter((asset) => asset.mockupMode === "short_psd")
+    .map((asset) => asset.mockupTemplateVersion)
+    .filter((value): value is string => Boolean(value)));
+  return versions.size === 1 ? [...versions][0] : null;
+}
+
 function portfolioMockupMetadata(input: {
   review: PortfolioVisualReview;
   assets: GeneratedPortfolioAsset[];
@@ -164,19 +172,22 @@ function portfolioMockupMetadata(input: {
   redactionSummary?: { slideIndex: number; entries: RedactionSummaryEntry[] }[];
 }) {
   const bodyAssets = input.assets.filter((asset) => asset.kind === "body_image");
-  const approvedBodyTemplateIds = new Set<string>(
-    APPROVED_16X9_BODY_TEMPLATE_LIST.map((template) => template.id),
-  );
-  const renderedBodyTemplateIds = new Set(
-    bodyAssets.map((asset) => asset.mockupTemplateId).filter((value): value is string => Boolean(value)),
-  );
-  const approvedTemplateSet = bodyAssets.length === APPROVED_16X9_BODY_TEMPLATE_LIST.length
-    && renderedBodyTemplateIds.size === approvedBodyTemplateIds.size
-    && bodyAssets.every((asset) => (
-      asset.mockupTemplateVersion === APPROVED_16X9_TEMPLATE_VERSION
-      && typeof asset.mockupTemplateId === "string"
-      && approvedBodyTemplateIds.has(asset.mockupTemplateId)
-    ));
+  const renderedBodyTemplateIds = bodyAssets
+    .map((asset) => asset.mockupTemplateId)
+    .filter((value): value is string => Boolean(value));
+  const renderedBodyTemplateVersions = new Set(bodyAssets
+    .map((asset) => asset.mockupTemplateVersion)
+    .filter((value): value is string => Boolean(value)));
+  const renderedBodyTemplateVersion = renderedBodyTemplateVersions.size === 1
+    ? [...renderedBodyTemplateVersions][0]
+    : null;
+  const approvedTemplateSet = renderedBodyTemplateVersion
+    && bodyAssets.every((asset) => asset.mockupTemplateVersion === renderedBodyTemplateVersion)
+    ? matchesApprovedBodyTemplateSet({
+      templateIds: renderedBodyTemplateIds,
+      version: renderedBodyTemplateVersion,
+    })
+    : null;
   const selectedSlideIndexes = [...new Set(bodyAssets.flatMap((asset) => asset.slideIndexes))];
   const selected = new Set(selectedSlideIndexes);
   const selectionReasons = (input.review.selection?.selectedSlides || [])
@@ -188,8 +199,8 @@ function portfolioMockupMetadata(input: {
     bodyBoardCount: bodyAssets.length,
     aspectClass: input.assets[0]?.aspectClass || "unknown",
     ...(approvedTemplateSet ? {
-      templateSetId: APPROVED_16X9_TEMPLATE_SUITE_ID,
-      templateVersion: APPROVED_16X9_TEMPLATE_VERSION,
+      templateSetId: approvedTemplateSet.suiteId,
+      templateVersion: approvedTemplateSet.version,
     } : {}),
     selectedSlideIndexes,
     selectionReasons,
@@ -751,6 +762,10 @@ export async function processNextPortfolioMockup(
   if (jobError) throw new Error(jobError.message);
   const job = jobs?.[0];
   if (!job) return null;
+  const { data: protectedWorkItem, error: protectedWorkItemError } = await admin.from("content_work_items")
+    .select("metadata").eq("id", job.work_item_id).single();
+  if (protectedWorkItemError) throw new Error(protectedWorkItemError.message);
+  assertLegacyPortfolioImageWriteAllowed(protectedWorkItem.metadata);
   let attempts = Number(job.attempts || 0);
   const previousResult = (job.result || {}) as Record<string, unknown>;
   const jobPayload = job.payload && typeof job.payload === "object"
@@ -1014,10 +1029,14 @@ export async function processNextPortfolioMockup(
     const cachedAssets = Array.isArray(result.portfolioAssetsProgress)
       ? result.portfolioAssetsProgress.filter(isGeneratedPortfolioAsset)
       : [];
+    const cachedMockupTemplateVersion = sharedMockupTemplateVersion(cachedAssets);
+    const cachedApprovedSuite = getApprovedMockupSuiteByVersion(cachedMockupTemplateVersion);
     const cachedShortTemplateCurrent = cachedAssets.every((asset) => (
       asset.mockupMode !== "short_psd"
-      || (result.mockupTemplateVersion === APPROVED_16X9_TEMPLATE_VERSION
-        && asset.mockupTemplateVersion === APPROVED_16X9_TEMPLATE_VERSION)
+      || (cachedApprovedSuite !== null
+        && cachedMockupTemplateVersion !== null
+        && result.mockupTemplateVersion === cachedMockupTemplateVersion
+        && asset.mockupTemplateVersion === cachedMockupTemplateVersion)
     ));
     const cachedRenderedIndexes = renderedPortfolioSlideIndexes(cachedAssets);
     let redactionProof = cachedRenderedIndexes && isVerifiedPortfolioRedactionProof(
@@ -1038,8 +1057,11 @@ export async function processNextPortfolioMockup(
         ? result.redactionSlideProofProgress.filter(isPortfolioSlideRedactionProof)
         : [];
       // 관리자가 골라 둔 표지 문구가 있으면 그대로 씁니다.
-      const { data: coverWorkItem } = await admin.from("content_work_items")
+      const { data: coverWorkItem, error: coverWorkItemError } = await admin.from("content_work_items")
         .select("metadata").eq("id", job.work_item_id).maybeSingle();
+      if (coverWorkItemError) throw new Error(coverWorkItemError.message);
+      if (!coverWorkItem) throw new Error("IMAGE_SET_WORK_ITEM_NOT_FOUND");
+      assertLegacyPortfolioImageWriteAllowed(coverWorkItem.metadata);
       const chosenCoverTitle = storedCoverTitle(
         (coverWorkItem?.metadata || {}) as Record<string, unknown>,
       );
@@ -1077,9 +1099,12 @@ export async function processNextPortfolioMockup(
         selectedSlideIndexes: renderedIndexes,
         slides: slideProof.filter((proof) => renderedIndexSet.has(proof.slideIndex)),
       });
+      const renderedMockupTemplateVersion = sharedMockupTemplateVersion(assets);
       result = { ...result,
         portfolioAssetsProgress: assets,
-        mockupTemplateVersion: APPROVED_16X9_TEMPLATE_VERSION,
+        ...(renderedMockupTemplateVersion ? {
+          mockupTemplateVersion: renderedMockupTemplateVersion,
+        } : {}),
         redactionProof,
         portfolioAssetsCompletedAt: new Date().toISOString(),
       };
@@ -1093,6 +1118,7 @@ export async function processNextPortfolioMockup(
       verification: redactionVerification,
       redactionSummary,
     });
+    const renderedMockupTemplateVersion = sharedMockupTemplateVersion(assets);
     const completedAt = new Date().toISOString();
     const { data: workItem, error: workItemError } = await admin.from("content_work_items")
       .select("metadata,status,summary,source_label,review_note,updated_at")
@@ -1100,6 +1126,7 @@ export async function processNextPortfolioMockup(
       .single();
     if (workItemError) throw new Error(workItemError.message);
     const workItemMetadata = { ...(workItem?.metadata || {}) } as Record<string, unknown>;
+    assertLegacyPortfolioImageWriteAllowed(workItemMetadata);
     // 표지를 못 써서 다른 장표로 대신한 경우, 그 사실을 화면에 남깁니다.
     if (coverSubstitution) {
       workItemMetadata.coverSubstitution = coverSubstitution;
@@ -1167,7 +1194,9 @@ export async function processNextPortfolioMockup(
         portfolioGenerationId: generationId,
         visualReview: review,
         assets,
-        mockupTemplateVersion: APPROVED_16X9_TEMPLATE_VERSION,
+        ...(renderedMockupTemplateVersion ? {
+          mockupTemplateVersion: renderedMockupTemplateVersion,
+        } : {}),
         redactionMode: "confidential",
         confidentialRegions,
         redactionProof,
@@ -1676,6 +1705,10 @@ export async function processNextPortfolioDraft(candidateId?: string) {
   } | null = null;
   for (const pendingJob of jobs || []) {
     if (!pendingJob.candidate_id || !pendingJob.work_item_id) continue;
+    const { data: protectedWorkItem, error: protectedWorkItemError } = await admin.from("content_work_items")
+      .select("metadata").eq("id", pendingJob.work_item_id).single();
+    if (protectedWorkItemError) throw new Error(protectedWorkItemError.message);
+    assertLegacyPortfolioImageWriteAllowed(protectedWorkItem.metadata);
     let pendingResult = (pendingJob.result || {}) as Record<string, unknown>;
     let pendingAttempts = Number(pendingJob.attempts || 0);
     const recoverableJsonFailure = /Unexpected non-whitespace|AI JSON|JSON 객체|AI_STEP_TIMEOUT/i
@@ -1831,6 +1864,7 @@ export async function processNextPortfolioDraft(candidateId?: string) {
     )) {
       throw new PortfolioClaimLost();
     }
+    assertLegacyPortfolioImageWriteAllowed(workItem.metadata);
 
     // Complete the exact claimed draft before exposing Gemini output. If a
     // rebuild invalidated the row, this CAS loses and no draft metadata moves.
@@ -2207,6 +2241,7 @@ export async function restorePortfolioDraft(
     .eq("id", workItemId)
     .single();
   if (workItemError) throw new Error(workItemError.message);
+  assertLegacyPortfolioImageWriteAllowed(workItem.metadata);
   if (workItem.format !== "portfolio") throw new PortfolioDraftRecoveryUnavailable();
   if (workItem.status === "published") {
     throw new Error("이미 발행된 포트폴리오 본문은 자동 복구로 변경할 수 없습니다.");
@@ -2402,6 +2437,7 @@ export async function retryPortfolioDraft(workItemId: string) {
     .eq("id", workItemId)
     .single();
   if (error) throw new Error(error.message);
+  assertLegacyPortfolioImageWriteAllowed(workItem.metadata);
   // 다른 재시도·재빌드 함수와 같은 자리를 지킵니다. 발행이 끝난 작업을 다시
   // 만들기 시작하면 이미 네이버에 올라간 글과 어긋나고, 보존 정책이 정리한
   // 장표를 다시 읽으려 들게 됩니다.
@@ -2688,6 +2724,7 @@ export async function retryPortfolioConversion(
     .maybeSingle();
   if (workItemError) throw new Error(workItemError.message);
   if (!workItem) throw new PortfolioConversionRetryConflict("포트폴리오 작업을 찾지 못했습니다.");
+  assertLegacyPortfolioImageWriteAllowed(workItem.metadata);
   if (workItem.format !== "portfolio") {
     throw new PortfolioConversionRetryConflict("포트폴리오 작업만 원본 변환을 다시 시도할 수 있습니다.");
   }
@@ -2960,6 +2997,7 @@ async function rebuildPortfolioMockupsOnlyClaimed(workItemId: string) {
     .eq("id", workItemId)
     .single();
   if (workItemError) throw new Error(workItemError.message);
+  assertLegacyPortfolioImageWriteAllowed(workItem.metadata);
   if (workItem.format !== "portfolio") {
     throw new Error("포트폴리오 작업만 목업 이미지를 다시 만들 수 있습니다.");
   }
@@ -3177,6 +3215,7 @@ export async function rebuildPortfolioDraft(
     .eq("id", workItemId)
     .single();
   if (workItemError) throw new Error(workItemError.message);
+  assertLegacyPortfolioImageWriteAllowed(workItem.metadata);
   if (workItem.format !== "portfolio") {
     throw new Error("포트폴리오 작업만 목업과 본문을 다시 만들 수 있습니다.");
   }

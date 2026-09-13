@@ -3,11 +3,15 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { createHash } from "node:crypto";
 import {
-  APPROVED_16X9_BODY_TEMPLATE_LIST,
   APPROVED_16X9_TEMPLATE_VERSION,
   resolveApprovedMockupSlots,
+  type ApprovedMockupTemplateSpec,
 } from "./approved-16x9-templates.ts";
-import { renderApproved16x9Mockup } from "./approved-16x9-renderer.ts";
+import { renderProductionApprovedMockup as renderApprovedMockup } from "./production-approved-renderer.ts";
+import {
+  getApprovedMockupSuite,
+  type ApprovedMockupSuiteAspectClass,
+} from "./approved-mockup-suites.ts";
 
 type SharpOverlay = Parameters<ReturnType<typeof sharp>["composite"]>[0][number];
 
@@ -304,7 +308,10 @@ export function shortMockupAspectRatio(aspectClass: SupportedShortMockupAspectCl
   return ASPECT_RATIOS[aspectClass];
 }
 
-function uniqueSelectedSlides(slides: ShortMockupSlide[]) {
+function uniqueSelectedSlides(
+  slides: ShortMockupSlide[],
+  maximum = SHORT_MOCKUP_MAX_SELECTED_SLIDES,
+) {
   const byIndex = new Map<number, ShortMockupSlide>();
   const contentHashes = new Set<string>();
   for (const slide of slides) {
@@ -320,7 +327,7 @@ function uniqueSelectedSlides(slides: ShortMockupSlide[]) {
       contentHashes.add(contentHash);
     }
   }
-  return [...byIndex.values()].slice(0, SHORT_MOCKUP_MAX_SELECTED_SLIDES);
+  return [...byIndex.values()].slice(0, maximum);
 }
 
 async function prepareSlide(slide: ShortMockupSlide): Promise<PreparedSlide> {
@@ -822,16 +829,19 @@ function splitSlidesAcrossBoards(
 }
 
 /**
- * Fills the approved 16:9 slots like reusable smart objects.
+ * Fills an approved suite's slots like reusable smart objects.
  *
  * A board never receives the same slide twice. Across boards we walk one
  * continuous ring, so every selected slide is used before the least-used
- * slides are reused. This keeps the 7/7/4/8 approved layouts full whenever
- * possible without hiding which source slide was placed in each slot.
+ * slides are reused. This keeps each approved layout full whenever possible
+ * without hiding which source slide was placed in each slot.
  */
-function approved16x9SlidesAcrossBoards(slides: PreparedSlide[]) {
+function approvedSlidesAcrossBoards(
+  slides: PreparedSlide[],
+  bodyTemplates: readonly ApprovedMockupTemplateSpec<string, string, number>[],
+) {
   let cursor = 0;
-  return APPROVED_16X9_BODY_TEMPLATE_LIST.map((template) => {
+  return bodyTemplates.map((template) => {
     const capacity = resolveApprovedMockupSlots(template).length;
     const count = Math.min(capacity, slides.length);
     const group = Array.from({ length: count }, () => {
@@ -848,10 +858,13 @@ async function renderBoard(
   boardIndex: number,
   aspectClass: SupportedShortMockupAspectClass,
 ): Promise<ShortMockupBoard> {
-  if (aspectClass === "16:9") {
-    const template = APPROVED_16X9_BODY_TEMPLATE_LIST[boardIndex];
-    if (!template) throw new Error(`승인된 16:9 본문 목업 ${boardIndex + 1}번을 찾지 못했습니다.`);
-    const rendered = await renderApproved16x9Mockup({
+  const approvedSuite = getApprovedMockupSuite(aspectClass);
+  if (approvedSuite) {
+    const template = approvedSuite.bodyTemplates[boardIndex];
+    if (!template) {
+      throw new Error(`승인된 ${aspectClass} 본문 목업 ${boardIndex + 1}번을 찾지 못했습니다.`);
+    }
+    const rendered = await renderApprovedMockup({
       template,
       slides: slides.map((slide) => ({ index: slide.index, buffer: slide.buffer })),
     });
@@ -940,14 +953,46 @@ async function renderBoard(
 }
 
 /**
+ * Renders a complete approved body suite for documents longer than the short
+ * 5-19 page path. It caps input at the physical slot count, keeps each board
+ * unique, and balances any necessary reuse across boards.
+ */
+export async function renderApprovedTemplateBodyMockups(input: {
+  aspectClass: ApprovedMockupSuiteAspectClass;
+  slides: ShortMockupSlide[];
+}) {
+  const suite = getApprovedMockupSuite(input.aspectClass);
+  if (!suite) throw new Error(`승인된 ${input.aspectClass} 목업 템플릿을 찾지 못했습니다.`);
+  const totalCapacity = suite.bodyTemplates.reduce(
+    (sum, template) => sum + resolveApprovedMockupSlots(template).length,
+    0,
+  );
+  const selected = uniqueSelectedSlides(input.slides, totalCapacity);
+  if (selected.length < SHORT_DOCUMENT_MIN_SLIDES) {
+    throw new Error("승인 목업에는 중복되지 않는 장표 이미지가 최소 5개 필요합니다.");
+  }
+  const prepared = await Promise.all(selected.map(prepareSlide));
+  const groups = approvedSlidesAcrossBoards(prepared, suite.bodyTemplates);
+  const boards: ShortMockupBoard[] = [];
+  for (const [boardIndex, group] of groups.entries()) {
+    boards.push(await renderBoard(group, boardIndex, input.aspectClass));
+  }
+  return {
+    selectedSlideIndexes: prepared.map((slide) => slide.index),
+    selectedSlideCount: prepared.length,
+    boards,
+  };
+}
+
+/**
  * Renders the four blog boards used for short (5-19 slide) portfolio decks.
  *
  * The input buffers must already have confidential text and images blurred.
  * This module intentionally has no Photoshop runtime dependency. The supplied
- * The approved 16:9 suite locks coordinates, angles, shadows, logo and layer
- * order while swapping only slide buffers. The existing 4:3 and A4 layouts stay
- * unchanged. Every slide is resized with `contain`, so its contents are never
- * stretched or cropped.
+ * Approved 16:9 and A4-landscape suites lock coordinates, angles, shadows,
+ * logo, and layer order while swapping only slide buffers. The existing 4:3
+ * and A4-portrait layouts stay unchanged. Every slide is resized with `contain`,
+ * so its contents are never stretched or cropped.
  */
 export async function renderShortDocumentMockups(input: {
   deckSlideCount: number;
@@ -971,8 +1016,9 @@ export async function renderShortDocumentMockups(input: {
     throw new Error("선택한 장표 인덱스가 전체 문서 장수를 벗어났습니다.");
   }
   const prepared = await Promise.all(selected.map(prepareSlide));
-  const groups = input.aspectClass === "16:9"
-    ? approved16x9SlidesAcrossBoards(prepared)
+  const approvedSuite = getApprovedMockupSuite(input.aspectClass);
+  const groups = approvedSuite
+    ? approvedSlidesAcrossBoards(prepared, approvedSuite.bodyTemplates)
     : splitSlidesAcrossBoards(prepared, input.aspectClass);
   const boards: ShortMockupBoard[] = [];
   for (const [boardIndex, group] of groups.entries()) {

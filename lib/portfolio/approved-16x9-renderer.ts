@@ -1,23 +1,44 @@
 import { createHash } from "node:crypto";
-import path from "node:path";
 import sharp from "sharp";
 
 import {
   APPROVED_16X9_BACKGROUNDS,
+  APPROVED_MOCKUP_DEFAULT_TITLE_BOX,
   resolveApprovedMockupSlots,
   type ApprovedMockupBackgroundSpec,
   type ApprovedMockupLayer,
   type ApprovedMockupTemplateSpec,
   type ResolvedApprovedMockupSlot,
 } from "./approved-16x9-templates.ts";
+import { renderApprovedMockupTitle } from "./approved-mockup-title.ts";
+import { approvedMockupAssetPath } from "./approved-mockup-runtime.ts";
 
 type SharpOverlay = Parameters<ReturnType<typeof sharp>["composite"]>[0][number];
+type AnyApprovedMockupTemplateSpec = ApprovedMockupTemplateSpec<string, string, number>;
 
 export type ApprovedMockupAssignedSlide = Readonly<{
   /** Zero-based index in the source presentation. */
   index: number;
   /** An already-redacted PNG or JPEG slide. */
   buffer: Buffer;
+}>;
+
+export type ApprovedMockupRenderScale = 0.5 | 1;
+
+export type ResolvedApprovedMockupShadowLayer = Readonly<{
+  filter: "drop-shadow" | "gaussian-blur";
+  dx: number;
+  dy: number;
+  blur: number;
+  opacity: number;
+  color: string;
+  surfaceColor: string;
+  surfaceOpacity: number;
+}>;
+
+export type ResolvedApprovedMockupShadow = Readonly<{
+  kind: ResolvedApprovedMockupSlot["shadow"]["kind"];
+  layers: readonly ResolvedApprovedMockupShadowLayer[];
 }>;
 
 export type ApprovedMockupSlotAssignment = Readonly<{
@@ -31,23 +52,46 @@ export type ApprovedMockupSlotAssignment = Readonly<{
   height: number;
   angle: number;
   z: number;
+  rasterPlacement: ApprovedMockupRasterPlacement;
+}>;
+
+export type ApprovedMockupRasterPlacement = Readonly<{
+  fittedWidth: number;
+  fittedHeight: number;
+  rotatedWidth: number;
+  rotatedHeight: number;
+  unclippedLeft: number;
+  unclippedTop: number;
+  sourceLeft: number;
+  sourceTop: number;
+  destinationLeft: number;
+  destinationTop: number;
+  visibleWidth: number;
+  visibleHeight: number;
+  clipped: boolean;
 }>;
 
 export type ApprovedMockupRenderResult = Readonly<{
   bytes: Buffer;
-  templateId: ApprovedMockupTemplateSpec["id"];
-  templateVersion: ApprovedMockupTemplateSpec["version"];
-  outputName: ApprovedMockupTemplateSpec["outputName"];
+  templateId: AnyApprovedMockupTemplateSpec["id"];
+  templateVersion: AnyApprovedMockupTemplateSpec["version"];
+  outputName: AnyApprovedMockupTemplateSpec["outputName"];
   width: number;
   height: number;
   slotAssignments: ApprovedMockupSlotAssignment[];
 }>;
 
 export type ApprovedMockupRenderOptions = Readonly<{
-  template: ApprovedMockupTemplateSpec;
+  template: AnyApprovedMockupTemplateSpec;
   slides: readonly ApprovedMockupAssignedSlide[];
   /** Optional administrator title. It is only drawn on the thumbnail template. */
   title?: string | null;
+  /** New strict renderer only. Legacy callers omit this and remain full-size. */
+  scale?: ApprovedMockupRenderScale;
+  /** New strict renderer only. Legacy callers omit this and remain JPEG. */
+  outputFormat?: "jpeg" | "png";
+  /** Absolute root of a verified standalone renderer package. */
+  runtimeRoot?: string;
 }>;
 
 type PreparedAssignment = Readonly<{
@@ -65,26 +109,6 @@ const REQUIRED_LAYER_ORDER: readonly ApprovedMockupLayer[] = [
   "logo",
 ];
 
-const THUMBNAIL_TITLE_BOX = {
-  left: 220,
-  top: 24,
-  width: 500,
-  height: 58,
-} as const;
-
-function publicAssetPath(assetPath: string) {
-  return path.join(process.cwd(), "public", assetPath.replace(/^[/\\]+/, ""));
-}
-
-function escapeXml(value: string) {
-  return value
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&apos;");
-}
-
 function formatNumber(value: number) {
   return Number.isInteger(value) ? String(value) : value.toFixed(4).replace(/0+$/, "").replace(/\.$/, "");
 }
@@ -93,10 +117,90 @@ function percentage(value: number) {
   return `${formatNumber(value * 100)}%`;
 }
 
+function scaled(value: number, scale: ApprovedMockupRenderScale) {
+  return value * scale;
+}
+
+function scaleSlot(
+  slot: ResolvedApprovedMockupSlot,
+  scale: ApprovedMockupRenderScale,
+): ResolvedApprovedMockupSlot {
+  return {
+    ...slot,
+    x: scaled(slot.x, scale),
+    y: scaled(slot.y, scale),
+    width: scaled(slot.width, scale),
+    height: scaled(slot.height, scale),
+  };
+}
+
+/** The numeric shadow recipe used by both rendering and geometry manifests. */
+export function resolveApprovedMockupShadow(
+  templateKind: AnyApprovedMockupTemplateSpec["kind"],
+  slot: ResolvedApprovedMockupSlot,
+  scale: ApprovedMockupRenderScale,
+): ResolvedApprovedMockupShadow {
+  if (slot.shadow.kind === "custom") {
+    return {
+      kind: "custom",
+      layers: slot.shadow.layers.map((layer) => ({
+        filter: "gaussian-blur" as const,
+        dx: scaled(layer.dx, scale),
+        dy: scaled(layer.dy, scale),
+        blur: scaled(layer.blur, scale),
+        opacity: layer.opacity,
+        color: layer.color || "#111820",
+        surfaceColor: layer.color || "#111820",
+        surfaceOpacity: layer.opacity,
+      })),
+    };
+  }
+  if (slot.role === "support") {
+    const strength = slot.shadow.kind === "support" ? slot.shadow.strength : 1;
+    const thumbnail = templateKind === "thumbnail";
+    return {
+      kind: slot.shadow.kind,
+      layers: [{
+        filter: "drop-shadow",
+        dx: 0,
+        dy: scaled((thumbnail ? 10 : 16) * strength, scale),
+        blur: scaled((thumbnail ? 13 : 17) * strength, scale),
+        opacity: Math.min(1, (thumbnail ? 0.2 : 0.34) * strength),
+        color: "#111827",
+        surfaceColor: "#111827",
+        surfaceOpacity: Math.min(1, (thumbnail ? 0.06 : 0.09) * strength),
+      }],
+    };
+  }
+  return {
+    kind: slot.shadow.kind,
+    layers: [
+      { filter: "drop-shadow", dx: 0, dy: scaled(18, scale), blur: scaled(22, scale),
+        opacity: 0.28, color: "#111827", surfaceColor: "#ffffff", surfaceOpacity: 1 },
+      { filter: "drop-shadow", dx: 0, dy: scaled(4, scale), blur: scaled(7, scale),
+        opacity: 0.34, color: "#111827", surfaceColor: "#ffffff", surfaceOpacity: 1 },
+    ],
+  };
+}
+
 function backgroundSvg(
-  canvas: ApprovedMockupTemplateSpec["canvas"],
+  canvas: AnyApprovedMockupTemplateSpec["canvas"],
   background: ApprovedMockupBackgroundSpec,
+  scale: ApprovedMockupRenderScale,
 ) {
+  if (background.kind === "image") {
+    throw new Error("이미지 배경은 승인된 로컬 에셋에서 읽어야 합니다.");
+  }
+  if (background.kind === "diagonal-split") {
+    return Buffer.from(`<svg width="${canvas.width}" height="${canvas.height}" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <linearGradient id="base" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="${background.base.from}"/><stop offset="1" stop-color="${background.base.to}"/></linearGradient>
+        <linearGradient id="lower" x1="0" y1="1" x2="1" y2="0"><stop offset="0" stop-color="${background.lower.from}"/><stop offset="1" stop-color="${background.lower.to}"/></linearGradient>
+      </defs>
+      <rect width="100%" height="100%" fill="url(#base)"/>
+      <path d="M0 ${scaled(background.leftY, scale)} L${canvas.width} ${scaled(background.rightY, scale)} L${canvas.width} ${canvas.height} L0 ${canvas.height} Z" fill="url(#lower)"/>
+    </svg>`);
+  }
   const gradient = background.kind === "linear-gradient"
     ? `<linearGradient id="background" x1="${percentage(background.vector.x1)}" y1="${percentage(background.vector.y1)}" x2="${percentage(background.vector.x2)}" y2="${percentage(background.vector.y2)}">
         <stop offset="0" stop-color="${background.from}"/>
@@ -112,6 +216,24 @@ function backgroundSvg(
     <defs>${gradient}</defs>
     <rect width="100%" height="100%" fill="url(#background)"/>
   </svg>`);
+}
+
+async function renderBackground(
+  template: AnyApprovedMockupTemplateSpec,
+  canvas: AnyApprovedMockupTemplateSpec["canvas"],
+  scale: ApprovedMockupRenderScale,
+  runtimeRoot?: string,
+): Promise<SharpOverlay> {
+  const background: ApprovedMockupBackgroundSpec = APPROVED_16X9_BACKGROUNDS[template.backgroundId];
+  if (!background) throw new Error(`승인되지 않은 목업 배경입니다: ${template.backgroundId}`);
+  const input = background.kind === "image"
+    ? await sharp(approvedMockupAssetPath(background.assetPath, runtimeRoot))
+        .resize(canvas.width, canvas.height, { fit: "cover" })
+        .modulate({ brightness: background.brightness, saturation: background.saturation })
+        .png()
+        .toBuffer()
+    : backgroundSvg(canvas, background, scale);
+  return { input, left: 0, top: 0 };
 }
 
 function rotatedGeometry(slot: ResolvedApprovedMockupSlot) {
@@ -142,53 +264,84 @@ function polygonPoints(slot: ResolvedApprovedMockupSlot) {
 }
 
 function supportShadowSvg(
-  template: ApprovedMockupTemplateSpec,
+  templateKind: AnyApprovedMockupTemplateSpec["kind"],
+  canvas: AnyApprovedMockupTemplateSpec["canvas"],
   assignments: readonly PreparedAssignment[],
+  scale: ApprovedMockupRenderScale,
 ) {
-  const supportAssignments = assignments.filter(({ slot }) => slot.role === "support");
+  const supportAssignments = assignments.filter(({ slot }) => (
+    slot.role === "support" && slot.shadow.kind !== "custom"
+  ));
   if (supportAssignments.length === 0) return null;
 
   const filters = supportAssignments.map(({ slot }, index) => {
-    const strength = slot.shadow.kind === "support" ? slot.shadow.strength : 1;
-    if (template.kind === "thumbnail") {
-      return `<filter id="support-shadow-${index}" x="-30%" y="-40%" width="180%" height="210%">
-        <feDropShadow dx="0" dy="${formatNumber(10 * strength)}" stdDeviation="${formatNumber(13 * strength)}" flood-color="#111827" flood-opacity="${formatNumber(Math.min(1, 0.2 * strength))}"/>
-      </filter>`;
-    }
+    const layer = resolveApprovedMockupShadow(templateKind, slot, scale).layers[0];
     return `<filter id="support-shadow-${index}" x="-30%" y="-40%" width="180%" height="210%">
-      <feDropShadow dx="0" dy="${formatNumber(16 * strength)}" stdDeviation="${formatNumber(17 * strength)}" flood-color="#111827" flood-opacity="${formatNumber(Math.min(1, 0.34 * strength))}"/>
+      <feDropShadow dx="${formatNumber(layer.dx)}" dy="${formatNumber(layer.dy)}" stdDeviation="${formatNumber(layer.blur)}" flood-color="${layer.color}" flood-opacity="${formatNumber(layer.opacity)}"/>
     </filter>`;
   }).join("");
   const polygons = supportAssignments.map(({ slot }, index) => {
-    const strength = slot.shadow.kind === "support" ? slot.shadow.strength : 1;
-    const baseOpacity = template.kind === "thumbnail" ? 0.06 : 0.09;
-    return `<polygon points="${polygonPoints(slot)}" fill="#111827" fill-opacity="${formatNumber(Math.min(1, baseOpacity * strength))}" filter="url(#support-shadow-${index})"/>`;
+    const layer = resolveApprovedMockupShadow(templateKind, slot, scale).layers[0];
+    return `<polygon points="${polygonPoints(slot)}" fill="${layer.surfaceColor}" fill-opacity="${formatNumber(layer.surfaceOpacity)}" filter="url(#support-shadow-${index})"/>`;
   }).join("");
 
-  return Buffer.from(`<svg width="${template.canvas.width}" height="${template.canvas.height}" xmlns="http://www.w3.org/2000/svg">
+  return Buffer.from(`<svg width="${canvas.width}" height="${canvas.height}" xmlns="http://www.w3.org/2000/svg">
     <defs>${filters}</defs>
     ${polygons}
   </svg>`);
 }
 
 function focusShadowSvg(
-  template: ApprovedMockupTemplateSpec,
+  templateKind: AnyApprovedMockupTemplateSpec["kind"],
+  canvas: AnyApprovedMockupTemplateSpec["canvas"],
   assignments: readonly PreparedAssignment[],
+  scale: ApprovedMockupRenderScale,
 ) {
-  const focusAssignments = assignments.filter(({ slot }) => slot.role === "hero");
+  const focusAssignments = assignments.filter(({ slot }) => (
+    slot.role === "hero" && slot.shadow.kind !== "custom"
+  ));
   if (focusAssignments.length === 0) return null;
-  const filters = focusAssignments.map((_, index) => `<filter id="focus-ambient-${index}" x="-35%" y="-45%" width="190%" height="220%">
-      <feDropShadow dx="0" dy="18" stdDeviation="22" flood-color="#111827" flood-opacity=".28"/>
-    </filter>
-    <filter id="focus-contact-${index}" x="-25%" y="-30%" width="160%" height="180%">
-      <feDropShadow dx="0" dy="4" stdDeviation="7" flood-color="#111827" flood-opacity=".34"/>
-    </filter>`).join("");
-  const polygons = focusAssignments.map(({ slot }, index) => `<polygon points="${polygonPoints(slot)}" fill="#ffffff" filter="url(#focus-ambient-${index})"/>
-    <polygon points="${polygonPoints(slot)}" fill="#ffffff" filter="url(#focus-contact-${index})"/>`).join("");
-  return Buffer.from(`<svg width="${template.canvas.width}" height="${template.canvas.height}" xmlns="http://www.w3.org/2000/svg">
+  const filters = focusAssignments.map(({ slot }, index) => resolveApprovedMockupShadow(templateKind, slot, scale).layers
+    .map((layer, layerIndex) => `<filter id="focus-${index}-${layerIndex}" ${layerIndex === 0
+      ? 'x="-35%" y="-45%" width="190%" height="220%"'
+      : 'x="-25%" y="-30%" width="160%" height="180%"'}>
+      <feDropShadow dx="${formatNumber(layer.dx)}" dy="${formatNumber(layer.dy)}" stdDeviation="${formatNumber(layer.blur)}" flood-color="${layer.color}" flood-opacity="${formatNumber(layer.opacity)}"/>
+    </filter>`).join("")).join("");
+  const polygons = focusAssignments.map(({ slot }, index) => resolveApprovedMockupShadow(templateKind, slot, scale).layers
+    .map((layer, layerIndex) => `<polygon points="${polygonPoints(slot)}" fill="${layer.surfaceColor}" fill-opacity="${formatNumber(layer.surfaceOpacity)}" filter="url(#focus-${index}-${layerIndex})"/>`)
+    .join("")).join("");
+  return Buffer.from(`<svg width="${canvas.width}" height="${canvas.height}" xmlns="http://www.w3.org/2000/svg">
     <defs>${filters}</defs>
     ${polygons}
   </svg>`);
+}
+
+/** Fixed ambient/contact shadow layers copied from the approved portrait reference. */
+function customShadowSvg(
+  templateKind: AnyApprovedMockupTemplateSpec["kind"],
+  canvas: AnyApprovedMockupTemplateSpec["canvas"],
+  assignments: readonly PreparedAssignment[],
+  role: ResolvedApprovedMockupSlot["role"],
+  scale: ApprovedMockupRenderScale,
+) {
+  const selected = assignments
+    .filter(({ slot }) => slot.role === role && slot.shadow.kind === "custom")
+    .sort((left, right) => left.slot.z - right.slot.z);
+  if (selected.length === 0) return null;
+  const definitions: string[] = [];
+  const polygons: string[] = [];
+  for (const [slotIndex, { slot }] of selected.entries()) {
+    if (slot.shadow.kind !== "custom") continue;
+    for (const [layerIndex, layer] of resolveApprovedMockupShadow(templateKind, slot, scale).layers.entries()) {
+      const id = `custom-${role}-${slotIndex}-${layerIndex}`;
+      definitions.push(`<filter id="${id}" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="${formatNumber(layer.blur)}"/></filter>`);
+      const points = rotatedGeometry(slot)
+        .map(({ x, y }) => `${formatNumber(x + layer.dx)},${formatNumber(y + layer.dy)}`)
+        .join(" ");
+      polygons.push(`<polygon points="${points}" fill="${layer.surfaceColor}" fill-opacity="${formatNumber(layer.surfaceOpacity)}" filter="url(#${id})"/>`);
+    }
+  }
+  return Buffer.from(`<svg width="${canvas.width}" height="${canvas.height}" xmlns="http://www.w3.org/2000/svg"><defs>${definitions.join("")}</defs>${polygons.join("")}</svg>`);
 }
 
 function rotatedTopLeftOffset(width: number, height: number, angle: number) {
@@ -255,42 +408,62 @@ async function renderRotatedSlide(
     height: rotated.info.height,
     left: Math.round(assignment.slot.x - offset.x),
     top: Math.round(assignment.slot.y - offset.y),
+    fittedWidth: width,
+    fittedHeight: height,
     slot: assignment.slot,
   };
 }
 
 async function clippedOverlay(
   rendered: Awaited<ReturnType<typeof renderRotatedSlide>>,
-  canvas: ApprovedMockupTemplateSpec["canvas"],
-): Promise<SharpOverlay | null> {
+  canvas: AnyApprovedMockupTemplateSpec["canvas"],
+): Promise<{ overlay: SharpOverlay | null; placement: ApprovedMockupRasterPlacement }> {
   const sourceLeft = Math.max(0, -rendered.left);
   const sourceTop = Math.max(0, -rendered.top);
   const left = Math.max(0, rendered.left);
   const top = Math.max(0, rendered.top);
   const width = Math.min(rendered.width - sourceLeft, canvas.width - left);
   const height = Math.min(rendered.height - sourceTop, canvas.height - top);
-
-  if (width <= 0 || height <= 0) {
-    if (rendered.slot.allowCanvasClip) return null;
-    throw new Error(`목업 슬롯 ${rendered.slot.id}가 캔버스 밖에 있습니다.`);
-  }
-  const needsClipping = sourceLeft !== 0
+  const clipped = sourceLeft !== 0
     || sourceTop !== 0
     || width !== rendered.width
     || height !== rendered.height;
-  if (needsClipping && !rendered.slot.allowCanvasClip) {
+  const placement: ApprovedMockupRasterPlacement = {
+    fittedWidth: rendered.fittedWidth,
+    fittedHeight: rendered.fittedHeight,
+    rotatedWidth: rendered.width,
+    rotatedHeight: rendered.height,
+    unclippedLeft: rendered.left,
+    unclippedTop: rendered.top,
+    sourceLeft,
+    sourceTop,
+    destinationLeft: left,
+    destinationTop: top,
+    visibleWidth: Math.max(0, width),
+    visibleHeight: Math.max(0, height),
+    clipped,
+  };
+
+  if (width <= 0 || height <= 0) {
+    if (rendered.slot.allowCanvasClip) return { overlay: null, placement };
+    throw new Error(`목업 슬롯 ${rendered.slot.id}가 캔버스 밖에 있습니다.`);
+  }
+  if (clipped && !rendered.slot.allowCanvasClip) {
     throw new Error(`목업 슬롯 ${rendered.slot.id}는 캔버스 밖으로 잘릴 수 없습니다.`);
   }
-  if (!needsClipping) return { input: rendered.input, left, top };
+  if (!clipped) return { overlay: { input: rendered.input, left, top }, placement };
   return {
-    input: await sharp(rendered.input).extract({
-      left: sourceLeft,
-      top: sourceTop,
-      width,
-      height,
-    }).png().toBuffer(),
-    left,
-    top,
+    overlay: {
+      input: await sharp(rendered.input).extract({
+        left: sourceLeft,
+        top: sourceTop,
+        width,
+        height,
+      }).png().toBuffer(),
+      left,
+      top,
+    },
+    placement,
   };
 }
 
@@ -302,7 +475,7 @@ function validateLayerOrder(layerOrder: readonly ApprovedMockupLayer[]) {
 }
 
 function prepareAssignments(
-  template: ApprovedMockupTemplateSpec,
+  template: AnyApprovedMockupTemplateSpec,
   slides: readonly ApprovedMockupAssignedSlide[],
 ) {
   const slots = resolveApprovedMockupSlots(template);
@@ -334,92 +507,73 @@ function prepareAssignments(
   });
 }
 
-function wrapTitleToTwoLines(value: string) {
-  const normalized = value.replace(/\s+/g, " ").trim();
-  if (!normalized) return "";
-  const characters = Array.from(normalized);
-  if (characters.length <= 20) return normalized;
-
-  const midpoint = Math.floor(characters.length / 2);
-  const spaces = characters
-    .map((character, index) => ({ character, index }))
-    .filter(({ character }) => character === " ")
-    .map(({ index }) => index);
-  const splitAt = spaces.length > 0
-    ? spaces.reduce((best, current) => (
-        Math.abs(current - midpoint) < Math.abs(best - midpoint) ? current : best
-      ))
-    : midpoint;
-  return `${characters.slice(0, splitAt).join("").trim()}\n${characters.slice(splitAt + (characters[splitAt] === " " ? 1 : 0)).join("").trim()}`;
-}
-
-async function titleOverlay(title: string | null | undefined): Promise<SharpOverlay | null> {
-  const wrapped = wrapTitleToTwoLines(title || "");
-  if (!wrapped) return null;
-  const fontPath = publicAssetPath("/fonts/Paperlogy-7Bold.ttf");
-  const input = await sharp({
-    text: {
-      text: `<span foreground="#27313a">${escapeXml(wrapped)}</span>`,
-      font: "Paperlogy 7Bold 22",
-      fontfile: fontPath,
-      width: THUMBNAIL_TITLE_BOX.width,
-      height: THUMBNAIL_TITLE_BOX.height,
-      align: "right",
-      justify: false,
-      rgba: true,
-      spacing: 0,
-      wrap: "word-char",
-    },
-  }).png().toBuffer();
-  return {
-    input,
-    left: THUMBNAIL_TITLE_BOX.left,
-    top: THUMBNAIL_TITLE_BOX.top,
-  };
-}
-
 /**
- * Renders one approved 16:9 mockup as a reusable, smart-object-style image.
+ * Renders one approved mockup as a reusable, smart-object-style image.
  * Slide buffers are assigned strictly by slot priority; all background,
  * geometry, shadow, logo and layer decisions stay locked in the template.
  */
-export async function renderApproved16x9Mockup(
+export async function renderApprovedMockup(
   options: ApprovedMockupRenderOptions,
 ): Promise<ApprovedMockupRenderResult> {
   const { template, slides } = options;
+  const scale = options.scale ?? 1;
+  const outputFormat = options.outputFormat ?? "jpeg";
+  if (scale !== 0.5 && scale !== 1) throw new Error("승인 목업 렌더 배율은 0.5 또는 1이어야 합니다.");
+  if (outputFormat !== "jpeg" && outputFormat !== "png") {
+    throw new Error("승인 목업 출력 형식은 jpeg 또는 png여야 합니다.");
+  }
+  const canvas = {
+    width: Math.max(1, Math.round(template.canvas.width * scale)),
+    height: Math.max(1, Math.round(template.canvas.height * scale)),
+  };
   validateLayerOrder(template.layerOrder);
-  const assignments = prepareAssignments(template, slides);
+  // Resolve once from the frozen, unrounded template and scale those numbers
+  // directly. Draft rendering never resizes a completed final board.
+  const assignments = prepareAssignments(template, slides).map((assignment) => ({
+    ...assignment,
+    slot: scaleSlot(assignment.slot, scale),
+  }));
   const renderedSlides = await Promise.all(assignments.map(renderRotatedSlide));
   const placedSlides = (await Promise.all(renderedSlides.map((rendered) => (
-    clippedOverlay(rendered, template.canvas)
+    clippedOverlay(rendered, canvas)
   ))));
   const slideLayers = assignments.map((assignment, index) => ({
     assignment,
-    overlay: placedSlides[index],
+    overlay: placedSlides[index].overlay,
   }));
 
-  const background = APPROVED_16X9_BACKGROUNDS[template.backgroundId];
-  const supportShadow = supportShadowSvg(template, assignments);
-  const focusShadow = focusShadowSvg(template, assignments);
+  const background = await renderBackground(template, canvas, scale, options.runtimeRoot);
+  const supportShadow = supportShadowSvg(template.kind, canvas, assignments, scale);
+  const focusShadow = focusShadowSvg(template.kind, canvas, assignments, scale);
+  const customSupportShadow = customShadowSvg(template.kind, canvas, assignments, "support", scale);
+  const customFocusShadow = customShadowSvg(template.kind, canvas, assignments, "hero", scale);
   const logo: SharpOverlay = {
-    input: await sharp(publicAssetPath(template.logo.assetPath))
-      .resize({ width: template.logo.width })
+    input: await sharp(approvedMockupAssetPath(template.logo.assetPath, options.runtimeRoot))
+      .resize({ width: Math.max(1, Math.round(template.logo.width * scale)) })
       .ensureAlpha()
       .png()
       .toBuffer(),
-    left: template.logo.left,
-    top: template.logo.top,
+    left: Math.round(template.logo.left * scale),
+    top: Math.round(template.logo.top * scale),
   };
-  const title = template.kind === "thumbnail" ? await titleOverlay(options.title) : null;
+  const title = template.kind === "thumbnail"
+    ? await renderApprovedMockupTitle(options.title, (() => {
+        const box = template.titleBox || APPROVED_MOCKUP_DEFAULT_TITLE_BOX;
+        return { ...box, left: box.left * scale, top: box.top * scale,
+          width: box.width * scale, height: box.height * scale, fontSize: box.fontSize * scale };
+      })(), options.runtimeRoot)
+    : null;
 
   const layers: Record<ApprovedMockupLayer, SharpOverlay[]> = {
-    background: [{ input: backgroundSvg(template.canvas, background), left: 0, top: 0 }],
-    "support-shadow": supportShadow ? [{ input: supportShadow, left: 0, top: 0 }] : [],
+    background: [background],
+    "support-shadow": [supportShadow, customSupportShadow]
+      .flatMap((input) => input ? [{ input, left: 0, top: 0 }] : []),
     support: slideLayers
       .filter(({ assignment, overlay }) => assignment.slot.role === "support" && overlay)
       .sort((left, right) => left.assignment.slot.z - right.assignment.slot.z)
       .map(({ overlay }) => overlay as SharpOverlay),
-    "focus-shadow": focusShadow ? [{ input: focusShadow, left: 0, top: 0 }] : [],
+    "focus-shadow": [focusShadow, customFocusShadow]
+      .flatMap((input) => input ? [{ input, left: 0, top: 0 }] : []),
     hero: slideLayers
       .filter(({ assignment, overlay }) => assignment.slot.role === "hero" && overlay)
       .sort((left, right) => left.assignment.slot.z - right.assignment.slot.z)
@@ -427,26 +581,27 @@ export async function renderApproved16x9Mockup(
     logo: title ? [logo, title] : [logo],
   };
   const composite = template.layerOrder.flatMap((layer) => layers[layer]);
-  const bytes = await sharp({
+  const image = sharp({
     create: {
-      width: template.canvas.width,
-      height: template.canvas.height,
+      width: canvas.width,
+      height: canvas.height,
       channels: 3,
       background: "#ffffff",
     },
   })
-    .composite(composite)
-    .jpeg({ quality: 94, chromaSubsampling: "4:4:4", mozjpeg: true })
-    .toBuffer();
+    .composite(composite);
+  const bytes = outputFormat === "png"
+    ? await image.png({ compressionLevel: 9, adaptiveFiltering: true }).toBuffer()
+    : await image.jpeg({ quality: 94, chromaSubsampling: "4:4:4", mozjpeg: true }).toBuffer();
 
   return {
     bytes,
     templateId: template.id,
     templateVersion: template.version,
     outputName: template.outputName,
-    width: template.canvas.width,
-    height: template.canvas.height,
-    slotAssignments: assignments.map(({ slide, slot, contentHash }) => ({
+    width: canvas.width,
+    height: canvas.height,
+    slotAssignments: assignments.map(({ slide, slot, contentHash }, index) => ({
       slotId: slot.id,
       role: slot.role,
       sourceSlideIndex: slide.index,
@@ -457,6 +612,10 @@ export async function renderApproved16x9Mockup(
       height: slot.height,
       angle: slot.angle,
       z: slot.z,
+      rasterPlacement: placedSlides[index].placement,
     })),
   };
 }
+
+/** Backward-compatible name retained for existing 16:9 callers. */
+export const renderApproved16x9Mockup = renderApprovedMockup;
