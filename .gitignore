@@ -32,3 +32,6 @@ Thumbs.db
 .env.local
 .env.*.local
 doctor-report.json
+
+# Local patch scratch files
+*.patch
