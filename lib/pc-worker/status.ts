@@ -1,3 +1,5 @@
+import { isRetiredWorker } from "./retired.ts";
+
 export const WORKER_HEARTBEAT_TIMEOUT_MS = 3 * 60 * 1000;
 
 export type ContentWorkerRecord = {
@@ -40,7 +42,9 @@ export function summarizeWorkers(
   records: ContentWorkerRecord[],
   now = Date.now(),
 ) {
-  const workers = records.map((worker) => deriveWorkerStatus(worker, now));
+  const workers = records
+    .filter((worker) => !isRetiredWorker(worker.id))
+    .map((worker) => deriveWorkerStatus(worker, now));
   const onlineCount = workers.filter((worker) => worker.online).length;
   const busyCount = workers.filter((worker) => worker.busy).length;
 
