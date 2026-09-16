@@ -17,13 +17,17 @@ function appendBeforeTrailingWhitespace(section: string, value: string) {
 
 function evenlySpacedSectionIndexes(sectionCount: number, figureCount: number) {
   if (sectionCount < figureCount || figureCount < 1) return null;
-  const indexes = Array.from({ length: figureCount }, (_, index) => (
-    Math.max(0, Math.min(
-      sectionCount - 1,
-      Math.round(((index + 1) * sectionCount) / (figureCount + 1)) - 1,
-    ))
-  ));
-  return new Set(indexes).size === figureCount ? indexes : null;
+  let previous = -1;
+  return Array.from({ length: figureCount }, (_, index) => {
+    const remaining = figureCount - index - 1;
+    const ideal = Math.round(((index + 1) * sectionCount) / (figureCount + 1)) - 1;
+    const placement = Math.max(
+      previous + 1,
+      Math.min(ideal, sectionCount - remaining - 1),
+    );
+    previous = placement;
+    return placement;
+  });
 }
 
 export function reflowPortfolioBodyFigures(bodyHtml: string) {
@@ -50,9 +54,12 @@ export function reflowPortfolioBodyFigures(bodyHtml: string) {
 
   let paragraphNumber = 0;
   const paragraphCount = (withoutFigures.match(/<\/p>/gi) || []).length;
+  const paragraphPlacementIndexes = evenlySpacedSectionIndexes(paragraphCount, figures.length);
   const insertions = new Map<number, string>();
   figures.forEach((figure, index) => {
-    const point = Math.max(1, Math.round(((index + 1) * paragraphCount) / (figures.length + 1)));
+    const point = paragraphPlacementIndexes
+      ? paragraphPlacementIndexes[index] + 1
+      : Math.max(1, Math.round(((index + 1) * paragraphCount) / (figures.length + 1)));
     insertions.set(point, `${insertions.get(point) || ""}${figure}`);
   });
   return withoutFigures.replace(/<\/p>/gi, (closingTag) => {
@@ -72,11 +79,41 @@ export function reflowPortfolioBodyFigures(bodyHtml: string) {
  * 그래서 본문에 실제로 박혀 있는 그림을 정본으로 삼아 앞에서부터 순서대로 끼웁니다.
  * 새 그림이 모자라면 남는 자리는 설명까지 통째로 뺍니다.
  * 그림 없이 설명만 남으면 읽는 사람에게 더 어색합니다.
+ * 새 그림이 더 많으면 기존 글은 그대로 둔 채 부족한 figure만 만들어
+ * 본문의 설명 문단 사이에 고르게 다시 배치합니다.
  *
  * 바꿀 그림을 하나도 못 찾으면 null 을 돌려줍니다. 이때는 글부터 다시 만들어야 합니다.
  */
-export function swapPortfolioBodyImages(bodyHtml: string, nextUrls: string[]) {
-  if (typeof bodyHtml !== "string" || !bodyHtml.trim() || !nextUrls.length) return null;
+export type PortfolioBodyImageReplacement = Readonly<{
+  url: string;
+  caption?: string;
+}>;
+
+function replacementValue(value: string | PortfolioBodyImageReplacement) {
+  return typeof value === "string" ? { url: value, caption: "" } : value;
+}
+
+function escapeHtml(value: string) {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;");
+}
+
+function replacementFigure(replacement: PortfolioBodyImageReplacement, index: number) {
+  const caption = replacement.caption?.trim() || `포트폴리오 목업 ${index + 1}`;
+  const safeCaption = escapeHtml(caption);
+  return `<figure><img src="${escapeHtml(replacement.url)}" alt="${safeCaption}">`
+    + `<figcaption>${safeCaption}</figcaption></figure>`;
+}
+
+export function swapPortfolioBodyImages(
+  bodyHtml: string,
+  nextImages: Array<string | PortfolioBodyImageReplacement>,
+) {
+  if (typeof bodyHtml !== "string" || !bodyHtml.trim() || !nextImages.length) return null;
+  const replacements = nextImages.map(replacementValue);
 
   // 주소에 $ 가 들어가도 치환 기호로 읽히지 않게 합니다.
   const swapSource = (tag: string, nextUrl: string) => tag.replace(
@@ -87,19 +124,26 @@ export function swapPortfolioBodyImages(bodyHtml: string, nextUrls: string[]) {
   let used = 0;
   let value = bodyHtml.replace(portfolioFigurePattern(), (figure) => {
     if (!/<img\b/i.test(figure)) return figure;
-    const nextUrl = nextUrls[used];
+    const replacement = replacements[used];
     used += 1;
-    return nextUrl ? swapSource(figure, nextUrl) : "";
+    return replacement ? swapSource(figure, replacement.url) : "";
   });
 
   if (!used) {
     // 그림이 <figure> 로 감싸이지 않은 예전 본문입니다. 그림만 순서대로 바꿉니다.
     value = bodyHtml.replace(/<img\b[^>]*>/gi, (tag) => {
-      const nextUrl = nextUrls[used];
+      const replacement = replacements[used];
       used += 1;
-      return nextUrl ? swapSource(tag, nextUrl) : "";
+      return replacement ? swapSource(tag, replacement.url) : "";
     });
   }
   if (!used) return null;
-  return { bodyHtml: reflowPortfolioBodyFigures(value), replaced: Math.min(used, nextUrls.length) };
+  const missingFigures = replacements
+    .slice(used)
+    .map((replacement, index) => replacementFigure(replacement, used + index))
+    .join("");
+  return {
+    bodyHtml: reflowPortfolioBodyFigures(`${value}${missingFigures}`),
+    replaced: replacements.length,
+  };
 }

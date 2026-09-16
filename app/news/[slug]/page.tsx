@@ -41,7 +41,8 @@ export default async function NewsDetailPage({ params }: NewsDetailPageProps) {
         data={[
           breadcrumbSchema([
             { name: "홈", href: "/" },
-            { name: "소식/언론보도", href: "/news" },
+            { name: "인사이트", href: "/news" },
+            { name: "소식", href: "/news" },
             { name: item.title, href: `/news/${slug}` },
           ]),
           {
@@ -58,7 +59,7 @@ export default async function NewsDetailPage({ params }: NewsDetailPageProps) {
         ]}
       />
 
-      <main className="bg-[#fbf8f5]">
+      <div className="bg-[#fbf8f5]">
         <article className="mx-auto max-w-4xl px-5 py-16 lg:px-8 lg:py-24">
           <Link href="/news" className="inline-flex items-center gap-2 text-sm font-bold text-[#725848] transition hover:text-[var(--accent)]">
             <ArrowLeft size={17} />
@@ -85,7 +86,7 @@ export default async function NewsDetailPage({ params }: NewsDetailPageProps) {
             <span>지원금 받고 울림컴퍼니에 무료 컨설팅 받기 : 010 9522 0350</span>
           </a>
         </article>
-      </main>
+      </div>
     </>
   );
 }

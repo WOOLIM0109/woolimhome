@@ -6,18 +6,39 @@ import { ChevronLeft, ChevronRight, Images, X } from "lucide-react";
 import { portfolioProjects, projectDocCategories } from "@/data/content";
 
 type PortfolioProject = (typeof portfolioProjects)[number];
+type ProjectCategory = (typeof projectDocCategories)[number]["key"];
 
-export default function ProjectGallery() {
-  const [activeCategory, setActiveCategory] = useState("all");
+export default function ProjectGallery({
+  allowedCategories,
+  defaultCategory = "all",
+}: {
+  allowedCategories?: ProjectCategory[];
+  defaultCategory?: ProjectCategory | "all";
+}) {
+  const availableCategories = useMemo(
+    () => allowedCategories
+      ? projectDocCategories.filter((category) => allowedCategories.includes(category.key))
+      : projectDocCategories,
+    [allowedCategories],
+  );
+  const [activeCategory, setActiveCategory] = useState<ProjectCategory | "all">(
+    defaultCategory === "all" || availableCategories.some((category) => category.key === defaultCategory)
+      ? defaultCategory
+      : "all",
+  );
   const [selectedProject, setSelectedProject] = useState<PortfolioProject | null>(null);
   const [activeImage, setActiveImage] = useState(0);
 
   const visibleProjects = useMemo(
-    () =>
-      activeCategory === "all"
-        ? portfolioProjects
-        : portfolioProjects.filter((project) => project.category === activeCategory),
-    [activeCategory],
+    () => {
+      const scoped = allowedCategories
+        ? portfolioProjects.filter((project) => allowedCategories.includes(project.category))
+        : portfolioProjects;
+      return activeCategory === "all"
+        ? scoped
+        : scoped.filter((project) => project.category === activeCategory);
+    },
+    [activeCategory, allowedCategories],
   );
 
   function openProject(project: PortfolioProject) {
@@ -78,7 +99,7 @@ export default function ProjectGallery() {
         >
           전체
         </button>
-        {projectDocCategories.map((category) => (
+        {availableCategories.map((category) => (
           <button
             key={category.key}
             type="button"

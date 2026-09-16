@@ -44,11 +44,7 @@ export const navigation = [
   {
     label: "회사소개",
     href: "/about",
-    children: [
-      { label: "울림컴퍼니 소개", href: "/about" },
-      { label: "대표 소개", href: "/about/ceo" },
-      { label: "오시는 길", href: "/about/location" },
-    ],
+    children: [],
   },
   {
     label: "사업영역",
@@ -60,37 +56,28 @@ export const navigation = [
     ],
   },
   {
-    label: "프로젝트",
-    href: "/projects/business-docs",
+    label: "포트폴리오",
+    href: "/portfolio",
     children: [
-      { label: "비즈니스문서/PPT", href: "/projects/business-docs" },
-      { label: "시각디자인", href: "/projects/design" },
+      { label: "PPT", href: "/portfolio/ppt" },
+      { label: "디자인", href: "/portfolio/design" },
+      { label: "사업계획서/IR", href: "/portfolio/business-ir" },
     ],
   },
   {
-    label: "주요사례",
-    href: "/cases/consulting",
+    label: "성공사례",
+    href: "/success",
     children: [
-      { label: "컨설팅/사업계획서", href: "/cases/consulting" },
-      { label: "입찰/입점/PPT", href: "/cases/ppt" },
+      { label: "정부지원사업/정책자금", href: "/success/funding" },
+      { label: "입찰/입점", href: "/success/bidding-entry" },
     ],
   },
   {
-    label: "알림마당",
+    label: "인사이트",
     href: "/news",
     children: [
-      { label: "소식/언론보도", href: "/news" },
+      { label: "소식", href: "/news" },
       { label: "칼럼", href: "/columns" },
-    ],
-  },
-  {
-    label: "상담신청",
-    href: "/contact",
-    children: [
-      { label: "문의하기", href: "/contact" },
-      // 비용안내 페이지는 잠시 비공개 상태입니다. 다시 열려면 아래 줄의 주석을 해제하고
-      // app/contact/pricing/page.tsx 의 PRICING_OPEN 을 true 로 바꾸세요.
-      // { label: "비용안내", href: "/contact/pricing" },
     ],
   },
 ];

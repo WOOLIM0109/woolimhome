@@ -204,10 +204,16 @@ export async function runBudgetedGeminiAutomation<T>(
   );
   const usage = await automationUsageSnapshot();
   const decision = budgetDecision(usage, estimatedCostUsd, config, plannedCalls);
+  // 비용 기준을 넘었지만 진행하는 경우입니다. 조용히 넘기면 언제부터
+  // 예상보다 많이 쓰고 있었는지 나중에 알 길이 없습니다.
+  if (decision.warning) console.warn(`[gemini-budget] ${decision.warning}`);
   if (!decision.allowed) {
     throw new GeminiAutomationBlocked(
       "GEMINI_BUDGET_EXCEEDED",
-      `${decision.reason || "Gemini 예산 상한에 도달했습니다."} (이번 달 사용 ${usage.monthlyCallsUsed}회 / 상한 ${config.monthlyCalls}회)`,
+      // 걸린 항목의 숫자를 그대로 씁니다. 호출 횟수를 늘 붙이던 때에는
+      // 비용에 걸렸는데 아직 여유가 있는 횟수가 보여 앞뒤가 맞지 않았습니다.
+      [decision.reason || "Gemini 예산 상한에 도달했습니다.", decision.detail ? `(${decision.detail})` : ""]
+        .filter(Boolean).join(" "),
     );
   }
 

@@ -1,11 +1,20 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import { RotateCcw, Sparkles, Trash2, Upload } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { ChevronDown, RotateCcw, Search, Sparkles, Trash2, Upload } from "lucide-react";
 import StatusBadge from "./StatusBadge";
+import ProductionMockupEditor from "./ProductionMockupEditor";
 import type { ContentChannel, WorkflowStatus } from "@/lib/content-ops/types";
 import { faqAnswerHtml, faqQuestionHtml } from "@/lib/content-ops/editorial-style";
 import { formatSentenceLineBreaks } from "@/lib/content-ops/sentence-line-breaks";
+import { readJsonResponse } from "@/lib/http/read-json";
+import { actorLabel, statusHistoryOf } from "@/lib/content-ops/status-history";
+import { CHANNELS, STATUS_LABELS } from "@/lib/content-ops/config";
+import {
+  filterWorkQueueItems,
+  isChannelWorkspaceItem,
+  isReviewQueueItem,
+} from "@/lib/content-ops/work-queue-view";
 import {
   PRIVATE_PORTFOLIO_SOURCE_NOTE,
   sourceSectionHtml,
@@ -25,6 +34,11 @@ type PortfolioMockupMetadata = {
   redactionRegionCount?: number;
   redactionCoverage?: number;
   redactionStatus?: PortfolioRedactionStatus;
+  redactionSummary?: {
+    slideIndex?: number;
+    description?: string;
+    reasons?: { reason?: string; label?: string; count?: number }[];
+  }[];
   manualSelectiveRedaction?: boolean;
 };
 
@@ -52,6 +66,7 @@ type WorkItem = {
   format: string;
   status: WorkflowStatus;
   source_label: string | null;
+  source_reference?: string | null;
   scheduled_at: string | null;
   review_note: string | null;
   metadata?: {
@@ -116,6 +131,13 @@ type WorkItem = {
       duplicateLegacyUrl?: boolean;
       duplicateOf?: string;
     };
+    partnerHandoff?: {
+      forceApproved?: boolean;
+      forceApprovalMemo?: string;
+      completedAt?: string;
+      completedBy?: string;
+      publishedUrl?: string;
+    };
     portfolioMockup?: PortfolioMockupMetadata;
     portfolioAssets?: LegacyPortfolioAsset[];
     redactionMode?: "standard" | "confidential";
@@ -134,7 +156,7 @@ type WorkItem = {
 };
 
 const mockupModeLabels: Record<PortfolioMockupMode, string> = {
-  short_psd: "짧은 문서 · PSD 목업",
+  short_psd: "장표 교체형 목업 · 본문 4장",
   six_grid: "긴 문서 · 6장 구성",
 };
 
@@ -145,6 +167,14 @@ const aspectClassLabels: Record<PortfolioAspectClass, string> = {
   a4_portrait: "A4 세로",
   mixed: "혼합 규격",
   unknown: "규격 확인 필요",
+};
+
+const formatLabels: Record<string, string> = {
+  column: "칼럼",
+  informational: "정보형",
+  authority: "울림 콘텐츠형",
+  portfolio: "포트폴리오",
+  design_insight: "기획·디자인",
 };
 
 function isMockupMode(value: unknown): value is PortfolioMockupMode {
@@ -217,16 +247,6 @@ function safeReasons(value: unknown) {
   return value.filter((reason): reason is string => typeof reason === "string" && reason.trim().length > 0);
 }
 
-async function readJsonResponse(response: Response): Promise<Record<string, unknown>> {
-  const body = await response.text();
-  if (!body) return {};
-  try {
-    return JSON.parse(body) as Record<string, unknown>;
-  } catch {
-    return {};
-  }
-}
-
 function classifyAspectRatio(ratio: number): Exclude<PortfolioAspectClass, "mixed"> {
   if (Math.abs(ratio - 16 / 9) <= 0.08) return "16:9";
   if (Math.abs(ratio - 4 / 3) <= 0.06) return "4:3";
@@ -252,6 +272,41 @@ function legacyMockupMode(assets: LegacyPortfolioAsset[]): PortfolioMockupMode |
   }
   if (bodyAssets.length === 4) return "short_psd";
   return undefined;
+}
+
+/**
+ * 단계마다 언제 넘어갔는지 보여 줍니다.
+ *
+ * 표에는 updated_at 하나뿐이고 그건 덮어씁니다. 그래서 "어제 10시 글이 왜
+ * 안 나왔지" 를 알아보려면 매번 저장소에 직접 질의해야 했습니다.
+ *
+ * 이 기능이 생기기 전에 만들어진 글은 기록이 없습니다. 그때는 빈 표 대신
+ * 아무것도 그리지 않습니다. 빈 표를 보여 주면 고장으로 읽힙니다.
+ */
+function StatusTimeline({ metadata }: { metadata?: WorkItem["metadata"] }) {
+  const history = statusHistoryOf(metadata);
+  if (!history.length) return null;
+  return (
+    <dl className="mt-3 grid grid-cols-[auto_auto_1fr] gap-x-3 gap-y-1 text-xs text-[var(--muted)]">
+      {history.map((change) => (
+        <div key={`${change.status}-${change.at}`} className="contents">
+          <dt className="font-bold text-[var(--foreground)]">
+            {STATUS_LABELS[change.status] || change.status}
+          </dt>
+          <dd>
+            {new Date(change.at).toLocaleString("ko-KR", {
+              timeZone: "Asia/Seoul",
+              month: "2-digit",
+              day: "2-digit",
+              hour: "2-digit",
+              minute: "2-digit",
+            })}
+          </dd>
+          <dd className="truncate">{actorLabel(change.by)}</dd>
+        </div>
+      ))}
+    </dl>
+  );
 }
 
 function PortfolioMockupDetails({ metadata }: { metadata?: WorkItem["metadata"] }) {
@@ -289,6 +344,27 @@ function PortfolioMockupDetails({ metadata }: { metadata?: WorkItem["metadata"] 
     ? Math.min(1, Math.max(0, mockup.redactionCoverage))
     : undefined;
   const redactionStatus = isRedactionStatus(mockup?.redactionStatus) ? mockup.redactionStatus : undefined;
+  /*
+   * 장표마다 무엇을 왜 가렸는지.
+   *
+   * 지금까지는 "가림 영역 12곳" 처럼 개수만 보였습니다. 그래서 뿌옇게 된 것을
+   * 보고도 왜 그런지 알 수가 없었고, 규칙이 틀렸을 때 어디를 고쳐야 하는지도
+   * 알 수 없었습니다. 근거가 보여야 사람이 짚어낼 수 있습니다.
+   */
+  const redactionSummary = (Array.isArray(mockup?.redactionSummary) ? mockup.redactionSummary : [])
+    .filter((slide) => (
+      slide
+      && typeof slide.slideIndex === "number"
+      && Number.isInteger(slide.slideIndex)
+      && slide.slideIndex >= 0
+    ))
+    .map((slide) => ({
+      slideIndex: slide.slideIndex as number,
+      description: typeof slide.description === "string" && slide.description.trim()
+        ? slide.description
+        : "가린 곳 없음",
+    }))
+    .slice(0, 40);
   const hasLegacyRedaction = !redactionStatus && metadata.redactionMode === "confidential";
   const hasDetails = Boolean(
     mode
@@ -300,7 +376,8 @@ function PortfolioMockupDetails({ metadata }: { metadata?: WorkItem["metadata"] 
     || redactionCoverage !== undefined
     || redactionStatus
     || manualSelectiveRedaction
-    || hasLegacyRedaction,
+    || hasLegacyRedaction
+    || redactionSummary.length,
   );
 
   if (!hasDetails) return null;
@@ -363,6 +440,25 @@ function PortfolioMockupDetails({ metadata }: { metadata?: WorkItem["metadata"] 
           </span>
         )}
       </div>
+      {redactionSummary.length > 0 && (
+        <details className="mt-3 text-[var(--muted)]" open>
+          <summary className="cursor-pointer font-bold text-sky-950">
+            무엇을 왜 가렸는지 (장표 {redactionSummary.length}장)
+          </summary>
+          <ul className="mt-2 space-y-1">
+            {redactionSummary.map((slide) => (
+              <li key={slide.slideIndex} className="flex flex-wrap items-baseline gap-2">
+                <span className="font-bold text-sky-950">{slide.slideIndex + 1}쪽</span>
+                <span>{slide.description}</span>
+              </li>
+            ))}
+          </ul>
+          <p className="mt-2 text-xs">
+            로고와 사람이 찍힌 사진만 가립니다. 딸기·농장 같은 소재 사진과 일러스트는 남깁니다.
+            잘못 가린 곳이 있으면 알려 주세요. 기준을 고칠 수 있습니다.
+          </p>
+        </details>
+      )}
       {selectionReasons.length > 0 && (
         <details className="mt-3 text-[var(--muted)]">
           <summary className="cursor-pointer font-bold text-sky-950">장표 선정 이유 {selectionReasons.length}개</summary>
@@ -391,6 +487,7 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
   // 눌렀을 때 무슨 일이 일어났는지 알려 주는 안내 문구입니다.
   const [notice, setNotice] = useState("");
   const [draftRewritingId, setDraftRewritingId] = useState<string | null>(null);
+  const [revisingId, setRevisingId] = useState<string | null>(null);
   // 문체 규칙에 걸려 승인이 막힌 작업. 사람이 판단해 넘길 수 있게 버튼을 띄웁니다.
   const [editorialBlocked, setEditorialBlocked] = useState<{ id: string; issues: string[] } | null>(null);
   const [notes, setNotes] = useState<Record<string, string>>({});
@@ -408,10 +505,22 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
   const [sourceLinks, setSourceLinks] = useState<Record<string, string>>({});
   const [rewritingStyle, setRewritingStyle] = useState(false);
   const [styleResult, setStyleResult] = useState("");
+  // 목록은 게시판처럼 먼저 훑을 수 있도록 전부 접힌 상태에서 시작합니다.
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(() => new Set());
+  const [searchQuery, setSearchQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [formatFilter, setFormatFilter] = useState("all");
+  const [channelFilter, setChannelFilter] = useState("all");
 
   const load = useCallback(async () => {
     setLoading(true);
-    const response = await fetch(`/api/admin/content${channel ? `?channel=${channel}` : ""}`, { cache: "no-store" });
+    // 걸러 낼 것을 서버에 먼저 알려 주면, 화면에서 버릴 것을 받아 오지 않습니다.
+    const params = new URLSearchParams();
+    if (channel) params.set("channel", channel);
+    if (reviewMode) params.set("reviewMode", "1");
+    else if (channel) params.set("workspaceMode", "1");
+    const query = params.toString();
+    const response = await fetch(`/api/admin/content${query ? `?${query}` : ""}`, { cache: "no-store" });
     const data = await response.json();
     if (!response.ok) setError(data.error || "작업 목록을 불러오지 못했습니다.");
     else {
@@ -419,11 +528,10 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
         (item: WorkItem) => !item.review_note?.startsWith("generation-cancelled:"),
       );
       const next: WorkItem[] = reviewMode
-        // 목업 이미지까지 끝난 포트폴리오는 본문 대기 상태(on_hold)로 남습니다.
-        // 이 항목을 빼면 이미지가 이미 만들어졌는데도 검토 화면에 아무것도 보이지 않습니다.
-        ? activeItems.filter((item: WorkItem) => item.status === "review_required"
-          || (item.status === "on_hold" && item.metadata?.portfolioStage === "design_completed"))
-        : activeItems;
+        ? activeItems.filter(isReviewQueueItem)
+        : channel
+          ? activeItems.filter(isChannelWorkspaceItem)
+          : activeItems;
       const displayItems = next.map((item) => {
         const generated = item.metadata?.generated;
         if (!generated) return item;
@@ -464,6 +572,9 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
         return String(left.scheduled_at || "").localeCompare(String(right.scheduled_at || ""));
       });
       setItems(sortedItems);
+      setExpandedIds((current) => new Set(
+        [...current].filter((id) => sortedItems.some((item) => item.id === id)),
+      ));
       setNotes(Object.fromEntries(sortedItems.map((item) => [item.id, item.review_note || ""])));
       setError("");
     }
@@ -501,6 +612,7 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
         // 문체 규칙 때문에 막힌 경우에는 그대로 승인할 방법을 함께 보여 줍니다.
         if (data.details?.canOverride && Array.isArray(data.details?.issues)) {
           setEditorialBlocked({ id, issues: data.details.issues });
+          setExpandedIds((current) => new Set(current).add(id));
         }
         return;
       }
@@ -679,6 +791,50 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
       await load();
     } finally {
       setRebuildingId(null);
+    }
+  }
+
+  /**
+   * 적어 둔 요청사항을 인공지능이 기존 글에 반영합니다.
+   *
+   * '수정 요청'은 글을 처음부터 다시 쓰는 버튼이고, 포트폴리오에서는 아예
+   * 막혀 있어 목업부터 다시 만들라는 안내만 나왔습니다. 이 버튼은 목업
+   * 이미지에 손대지 않고, 이미 쓴 글에서 요청받은 부분만 고칩니다.
+   */
+  async function reviseDraft(item: WorkItem) {
+    const note = (notes[item.id] || "").trim();
+    if (!note) {
+      setError("무엇을 고칠지 아래 입력창에 적어 주세요.");
+      return;
+    }
+    setRevisingId(item.id);
+    setError("");
+    setNotice("");
+    try {
+      const response = await fetch(`/api/admin/content/${item.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "revise_draft", review_note: note }),
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        setError(data.error || "요청사항을 반영하지 못했습니다.");
+        return;
+      }
+      // 어디까지 반영됐는지 그대로 전합니다. 일부만 됐을 때 그것을 숨기면
+      // 결과를 보고도 왜 그런지 알 수가 없습니다.
+      const failed = Array.isArray(data.failures) && data.failures.length
+        ? ` (구간 ${data.failures.map((failure: { position: number }) => failure.position).join(", ")}은 원문 그대로 두었습니다)`
+        : "";
+      // 보류였다면 왜 보류인지 함께 보여 줍니다. 글은 고쳐졌는데 승인이 막히는
+      // 이유를, 승인 버튼을 눌러 본 뒤에야 알게 되는 일이 없도록 합니다.
+      const held = data.heldReason
+        ? ` 보류 상태는 그대로입니다 — ${data.heldReason}`
+        : "";
+      setNotice(`${data.message || "요청을 반영했습니다."}${failed} 목업 이미지는 그대로입니다.${held}`);
+      await load();
+    } finally {
+      setRevisingId(null);
     }
   }
 
@@ -883,6 +1039,36 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
     }
   }
 
+  const filteredItems = useMemo(() => filterWorkQueueItems(items, {
+    query: searchQuery,
+    status: statusFilter,
+    format: formatFilter,
+    channel: channelFilter,
+  }), [channelFilter, formatFilter, items, searchQuery, statusFilter]);
+  const availableStatuses = useMemo(() => Object.entries(STATUS_LABELS)
+    .filter(([value]) => items.some((item) => item.status === value)), [items]);
+  const availableFormats = useMemo(() => [...new Set(items.map((item) => item.format))], [items]);
+  const hasActiveFilters = Boolean(searchQuery.trim())
+    || statusFilter !== "all"
+    || formatFilter !== "all"
+    || channelFilter !== "all";
+
+  function toggleExpanded(id: string) {
+    setExpandedIds((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function resetFilters() {
+    setSearchQuery("");
+    setStatusFilter("all");
+    setFormatFilter("all");
+    setChannelFilter("all");
+  }
+
   if (loading) return <p className="mt-6 text-sm text-[var(--muted)]">작업 목록을 불러오고 있습니다.</p>;
   if (!items.length) return <p className="mt-6 rounded-xl border border-dashed border-[var(--line)] bg-white p-7 text-center text-sm text-[var(--muted)]">현재 대기 중인 작업이 없습니다.</p>;
 
@@ -913,54 +1099,167 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
           {error}
         </p>
       )}
-      {editorialBlocked && (
-        <section className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm leading-6 text-amber-950" role="alert">
-          <p className="font-bold">문체 규칙에 걸려 승인이 막혔습니다</p>
-          <ul className="mt-2 list-disc space-y-1 pl-5">
-            {editorialBlocked.issues.map((issue) => <li key={issue}>{issue}</li>)}
-          </ul>
-          <p className="mt-2 text-xs opacity-80">
-            내용에 문제가 없다고 판단하셨다면 이대로 승인할 수 있습니다.
-            기밀 가림과 발행 검증은 그대로 지켜집니다. 누가 넘겼는지는 기록에 남습니다.
-          </p>
-          <div className="mt-3 flex flex-wrap gap-2">
-            <button
-              onClick={() => void update(editorialBlocked.id, {
-                status: "approved",
-                overrideEditorial: true,
-              })}
-              className="rounded-xl bg-amber-950 px-4 py-2 text-xs font-bold text-white hover:bg-amber-900"
-            >
-              규칙 넘기고 이대로 승인
-            </button>
-            <button
-              onClick={() => { setEditorialBlocked(null); setError(""); }}
-              className="rounded-xl border border-amber-300 bg-white px-4 py-2 text-xs font-bold text-amber-900 hover:bg-amber-100"
-            >
-              닫기
-            </button>
-          </div>
-        </section>
-      )}
       {notice && (
         <p className="rounded-xl bg-emerald-50 p-4 text-sm font-bold text-emerald-900" role="status">
           {notice}
         </p>
       )}
-      {items.map((item) => (
-        <article key={item.id} className="card p-5">
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-            <div>
-              <p className="text-xs font-bold text-[var(--primary)]">{item.format}</p>
-              <h3 className="mt-1 text-lg font-bold">{item.title}</h3>
-              {item.summary && <p className="mt-2 text-sm leading-6 text-[var(--muted)]">{item.summary}</p>}
-              <p className="mt-2 text-xs text-[var(--muted)]">
-                {item.source_label || "자동 일정"}
-                {item.scheduled_at ? ` · ${new Date(item.scheduled_at).toLocaleString("ko-KR", { timeZone: "Asia/Seoul" })}` : ""}
-              </p>
-            </div>
-            <StatusBadge status={item.status} />
+      <section className="rounded-xl border border-[var(--line)] bg-white p-4" aria-label="작업 목록 필터">
+        <div className={`grid gap-3 ${reviewMode && !channel ? "lg:grid-cols-[minmax(260px,1fr)_repeat(3,minmax(140px,auto))]" : "lg:grid-cols-[minmax(260px,1fr)_repeat(2,minmax(140px,auto))]"}`}>
+          <label className="relative block">
+            <span className="sr-only">제목·요약·원본명 검색</span>
+            <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[var(--muted)]" size={17} />
+            <input
+              type="search"
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+              className="input w-full pl-10"
+              placeholder="제목·요약·원본명 검색"
+            />
+          </label>
+          <label>
+            <span className="sr-only">상태 필터</span>
+            <select className="input w-full" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
+              <option value="all">모든 상태</option>
+              {availableStatuses.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+            </select>
+          </label>
+          <label>
+            <span className="sr-only">글 종류 필터</span>
+            <select className="input w-full" value={formatFilter} onChange={(event) => setFormatFilter(event.target.value)}>
+              <option value="all">모든 글 종류</option>
+              {availableFormats.map((value) => <option key={value} value={value}>{formatLabels[value] || value}</option>)}
+            </select>
+          </label>
+          {reviewMode && !channel && (
+            <label>
+              <span className="sr-only">채널 필터</span>
+              <select className="input w-full" value={channelFilter} onChange={(event) => setChannelFilter(event.target.value)}>
+                <option value="all">모든 채널</option>
+                {CHANNELS.map((entry) => <option key={entry.value} value={entry.value}>{entry.shortLabel}</option>)}
+              </select>
+            </label>
+          )}
+        </div>
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-3 border-t border-[var(--line)] pt-3">
+          <p className="text-sm font-bold text-[var(--muted)]" aria-live="polite">
+            전체 {items.length}건 · 현재 {filteredItems.length}건
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {hasActiveFilters && (
+              <button type="button" onClick={resetFilters} className="rounded-lg px-3 py-2 text-xs font-bold text-[var(--muted)] hover:bg-stone-100">
+                필터 초기화
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => setExpandedIds((current) => new Set([...current, ...filteredItems.map((item) => item.id)]))}
+              className="rounded-lg border border-[var(--line)] bg-white px-3 py-2 text-xs font-bold hover:bg-stone-50"
+            >
+              현재 목록 전체 펼치기
+            </button>
+            <button
+              type="button"
+              onClick={() => setExpandedIds((current) => {
+                const next = new Set(current);
+                filteredItems.forEach((item) => next.delete(item.id));
+                return next;
+              })}
+              className="rounded-lg border border-[var(--line)] bg-white px-3 py-2 text-xs font-bold hover:bg-stone-50"
+            >
+              현재 목록 전체 접기
+            </button>
           </div>
+        </div>
+      </section>
+      {!filteredItems.length && (
+        <p className="rounded-xl border border-dashed border-[var(--line)] bg-white p-7 text-center text-sm text-[var(--muted)]">
+          조건에 맞는 작업이 없습니다.
+        </p>
+      )}
+      {filteredItems.length > 0 && (
+      <div className="space-y-2">
+        <div className="hidden grid-cols-[minmax(105px,0.6fr)_minmax(0,3fr)_minmax(150px,1.2fr)_auto_20px] gap-3 px-5 text-xs font-bold text-[var(--muted)] sm:grid">
+          <span>글 종류</span>
+          <span>제목</span>
+          <span className="text-right">출처·예정일</span>
+          <span>상태</span>
+          <span aria-hidden="true" />
+        </div>
+      {filteredItems.map((item) => {
+        const expanded = expandedIds.has(item.id);
+        const detailsId = `work-item-${item.id}`;
+        return (
+        <article key={item.id} className="card overflow-hidden p-0">
+          <button
+            type="button"
+            aria-expanded={expanded}
+            aria-controls={detailsId}
+            onClick={() => toggleExpanded(item.id)}
+            className="grid w-full items-center gap-3 px-4 py-4 text-left hover:bg-stone-50 sm:grid-cols-[minmax(105px,0.6fr)_minmax(0,3fr)_minmax(150px,1.2fr)_auto_auto] sm:px-5"
+          >
+            <span className="text-xs font-bold text-[var(--primary)]">{formatLabels[item.format] || item.format}</span>
+            <span className="min-w-0">
+              <span className="block truncate font-bold">{item.title}</span>
+              {item.summary && <span className="mt-1 block truncate text-xs text-[var(--muted)]">{item.summary}</span>}
+            </span>
+            <span className="text-xs text-[var(--muted)] sm:text-right">
+              <span className="block truncate">{item.source_label || "자동 일정"}</span>
+              {item.scheduled_at && (
+                <span className="mt-1 block">
+                  {new Date(item.scheduled_at).toLocaleString("ko-KR", { timeZone: "Asia/Seoul" })}
+                </span>
+              )}
+            </span>
+            <StatusBadge status={item.status} />
+            <ChevronDown
+              aria-hidden="true"
+              size={20}
+              className={`text-[var(--muted)] transition-transform ${expanded ? "rotate-180" : ""}`}
+            />
+          </button>
+          {expanded && (
+          <div id={detailsId} className="border-t border-[var(--line)] p-5">
+          <StatusTimeline metadata={item.metadata} />
+          {editorialBlocked?.id === item.id && (
+            <section className="mt-5 rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm leading-6 text-amber-950" role="alert">
+              <p className="font-bold">문체 규칙에 걸려 승인이 막혔습니다</p>
+              <ul className="mt-2 list-disc space-y-1 pl-5">
+                {editorialBlocked.issues.map((issue) => <li key={issue}>{issue}</li>)}
+              </ul>
+              <p className="mt-2 text-xs opacity-80">
+                내용에 문제가 없다고 판단하셨다면 이대로 승인할 수 있습니다.
+                기밀 가림과 발행 검증은 그대로 지켜집니다. 누가 넘겼는지는 기록에 남습니다.
+              </p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button
+                  onClick={() => void update(item.id, { status: "approved", overrideEditorial: true })}
+                  className="rounded-xl bg-amber-950 px-4 py-2 text-xs font-bold text-white hover:bg-amber-900"
+                >
+                  규칙 넘기고 이대로 승인
+                </button>
+                <button
+                  onClick={() => { setEditorialBlocked(null); setError(""); }}
+                  className="rounded-xl border border-amber-300 bg-white px-4 py-2 text-xs font-bold text-amber-900 hover:bg-amber-100"
+                >
+                  닫기
+                </button>
+              </div>
+            </section>
+          )}
+          {item.status === "published"
+            && item.metadata?.partnerHandoff?.forceApproved === true
+            && item.metadata.partnerHandoff.forceApprovalMemo && (
+            <section className="mt-5 rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm leading-6 text-amber-950">
+              <p className="font-bold">강제승인 메모</p>
+              <p className="mt-1 whitespace-pre-wrap break-all">
+                {item.metadata.partnerHandoff.forceApprovalMemo}
+              </p>
+              <p className="mt-2 text-xs opacity-75">
+                주소 형식을 확인하지 않고 발행 완료로 옮긴 기록입니다. 이 메모를 복사해 직접 확인해 주세요.
+              </p>
+            </section>
+          )}
           {item.format === "portfolio" && <PortfolioRetryStatus jobs={item.portfolio_jobs} />}
           {item.format === "portfolio"
             && ["design_completed", "draft_retry_wait"].includes(String(item.metadata?.portfolioStage || "")) && (
@@ -996,6 +1295,9 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
             </section>
           )}
           <PortfolioMockupDetails metadata={item.metadata} />
+          {item.format === "portfolio" && <div className="mt-4"><ProductionMockupEditor workItemId={item.id} title={item.title}
+            currentAssets={item.content_review_assets || []} onActivated={load}
+            disabled={rebuildingId === item.id || mockupRebuildingId === item.id || uploadingImagesId === item.id || sourceUploadingId === item.id} /></div>}
           {item.metadata?.novelty && item.format !== "portfolio" && (
             <section className={`mt-5 rounded-xl border p-4 text-sm ${
               item.metadata.novelty.duplicate
@@ -1349,13 +1651,31 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
               )}
               <textarea className="input" rows={3} value={notes[item.id] || ""} onChange={(event) => setNotes((current) => ({ ...current, [item.id]: event.target.value }))} placeholder="수정 요청이나 가려야 할 내용을 적어주세요." />
               <div className="mt-3 flex flex-wrap gap-2">
+                {/*
+                  적어 둔 요청사항만 인공지능이 반영합니다. 목업 이미지는 그대로 둡니다.
+                  아래 '처음부터 다시 쓰기'와 달리 이미 쓴 글을 살려 둡니다.
+                */}
                 <button
-                  onClick={() => void update(item.id, { status: "creating", review_note: notes[item.id] || "" })}
-                  disabled={regeneratingId === item.id}
-                  className="rounded-xl border border-[var(--line)] bg-white px-4 py-2 text-sm font-bold disabled:cursor-wait disabled:opacity-60"
+                  onClick={() => void reviseDraft(item)}
+                  disabled={revisingId === item.id || regeneratingId === item.id}
+                  className="btn-gradient rounded-xl px-4 py-2 text-sm font-bold text-white disabled:cursor-wait disabled:opacity-60"
                 >
-                  {regeneratingId === item.id ? "수정 반영 중" : "수정 요청"}
+                  {revisingId === item.id ? "요청 반영 중…" : "AI로 이 요청만 반영 (이미지 그대로)"}
                 </button>
+                {/*
+                  포트폴리오에서는 이 버튼이 언제나 오류만 냅니다. 서버가
+                  '목업·본문 다시 만들기를 쓰라'고 되돌려 보내기 때문입니다.
+                  누를 수 있는데 늘 실패하는 버튼은 없는 것만 못합니다.
+                */}
+                {item.format !== "portfolio" && (
+                  <button
+                    onClick={() => void update(item.id, { status: "creating", review_note: notes[item.id] || "" })}
+                    disabled={regeneratingId === item.id || revisingId === item.id}
+                    className="rounded-xl border border-[var(--line)] bg-white px-4 py-2 text-sm font-bold disabled:cursor-wait disabled:opacity-60"
+                  >
+                    {regeneratingId === item.id ? "다시 쓰는 중" : "처음부터 다시 쓰기"}
+                  </button>
+                )}
                 {item.format !== "portfolio" && (
                   <button
                     onClick={() => void replaceTopic(item)}
@@ -1578,8 +1898,13 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
               </button>
             </div>
           )}
+          </div>
+          )}
         </article>
-      ))}
+        );
+      })}
+      </div>
+      )}
     </div>
   );
 }

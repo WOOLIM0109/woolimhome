@@ -1,5 +1,29 @@
-export type ColumnKind = "informational" | "hybrid" | "authority";
-export type ColumnStatus = "draft" | "generated" | "needs_expert_input" | "reviewed";
+/**
+ * 칼럼의 글 형식.
+ *
+ * 목록으로 두는 이유는 딱지(COLUMN_STATUSES)와 같습니다. AI 에게 넘기는
+ * 응답 설계도(draft-schema.ts)가 이 값을 그대로 써야 하는데, 타입만 있으면
+ * 실행할 때는 아무 데도 남지 않아 한쪽만 조용히 어긋납니다.
+ */
+export const COLUMN_KINDS = ["informational", "hybrid", "authority"] as const;
+export type ColumnKind = (typeof COLUMN_KINDS)[number];
+/**
+ * 칼럼에 붙일 수 있는 상태 딱지.
+ *
+ * 이 목록은 저장소 쪽 검사와 글자 하나까지 같아야 합니다.
+ * supabase/migrations/202607240001_columns_automation_v1.sql 의
+ * column_posts.generation_status check 구문이 짝입니다.
+ *
+ * 한쪽만 바뀌면 글을 다 써 놓고 저장하는 마지막 순간에 저장소가 거절합니다.
+ * 실제로 코드가 목록에 없는 needs_style_fix 를 쓰다가 그렇게 죽었습니다.
+ * 그 일이 다시 없도록 두 목록을 대조하는 시험을 붙여 두었습니다(types.test.mjs).
+ */
+export const COLUMN_STATUSES = ["draft", "generated", "needs_expert_input", "reviewed"] as const;
+export type ColumnStatus = (typeof COLUMN_STATUSES)[number];
+
+export function isColumnStatus(value: unknown): value is ColumnStatus {
+  return typeof value === "string" && (COLUMN_STATUSES as readonly string[]).includes(value);
+}
 export type ExpertiseArea =
   | "planning"
   | "design"

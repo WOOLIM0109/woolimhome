@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { AlertTriangle, BookOpen, Bot, CheckCircle2, Edit, Eye, EyeOff, LogOut, Trash2 } from "lucide-react";
+import { AlertTriangle, BookOpen, Bot, CheckCircle2, Edit, Eye, EyeOff, LogOut, Trash2, PenLine} from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { useAccess } from "@/hooks/useAccess";
 import type { ColumnPost } from "@/lib/columns/types";
@@ -103,8 +103,12 @@ export default function AdminColumnsPage() {
           <p className="prose-muted mt-1">{user.email}</p>
         </div>
         <div className="flex items-center gap-3">
-          <Link href="/admin/columns/knowledge" className="inline-flex items-center gap-2 rounded-sm border border-[var(--line)] bg-white px-5 py-3 font-bold">
+          <Link href="/admin/knowledge" className="inline-flex items-center gap-2 rounded-sm border border-[var(--line)] bg-white px-5 py-3 font-bold">
             <BookOpen size={18} /> 노하우 자료실
+          </Link>
+          {/* AI 를 부르지 않고 직접 쓴 글을 올리는 길. 요금이 들지 않습니다. */}
+          <Link href="/admin/columns/new" className="inline-flex items-center gap-2 rounded-sm border border-emerald-300 bg-emerald-50 px-5 py-3 font-bold text-emerald-950">
+            <PenLine size={18} /> 직접 쓴 원고
           </Link>
           <Link href="/admin/columns/ai-new" className="btn-gradient inline-flex items-center gap-2 rounded-sm px-5 py-3 font-bold text-white">
             <Bot size={18} /> AI 초안
@@ -127,7 +131,7 @@ export default function AdminColumnsPage() {
               </p>
             </div>
           </div>
-          <Link href="/admin/columns/knowledge" className="shrink-0 rounded-sm border border-current bg-white px-4 py-2 text-center text-sm font-bold">
+          <Link href="/admin/knowledge" className="shrink-0 rounded-sm border border-current bg-white px-4 py-2 text-center text-sm font-bold">
             인터뷰 요청서 보기
           </Link>
         </div>
@@ -154,7 +158,7 @@ export default function AdminColumnsPage() {
             </p>
           </div>
         </div>
-        <Link href="/admin/columns/knowledge" className="shrink-0 rounded-sm border border-current bg-white px-4 py-2 text-center text-sm font-bold">
+        <Link href="/admin/knowledge" className="shrink-0 rounded-sm border border-current bg-white px-4 py-2 text-center text-sm font-bold">
           원천자료 추가하기
         </Link>
       </div>

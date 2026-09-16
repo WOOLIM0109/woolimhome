@@ -218,12 +218,16 @@ export async function POST(request: Request) {
         message: "포트폴리오 초안 생성을 취소했습니다.",
       });
     }
-    if (!prepared) {
+    if (!prepared.prepared) {
+      // 왜 비었는지까지 알려 줍니다. "후보 자체가 없다"와 "후보는 있는데 승인된
+      // 폴더의 PPT 원본이 아니다"는 사람이 해야 할 일이 완전히 다릅니다.
       return NextResponse.json({
         prepared: null,
         stage: "empty",
         shouldContinue: false,
-        message: "현재 자동 기준을 통과한 새 디자인 프로젝트 후보가 없습니다.",
+        inspectedCandidates: prepared.inspected,
+        eligibleCandidates: prepared.eligible,
+        message: prepared.reason,
       });
     }
     const downloaded = await processNextPortfolioDownload(prepared.candidateId);

@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import AdminPortal from "@/components/admin/AdminPortal";
+import GeminiBudgetPanel from "@/components/admin/GeminiBudgetPanel";
 import GeminiReviewPanel from "@/components/admin/GeminiReviewPanel";
 
 export default function EditorialMaintenancePage() {
@@ -33,6 +34,10 @@ export default function EditorialMaintenancePage() {
       title="원고 수동 복구·AI 검수"
       description="수정 내용은 먼저 로컬에 모으고, 호출량을 확인한 뒤 직접 승인한 경우에만 AI 검수를 실행합니다."
     >
+      <div className="mt-8">
+        <GeminiBudgetPanel />
+      </div>
+
       <GeminiReviewPanel />
 
       <section className="mt-8 rounded-2xl border border-[var(--line)] bg-white p-6">

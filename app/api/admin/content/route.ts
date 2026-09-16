@@ -9,7 +9,19 @@ import { authenticatedAdmin, contentAdmin } from "@/lib/content-ops/data";
 import { isPartnerChannel, partnerVisibilityBlockers } from "@/lib/partner-portal";
 import { sanitizeWorkItemMetadata } from "@/lib/security/html";
 import type { WorkflowStatus } from "@/lib/content-ops/types";
+import { REVIEW_QUEUE_STATUS } from "@/lib/content-ops/work-queue-view";
 import { applyHyundaiManualMockups } from "@/lib/portfolio/hyundai-manual-mockups";
+import {
+  hasProductionPortfolioImageSelection, loadProductionImageManifests,
+  projectProductionPortfolioImages, productionImageProjectionErrorCode,
+} from "@/lib/portfolio/production-image-projection";
+import {
+  isTourismMarketingWorkItem,
+  TOURISM_MARKETING_WORK_ITEM_ID,
+  tourismManualBodyAssets,
+  tourismManualMockupFields,
+  withoutGeneratedBodyImages,
+} from "@/lib/portfolio/manual-overrides";
 
 export const dynamic = "force-dynamic";
 
@@ -23,44 +35,21 @@ const PORTFOLIO_JOB_STATUSES = new Set([
   "queued", "running", "completed", "failed", "on_hold",
 ]);
 
-const TOURISM_MARKETING_WORK_ITEM_ID = "6579c77c-86fd-4b6a-9e65-654394597c8f";
-const TOURISM_MARKETING_MANUAL_ASSETS = [
-  { name: "short-main.jpg", slideIndexes: [2, 4, 5, 9, 10], width: 1600, height: 1600 },
-  { name: "short-detail-1.jpg", slideIndexes: [0, 1, 3], width: 1600, height: 900 },
-  { name: "short-detail-2.jpg", slideIndexes: [6, 7, 8], width: 1600, height: 900 },
-  { name: "short-detail-3.jpg", slideIndexes: [11, 12, 13], width: 1600, height: 900 },
-] as const;
-
 function applyManualTourismMockups(item: Record<string, unknown>, origin: string) {
-  if (item.id !== TOURISM_MARKETING_WORK_ITEM_ID) return item;
+  if (!isTourismMarketingWorkItem(item.id)) return item;
   const metadata = item.metadata && typeof item.metadata === "object"
     ? item.metadata as Record<string, unknown>
     : {};
-  const existingPortfolioAssets = Array.isArray(metadata.portfolioAssets)
-    ? metadata.portfolioAssets.filter((asset) => (
-      asset && typeof asset === "object" && (asset as Record<string, unknown>).kind !== "body_image"
-    ))
-    : [];
+  const existingPortfolioAssets = withoutGeneratedBodyImages(metadata.portfolioAssets);
   const existingReviewAssets = Array.isArray(item.content_review_assets)
     ? item.content_review_assets.filter((asset) => (
       asset && typeof asset === "object" && (asset as Record<string, unknown>).asset_type !== "body_image"
     ))
     : [];
-  const manualAssets = TOURISM_MARKETING_MANUAL_ASSETS.map((asset) => {
-    const url = `${origin}/portfolio/manual/tourism-marketing/${asset.name}`;
-    return {
-      kind: "body_image",
-      name: asset.name,
-      url,
-      caption: "원본 PowerPoint 폰트를 보존한 무가림 수동 확정 목업",
-      slideIndexes: [...asset.slideIndexes],
-      slideAspectRatio: 16 / 9,
-      width: asset.width,
-      height: asset.height,
-      mockupMode: "short_psd",
-      aspectClass: "16:9",
-    };
-  });
+  const manualAssets = tourismManualBodyAssets(
+    origin,
+    "원본 PowerPoint 폰트를 보존한 무가림 수동 확정 목업",
+  );
   return {
     ...item,
     content_review_assets: [
@@ -78,16 +67,7 @@ function applyManualTourismMockups(item: Record<string, unknown>, origin: string
     metadata: {
       ...metadata,
       portfolioAssets: [...existingPortfolioAssets, ...manualAssets],
-      portfolioMockup: {
-        ...(metadata.portfolioMockup && typeof metadata.portfolioMockup === "object"
-          ? metadata.portfolioMockup as Record<string, unknown>
-          : {}),
-        mode: "short_psd",
-        bodyBoardCount: 4,
-        aspectClass: "16:9",
-        selectedSlideIndexes: TOURISM_MARKETING_MANUAL_ASSETS.flatMap((asset) => [...asset.slideIndexes]),
-        manualFontPreservingOverride: true,
-      },
+      portfolioMockup: tourismManualMockupFields(metadata.portfolioMockup),
       manualMockupOverride: {
         kind: "powerpoint_native_unredacted",
         appliedAt: "2026-08-05T20:45:00+09:00",
@@ -181,25 +161,89 @@ export async function GET(request: Request) {
 
   const url = new URL(request.url);
   const channel = url.searchParams.get("channel");
-  let query = contentAdmin()
+  // 검토 화면은 사람이 완성본을 판단할 상태만 봅니다. 화면에서 걸러 내던 것을
+  // 여기서 먼저 거르면 나머지를 아예 가져오지 않습니다.
+  const reviewMode = url.searchParams.get("reviewMode") === "1";
+  const workspaceMode = url.searchParams.get("workspaceMode") === "1";
+
+  const selection = "*, content_review_assets(*), content_jobs(id,job_type,status,next_retry_at,last_error_code,updated_at)";
+  const withCommonFilters = <T extends { eq(column: string, value: string): T }>(query: T) => (
+    channel ? query.eq("channel", channel) : query
+  );
+
+  /**
+   * 진행 중인 작업은 전부 가져옵니다.
+   *
+   * 이 묶음은 손이 필요한 일감이라 저절로 늘어나지 않습니다. 처리하면
+   * 발행 완료로 넘어가 아래 묶음으로 빠집니다.
+   */
+  let activeQuery = contentAdmin()
     .from("content_work_items")
-    .select("*, content_review_assets(*), content_jobs(id,job_type,status,next_retry_at,last_error_code,updated_at)")
+    .select(selection)
+    .neq("status", "published")
     .order("scheduled_at", { ascending: true, nullsFirst: false })
     .order("created_at", { ascending: false });
-  if (channel) query = query.eq("channel", channel);
+  activeQuery = withCommonFilters(activeQuery);
+  // 검토 요청과 채널별 작성 화면을 완전히 나눕니다.
+  // review_required 가 양쪽에 동시에 보여 같은 일을 두 번 처리하는 것처럼
+  // 보였고, 긴 이미지까지 두 화면에서 모두 내려받고 있었습니다.
+  if (reviewMode) activeQuery = activeQuery.eq("status", REVIEW_QUEUE_STATUS);
+  else if (workspaceMode) activeQuery = activeQuery.neq("status", REVIEW_QUEUE_STATUS);
 
-  const { data, error } = await query;
+  /**
+   * 발행이 끝난 작업은 최근 것만 가져옵니다.
+   *
+   * 예전에는 여기서 테이블을 통째로 읽었습니다. 발행 완료 건은 계속 쌓이기만
+   * 하는데 metadata 에 기사 본문이 들어 있어, 관리자 화면을 열 때마다 지금까지
+   * 쓴 모든 원고를 내려받고 있었습니다. 시간이 갈수록 느려지고, 어느 순간
+   * Supabase 의 행 수 상한에 걸리면 조용히 잘려 오래된 작업이 목록에서
+   * 사라집니다. 검토 화면에는 아예 필요 없어 건너뜁니다.
+   */
+  const PUBLISHED_WINDOW = 50;
+  const publishedQuery = withCommonFilters(
+    contentAdmin()
+      .from("content_work_items")
+      .select(selection)
+      .eq("status", "published")
+      .order("published_at", { ascending: false, nullsFirst: false })
+      .limit(PUBLISHED_WINDOW),
+  );
+
+  const [activeResult, publishedResult] = await Promise.all([
+    activeQuery,
+    reviewMode ? Promise.resolve({ data: [], error: null }) : publishedQuery,
+  ]);
+  const error = activeResult.error || publishedResult.error;
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  // 과거에 관리자가 고르거나 직접 쓴 표지 문구를 모읍니다.
-  // 같은 성격의 문서에서 다시 추천되므로, 고치는 일이 점점 줄어듭니다.
+  let data = [...(activeResult.data || []), ...(publishedResult.data || [])];
+  try {
+    const manifests = await loadProductionImageManifests(data, contentAdmin());
+    data = projectProductionPortfolioImages(data, manifests);
+  } catch (projectionError) {
+    return NextResponse.json({ error: "확정 이미지 연결을 확인하지 못했습니다. 관리자 확인이 필요합니다.",
+      code: productionImageProjectionErrorCode(projectionError) }, { status: 409 });
+  }
+  /**
+   * 과거에 관리자가 고르거나 직접 쓴 표지 문구를 모읍니다.
+   * 같은 성격의 문서에서 다시 추천되므로, 고치는 일이 점점 줄어듭니다.
+   *
+   * 목록에 실린 작업에서만 모으면 안 됩니다. 위에서 발행 완료 건을 최근
+   * 것으로 줄였기 때문에, 그대로 두면 쌓아 온 문구가 시간이 갈수록 사라집니다.
+   * 그래서 문구만 따로, 가볍게 가져옵니다.
+   */
+  const { data: coverTitleRows, error: coverTitleError } = await contentAdmin()
+    .from("content_work_items")
+    .select("metadata->coverTitle")
+    .not("metadata->coverTitle", "is", null)
+    .order("updated_at", { ascending: false })
+    .limit(300);
+  if (coverTitleError) return NextResponse.json({ error: coverTitleError.message }, { status: 500 });
   const coverTitleHistory = parseCoverTitleHistory(
-    (data || [])
-      .map((row) => (row.metadata as Record<string, unknown> | null)?.coverTitle)
-      .filter(Boolean),
+    (coverTitleRows || []).map((row) => (row as { coverTitle?: unknown }).coverTitle).filter(Boolean),
   ).sort((left, right) => right.savedAt.localeCompare(left.savedAt));
 
   const items = (data || []).map((rawItem) => {
-    const item = applyHyundaiManualMockups(
+    const item = hasProductionPortfolioImageSelection(rawItem.metadata) ? rawItem : applyHyundaiManualMockups(
       applyManualTourismMockups(rawItem, url.origin),
       url.origin,
     );

@@ -6,7 +6,19 @@
 )
 
 $ErrorActionPreference = "Stop"
-$WorkerVersion = "2.9.0"
+$WorkerVersion = "2.10.0"
+
+# The console window cannot be hidden reliably: PowerPoint COM needs the
+# interactive session. So the window will be seen, and an unlabeled PowerShell
+# window looks like leftover junk to close. It was closed, and the PC then
+# showed offline for a full working day. Say what it is on the title bar.
+if (-not $Once -and -not $Check -and -not $HeartbeatOnly -and -not $LibraryOnly) {
+  try {
+    $Host.UI.RawUI.WindowTitle = "울림 문서 변환 워커 - 닫지 마세요 (닫으면 PPT 변환이 멈춥니다)"
+  } catch {
+    # A title is a convenience. Never let it stop the worker from running.
+  }
+}
 
 function Get-WorkerSetting {
   param(
@@ -167,6 +179,31 @@ function Invoke-WorkerSelfUpdate {
     return $false
   }
   return $true
+}
+
+function Invoke-WithPowerPointPreparationLock {
+  param([Parameter(Mandatory = $true)][scriptblock]$Operation)
+
+  # Preparation and legacy conversion must never drive PowerPoint together.
+  # Claim only after taking this shared lock: a busy editor preparation must
+  # not consume a conversion attempt or fail an already leased server job.
+  $preparationMutex = New-Object System.Threading.Mutex($false, "Local\WoolimPowerPointPreparation")
+  $ownsPreparationMutex = $false
+  try {
+    try {
+      $ownsPreparationMutex = $preparationMutex.WaitOne(0)
+    } catch [System.Threading.AbandonedMutexException] {
+      $ownsPreparationMutex = $true
+    }
+    if (-not $ownsPreparationMutex) { return $false }
+    & $Operation | Out-Null
+    return $true
+  } finally {
+    if ($ownsPreparationMutex) {
+      try { $preparationMutex.ReleaseMutex() } catch {}
+    }
+    $preparationMutex.Dispose()
+  }
 }
 
 function New-WorkerHeaders {
@@ -836,7 +873,11 @@ function Test-TextContainsIdentifierSignal {
     [string[]]$SensitiveSourceTokens = @()
   )
 
-  $identifierSignal = '(?i)(@|https?://|www\.|\b(?:client|customer|company\s*name|project\s*(?:name|id|code|no\.?|number)|corporation|corp\.?|inc\.?|ltd\.?)\b|고객사|발주처|수행사|제안사|프로젝트\s*명|과제\s*명|사업\s*명|주식회사|\(주\)|㈜|기관\s*명|회사\s*명|업체\s*명|담당자|연락처|연락\s*처|전화|휴대폰|팩스|주소|대표자|사업자\s*등록|(?:경기도|강원(?:특별자치)?도|충청(?:남|북)도|전라(?:남|북)도|경상(?:남|북)도|제주특별자치도)|[가-힣]{2,12}(?:특별자치도|특별자치시|광역시|특별시|도청|시청|군청|구청))'
+  # 한국어에는 낱말 경계가 없어서, 짧은 낱말을 그대로 넣으면 더 긴 낱말 안에서도 걸립니다.
+  # 실제로 '제안사'가 '제안사항'을, '수행사'가 '수행사업'을, '고객사'가 '고객사례'를
+  # 물어서 제안서 본문이 통째로 가려졌습니다. 뒤에 붙어 다니는 글자를 막아 둡니다.
+  # '@' 하나만으로도 걸리던 것은 메일 주소 모양일 때만 걸리게 좁혔습니다.
+  $identifierSignal = '(?i)([\w.+-]+@[\w-]+\.[A-Za-z]{2,}|https?://|www\.|\b(?:client|customer|company\s*name|project\s*(?:name|id|code|no\.?|number)|corporation|corp\.?|inc\.?|ltd\.?)\b|고객사(?!례)|발주처|수행사(?!업)|제안사(?!항|례)|프로젝트\s*명|과제\s*명|사업\s*명|주식회사|\(주\)|㈜|기관\s*명|회사\s*명|업체\s*명|담당자|연락처|연락\s*처|전화번호|휴대폰|팩스|주소|대표자|사업자\s*등록|(?:경기도|강원(?:특별자치)?도|충청(?:남|북)도|전라(?:남|북)도|경상(?:남|북)도|제주특별자치도)|[가-힣]{2,12}(?:특별자치도|특별자치시|광역시|특별시|도청|시청|군청|구청))'
   $numberSignal = '(?i)(\b\d{2,3}[- .)]?\d{3,4}[- .]?\d{4}\b|\b\d{3}[- ]?\d{2}[- ]?\d{5}\b)'
   if ($ShapeName -match '(?i)(logo|client\s*name|customer\s*name|company\s*name|project\s*(?:name|id|code)|identifier|footer|contact|로고|고객사|회사\s*명|기관\s*명|과제\s*명|연락처)') {
     return $true
@@ -2110,6 +2151,7 @@ try {
 do {
   try {
     Send-Heartbeat
+    $conversionCycleRan = Invoke-WithPowerPointPreparationLock -Operation {
     $claim = Invoke-WorkerApi -Path "/api/worker/jobs/claim" -Body @{
       workerVersion = $WorkerVersion
       capabilities = @("powerpoint_selective_redaction_manifest_v2")
@@ -2149,6 +2191,10 @@ do {
           Write-WorkerLog "Could not report failure: $($_.Exception.Message)"
         }
       }
+    }
+    }
+    if (-not $conversionCycleRan) {
+      Write-WorkerLog "Local slide preparation is busy. No conversion job was claimed this cycle."
     }
   } catch {
     Write-WorkerLog "Worker cycle failed: $($_.Exception.Message)"

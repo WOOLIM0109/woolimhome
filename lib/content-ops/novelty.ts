@@ -236,10 +236,19 @@ export function fingerprintFromPlan(plan: ContentPlan): ContentFingerprint {
   };
 }
 
+/**
+ * 출처 구성을 중복 근거에서 뺄 수 있게 합니다.
+ *
+ * 홈페이지 칼럼은 같은 공고를 근거로 다른 관점의 글을 여러 편 씁니다.
+ * 그건 중복이 아닙니다. 블로그는 지금처럼 출처 구성도 함께 봅니다.
+ */
+type CompareOptions = { ignoreSources?: boolean };
+
 function compareFingerprints(
   candidate: ContentFingerprint,
   existing: ContentFingerprint,
   stage: "plan" | "article",
+  options: CompareOptions = {},
 ) {
   // 지역 이름을 지운 상태로 비교합니다.
   // 지우지 않으면 "부산~"과 "울산~"이 서로 다른 글처럼 보여 중복을 통과합니다.
@@ -263,19 +272,31 @@ function compareFingerprints(
     stripRegionTokens(`${existing.title} ${existing.summary} ${existing.bodyText}`),
   );
   const entitySimilarity = setOverlap(candidate.keyEntities, existing.keyEntities);
-  const sourceSimilarity = jaccard(candidate.sourceHosts, existing.sourceHosts);
-  const weighted = stage === "plan"
-    ? (topicSimilarity * 0.42) + (structureSimilarity * 0.23)
-      + (bodySimilarity * 0.15) + (entitySimilarity * 0.20)
-    : (topicSimilarity * 0.22) + (structureSimilarity * 0.20)
-      + (bodySimilarity * 0.25) + (entitySimilarity * 0.23) + (sourceSimilarity * 0.10);
+  const sourceSimilarity = options.ignoreSources
+    ? 0
+    : jaccard(candidate.sourceHosts, existing.sourceHosts);
+  /*
+   * 출처를 빼면 가중치 합이 0.9 가 되어 점수가 통째로 낮아집니다.
+   * 그러면 같은 문턱값(58점)이 사실상 느슨해집니다. 쓴 가중치로 나눠
+   * 눈금을 그대로 맞춥니다.
+   */
+  const weights = stage === "plan"
+    ? [[topicSimilarity, 0.42], [structureSimilarity, 0.23],
+      [bodySimilarity, 0.15], [entitySimilarity, 0.20]]
+    : [[topicSimilarity, 0.22], [structureSimilarity, 0.20],
+      [bodySimilarity, 0.25], [entitySimilarity, 0.23],
+      ...(options.ignoreSources ? [] : [[sourceSimilarity, 0.10]])];
+  const totalWeight = weights.reduce((sum, [, weight]) => sum + weight, 0);
+  const weighted = weights.reduce((sum, [value, weight]) => sum + value * weight, 0)
+    / (totalWeight || 1);
   const score = Math.round(weighted * 100);
   const duplicate = stage === "plan"
     // 지역을 지운 핵심 주제가 완전히 같으면 표현이 달라도 중복으로 봅니다.
     ? sameCoreTopic || score >= 48 || (topicSimilarity >= 0.68 && entitySimilarity >= 0.42)
     : sameCoreTopic
       || score >= 58
-      || (entitySimilarity >= 0.5 && bodySimilarity >= 0.34 && sourceSimilarity >= 0.6)
+      || (!options.ignoreSources
+        && entitySimilarity >= 0.5 && bodySimilarity >= 0.34 && sourceSimilarity >= 0.6)
       || (topicSimilarity >= 0.78 && structureSimilarity >= 0.45);
   const reasons = [
     ...(sameCoreTopic ? ["지역 표현을 빼면 같은 주제임"] : []),
@@ -292,14 +313,17 @@ export function assessNovelty({
   candidate,
   existing,
   stage = "article",
+  ignoreSources = false,
 }: {
   candidate: ContentFingerprint;
   existing: ComparableContent[];
   stage?: "plan" | "article";
+  /** 같은 출처를 다시 쓰는 것을 중복으로 보지 않습니다. 칼럼이 씁니다. */
+  ignoreSources?: boolean;
 }): NoveltyAssessment {
   const matches = existing
     .map((item) => {
-      const comparison = compareFingerprints(candidate, item.fingerprint, stage);
+      const comparison = compareFingerprints(candidate, item.fingerprint, stage, { ignoreSources });
       return {
         id: item.id,
         title: item.title,

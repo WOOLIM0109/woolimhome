@@ -11,12 +11,15 @@
     "test": "node --test \"lib/**/*.test.mjs\"",
     "verify": "npm run typecheck && npm run lint && npm test",
     "doctor": "node scripts/doctor.mjs",
-    "mockup-check": "node scripts/mockup-check.mjs"
+    "mockup-check": "node scripts/mockup-check.mjs",
+    "prepare-local": "node --experimental-strip-types scripts/prepare-portfolio-local.mjs"
   },
   "dependencies": {
+    "@xmldom/xmldom": "0.8.13",
     "@supabase/ssr": "^0.8.0",
     "@supabase/supabase-js": "^2.93.3",
     "lucide-react": "^0.556.0",
+    "jszip": "3.10.1",
     "mammoth": "^1.11.0",
     "next": "^16.3.0",
     "react": "19.2.0",

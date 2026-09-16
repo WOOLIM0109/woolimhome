@@ -66,12 +66,44 @@ function positiveNumber(value: string | undefined, fallback: number) {
 
 export function geminiBudgetConfig(): GeminiBudgetConfig {
   return {
-    dailyCalls: Math.floor(positiveNumber(process.env.GEMINI_DAILY_CALL_LIMIT, 3)),
-    monthlyCalls: Math.floor(positiveNumber(process.env.GEMINI_MONTHLY_CALL_LIMIT, 30)),
-    dailyCostUsd: positiveNumber(process.env.GEMINI_DAILY_COST_LIMIT_USD, 1),
-    monthlyCostUsd: positiveNumber(process.env.GEMINI_MONTHLY_COST_LIMIT_USD, 10),
-    // Conservative defaults intentionally overestimate cost until an operator
-    // records the exact price for the selected model.
+    /**
+     * 횟수 상한은 일이 돌아갈 만큼은 되어야 합니다.
+     *
+     * 예전 기본값은 하루 3회, 한 달 30회였습니다. 그런데 칼럼 한 편을 쓰는
+     * 데만 6회를 미리 잡습니다. 하루 3회로는 한 번도 시작할 수 없어서,
+     * 예산이 모자란 것이 아니라 기능 자체가 멈춰 있었습니다. 칼럼은
+     * 화·목·격주 토에 나가니 한 달이면 예약만 예순 번을 넘습니다.
+     *
+     * 지출을 실제로 묶는 것이 이 값입니다. 한 달 이 횟수를 넘길 수 없다면
+     * 아무리 나빠도 그 횟수치보다 더 나갈 수 없습니다. 프롬프트 크기에도
+     * 따로 상한이 있어 한 번에 드는 돈이 정해져 있기 때문입니다.
+     * 아래 비용 기준은 막지 않고 알려만 줍니다.
+     */
+    dailyCalls: Math.floor(positiveNumber(process.env.GEMINI_DAILY_CALL_LIMIT, 20)),
+    monthlyCalls: Math.floor(positiveNumber(process.env.GEMINI_MONTHLY_CALL_LIMIT, 300)),
+    /**
+     * 비용은 막는 값이 아니라 알려 주는 기준입니다.
+     *
+     * 하루 $1, 한 달 $10 이던 때에는 한 달에 194회를 쓰고 막혔습니다. 횟수는
+     * 500회 중 194회로 한참 남았는데 비용 쪽이 먼저 닫힌 것입니다. 아래
+     * 단가가 실제보다 크게 잡혀 있어, 실제로 나간 돈보다 훨씬 앞서 걸립니다.
+     *
+     * 사실이 아닌 이유로 잠그는 것은 지키는 것이 아니라 방해하는 것입니다.
+     * 그래서 이 값을 넘으면 알려만 주고 일은 진행합니다. 예전처럼 막으려면
+     * 환경변수 GEMINI_COST_LIMIT_MODE 를 block 으로 두면 됩니다.
+     */
+    dailyCostUsd: positiveNumber(process.env.GEMINI_DAILY_COST_LIMIT_USD, 5),
+    monthlyCostUsd: positiveNumber(process.env.GEMINI_MONTHLY_COST_LIMIT_USD, 60),
+    /**
+     * 단가는 실제 값이 아니라 크게 잡은 추정치입니다.
+     *
+     * 호출 한 번을 입력 2만 토큰, 출력 6천 토큰으로 잡고 여기에 이 단가를
+     * 곱해 $0.08 정도로 셉니다. 실제 Flash 계열 단가는 이보다 몇 배 낮으므로,
+     * 기록된 금액은 실제 청구액이 아니라 넉넉히 부풀린 값으로 읽어야 합니다.
+     *
+     * 실제 청구액을 확인하면 아래 두 환경변수에 넣어 주세요. 그때부터 상한이
+     * 진짜 지출을 뜻하게 됩니다.
+     */
     inputUsdPerMillionTokens: positiveNumber(process.env.GEMINI_INPUT_USD_PER_MILLION_TOKENS, 1),
     outputUsdPerMillionTokens: positiveNumber(process.env.GEMINI_OUTPUT_USD_PER_MILLION_TOKENS, 10),
   };
@@ -447,6 +479,11 @@ export function estimatedGeminiCostUsd(
     + (outputTokens / 1_000_000) * config.outputUsdPerMillionTokens;
 }
 
+/** 돈을 사람이 읽는 모습으로. 소수점 넷째 자리까지 봐야 작은 금액이 0 으로 보이지 않습니다. */
+function usdLabel(value: number) {
+  return `$${value < 0.01 ? value.toFixed(4) : value.toFixed(2)}`;
+}
+
 export function budgetDecision(
   usage: GeminiUsageSnapshot,
   estimatedCostUsd: number,
@@ -454,11 +491,100 @@ export function budgetDecision(
   plannedCalls = 1,
 ) {
   const reservedCalls = Math.max(1, Math.floor(plannedCalls));
-  if (usage.dailyCallsUsed + reservedCalls > config.dailyCalls) return { allowed: false, reason: "일일 Gemini 호출 상한을 초과합니다." };
-  if (usage.monthlyCallsUsed + reservedCalls > config.monthlyCalls) return { allowed: false, reason: "월간 Gemini 호출 상한을 초과합니다." };
-  if (usage.dailyCostUsed + estimatedCostUsd > config.dailyCostUsd) return { allowed: false, reason: "일일 Gemini 비용 상한을 초과합니다." };
-  if (usage.monthlyCostUsed + estimatedCostUsd > config.monthlyCostUsd) return { allowed: false, reason: "월간 Gemini 비용 상한을 초과합니다." };
-  return { allowed: true, reason: null };
+
+  /**
+   * 작업 하나가 상한보다 크면, 아무리 기다려도 실행되지 않습니다.
+   *
+   * 예산을 다 써서 막히는 것과는 다른 상황인데 예전에는 같은 말이 나왔습니다.
+   * "상한을 초과합니다" 만 보고는 내일 다시 되겠거니 하게 됩니다. 실제로는
+   * 상한을 올리기 전까지 영영 돌지 않습니다. 그래서 따로 알려 줍니다.
+   */
+  if (reservedCalls > config.dailyCalls) {
+    return {
+      allowed: false,
+      reason: `이 작업은 한 번에 ${reservedCalls}회를 예약하는데 일일 상한이 ${config.dailyCalls}회입니다.`
+        + " 상한을 올리기 전에는 실행되지 않습니다.",
+      detail: "환경변수 GEMINI_DAILY_CALL_LIMIT",
+    };
+  }
+  if (reservedCalls > config.monthlyCalls) {
+    return {
+      allowed: false,
+      reason: `이 작업은 한 번에 ${reservedCalls}회를 예약하는데 월간 상한이 ${config.monthlyCalls}회입니다.`
+        + " 상한을 올리기 전에는 실행되지 않습니다.",
+      detail: "환경변수 GEMINI_MONTHLY_CALL_LIMIT",
+    };
+  }
+
+  /**
+   * 무엇에 걸렸는지와 그 숫자를 함께 돌려줍니다.
+   *
+   * 예전에는 막힌 이유만 돌려주고, 화면에는 늘 호출 횟수를 붙였습니다.
+   * 그래서 비용에 걸렸을 때 "비용 상한을 초과합니다 (194회 / 상한 500회)"
+   * 처럼 서로 맞지 않는 말이 나왔습니다. 아직 여유가 있는 숫자를 보여 주니
+   * 왜 막혔는지 알 수가 없었습니다.
+   */
+  if (usage.dailyCallsUsed + reservedCalls > config.dailyCalls) {
+    return {
+      allowed: false,
+      reason: "일일 Gemini 호출 상한을 초과합니다.",
+      detail: `오늘 사용 ${usage.dailyCallsUsed}회 + 이번 작업 ${reservedCalls}회 / 상한 ${config.dailyCalls}회`,
+    };
+  }
+  if (usage.monthlyCallsUsed + reservedCalls > config.monthlyCalls) {
+    return {
+      allowed: false,
+      reason: "월간 Gemini 호출 상한을 초과합니다.",
+      detail: `이번 달 사용 ${usage.monthlyCallsUsed}회 + 이번 작업 ${reservedCalls}회 / 상한 ${config.monthlyCalls}회`,
+    };
+  }
+  /**
+   * 비용 상한은 막지 않고 알려만 줍니다.
+   *
+   * 지출을 실제로 묶는 것은 위의 호출 횟수입니다. 한 달 500회를 넘길 수 없다면
+   * 아무리 나빠도 500회치보다 더 나갈 수 없습니다. 프롬프트 크기도 따로 상한이
+   * 있어 한 번에 드는 돈이 정해져 있습니다.
+   *
+   * 그 위에 비용 상한을 또 두었더니, 정작 막는 쪽은 늘 이쪽이었습니다.
+   * 게다가 여기 쓰이는 단가는 실제 값이 아니라 크게 잡은 추정치라, 실제로
+   * 나간 돈보다 한참 앞서 닫혔습니다. 횟수는 한참 남았는데 비용에서 걸리고,
+   * 왜 막혔는지도 알기 어려웠습니다. 잠긴 이유가 사실이 아니면 그 잠금은
+   * 지키는 것이 아니라 방해하는 것입니다.
+   *
+   * 그래서 기본은 경고입니다. 넘어선 사실은 그대로 알려 주되 일은 진행합니다.
+   * 예전처럼 막고 싶으면 환경변수 GEMINI_COST_LIMIT_MODE 를 block 으로 둡니다.
+   */
+  const costBlocks = process.env.GEMINI_COST_LIMIT_MODE === "block";
+  const dailyCostOver = usage.dailyCostUsed + estimatedCostUsd > config.dailyCostUsd;
+  const monthlyCostOver = usage.monthlyCostUsed + estimatedCostUsd > config.monthlyCostUsd;
+
+  if (monthlyCostOver) {
+    const detail = `이번 달 예상 ${usdLabel(usage.monthlyCostUsed + estimatedCostUsd)}`
+      + ` / 기준 ${usdLabel(config.monthlyCostUsd)} (환경변수 GEMINI_MONTHLY_COST_LIMIT_USD)`;
+    if (costBlocks) {
+      return { allowed: false, reason: "월간 Gemini 비용 상한을 초과합니다.", detail };
+    }
+    return {
+      allowed: true,
+      reason: null,
+      detail: null,
+      warning: `이번 달 예상 비용이 기준을 넘었습니다. 호출 횟수 상한으로 계속 진행합니다. ${detail}`,
+    };
+  }
+  if (dailyCostOver) {
+    const detail = `오늘 예상 ${usdLabel(usage.dailyCostUsed + estimatedCostUsd)}`
+      + ` / 기준 ${usdLabel(config.dailyCostUsd)} (환경변수 GEMINI_DAILY_COST_LIMIT_USD)`;
+    if (costBlocks) {
+      return { allowed: false, reason: "일일 Gemini 비용 상한을 초과합니다.", detail };
+    }
+    return {
+      allowed: true,
+      reason: null,
+      detail: null,
+      warning: `오늘 예상 비용이 기준을 넘었습니다. 호출 횟수 상한으로 계속 진행합니다. ${detail}`,
+    };
+  }
+  return { allowed: true, reason: null, detail: null };
 }
 
 export function koreaUsageWindow(now = new Date()) {

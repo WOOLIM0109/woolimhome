@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import sharp from "sharp";
 import { authenticatedAdmin, contentAdmin } from "@/lib/content-ops/data";
+import { hasProductionPortfolioImageSelection } from "@/lib/portfolio/production-image-projection";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -36,6 +37,10 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     .eq("id", id)
     .single();
   if (itemError) return NextResponse.json({ error: itemError.message }, { status: 500 });
+  if (hasProductionPortfolioImageSelection(item.metadata)) {
+    return NextResponse.json({ error: "확정된 이미지 세트는 새 목업 검토 또는 썸네일 제목 편집에서 변경해 주세요.",
+      code: "IMAGE_SET_LEGACY_WRITE_BLOCKED" }, { status: 409 });
+  }
   if (item.format !== "portfolio") {
     return NextResponse.json({ error: "포트폴리오 작업에만 이미지를 올릴 수 있습니다." }, { status: 400 });
   }

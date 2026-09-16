@@ -28,17 +28,19 @@ export default function Header() {
               <Link href={item.href} className="text-sm font-semibold text-[#26302a] transition hover:text-[var(--primary)]">
                 {item.label}
               </Link>
-              <div className="invisible absolute left-1/2 top-full min-w-44 -translate-x-1/2 rounded-sm border border-[var(--line)] bg-white p-2 opacity-0 shadow-xl transition group-hover:visible group-hover:opacity-100">
-                {item.children.map((child) => (
-                  <Link
-                    key={child.href}
-                    href={child.href}
-                    className="block rounded-sm px-3 py-2 text-sm text-[var(--muted)] hover:bg-[var(--surface-strong)] hover:text-[var(--primary)]"
-                  >
-                    {child.label}
-                  </Link>
-                ))}
-              </div>
+              {item.children.length > 0 && (
+                <div className="invisible absolute left-1/2 top-full min-w-44 -translate-x-1/2 rounded-sm border border-[var(--line)] bg-white p-2 opacity-0 shadow-xl transition group-hover:visible group-hover:opacity-100">
+                  {item.children.map((child) => (
+                    <Link
+                      key={child.href}
+                      href={child.href}
+                      className="block rounded-sm px-3 py-2 text-sm text-[var(--muted)] hover:bg-[var(--surface-strong)] hover:text-[var(--primary)]"
+                    >
+                      {child.label}
+                    </Link>
+                  ))}
+                </div>
+              )}
             </div>
           ))}
         </nav>
@@ -75,18 +77,20 @@ export default function Header() {
                 >
                   {item.label}
                 </Link>
-                <div className="mt-1 grid grid-cols-2 gap-1">
-                  {item.children.map((child) => (
-                    <Link
-                      key={child.href}
-                      href={child.href}
-                      onClick={() => setOpen(false)}
-                      className="rounded-sm bg-[var(--surface-strong)] px-3 py-2 text-sm text-[var(--muted)]"
-                    >
-                      {child.label}
-                    </Link>
-                  ))}
-                </div>
+                {item.children.length > 0 && (
+                  <div className="mt-1 grid grid-cols-2 gap-1">
+                    {item.children.map((child) => (
+                      <Link
+                        key={child.href}
+                        href={child.href}
+                        onClick={() => setOpen(false)}
+                        className="rounded-sm bg-[var(--surface-strong)] px-3 py-2 text-sm text-[var(--muted)]"
+                      >
+                        {child.label}
+                      </Link>
+                    ))}
+                  </div>
+                )}
               </div>
             ))}
           </nav>

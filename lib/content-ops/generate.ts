@@ -3,8 +3,16 @@ import { sanitizeGeneratedHtml, sanitizeInlineHtml } from "@/lib/security/html";
 import { generateGeminiText } from "@/lib/gemini/client";
 import { stripVerificationControlText } from "@/lib/columns/verification";
 import { researchOfficialFacts } from "@/lib/research/official";
+import { briefPlanningRules, briefWritingRules, splitBriefSourceUrls, type ContentBrief } from "./brief";
+import { assertStageFits, deadlineExceeded } from "./deadline";
 import { AI_ATTEMPTS, AI_INPUT_LIMITS, AI_OUTPUT_LIMITS, RESEARCH_REUSE_HOURS } from "@/lib/ai-budget";
-import { CONSULTING_INFORMATIONAL_TOPIC_TYPES } from "./config";
+import { sameHost, trustedSourceUrl } from "@/lib/research/trusted-sources";
+import { appendStatusChange } from "./status-history";
+import {
+  CONSULTING_INFORMATIONAL_TOPIC_TYPES,
+  DESIGN_INFORMATIONAL_TOPIC_TYPES,
+  DESIGN_TERM_GLOSSARY,
+} from "./config";
 import { PORTFOLIO_WRITING_RULES } from "./portfolio-rules";
 import { FRIENDLY_EDITORIAL_STYLE_RULES } from "./editorial-style";
 import { editorialPublicationIssues } from "./editorial-policy";
@@ -33,6 +41,11 @@ import {
   type NoveltyAssessment,
 } from "./novelty";
 import {
+  familiesForChannel,
+  topicRotationRules,
+  underusedFamilies,
+} from "./topic-rotation";
+import {
   parseTopicPlans,
   TOPIC_PLAN_SCHEMA,
 } from "./topic-planning";
@@ -43,6 +56,13 @@ import {
   mostRelevantKnowledgeId,
 } from "./knowledge-routing";
 import { createStyleRevisionStamp } from "./style-revision-rules";
+import {
+  KNOWLEDGE_POOL_LIMIT,
+  selectRotatingKnowledge,
+} from "@/lib/columns/knowledge-rotation";
+
+/** 블로그 글 한 편에 넘기는 노하우 카드 수. */
+const KNOWLEDGE_PER_BLOG_POST = 8;
 
 type Source = {
   name: string;
@@ -153,15 +173,44 @@ function promptFor(
   knowledge: ExpertKnowledge[],
   researchDossier: string,
   revision?: { note: string; previous?: GeneratedContent },
+  brief?: ContentBrief | null,
 ) {
   const requiresKnowledge = knowledgeRequiredForSlot(slot);
   const designRules = slot.channel === "naver_design" ? `
-이 글은 디자인 블로그 전용이다. 주제는 PPT·PDF·비즈니스 문서 기획, 정보 구조, 레이아웃, 가독성, 시각화, 디자인 시스템 중에서만 고른다.
+이 글은 디자인 블로그 전용이다.
+주제는 비즈니스 문서(회사소개서·제안서·IR·PPT), 인쇄물(리플렛·전단·포스터·명함), 디지털 홍보물(상세페이지·카드뉴스),
+그리고 이것들을 만들 때 부딪히는 규격·색·파일·저작권 문제 중에서만 고른다.
+로고·심볼·CI/BI·패키지 디자인은 울림이 수행하지 않으므로 다루지 않는다.
 정부지원사업·정책자금·기업인증·대출·지원금은 제목과 중심 주제로 사용할 수 없다.
 울림이 실제로 수행하지 않은 프로젝트·성과·고객 반응을 만들지 않는다.
-포트폴리오 사례처럼 쓰지 말고, 공식 디자인 자료를 실무자가 적용할 수 있도록 해설하는 기획·디자인 인사이트로 작성한다.
-제목에 채널명이나 [naver_design] 같은 내부 표기를 넣지 않는다.` : "";
+포트폴리오 사례처럼 쓰지 말고, 공식 자료를 실무자가 바로 적용할 수 있도록 해설한다.
+치수·중량·색 규격 같은 숫자는 반드시 출처가 있는 값만 쓴다. 기억으로 적지 않는다.
+제목에 채널명이나 [naver_design] 같은 내부 표기를 넣지 않는다.
+
+[영문 자료를 옮길 때 쓸 말]
+아래 대응표대로 적는다. 처음 나올 때만 "도련(bleed)" 처럼 괄호로 병기하고, 그 뒤로는 한글만 쓴다.
+"블리드", "거터" 처럼 소리 나는 대로 적지 않는다. 독자가 그 말로 검색하지 않는다.
+기관 이름도 한국 독자가 알아볼 수 있게 적는다(예: W3C 웹 접근성 지침(WCAG)).
+${DESIGN_TERM_GLOSSARY.map(([english, korean]) => `${english} → ${korean}`).join(", ")}` : "";
   const channel = slot.channel === "naver_design" ? "PPT·PDF·디자인·비즈니스 문서" : "종합 경영컨설팅";
+  /*
+   * 노하우를 글의 중심으로 삼지는 않되, 울림이 이 일을 어떻게 보는지 한두 번
+   * 드러냅니다.
+   *
+   * 정보형과 포트폴리오는 노하우를 아예 안 읽었습니다. 그래서 어느 회사가 쓴
+   * 글인지 알 수 없는 중립적인 정보글만 나왔습니다. 읽고 나서 문의로 이어질
+   * 이유가 없습니다.
+   *
+   * 마지막에 몰지 않습니다. 끝에 회사 소개를 붙이면 홍보글로 읽혀 오히려
+   * 안 읽힙니다. 횟수를 못 박아 두는 이유입니다.
+   */
+  const softVoiceRules = !requiresKnowledge ? `
+- 아래 승인된 울림 원천자료에서 이 주제에 맞는 것을 골라, 울림이 실무에서 무엇을
+  먼저 보고 무엇을 버리는지 **본문 흐름 안에 1~2회만** 자연스럽게 섞는다.
+- 마지막 문단에 몰아 넣지 않는다. 설명하는 중간에 판단 기준으로 한 번 드러내는 식이다.
+- 회사 소개, 서비스 안내, 상담 권유 문구는 쓰지 않는다. 광고처럼 읽히면 안 된다.
+- 맞는 원천자료가 없으면 넣지 않는다. 억지로 만들지 않는다. 그때는 usedKnowledgeIds 를 빈 배열로 둔다.
+- 실제로 활용한 원천자료가 있으면 그 id 를 usedKnowledgeIds 에 넣는다.` : "";
   const formatRules = requiresKnowledge ? `
 이 글은 ${knowledgeFormatLabel(slot)}이다. 승인된 울림 원천자료가 글의 중심이어야 한다.
 공식 자료는 울림의 판단을 뒷받침하는 사실 근거로만 사용하고, 여러 지원사업을 모은 종합 안내문으로 바꾸지 않는다.
@@ -184,7 +233,9 @@ ${revision.previous ? `기존 초안:\n${JSON.stringify(revision.previous)}` : "
 ${designRules}
 ${slot.format === "portfolio" ? PORTFOLIO_WRITING_RULES : ""}
 ${formatRules}
+${softVoiceRules}
 ${revisionRules}
+${briefWritingRules(brief ?? null)}
 ${FRIENDLY_EDITORIAL_STYLE_RULES}
 
 선정된 주제 기획:
@@ -194,6 +245,9 @@ ${JSON.stringify(plan)}
 
 [사실조사 적용 규칙]
 - 제도명, 금액, 기간, 대상, 자격, 지원 조건, 통계, 법령, 기술 기준은 각각 별도의 주장으로 보고 개별 조사 결과와 대조합니다.
+- 지원사업·정책자금을 다루는 글이라면 금액, 마감일, 자격 요건을 반드시 본문에 적습니다.
+  읽는 사람이 가장 먼저 찾는 정보입니다. 조사 결과에 있으면 빠뜨리지 않습니다.
+  언론 기사에서 확인된 것도 씁니다. 다만 같은 내용을 담은 공고 원문이 있으면 원문 쪽 숫자를 먼저 씁니다.
 - [공식 확인 완료]에 포함된 사실만 본문에 사용하고 해당 공식 URL을 sourceUrls에 넣습니다.
 - [공식자료 미확인 · 본문 제외] 항목은 표현을 흐리거나 '확인 필요'라고 사용자에게 넘기지 말고 본문에서 완전히 제외합니다.
 - [외부 조사 불가 · 대표 확인 필요] 항목은 공개 동의가 확인된 승인 원천자료가 아니면 본문에 쓰지 않습니다.
@@ -234,12 +288,14 @@ async function requestTopicPlans({
   knowledge,
   existing,
   scheduleKey,
+  brief,
 }: {
   slot: EditorialSlot;
   sources: (Source & { snapshot: string })[];
   knowledge: ExpertKnowledge[];
   existing: ComparableContent[];
   scheduleKey: string;
+  brief?: ContentBrief | null;
 }) {
   if (await generationCancellationRequested(scheduleKey)) {
     await removeCancelledGeneration(scheduleKey);
@@ -259,7 +315,12 @@ async function requestTopicPlans({
    * 공식 출처가 그쪽에 몰려 있어 후보 5개가 매번 비슷하게 나왔습니다.
    * 실제 블로그에서 검색 유입이 꾸준한 서류·시스템·용어 정리 글을 함께 만들게 합니다.
    */
-  const informationalVarietyRules = slot.channel === "naver_consulting" && slot.format === "informational"
+  const informationalVarietyRules = slot.channel === "naver_consulting"
+    && slot.format === "informational"
+    // 주제를 지정받았을 때는 유형을 골고루 섞으라는 규칙을 끕니다.
+    // 이 규칙에는 '지원사업 안내는 5개 중 1개까지' 같은 조건이 들어 있어서,
+    // 지정한 주제가 거기 걸리면 후보가 엉뚱한 쪽으로 밀려납니다.
+    && !brief
     ? `
 - 후보 5개 중 최소 3개는 아래 유형에서 서로 다른 유형으로 고른다. 같은 유형을 두 개 이상 넣지 않는다.
 - '지원사업·정책자금 안내' 유형은 5개 중 최대 1개까지만 허용한다.
@@ -267,9 +328,38 @@ async function requestTopicPlans({
 - 담당자가 실제로 검색하는 말(발급 방법, 유효기간, 차이, 준비서류, 오류 해결)이 주제에 드러나게 한다.
 ${JSON.stringify(CONSULTING_INFORMATIONAL_TOPIC_TYPES)}`
     : "";
+  /*
+   * 디자인 채널의 주제 범위.
+   *
+   * 예전에는 "PPT·PDF·비즈니스 문서의 기획, 정보 구조, 레이아웃, 가독성,
+   * 시각화에만 한정" 이었습니다. 주제군을 인쇄물·규격·저작권까지 넓혔는데
+   * 이 문장을 그대로 두면 모델이 새 주제군을 받고도 거부합니다.
+   *
+   * 울림이 하지 않는 일(로고·CI/BI·패키지)은 여기서 막습니다. 글을 읽고
+   * 문의해도 받을 수 없으면 서로 시간만 씁니다.
+   */
   const designRules = slot.channel === "naver_design" ? `
-- 디자인 채널 후보는 PPT·PDF·비즈니스 문서의 기획, 정보 구조, 레이아웃, 가독성, 시각화에만 한정한다.
-- 정부지원사업·정책자금·기업인증은 후보로 만들지 않는다.` : "";
+- 디자인 채널 후보는 비즈니스 문서(회사소개서·제안서·IR·PPT), 인쇄물(리플렛·전단·포스터·명함),
+  디지털 홍보물(상세페이지·카드뉴스), 그리고 이것들을 만들 때 부딪히는 규격·색·파일·저작권 문제로 한정한다.
+- 로고·심볼·CI/BI·패키지 디자인은 울림이 수행하지 않으므로 후보로 만들지 않는다.
+- 정부지원사업·정책자금·기업인증은 후보로 만들지 않는다.
+${slot.format === "design_insight" && !brief ? `
+- 후보 5개는 서로 다른 유형에서 고른다. 아래 예시는 결을 보여 주는 참고일 뿐이니 제목을 베끼지 않는다.
+- 실무자가 실제로 검색하는 말(사이즈, 규격, 차이, 방법, 저작권)이 주제에 드러나게 한다.
+${JSON.stringify(DESIGN_INFORMATIONAL_TOPIC_TYPES)}` : ""}` : "";
+
+  /**
+   * 최근에 덜 다룬 주제군을 먼저 고르게 합니다.
+   *
+   * 주제군 목록은 지금까지 관리 화면에만 있었고, 기획에는 한 번도 넘어가지
+   * 않았습니다. 그래서 겹치지만 않으면 어느 쪽으로 쏠려도 막을 것이 없었습니다.
+   * 주제를 지정받았을 때(brief)는 끕니다. 사람이 정한 주제를 밀어내면 안 됩니다.
+   */
+  const rotationRules = brief ? "" : topicRotationRules(underusedFamilies(
+    existing.map((item) => item.fingerprint.topicFamily),
+    familiesForChannel(slot.channel),
+    6,
+  ));
   const prompt = `당신은 울림컴퍼니의 콘텐츠 편집장이다.
 본문을 쓰기 전에 서로 충분히 다른 주제 후보 5개를 기획한다.
 
@@ -278,6 +368,8 @@ ${JSON.stringify(CONSULTING_INFORMATIONAL_TOPIC_TYPES)}`
 ${authorityRules}
 ${informationalVarietyRules}
 ${designRules}
+${rotationRules}
+${briefPlanningRules(brief ?? null)}
 
 [최근 90일 같은 채널 콘텐츠 — 주제·제도·관점·목차가 겹치면 안 됨]
 ${JSON.stringify(recentContentSummary(existing))}
@@ -389,10 +481,23 @@ async function requestGeneratedContent({
 export async function generateContentWorkItem(
   slot: EditorialSlot,
   scheduleKey: string,
-  options: { revisionNote?: string | null; forceNewTopic?: boolean } = {},
+  options: {
+    revisionNote?: string | null;
+    forceNewTopic?: boolean;
+    /** 사람이 건넨 주문서. 없으면 지금까지처럼 알아서 주제를 고릅니다. */
+    brief?: ContentBrief | null;
+    /**
+     * 이 시각까지만 씁니다(Date.now() 기준 밀리초).
+     * 남은 시간이 한 단계를 끝낼 만큼 없으면 시작하지 않고 멈춥니다.
+     * 돈을 쓰고 죽는 것보다 쓰지 않고 미루는 편이 낫습니다.
+     */
+    deadlineAt?: number | null;
+  } = {},
 ) {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) throw new Error("GEMINI_API_KEY가 설정되지 않았습니다.");
+  const brief = options.brief || null;
+  const deadlineAt = options.deadlineAt || null;
   if (slot.channel === "naver_design" && slot.format === "portfolio") {
     throw new Error("포트폴리오형은 실제 프로젝트 원본과 완성 이미지가 연결된 뒤에만 생성합니다.");
   }
@@ -433,24 +538,42 @@ export async function generateContentWorkItem(
       .gte("created_at", lookbackAt)
       .order("created_at", { ascending: false })
       .limit(40),
-    requiresKnowledge
-      ? admin.from("column_expert_knowledge")
-        .select("id,topic,raw_text,perspective,case_evidence,differentiator,expertise_area,use_count")
-        .eq("approved", true)
-        .in("expertise_area", allowedKnowledgeAreas)
-        .order("use_count", { ascending: true })
-        .order("created_at", { ascending: false })
-        .limit(8)
-      : Promise.resolve({ data: [] as ExpertKnowledge[], error: null }),
+    /*
+     * 정보형·포트폴리오도 노하우를 읽습니다.
+     *
+     * 예전에는 이 회차에 아예 안 읽혔습니다. 그래서 어느 회사가 쓴 글인지 알
+     * 수 없는 중립적인 정보글만 나왔고, 읽고 나서 문의로 이어질 이유가
+     * 없었습니다. 글의 중심으로 삼지는 않고, 본문 안에 한두 번 판단 기준을
+     * 드러내는 데만 씁니다(softVoiceRules).
+     */
+    admin.from("column_expert_knowledge")
+      .select("id,topic,raw_text,perspective,case_evidence,differentiator,expertise_area,use_count,created_at")
+      .eq("approved", true)
+      .in("expertise_area", allowedKnowledgeAreas)
+      .order("use_count", { ascending: true })
+      .order("created_at", { ascending: false })
+      // 넉넉히 읽고, 어떤 여덟 장을 쓸지는 아래에서 분야를 번갈아 고릅니다.
+      .limit(KNOWLEDGE_POOL_LIMIT),
   ]);
   if (sourceError) throw new Error(sourceError.message);
   if (recentError) throw new Error(recentError.message);
   if (knowledgeResult.error) throw new Error(knowledgeResult.error.message);
-  let knowledge = (knowledgeResult.data || []) as ExpertKnowledge[];
+  /*
+   * 전문 분야를 번갈아 가며 여덟 장을 고릅니다.
+   *
+   * 예전에는 덜 쓴 순서로 여덟 장을 그냥 잘랐습니다. 그러면 한 분야 카드가
+   * 여덟 자리를 통째로 차지할 수 있어, 그 분야만 소진되고 나머지는 잠듭니다.
+   * 칼럼이 쓰던 규칙을 그대로 가져다 씁니다. 채널마다 따로 두면 한쪽만
+   * 조용히 좁아집니다.
+   */
+  let knowledge = selectRotatingKnowledge(
+    (knowledgeResult.data || []) as ExpertKnowledge[],
+    KNOWLEDGE_PER_BLOG_POST,
+  );
   if (requiresKnowledge && pinnedKnowledgeIds.length) {
     const { data: pinnedKnowledge, error: pinnedKnowledgeError } = await admin
       .from("column_expert_knowledge")
-      .select("id,topic,raw_text,perspective,case_evidence,differentiator,expertise_area,use_count")
+      .select("id,topic,raw_text,perspective,case_evidence,differentiator,expertise_area,use_count,created_at")
       .eq("approved", true)
       .in("expertise_area", allowedKnowledgeAreas)
       .in("id", pinnedKnowledgeIds);
@@ -465,8 +588,26 @@ export async function generateContentWorkItem(
   if (requiresKnowledge && !knowledge.length) {
     throw new Error(`${knowledgeFormatLabel(slot)}에 필요한 승인된 인터뷰·노하우 원천자료가 없습니다.`);
   }
-  const sources = (await Promise.all((registered || []).map(sourceSnapshot)))
+  const registeredSources = (await Promise.all((registered || []).map(sourceSnapshot)))
     .filter((source): source is Source & { snapshot: string } => Boolean(source));
+  // 대표가 붙인 링크를 실제로 읽어 조사 재료에 넣습니다.
+  // 등록 출처만으로는 새로 뜬 공고처럼 아직 목록에 없는 자료를 다룰 수 없습니다.
+  const { allowed: allowedBriefUrls, rejected: rejectedBriefUrls } = splitBriefSourceUrls(brief);
+  const briefSources = (await Promise.all(allowedBriefUrls.map((url) => sourceSnapshot({
+    name: (() => {
+      try { return new URL(url).hostname.replace(/^www\./, ""); } catch { return url; }
+    })(),
+    base_url: url,
+    source_grade: 1,
+    topic_families: [],
+    channels: [slot.channel],
+  }))))
+    .filter((source): source is Source & { snapshot: string } => Boolean(source));
+  // 주소는 통과했는데 그 페이지를 못 읽은 경우도 알려 줍니다.
+  // 링크를 붙였는데 아무 일도 일어나지 않으면 왜 반영이 안 됐는지 알 길이 없습니다.
+  const readBriefUrls = new Set(briefSources.map((source) => source.base_url));
+  const unreadableBriefUrls = allowedBriefUrls.filter((url) => !readBriefUrls.has(url));
+  const sources = mergeAvailableSources([...briefSources, ...registeredSources]);
   if (sources.length < 2) throw new Error("읽을 수 있는 채널 전용 공식 출처가 2개 미만입니다.");
 
   const existing = (recentItems || [])
@@ -498,15 +639,14 @@ export async function generateContentWorkItem(
     knowledgeIds: storedMetadata.generated.usedKnowledgeIds || [],
   } : null;
   const priorRevisionPlan = previousPlan || fallbackPlan;
+  // 주제를 새로 뽑아야 하는 경우에만 시간을 봅니다.
+  // 수정 재작성은 기존 기획을 그대로 쓰므로 AI 를 부르지 않습니다.
+  if (!(revisionNote && !options.forceNewTopic && priorRevisionPlan)) {
+    assertStageFits("topicPlan", deadlineAt);
+  }
   const requestedPlans = revisionNote && !options.forceNewTopic && priorRevisionPlan
     ? [contentPlanForRevision(priorRevisionPlan)]
-    : await requestTopicPlans({
-      slot,
-      sources,
-      knowledge,
-      existing,
-      scheduleKey,
-    });
+    : await requestTopicPlans({ slot, sources, knowledge, existing, scheduleKey, brief });
   const approvedKnowledgeIds = new Set(knowledge.map((item) => item.id));
   const planned = requestedPlans.map((plan) => ({
     plan: {
@@ -524,8 +664,12 @@ export async function generateContentWorkItem(
       stage: "plan",
     }),
   }));
+  // 대표가 주제를 지정했으면 소재가 겹친다고 취소하지 않습니다.
+  // 지정한 주제로 써 달라는 요청 자체가 중복을 감수하겠다는 뜻입니다.
+  // 대신 얼마나 겹치는지는 아래에서 검토 메모로 남깁니다.
+  const skipDuplicateBlock = Boolean(brief) || Boolean(revisionNote && !options.forceNewTopic);
   const eligiblePlans = planned.filter(({ plan, assessment }) =>
-    (revisionNote && !options.forceNewTopic || !assessment.duplicate)
+    (skipDuplicateBlock || !assessment.duplicate)
     && (!requiresKnowledge || plan.knowledgeIds.length > 0));
   if (!eligiblePlans.length) {
     const strongest = planned
@@ -590,12 +734,21 @@ export async function generateContentWorkItem(
   for (const { plan } of eligiblePlans.slice(0, MAX_ARTICLE_ATTEMPTS)) {
     const selectedKnowledge = knowledge.filter((item) => plan.knowledgeIds.includes(item.id));
     const researchKey = `${plan.topicFamily}|${plan.primaryTopic}`;
-    const research: StoredResearch = researchCache.get(researchKey)
-      ?? (reusableResearch?.topicKey === researchKey ? reusableResearch : null)
+    const cachedResearch = researchCache.get(researchKey)
+      ?? (reusableResearch?.topicKey === researchKey ? reusableResearch : null);
+    // 이미 조사해 둔 것이 있으면 시간을 보지 않습니다. 부를 일이 없으니까요.
+    if (!cachedResearch) assertStageFits("research", deadlineAt);
+    const research: StoredResearch = cachedResearch
       ?? await researchOfficialFacts({
         topic: `${plan.workingTitle} — ${plan.primaryTopic}`,
         sourceContext: JSON.stringify({
           plan,
+          ...(brief ? {
+            // 붙여넣은 자료를 조사 담당에게 그대로 넘깁니다.
+            // 여기에 적힌 숫자와 기한이 조사 대상이 되고, 확인된 것만 본문에 남습니다.
+            requestedTopic: brief.topicHint || null,
+            suppliedMaterial: brief.sourceMaterial || null,
+          } : {}),
           woolimKnowledge: selectedKnowledge,
           registeredOfficialSources: sources.map((source) => ({
             name: source.name,
@@ -608,7 +761,14 @@ export async function generateContentWorkItem(
     const researchSources: AvailableSource[] = research.sources.map((source) => ({
       name: source.title,
       base_url: source.url,
-      source_grade: 1,
+      /*
+       * 검색이 물어왔다는 이유만으로 1등급을 주지 않습니다.
+       *
+       * 예전에는 전부 1등급이었습니다. 그래서 조사가 딸려 온 tistory.com,
+       * guard1004.com 같은 개인 블로그가 정부 공고와 같은 무게로 풀에
+       * 들어갔습니다. 필터는 빡빡한데 풀은 헐거웠습니다.
+       */
+      source_grade: trustedSourceUrl(source.url) ? 1 : 3,
       topic_families: [plan.topicFamily, plan.primaryTopic],
       channels: [slot.channel],
       snapshot: `Google Search 개별 조사에서 확인된 공식 원문: ${source.title}`,
@@ -623,9 +783,17 @@ export async function generateContentWorkItem(
       revisionNote && !options.forceNewTopic
         ? { note: revisionNote, previous: storedMetadata.generated }
         : undefined,
+      brief,
     );
     let repairInstruction = "";
     for (let repairAttempt = 0; repairAttempt < AI_ATTEMPTS.articleRepair; repairAttempt += 1) {
+      // 본문을 시작할 시간이 없으면 여기서 멈춥니다. 이미 고른 후보가 있으면
+      // 그것을 저장하고, 없으면 아무것도 쓰지 않은 채 다음 기회로 넘깁니다.
+      if (selected) {
+        if (deadlineExceeded("articleBody", deadlineAt)) break articlePlans;
+      } else {
+        assertStageFits("articleBody", deadlineAt);
+      }
       const generated = await requestGeneratedContent({
         prompt: `${basePrompt}${repairInstruction}`,
         scheduleKey,
@@ -640,9 +808,25 @@ export async function generateContentWorkItem(
       }));
       generated.usedKnowledgeIds = [...new Set(generated.usedKnowledgeIds || [])]
         .filter((id) => approvedKnowledgeIds.has(id) && plan.knowledgeIds.includes(id));
-      const allowedSourceUrls = new Set(sourcePool.map((source) => source.base_url));
+      /*
+       * 주소가 글자 하나까지 같아야 인정하던 것을 고쳤습니다.
+       *
+       * 조사가 찾아온 진짜 근거(law.go.kr/LSW/admRulLsInfoP.do?...)가 목록의
+       * base_url(law.go.kr)과 안 맞아 통째로 버려졌습니다. 그래서 글에는 대문
+       * 주소만 실렸고 독자는 근거 페이지로 갈 수 없었습니다. 모델은 그걸 배워
+       * 아예 대문 주소만 답게 됐습니다.
+       *
+       * 이제 "이 주소가 목록에 있는가" 대신 "믿을 수 있는 곳인가" 를 봅니다.
+       * 정부·공공기관·학교·언론·표준기관이면 어느 페이지든 인정합니다.
+       * 새 기관이 생겨도 손댈 것이 없습니다.
+       *
+       * 개인 블로그는 여전히 막힙니다. 티스토리는 플랫폼이라 대학교수 글과
+       * 경쟁사 광고가 같은 꼬리를 씁니다. 도메인으로 품질을 가릴 수 없습니다.
+       * 조사 단계는 지금도 읽습니다 — 맥락은 얻되 근거로만 안 씁니다.
+       */
       generated.sourceUrls = [...new Set(generated.sourceUrls || [])]
-        .filter((url) => allowedSourceUrls.has(url));
+        .filter((url) => trustedSourceUrl(url)
+          || sourcePool.some((source) => sameHost(source.base_url, url)));
       const plainLength = clean(generated.bodyHtml).replace(/\s/g, "").length;
       const h2Count = (generated.bodyHtml.match(/<h2[\s>]/gi) || []).length;
       const faqCount = generated.faq?.length || 0;
@@ -663,11 +847,14 @@ export async function generateContentWorkItem(
         ...(authorityMissingKnowledge ? [`${knowledgeFormatLabel(slot)}에 승인된 원천자료가 사용되지 않음`] : []),
         ...editorialPublicationIssues(slot.format, generated),
       ];
+      const duplicateNote = novelty.duplicate
+        ? `기존 글과 중복 위험 ${novelty.riskScore}점${novelty.matches[0] ? `: ${novelty.matches[0].title}` : ""}`
+        : "";
       const issues = [
         ...structuralIssues,
-        ...(novelty.duplicate
-          ? [`기존 글과 중복 위험 ${novelty.riskScore}점${novelty.matches[0] ? `: ${novelty.matches[0].title}` : ""}`]
-          : []),
+        // 주제를 지정받았을 때의 중복은 막을 일이 아니라 알려 줄 일입니다.
+        // 아래 경고로 남겨 검토 화면에서 보이게 합니다.
+        ...(duplicateNote && !skipDuplicateBlock ? [duplicateNote] : []),
       ];
       attempts.push({
         title: generated.title,
@@ -723,15 +910,24 @@ ${JSON.stringify(generated)}
     throw new Error("GENERATION_CANCELLED");
   }
   const status = issues.length ? "on_hold" : "review_required";
+  // 막지는 않았지만 알고 계셔야 하는 것들입니다.
+  // 읽지 못한 링크와, 지정 주제라서 넘긴 중복 경고가 여기 모입니다.
+  const advisories = [
+    ...(rejectedBriefUrls.length
+      ? [`읽지 않은 링크 ${rejectedBriefUrls.length}개: ${rejectedBriefUrls.join(", ")}`
+        + " (정부·공공기관·학교·공식 통계 주소만 조사에 사용합니다)"]
+      : []),
+    ...(unreadableBriefUrls.length
+      ? [`열지 못한 링크 ${unreadableBriefUrls.length}개: ${unreadableBriefUrls.join(", ")}`
+        + " (주소가 바뀌었거나 응답이 없었습니다)"]
+      : []),
+    ...(brief && novelty.duplicate
+      ? [`지정하신 주제라 그대로 진행했지만, 기존 글과 겹치는 정도가 ${novelty.riskScore}점입니다.`
+        + `${novelty.matches[0] ? ` 가장 비슷한 글: ${novelty.matches[0].title}` : ""}`]
+      : []),
+  ];
   const usedSourceNames = sourcePool
-    .filter((source) => generated.sourceUrls.some((url) => {
-      try {
-        return new URL(url).hostname.replace(/^www\./, "")
-          === new URL(source.base_url).hostname.replace(/^www\./, "");
-      } catch {
-        return false;
-      }
-    }))
+    .filter((source) => generated.sourceUrls.some((url) => sameHost(source.base_url, url)))
     .map((source) => source.name);
   const successfulMetadata = metadataAfterSuccessfulRevision(storedMetadata);
   const generatedAt = new Date().toISOString();
@@ -746,13 +942,23 @@ ${JSON.stringify(generated)}
     last_error_code: null,
     last_error_context: {},
     review_note: status === "on_hold"
-      ? `${novelty.duplicate ? "중복 검사" : "자동 검증"} 보류: ${issues.join(", ")}`
-      : null,
+      ? [`${novelty.duplicate ? "중복 검사" : "자동 검증"} 보류: ${issues.join(", ")}`, ...advisories].join(" / ")
+      : (advisories.join(" / ") || null),
     source_label: (usedSourceNames.length ? usedSourceNames : sourcePool.map((source) => source.name)).join(", "),
     source_reference: JSON.stringify(generated.sourceUrls || []),
     metadata: {
-      ...successfulMetadata,
+      ...appendStatusChange(successfulMetadata, status, "automation@woolimcompany.kr", generatedAt),
       generated,
+      ...(brief ? {
+        brief: {
+          topicHint: brief.topicHint || null,
+          hasSourceMaterial: Boolean(brief.sourceMaterial),
+          sourceUrls: [...readBriefUrls],
+          rejectedSourceUrls: rejectedBriefUrls,
+          unreadableSourceUrls: unreadableBriefUrls,
+          requestedAt: generatedAt,
+        },
+      } : {}),
       ...(status === "review_required" ? {
         styleRevision: createStyleRevisionStamp(generated, {
           appliedAt: generatedAt,

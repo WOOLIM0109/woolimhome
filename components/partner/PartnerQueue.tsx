@@ -1,9 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Check,
   CheckCircle2,
+  ChevronDown,
   Clipboard,
   Download,
   ExternalLink,
@@ -30,7 +31,9 @@ type PartnerItem = {
   scheduledAt: string | null;
   publishedAt: string | null;
   publishedUrl: string | null;
+  forceApprovalMemo: string | null;
   publicationWarning: string | null;
+  bodyPurgedAt: string | null;
   completedAt: string | null;
   previewHtml: string;
   copyHtml: string;
@@ -148,7 +151,14 @@ export default function PartnerQueue({ onUnauthorized }: { onUnauthorized: () =>
   const [error, setError] = useState("");
   const [copied, setCopied] = useState("");
   const [publishedUrls, setPublishedUrls] = useState<Record<string, string>>({});
+  const [publishErrors, setPublishErrors] = useState<Record<string, string>>({});
+  const [forceApprovalMemos, setForceApprovalMemos] = useState<Record<string, string>>({});
+  const [forceApprovalAvailable, setForceApprovalAvailable] = useState<Record<string, boolean>>({});
+  const [publishNotice, setPublishNotice] = useState("");
   const [savingId, setSavingId] = useState("");
+  // 긴 원고와 이미지는 필요한 작업만 펼쳐 볼 수 있게 처음에는 모두 접습니다.
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(() => new Set());
+  const statusNavRef = useRef<HTMLElement>(null);
 
   const selectedChannel = useMemo(
     () => CHANNELS.find((item) => item.value === channel) || CHANNELS[0],
@@ -172,6 +182,9 @@ export default function PartnerQueue({ onUnauthorized }: { onUnauthorized: () =>
         previewHtml: formatSentenceLineBreaks(item.previewHtml),
       }));
       setItems(displayItems);
+      setExpandedIds((current) => new Set(
+        [...current].filter((id) => displayItems.some((item) => item.id === id)),
+      ));
       setChannelConfigs(Array.isArray(data.channels) ? data.channels : []);
       setPublishedUrls(
         Object.fromEntries(
@@ -200,6 +213,15 @@ export default function PartnerQueue({ onUnauthorized }: { onUnauthorized: () =>
     [items],
   );
   const visibleItems = statusView === "published" ? publishedItems : pendingItems;
+
+  function toggleExpanded(id: string) {
+    setExpandedIds((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
 
   useEffect(() => {
     const timer = window.setTimeout(() => void load(), 0);
@@ -247,12 +269,19 @@ export default function PartnerQueue({ onUnauthorized }: { onUnauthorized: () =>
   async function markPublished(item: PartnerItem) {
     const publishedUrl = publishedUrls[item.id]?.trim();
     if (!publishedUrl) {
-      setError("발행한 네이버 블로그 글 주소를 먼저 입력해 주세요.");
+      setPublishErrors((current) => ({
+        ...current,
+        [item.id]: "발행한 네이버 블로그 글 주소를 먼저 입력해 주세요.",
+      }));
+      setForceApprovalAvailable((current) => ({ ...current, [item.id]: false }));
       return;
     }
 
     setSavingId(item.id);
     setError("");
+    setPublishNotice("");
+    setPublishErrors((current) => ({ ...current, [item.id]: "" }));
+    setForceApprovalAvailable((current) => ({ ...current, [item.id]: false }));
     try {
       const response = await fetch(`/api/partner/content/${item.id}`, {
         method: "PATCH",
@@ -265,15 +294,86 @@ export default function PartnerQueue({ onUnauthorized }: { onUnauthorized: () =>
         return;
       }
       if (!response.ok) {
+        const message = [data.error || "발행 완료 상태를 저장하지 못했습니다.", data.nextAction]
+          .filter(Boolean)
+          .join(" ");
+        setPublishErrors((current) => ({ ...current, [item.id]: message }));
+        const canForce = response.status >= 400 && response.status < 500 && response.status !== 404;
+        setForceApprovalAvailable((current) => ({ ...current, [item.id]: canForce }));
+        if (canForce) {
+          setForceApprovalMemos((current) => ({
+            ...current,
+            [item.id]: current[item.id]?.trim() ? current[item.id] : publishedUrl,
+          }));
+        }
+        return;
+      }
+      setForceApprovalAvailable((current) => ({ ...current, [item.id]: false }));
+      setForceApprovalMemos((current) => ({ ...current, [item.id]: "" }));
+      await load();
+      setExpandedIds(new Set());
+      setStatusView("published");
+      setPublishNotice(`‘${item.title}’ 글을 발행 완료로 옮겼습니다.`);
+      window.requestAnimationFrame(() => {
+        statusNavRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      });
+    } catch (saveError) {
+      setForceApprovalAvailable((current) => ({ ...current, [item.id]: false }));
+      setPublishErrors((current) => ({
+        ...current,
+        [item.id]: saveError instanceof Error ? saveError.message : "발행 완료 상태를 저장하지 못했습니다.",
+      }));
+    } finally {
+      setSavingId("");
+    }
+  }
+
+  async function forceMarkPublished(item: PartnerItem) {
+    const forceApprovalMemo = forceApprovalMemos[item.id]?.trim();
+    if (!forceApprovalMemo) {
+      setPublishErrors((current) => ({
+        ...current,
+        [item.id]: "강제승인 메모에 확인할 주소나 내용을 입력해 주세요.",
+      }));
+      return;
+    }
+
+    setSavingId(item.id);
+    setError("");
+    setPublishNotice("");
+    setPublishErrors((current) => ({ ...current, [item.id]: "" }));
+    try {
+      const response = await fetch(`/api/partner/content/${item.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ force: true, forceApprovalMemo }),
+      });
+      const data = await response.json();
+      if (response.status === 401) {
+        onUnauthorized();
+        return;
+      }
+      if (!response.ok) {
         throw new Error(
-          [data.error || "발행 완료 상태를 저장하지 못했습니다.", data.nextAction]
+          [data.error || "강제승인 상태를 저장하지 못했습니다.", data.nextAction]
             .filter(Boolean)
             .join(" "),
         );
       }
+      setForceApprovalAvailable((current) => ({ ...current, [item.id]: false }));
+      setForceApprovalMemos((current) => ({ ...current, [item.id]: "" }));
       await load();
+      setExpandedIds(new Set());
+      setStatusView("published");
+      setPublishNotice(`‘${item.title}’ 글을 메모와 함께 강제승인 처리했습니다.`);
+      window.requestAnimationFrame(() => {
+        statusNavRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      });
     } catch (saveError) {
-      setError(saveError instanceof Error ? saveError.message : "발행 완료 상태를 저장하지 못했습니다.");
+      setPublishErrors((current) => ({
+        ...current,
+        [item.id]: saveError instanceof Error ? saveError.message : "강제승인 상태를 저장하지 못했습니다.",
+      }));
     } finally {
       setSavingId("");
     }
@@ -291,6 +391,11 @@ export default function PartnerQueue({ onUnauthorized }: { onUnauthorized: () =>
               onClick={() => {
                 setStatusView("pending");
                 setItems([]);
+                setPublishErrors({});
+                setForceApprovalMemos({});
+                setForceApprovalAvailable({});
+                setPublishNotice("");
+                setExpandedIds(new Set());
                 setChannel(item.value);
               }}
               className={`rounded-2xl border p-5 text-left transition ${
@@ -344,12 +449,14 @@ export default function PartnerQueue({ onUnauthorized }: { onUnauthorized: () =>
         </div>
       </div>
 
+      <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
       <nav
-        className="mt-5 inline-flex w-full rounded-2xl border border-[var(--line)] bg-stone-100 p-1 sm:w-auto"
+        ref={statusNavRef}
+        className="inline-flex w-full rounded-2xl border border-[var(--line)] bg-stone-100 p-1 sm:w-auto"
         aria-label="작업 상태 선택"
       >
         <button
-          onClick={() => setStatusView("pending")}
+          onClick={() => { setStatusView("pending"); setExpandedIds(new Set()); }}
           aria-pressed={statusView === "pending"}
           className={`flex flex-1 items-center justify-center gap-2 rounded-xl px-5 py-3 text-sm font-bold transition sm:flex-none ${
             statusView === "pending"
@@ -361,7 +468,7 @@ export default function PartnerQueue({ onUnauthorized }: { onUnauthorized: () =>
           <span className="rounded-full bg-blue-50 px-2 py-0.5 text-xs text-blue-700">{pendingItems.length}</span>
         </button>
         <button
-          onClick={() => setStatusView("published")}
+          onClick={() => { setStatusView("published"); setExpandedIds(new Set()); }}
           aria-pressed={statusView === "published"}
           className={`flex flex-1 items-center justify-center gap-2 rounded-xl px-5 py-3 text-sm font-bold transition sm:flex-none ${
             statusView === "published"
@@ -373,6 +480,38 @@ export default function PartnerQueue({ onUnauthorized }: { onUnauthorized: () =>
           <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-xs text-emerald-700">{publishedItems.length}</span>
         </button>
       </nav>
+      {!loading && visibleItems.length > 0 && (
+        <div className="flex flex-wrap justify-end gap-2">
+          <button
+            type="button"
+            onClick={() => setExpandedIds((current) => new Set([
+              ...current,
+              ...visibleItems.map((item) => item.id),
+            ]))}
+            className="rounded-xl border border-[var(--line)] bg-white px-4 py-2.5 text-sm font-bold hover:bg-stone-50"
+          >
+            전체 펼치기
+          </button>
+          <button
+            type="button"
+            onClick={() => setExpandedIds((current) => {
+              const next = new Set(current);
+              visibleItems.forEach((item) => next.delete(item.id));
+              return next;
+            })}
+            className="rounded-xl border border-[var(--line)] bg-white px-4 py-2.5 text-sm font-bold hover:bg-stone-50"
+          >
+            전체 접기
+          </button>
+        </div>
+      )}
+      </div>
+
+      {publishNotice && (
+        <div className="mt-5 rounded-2xl border border-emerald-200 bg-emerald-50 p-5 text-sm font-bold leading-6 text-emerald-800" role="status">
+          {publishNotice}
+        </div>
+      )}
 
       {error && (
         <div className="mt-5 rounded-2xl border border-red-200 bg-red-50 p-5 text-sm font-bold leading-6 text-red-700">
@@ -407,27 +546,44 @@ export default function PartnerQueue({ onUnauthorized }: { onUnauthorized: () =>
             const fullHtml = `${item.copyHtml}${faqHtml}${sourcesHtml}`;
             const tags = item.tags.map((tag) => `#${tag.replace(/^#/, "")}`).join(" ");
             const isPublished = item.status === "published";
+            const expanded = expandedIds.has(item.id);
+            const detailsId = `partner-work-item-${item.id}`;
 
             return (
               <article key={item.id} className="overflow-hidden rounded-3xl border border-[var(--line)] bg-white shadow-sm">
-                <div className="p-6 sm:p-8">
-                  <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-                    <div>
-                      <div className="flex flex-wrap items-center gap-2 text-xs font-bold">
+                <button
+                  type="button"
+                  aria-expanded={expanded}
+                  aria-controls={detailsId}
+                  onClick={() => toggleExpanded(item.id)}
+                  className="w-full p-5 text-left transition hover:bg-stone-50 sm:p-6"
+                >
+                  <span className="flex items-center justify-between gap-4">
+                    <span className="min-w-0">
+                      <span className="flex flex-wrap items-center gap-2 text-xs font-bold">
                         <span className="rounded-full bg-orange-50 px-3 py-1.5 text-[var(--primary)]">{item.format}</span>
                         <span className={`rounded-full px-3 py-1.5 ${isPublished ? "bg-emerald-50 text-emerald-700" : "bg-blue-50 text-blue-700"}`}>
                           {STATUS_LABELS[item.status]}
                         </span>
-                      </div>
-                      <h3 className="mt-4 text-2xl font-bold leading-snug">{item.title}</h3>
-                      {item.summary && <p className="mt-3 max-w-4xl text-sm leading-7 text-[var(--muted)]">{item.summary}</p>}
+                      </span>
+                      <span className="mt-3 block text-lg font-bold leading-snug sm:text-xl">{item.title}</span>
+                      {item.summary && <span className="mt-2 line-clamp-1 max-w-4xl text-sm text-[var(--muted)]">{item.summary}</span>}
                       {item.scheduledAt && (
-                        <p className="mt-3 text-xs text-[var(--muted)]">예정일: {formatDate(item.scheduledAt)}</p>
+                        <span className="mt-2 block text-xs text-[var(--muted)]">예정일: {formatDate(item.scheduledAt)}</span>
                       )}
-                    </div>
-                  </div>
+                    </span>
+                    <ChevronDown
+                      aria-hidden="true"
+                      size={22}
+                      className={`shrink-0 text-[var(--muted)] transition-transform ${expanded ? "rotate-180" : ""}`}
+                    />
+                  </span>
+                </button>
 
-                  <section className="mt-6 rounded-2xl bg-[#fff8f3] p-4 sm:p-5">
+                {expanded && (
+                <div id={detailsId} className="border-t border-[var(--line)] p-6 sm:p-8">
+
+                  <section className="rounded-2xl bg-[#fff8f3] p-4 sm:p-5">
                     <h4 className="text-sm font-bold">1. 원고 옮기기</h4>
                     <div className="mt-3 flex flex-wrap gap-2">
                       <CopyButton
@@ -541,7 +697,12 @@ export default function PartnerQueue({ onUnauthorized }: { onUnauthorized: () =>
                       <input
                         type="url"
                         value={publishedUrls[item.id] || ""}
-                        onChange={(event) => setPublishedUrls((current) => ({ ...current, [item.id]: event.target.value }))}
+                        onChange={(event) => {
+                          setPublishedUrls((current) => ({ ...current, [item.id]: event.target.value }));
+                          setForceApprovalMemos((current) => ({ ...current, [item.id]: event.target.value }));
+                          setPublishErrors((current) => ({ ...current, [item.id]: "" }));
+                          setForceApprovalAvailable((current) => ({ ...current, [item.id]: false }));
+                        }}
                         placeholder="https://blog.naver.com/..."
                         disabled={isPublished}
                         className="min-w-0 flex-1 rounded-xl border border-emerald-200 bg-white px-4 py-3 text-sm outline-none focus:border-emerald-500 disabled:bg-stone-50"
@@ -557,7 +718,7 @@ export default function PartnerQueue({ onUnauthorized }: { onUnauthorized: () =>
                         </a>
                       ) : isPublished ? (
                         <span className="inline-flex items-center justify-center rounded-xl bg-amber-100 px-5 py-3 text-sm font-bold text-amber-900">
-                          관리자 확인 필요
+                          {item.forceApprovalMemo ? "강제승인 완료" : "관리자 확인 필요"}
                         </span>
                       ) : (
                         <button
@@ -570,6 +731,62 @@ export default function PartnerQueue({ onUnauthorized }: { onUnauthorized: () =>
                         </button>
                       )}
                     </div>
+                    {publishErrors[item.id] && (
+                      <p className="mt-3 rounded-xl border border-red-200 bg-red-50 p-3 text-xs font-bold leading-5 text-red-700" role="alert">
+                        {publishErrors[item.id]}
+                      </p>
+                    )}
+                    {!isPublished && forceApprovalAvailable[item.id] && (
+                      <div className="mt-3 rounded-xl border border-amber-300 bg-amber-50 p-4">
+                        <p className="text-sm font-bold text-amber-950">
+                          오류로 승인되지 않았습니다. 주소 입력 후 강제승인 처리할 수 있습니다.
+                        </p>
+                        <p className="mt-1 text-xs leading-5 text-amber-900">
+                          아래 내용은 정상 주소인지 판단하지 않고 메모로 그대로 보존합니다.
+                        </p>
+                        <label
+                          htmlFor={`force-approval-${item.id}`}
+                          className="mt-3 block text-xs font-bold text-amber-950"
+                        >
+                          강제승인 메모
+                        </label>
+                        <textarea
+                          id={`force-approval-${item.id}`}
+                          value={forceApprovalMemos[item.id] || ""}
+                          onChange={(event) => {
+                            setForceApprovalMemos((current) => ({ ...current, [item.id]: event.target.value }));
+                            setPublishErrors((current) => ({ ...current, [item.id]: "" }));
+                          }}
+                          maxLength={2000}
+                          rows={2}
+                          placeholder="확인할 주소 또는 메모를 입력해 주세요."
+                          className="mt-2 w-full resize-y rounded-xl border border-amber-300 bg-white px-4 py-3 text-sm outline-none focus:border-amber-600"
+                        />
+                        <button
+                          onClick={() => void forceMarkPublished(item)}
+                          disabled={savingId === item.id || !(forceApprovalMemos[item.id] || "").trim()}
+                          className="mt-2 inline-flex items-center justify-center gap-2 rounded-xl bg-amber-700 px-5 py-3 text-sm font-bold text-white disabled:opacity-60"
+                        >
+                          {savingId === item.id ? <LoaderCircle className="animate-spin" size={16} /> : <CheckCircle2 size={16} />}
+                          주소 입력 후 강제승인 처리
+                        </button>
+                      </div>
+                    )}
+                    {isPublished && item.forceApprovalMemo && (
+                      <div className="mt-3 rounded-xl border border-amber-300 bg-amber-50 p-4">
+                        <p className="text-xs font-bold text-amber-950">강제승인 메모</p>
+                        <p className="mt-1 whitespace-pre-wrap break-all text-sm leading-6 text-amber-950">
+                          {item.forceApprovalMemo}
+                        </p>
+                        <button
+                          onClick={() => void copyValue(`force-memo-${item.id}`, item.forceApprovalMemo || "")}
+                          className="mt-2 inline-flex items-center gap-2 rounded-lg border border-amber-300 bg-white px-3 py-2 text-xs font-bold text-amber-950"
+                        >
+                          {copied === `force-memo-${item.id}` ? <Check size={14} /> : <Clipboard size={14} />}
+                          {copied === `force-memo-${item.id}` ? "복사됨" : "메모 복사"}
+                        </button>
+                      </div>
+                    )}
                     {isPublished && item.publishedAt && (
                       <p className="mt-3 text-xs font-bold text-emerald-800">완료 등록: {formatDate(item.publishedAt)}</p>
                     )}
@@ -578,8 +795,19 @@ export default function PartnerQueue({ onUnauthorized }: { onUnauthorized: () =>
                         {item.publicationWarning}
                       </p>
                     )}
+                    {/* 본문이 비어 보이는 이유를 알려 줍니다. 글이 없어진 것이
+                        아니라 발행 뒤에 정리한 것입니다. */}
+                    {item.bodyPurgedAt && (
+                      <p className="mt-3 rounded-xl border border-[var(--line)] bg-[#f7efe9] p-3 text-xs leading-5 text-[#5d4c43]">
+                        발행이 끝나 원고 본문은 정리했습니다({formatDate(item.bodyPurgedAt)}).
+                        {item.forceApprovalMemo
+                          ? " 등록 당시 내용은 위 강제승인 메모에서 확인하실 수 있습니다."
+                          : " 올라간 글은 위 발행 주소에서 확인하실 수 있습니다."}
+                      </p>
+                    )}
                   </section>
                 </div>
+                )}
               </article>
             );
           })}

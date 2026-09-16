@@ -1,12 +1,15 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { generateGeminiText, geminiRetryDecision } from "@/lib/gemini/client";
 import { parseGeminiJson } from "@/lib/gemini/json";
+import { COLUMN_BODY_PATCH_SCHEMA, COLUMN_DRAFT_SCHEMA } from "./draft-schema";
 import { researchOfficialFacts } from "@/lib/research/official";
+import { sameHost, sameSourceUrl, trustedSourceUrl } from "@/lib/research/trusted-sources";
 import { AI_INPUT_LIMITS, AI_OUTPUT_LIMITS, COLUMN_MIN_BODY_CHARS } from "@/lib/ai-budget";
 import { sanitizeGeneratedHtml, sanitizeInlineHtml } from "@/lib/security/html";
 import {
   FRIENDLY_EDITORIAL_STYLE_RULES,
   friendlyStyleIssues,
+  splitPublicationIssues,
 } from "@/lib/content-ops/editorial-style";
 import {
   KNOWLEDGE_PER_COLUMN,
@@ -14,19 +17,36 @@ import {
   selectRotatingKnowledge,
 } from "./knowledge-rotation";
 import { stripVerificationControlText } from "./verification";
-import type { ColumnFaq, ColumnKind, ColumnSource } from "./types";
+import { diagramIssues, diagramsEnabled, stripDiagrams } from "@/lib/content-ops/diagram";
+import { normalizeDraft } from "./normalize";
+import { assessNovelty, fingerprintFromGenerated } from "@/lib/content-ops/novelty";
+import { insertSentenceBreaks } from "@/lib/content-ops/sentence-breaks-html";
+import type { ColumnFaq, ColumnKind, ColumnSource, ColumnStatus } from "./types";
+import {
+  COLUMN_TOPIC_PLAN_SCHEMA,
+  columnTopicPlanningRules,
+  parseColumnTopicPlans,
+  pickFreshPlan,
+  comparableColumns,
+  recentColumnSummary,
+  underusedFamilies,
+  type ColumnTopicPlan,
+} from "./topic-plan";
 
 const MODEL = "gemini-3.5-flash";
 /** 문체만 걸렸을 때 다시 써 보는 횟수. 한 번 고치면 다른 곳이 걸리는 일이 잦습니다. */
 const STYLE_REPAIR_ATTEMPTS = 2;
+/**
+ * 주제 기획에 주는 시간.
+ *
+ * 본문 쓰기(120초)보다 짧게 잡습니다. 이 단계가 오래 끌면 정작 글 쓸 시간이
+ * 모자라 통째로 끊깁니다. 못 정하면 예전 방식으로 넘어가므로 짧아도 안전합니다.
+ */
+const TOPIC_PLAN_TIMEOUT_MS = 60_000;
 const OFFICIAL_FEEDS = [
   { url: "https://mss.go.kr/rss/smba/board/310.do", publisher: "중소벤처기업부", label: "사업공고" },
   { url: "https://mss.go.kr/rss/smba/board/86.do", publisher: "중소벤처기업부", label: "보도자료" },
   { url: "https://mss.go.kr/rss/smba/board/126.do", publisher: "중소벤처기업부", label: "법령공고" },
-];
-const TRUSTED_SUFFIXES = [
-  ".go.kr", ".or.kr", ".ac.kr", "law.go.kr", "k-startup.go.kr", "bizinfo.go.kr",
-  "kostat.go.kr", "kosis.kr", "doi.org", "oecd.org", "worldbank.org",
 ];
 
 type Candidate = ColumnSource & { summary: string };
@@ -56,12 +76,49 @@ function decodeXml(value: string) {
     .replace(/\s+/g, " ").trim();
 }
 
-async function rssCandidates(): Promise<Candidate[]> {
+/**
+ * 피드 한 번 실패했다고 포기하지 않습니다.
+ *
+ * 중기부 서버는 연결을 무작위로 끊습니다. 같은 주소를 세 번 눌러 보면 두 번은
+ * 되고 한 번은 끊깁니다. 그런데 예전에는 재시도가 없어서, 실패한 피드는 그냥
+ * 0건이 되었습니다. 어떤 날은 주제 후보가 피드 3개가 아니라 1개에서만 나왔고,
+ * 그만큼 주제가 좁아졌습니다. 직접 눌러 보고 알았습니다.
+ */
+const FEED_ATTEMPTS = 3;
+
+async function fetchFeedXml(url: string) {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < FEED_ATTEMPTS; attempt += 1) {
+    try {
+      const response = await fetch(url, { cache: "no-store", signal: AbortSignal.timeout(12_000) });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      return await response.text();
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error("피드를 읽지 못했습니다.");
+}
+
+/** 어느 피드가 몇 건을 물어왔는지. 죽은 주소가 조용히 넘어가지 않게 남깁니다. */
+export type FeedTally = { publisher: string; label: string; count: number; error?: string };
+
+async function rssCandidates(tally?: FeedTally[]): Promise<Candidate[]> {
   const results = await Promise.allSettled(OFFICIAL_FEEDS.map(async (feed) => {
-    const response = await fetch(feed.url, { cache: "no-store", signal: AbortSignal.timeout(12_000) });
-    if (!response.ok) return [];
-    const xml = await response.text();
-    return [...xml.matchAll(/<item>([\s\S]*?)<\/item>/gi)].slice(0, 8).map((match) => {
+    let xml: string;
+    try {
+      xml = await fetchFeedXml(feed.url);
+    } catch (error) {
+      tally?.push({
+        publisher: feed.publisher,
+        label: feed.label,
+        count: 0,
+        error: error instanceof Error ? error.message : "읽지 못했습니다.",
+      });
+      return [];
+    }
+    {
+    const items = [...xml.matchAll(/<item>([\s\S]*?)<\/item>/gi)].slice(0, 8).map((match) => {
       const item = match[1];
       const field = (name: string) => decodeXml(item.match(new RegExp(`<${name}[^>]*>([\\s\\S]*?)<\\/${name}>`, "i"))?.[1] || "");
       return {
@@ -72,23 +129,15 @@ async function rssCandidates(): Promise<Candidate[]> {
         summary: `${feed.label}: ${field("description")}`.slice(0, 1200),
       };
     }).filter((item) => item.title && item.url);
+    tally?.push({ publisher: feed.publisher, label: feed.label, count: items.length });
+    return items;
+    }
   }));
   return results.flatMap((result) => result.status === "fulfilled" ? result.value : []);
 }
 
-function trustedUrl(input: string) {
-  try {
-    const url = new URL(input);
-    if (url.protocol !== "https:") return false;
-    const host = url.hostname.toLowerCase();
-    return TRUSTED_SUFFIXES.some((suffix) => host === suffix.replace(/^\./, "") || host.endsWith(suffix));
-  } catch {
-    return false;
-  }
-}
-
 async function suppliedCandidate(url: string): Promise<Candidate | null> {
-  if (!trustedUrl(url)) return null;
+  if (!trustedSourceUrl(url)) return null;
   try {
     const response = await fetch(url, { cache: "no-store", signal: AbortSignal.timeout(12_000) });
     if (!response.ok) return null;
@@ -103,6 +152,20 @@ async function suppliedCandidate(url: string): Promise<Candidate | null> {
 
 function visibleText(html: string) {
   return decodeXml(html);
+}
+
+/**
+ * 본문 분량과 문체를 볼 때 쓰는 글.
+ *
+ * 도식 안의 라벨은 본문이 아닙니다. 함께 세면 글을 제대로 쓰지 않고 도식으로
+ * 3,500자를 채울 수 있고, 짧은 라벨이 문장으로 잡혀 문체 판정도 흐려집니다.
+ */
+function proseOf(html: string) {
+  return stripDiagrams(html);
+}
+
+function proseCharCount(html: string) {
+  return visibleText(proseOf(html)).replace(/\s/g, "").length;
 }
 
 function safeSlug(value: string) {
@@ -128,8 +191,63 @@ function escapeHtml(value: string) {
     .replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
 
+/**
+ * 무엇을 쓸지 먼저 정합니다.
+ *
+ * 예전에는 이 단계가 없었습니다. 중기부 RSS 오늘치를 그대로 조사에 넘겼고,
+ * 그래서 나오는 글이 늘 "정부가 무엇을 발표했다"였습니다. 마케팅이나 재무는
+ * 주제군 목록에 이름만 있고 실제로 글이 나올 통로가 없었습니다.
+ *
+ * 조사 단계는 이미 Google 검색을 씁니다(lib/research/official.ts). 주제만
+ * 제대로 정해 주면 그 주제의 공식 원문을 알아서 찾아옵니다. 그래서 피드를
+ * 늘리는 것보다 이 단계를 넣는 것이 먼저였습니다.
+ */
+async function planColumnTopic({
+  recentPosts,
+  feedTitles,
+  topicHint,
+}: {
+  recentPosts: Parameters<typeof recentColumnSummary>[0];
+  feedTitles: string[];
+  topicHint?: string | null;
+}): Promise<ColumnTopicPlan | null> {
+  const families = underusedFamilies(recentPosts, 6);
+  const recent = recentColumnSummary(recentPosts, 30);
+  const prompt = columnTopicPlanningRules({ families, recent, feedTitles, topicHint });
+  try {
+    const { text } = await generateGeminiText({
+      parts: [{ text: prompt }],
+      generationConfig: {
+        responseMimeType: "application/json",
+        responseSchema: COLUMN_TOPIC_PLAN_SCHEMA,
+        maxOutputTokens: AI_OUTPUT_LIMITS.topicPlan,
+      },
+      timeoutMs: TOPIC_PLAN_TIMEOUT_MS,
+    });
+    const plans = parseColumnTopicPlans(text || "");
+    // 주제를 지정받았으면 겹침을 이유로 후보를 건너뛰지 않습니다.
+    // 대표가 알고 정한 주제를 기계가 밀어내면 안 됩니다.
+    if (topicHint) return plans[0] || null;
+    return pickFreshPlan(plans, recent.map((item) => item.title));
+  } catch {
+    /*
+     * 주제를 못 정했다고 글을 통째로 포기하지 않습니다.
+     * 예전과 똑같이 피드에서 고르게 두면, 나빠지지는 않습니다.
+     */
+    return null;
+  }
+}
+
 export async function generateColumn(input: {
   topicHint?: string;
+  /**
+   * 어떤 형식으로 쓸지. 무엇을 쓸지가 아닙니다.
+   *
+   * 자동 회차는 "정보형", "노하우형" 같은 형식을 정해 놓고 돌립니다. 예전에는
+   * 그 말을 topicHint 자리에 넣었는데, 그러면 사람이 주제를 정한 것으로 보여
+   * 주제 기획을 건너뜁니다. 정작 기획이 가장 필요한 회차가 빠졌습니다.
+   */
+  formatHint?: string;
   sourceUrls?: string[];
   createdBy: string;
   /** 어느 회차로 만든 글인지 기록에 남깁니다. 밀린 회차를 세는 데 씁니다. */
@@ -139,12 +257,17 @@ export async function generateColumn(input: {
   if (!apiKey) throw new Error("GEMINI_API_KEY가 설정되지 않았습니다.");
 
   const admin = createAdminClient();
-  const [{ data: knowledge }, feedSources, supplied] = await Promise.all([
+  const feedTally: FeedTally[] = [];
+  const [{ data: knowledge }, feedSources, supplied, { data: recentPosts }] = await Promise.all([
     // 승인 자료를 넉넉히 읽고, 어떤 열두 개를 쓸지는 아래에서 돌아가며 고릅니다.
     admin.from("column_expert_knowledge").select("*").eq("approved", true)
       .order("created_at", { ascending: false }).limit(KNOWLEDGE_POOL_LIMIT),
-    rssCandidates(),
+    rssCandidates(feedTally),
     Promise.all((input.sourceUrls || []).slice(0, 8).map(suppliedCandidate)),
+    // 최근에 무엇을 썼는지 알아야 같은 주제를 또 쓰지 않습니다.
+    admin.from("column_posts")
+      .select("title, category, tags, created_at, generation_metadata")
+      .order("created_at", { ascending: false }).limit(40),
   ]);
   const writingKnowledge = selectRotatingKnowledge(knowledge || [], KNOWLEDGE_PER_COLUMN).map((item) => ({
     ...item,
@@ -155,8 +278,26 @@ export async function generateColumn(input: {
   }));
   const baseCandidates = [...supplied.filter((item): item is Candidate => Boolean(item)), ...feedSources].slice(0, 24);
   if (baseCandidates.length < 2) throw new Error("검증 가능한 공식 출처를 충분히 수집하지 못했습니다.");
+
+  /*
+   * 주제를 적어 주셨어도 기획 단계는 돌립니다.
+   *
+   * 예전에는 적으면 통째로 건너뛰었습니다. 그래서 적어 주신 말이 그대로
+   * 글쓰기로 넘어갔고, 누가 읽는 글인지·어떤 관점인지가 정리되지 않았습니다.
+   * 이제는 주제군 로테이션과 중복 회피만 끄고, 적어 주신 주제를 기획서 모양으로
+   * 다듬습니다. 주제 자체는 바뀌지 않습니다.
+   */
+  const topicPlan = await planColumnTopic({
+    recentPosts: recentPosts || [],
+    feedTitles: baseCandidates.map((source) => source.title),
+    topicHint: input.topicHint || null,
+  });
+  const plannedTopic = topicPlan
+    ? `${topicPlan.primaryTopic} — ${topicPlan.angle} (독자: ${topicPlan.audience})`
+    : null;
+
   const research = await researchOfficialFacts({
-    topic: input.topicHint || "울림컴퍼니 기업 컨설팅 칼럼",
+    topic: input.topicHint || plannedTopic || "울림컴퍼니 기업 컨설팅 칼럼",
     sourceContext: JSON.stringify({
       topicHint: input.topicHint || null,
       woolimKnowledge: writingKnowledge,
@@ -192,6 +333,49 @@ export async function generateColumn(input: {
   }).select("id").single();
   if (run.error) throw new Error(run.error.message);
 
+  /**
+   * 도식을 그리게 할지.
+   *
+   * 기본은 꺼짐입니다. 켜기 전까지 칼럼은 지금과 똑같이 나옵니다. 화·목에
+   * 자동으로 나가는 회차가 걸려 있어, 확인이 끝난 뒤에 환경변수 하나로
+   * 켜고 문제가 있으면 배포를 기다리지 않고 바로 되돌릴 수 있어야 합니다.
+   */
+  // 지난 칼럼을 중복 판정에 쓸 모양으로 미리 바꿔 둡니다.
+  const recentFingerprints = comparableColumns(recentPosts || [], 30);
+
+  const drawDiagrams = diagramsEnabled();
+  /*
+   * 도식을 그리게 하는 말.
+   *
+   * 예전에는 "~한 곳에만", "바꾸지 않는다", "넣을 곳이 없으면 넣지 않는다"로
+   * 두 줄 안에 말리는 말을 세 번 넣었습니다. "최대 1개"도 목표가 아니라 상한으로
+   * 읽힙니다. 그러니 안 그리는 쪽이 늘 안전한 선택이 되어, 켜 두어도 도식이
+   * 한 번도 나오지 않았습니다.
+   *
+   * 그래서 기본을 뒤집습니다. 그리는 것이 기본이고, 정말 그릴 것이 없을 때만
+   * 건너뜁니다. 아무 데나 그리지 않게 "어디에 그리는지"는 그대로 좁혀 둡니다.
+   */
+  const diagramRules = drawDiagrams ? `
+- 도식(SVG)을 한 편에 1개 넣는다. 아래 중 하나라도 글에 있으면 그 자리에 반드시 넣는다.
+  · 순서가 있는 단계(신청 → 심사 → 통보)
+  · 갈림길이나 조건(이 경우엔 A, 저 경우엔 B)
+  · 크기·비중의 비교(8,000명 대 2,000명)
+  · 시간의 흐름이나 기한
+  대부분의 칼럼에는 이 중 하나가 있다. 넘어가기 전에 먼저 찾아본다.
+  줄글이나 표로 충분히 드러나는 내용을 굳이 도식으로 바꾸지는 않는다.
+- 도식에 쓸 수 있는 태그는 이것뿐이다:
+  svg g defs marker path rect circle ellipse line polyline polygon text tspan title desc linearGradient stop
+  이 목록 밖의 태그(foreignObject, use, image, script, style, animate 등)를 쓰면 저장할 때 도식이 통째로 사라진다.
+- svg 에는 viewBox 를 반드시 넣고 width 와 height 는 넣지 않는다. 좁은 화면에서 잘리지 않게 하기 위해서다.
+- svg 안에 <title>과 <desc>를 반드시 넣는다. 사진의 대체 글에 해당하며 검색 노출과 화면 낭독에 쓰인다.
+  svg 태그에 role="img" 와 aria-label 도 함께 넣는다.
+- 글자는 <text> 로 넣는다. 그림 파일이 아니라 글자이므로 한글이 깨지지 않는다.
+- 색은 style 속성이 아니라 fill 과 stroke 로 지정한다. style 은 저장할 때 사라진다.
+  색은 #ef762f(강조), #241a15(진한 글자), #7a716b(보조 글자), #fff3ea(연한 배경), #e6ded8(선)만 쓴다.
+- id 는 글 안에서 겹치지 않게 짓는다. 화살촉 정의를 여러 도식이 함께 쓰면 엉킨다.
+- 도식 하나는 3,000자를 넘기지 않는다. 도형은 열 개 안쪽으로 하고, 설명은 도식이 아니라 본문에 쓴다.
+  도식이 크면 글을 다 쓰기 전에 응답이 끊겨 글 전체가 사라진다.` : "";
+
   const prompt = `
 당신은 울림컴퍼니의 수석 콘텐츠 기획자다. 한국 기업 고객이 문제를 해결하고 성장하도록 돕는 전문적이면서 친근한 칼럼을 작성한다.
 
@@ -207,6 +391,9 @@ ${FRIENDLY_EDITORIAL_STYLE_RULES}
 - 위 내부 칸 이름과 번호를 소제목으로 노출하지 말고 자연스러운 H2/H3로 바꾼다.
 - 쉬운 말로 쓰되 전문적 알맹이는 유지한다.
 - 사실·금액·기한은 아래 출처에서만 사용한다. 선정, 대출, 지원 결과를 보장하지 않는다.
+- 출처에는 정부·공공기관 자료와 언론 기사가 함께 들어 있다. 둘 다 근거로 쓸 수 있다.
+  다만 금액·마감일·자격 요건은 같은 내용을 담은 공고 원문이 있으면 원문 쪽을 먼저 쓴다.
+  기사가 원문의 숫자를 잘못 옮기는 일이 있기 때문이다.
 - 제도명, 금액, 기간, 대상, 자격, 지원 조건, 통계, 법령, 기술 기준은 각각 별도의 주장으로 보고 아래 개별 조사 결과와 대조한다.
 - [공식 확인 완료] 사실만 사용하고, [공식자료 미확인 · 본문 제외] 항목은 '확인 필요'라고 독자나 대표에게 넘기지 말고 본문에서 제외한다.
 - [외부 조사 불가 · 대표 확인 필요] 항목은 공개 동의가 확인된 승인 원천자료가 아니면 본문에 쓰지 않는다.
@@ -214,7 +401,12 @@ ${FRIENDLY_EDITORIAL_STYLE_RULES}
 - 불필요한 비유와 수식어를 빼고 결론부터 쓴다. 한 문장에는 한 가지 판단이나 행동만 담고, 100자를 넘기기 전에 나눈다.
 - FAQ 답변은 결론부터 1~2문장으로 쓰고 공백 제외 180자를 넘기지 않는다.
 - 목표는 한글 가시문자 3,500자 이상이다. 불필요한 반복으로 늘리지 않는다.
-- HTML은 h2,h3,p,ul,ol,li,strong,blockquote,a 태그만 사용한다.
+- HTML은 h2,h3,p,ul,ol,li,strong,blockquote,a 와 표(table,thead,tbody,tr,th,td) 태그만 사용한다.${drawDiagrams ? " 도식 태그는 아래 도식 규칙에 적힌 것만 예외로 허용한다." : ""}
+- 표는 글로 풀면 오히려 읽기 힘든 곳에만 쓴다. 두 제도를 항목별로 견주거나,
+  연도·금액·대상 같은 값이 여럿 나란히 놓일 때가 그런 자리다.
+  줄글로 충분한 내용을 표로 바꾸지 않는다. 한 편에 많아야 두 개까지 쓴다.
+- 표를 쓸 때는 첫 줄을 th 로 된 머리글 행으로 만들고, 칸 안은 짧게 끊어 쓴다.
+  긴 설명이 필요하면 표 대신 문단으로 쓴다.${diagramRules}
 - FAQ와 참고자료 섹션은 bodyHtml에 넣지 않는다(시스템이 붙인다).
 - 노하우 자료에 없는 경험·성과·사례는 절대 창작하지 않는다.
 - hybrid와 authority도 노하우 원문을 요약하는 글이 아니다. 최소 2개의 공식 외부 출처로 사실과 검색 수요를 보강하고,
@@ -229,8 +421,14 @@ ${FRIENDLY_EDITORIAL_STYLE_RULES}
 - 가능하면 각 핵심 구간에 대표의 판단 → 그 이유 → 실제 사례 → 공식 근거 → 독자가 적용할 기준이 이어지게 한다.
 - 제목과 H2/H3는 실제 고객이 검색할 쉬운 말로 쓰고, 객관적 근거 → 울림의 해석 → 실행 방법이 이어지게 한다.
 
-[주제 힌트]
-${input.topicHint || "공식 자료 중 기업 고객에게 시의성 있고 울림의 서비스와 자연스럽게 연결되는 주제를 선택"}
+[주제]
+${(topicPlan ? `주제군: ${topicPlan.topicFamily}
+다룰 것: ${topicPlan.primaryTopic}
+관점: ${topicPlan.angle}
+읽는 사람: ${topicPlan.audience}
+가제: ${topicPlan.workingTitle}
+위 주제로 쓴다. 공식 자료에 다른 소식이 있어도 주제를 바꾸지 않는다.${input.topicHint ? `\n\n대표가 직접 정한 주제다: ${input.topicHint}` : ""}` : input.topicHint || "공식 자료 중 기업 고객에게 시의성 있고 울림의 서비스와 자연스럽게 연결되는 주제를 선택")}
+${input.formatHint ? `\n[이번 회차 형식]\n${input.formatHint}` : ""}
 
 [승인된 울림 원천자료]
 ${writingKnowledge.length ? JSON.stringify(writingKnowledge) : "없음. 이 경우 informational 유형만 선택한다."}
@@ -253,29 +451,86 @@ JSON만 반환:
  "expertQuestions":["hybrid/authority인데 원천자료가 부족할 때 대표에게 물을 질문 2~3개"]
 }`;
 
-  const requestGemini = async (promptText: string) => {
-    const { text } = await generateGeminiText({
+  /**
+   * 이번 글에 줄 출력 한도.
+   *
+   * 도식이 켜져 있으면 본문에 도식 코드가 얹혀 그만큼 길어집니다. 늘어난 만큼
+   * 자리를 주지 않으면 다 쓰기 전에 끊깁니다. 출력 한도는 쓴 만큼만 요금이
+   * 붙으므로, 넉넉히 잡는다고 요금이 오르지 않습니다. 오히려 넘쳐서 통째로
+   * 버리는 쪽이 낭비입니다.
+   *
+   * 다시 부를 때는 배수로 올립니다. 같은 한도로 다시 부르면 같은 자리에서
+   * 또 끊기고, 요금만 두 번 나갑니다.
+   */
+  const outputLimit = (attempt = 0) => {
+    const base = drawDiagrams
+      ? Math.round(AI_OUTPUT_LIMITS.columnBody * 1.5)
+      : AI_OUTPUT_LIMITS.columnBody;
+    return base * (attempt + 1);
+  };
+
+  /**
+   * 다 쓰기 전에 끊긴 것을 사람이 읽을 수 있는 말로 바꿉니다.
+   *
+   * 예전에는 이 확인이 없어서, 반쪽짜리 응답을 그대로 읽으려다 난
+   * `Unterminated string in JSON at position 5013` 같은 말이 화면에 그대로
+   * 떴습니다. 무엇이 문제인지도, 무엇을 해야 하는지도 알 수 없었습니다.
+   */
+  const TRUNCATED = "COLUMN_OUTPUT_TRUNCATED";
+
+  /**
+   * 마지막으로 받은 원문. 읽기에 실패했을 때 앞부분을 기록에 남깁니다.
+   *
+   * 08-25 회차가 "position 3640" 이라는 말만 남기고 사라졌습니다. 그 숫자로는
+   * 무엇이 깨졌는지 알 수 없어 코드를 처음부터 읽어야 했습니다. 다음에 또
+   * 나면 기록만 보고 알 수 있어야 합니다.
+   */
+  let lastRawResponse = "";
+  const assertComplete = (finishReason: string | null | undefined) => {
+    if (finishReason === "MAX_TOKENS") throw new Error(TRUNCATED);
+  };
+
+  const requestGemini = async (promptText: string, attempt = 0) => {
+    const { text, finishReason } = await generateGeminiText({
       model: MODEL,
       parts: [{ text: promptText }],
-      generationConfig: { responseMimeType: "application/json", maxOutputTokens: AI_OUTPUT_LIMITS.columnBody },
+      generationConfig: {
+        responseMimeType: "application/json",
+        responseSchema: COLUMN_DRAFT_SCHEMA,
+        maxOutputTokens: outputLimit(attempt),
+      },
       timeoutMs: 120_000,
     });
+    assertComplete(finishReason);
+    lastRawResponse = text || "";
     return parseGeminiJson<Generated>(text);
   };
 
   /** 글 전체가 아니라 바뀔 조각만 돌려받습니다. 응답이 잘릴 위험을 줄입니다. */
   const requestGeminiPart = async (promptText: string) => {
-    const { text } = await generateGeminiText({
+    const { text, finishReason } = await generateGeminiText({
       model: MODEL,
       parts: [{ text: promptText }],
       generationConfig: {
         responseMimeType: "application/json",
-        maxOutputTokens: AI_OUTPUT_LIMITS.columnBody,
+        responseSchema: COLUMN_BODY_PATCH_SCHEMA,
+        maxOutputTokens: outputLimit(),
       },
       timeoutMs: 120_000,
     });
+    assertComplete(finishReason);
+    lastRawResponse = text || "";
     return parseGeminiJson<Pick<Generated, "bodyHtml" | "faqs">>(text);
   };
+
+  /**
+   * 완성된 글은 try 바깥에 둡니다.
+   *
+   * 저장하다 실패하면 다 써 놓은 글이 통째로 사라지고 오류 문구만 남았습니다.
+   * 요금은 이미 나간 뒤입니다. 아래 실패 기록에 이 글을 같이 넣어 두면
+   * 무슨 일이 나도 원고는 꺼내 쓸 수 있습니다.
+   */
+  let generated: Generated | null = null;
 
   try {
     /**
@@ -285,20 +540,70 @@ JSON만 반환:
      * 그럴 때 그대로 실패시키면 조사에 쓴 호출까지 함께 버려집니다.
      * 실제로 칼럼 한 편이 이 자리에서 사라졌습니다.
      */
-    let generated: Generated;
     try {
       generated = await requestGemini(prompt);
-    } catch {
-      generated = await requestGemini(`${prompt}
+    } catch (error) {
+      /**
+       * 두 가지 실패를 다르게 다룹니다.
+       *
+       * 다 쓰기 전에 끊긴 것이면 한도를 올려 다시 부릅니다. 같은 한도로 다시
+       * 부르면 같은 자리에서 또 끊기고 요금만 두 번 나갑니다.
+       *
+       * 그 밖의 읽기 실패(설명을 덧붙였다거나 하는)는 예전처럼 형식을 다시
+       * 일러 주고 부릅니다.
+       */
+      const truncated = error instanceof Error && error.message === TRUNCATED;
+      /*
+       * 두 번째도 실패하면 사람이 읽을 수 있는 말로 바꿔 던집니다.
+       *
+       * 예전에는 여기에 catch 가 없어서, 모델이 돌려준 오류 문구가 그대로
+       * 화면까지 올라왔습니다. "Expected ',' or '}' after property value in
+       * JSON at position 3640" 을 보고 대표님이 하실 수 있는 일은 없습니다.
+       */
+      try {
+        generated = truncated
+          ? await requestGemini(prompt, 1)
+          : await requestGemini(`${prompt}
 
 반드시 JSON 객체 하나만 반환하세요. 앞뒤에 설명 문장이나 코드 울타리를 붙이지 마세요.`);
+      } catch (retryError) {
+        const detail = retryError instanceof Error ? retryError.message : String(retryError);
+        throw new Error(truncated
+          ? "AI 응답이 두 번 다 끝까지 오지 않았습니다. 잠시 뒤 다시 시도해 주세요."
+            + ` (원문: ${detail})`
+          : "AI 응답을 두 번 읽지 못했습니다. 잠시 뒤 다시 시도해 주세요."
+            + ` (원문: ${detail})`);
+      }
     }
-    generated.bodyHtml = sanitizeGeneratedHtml(generated.bodyHtml || "");
-    generated.faqs = (generated.faqs || []).map((faq) => ({
-      question: sanitizeInlineHtml(faq.question || ""),
-      answer: sanitizeInlineHtml(faq.answer || ""),
-    }));
-    let initialCharCount = visibleText(generated.bodyHtml).replace(/\s/g, "").length;
+    /**
+     * 정리기를 거치기 전과 뒤를 견주어 도식이 잘렸는지 봅니다.
+     *
+     * 정리한 결과만 보면 애초에 도식이 없었던 것인지, 있었는데 잘린 것인지
+     * 구분할 수 없습니다. 잘린 채 저장하면 홈페이지에 반쪽짜리 그림이 나가고
+     * 아무도 알아채지 못합니다.
+     */
+    let diagramFindings: string[] = [];
+    const cleanBody = (draft: Generated) => {
+      /*
+       * 모든 초안이 이 자리를 지나갑니다.
+       *
+       * 스키마를 주어도 항목 하나가 빠져 오는 일이 있습니다. 예전에는 그때
+       * draft.usedSourceUrls.map 이 바로 터져서, 다 써 둔 3,500자와 거기까지 쓴
+       * 요금이 함께 사라지고 화면에는 프로그래머 오류만 남았습니다.
+       * 빠진 것은 빈 값으로 두고, 판정은 아래 검사에 맡깁니다.
+       */
+      Object.assign(draft, normalizeDraft(draft));
+      const raw = draft.bodyHtml;
+      draft.bodyHtml = sanitizeGeneratedHtml(raw);
+      diagramFindings = drawDiagrams ? diagramIssues(raw, draft.bodyHtml) : [];
+      draft.faqs = draft.faqs.map((faq) => ({
+        question: sanitizeInlineHtml(faq.question || ""),
+        answer: sanitizeInlineHtml(faq.answer || ""),
+      }));
+    };
+
+    cleanBody(generated);
+    let initialCharCount = proseCharCount(generated.bodyHtml);
     // 여기서 걸리면 글 전체를 한 번 더 생성하므로 비용이 두 배가 됩니다.
     if (initialCharCount < COLUMN_MIN_BODY_CHARS) {
       generated = await requestGemini(`
@@ -312,31 +617,130 @@ JSON만 반환하세요.
 
 ${JSON.stringify(generated)}
 `);
-      generated.bodyHtml = sanitizeGeneratedHtml(generated.bodyHtml || "");
-      generated.faqs = (generated.faqs || []).map((faq) => ({
-        question: sanitizeInlineHtml(faq.question || ""),
-        answer: sanitizeInlineHtml(faq.answer || ""),
-      }));
-      initialCharCount = visibleText(generated.bodyHtml).replace(/\s/g, "").length;
+      cleanBody(generated);
+      initialCharCount = proseCharCount(generated.bodyHtml);
     }
 
-    const inspect = (draft: typeof generated) => {
+    const inspect = (draft: Generated) => {
+      /*
+       * 주소가 글자 하나까지 같아야만 인정하던 것을 고쳤습니다.
+       * 끝의 슬래시나 추적용 꼬리표 때문에 멀쩡한 출처가 없는 것으로 세어졌고,
+       * 그래서 "출처 2개 미만" 으로 보류되는 일이 있었습니다.
+       *
+       * 그다음이 더 큰 구멍이었습니다. 조사가 찾아온 깊은 페이지
+       * (law.go.kr/LSW/admRulLsInfoP.do?...)는 후보 목록의 대문 주소와
+       * 짝이 안 맞아 통째로 없는 것이 됐습니다. 남는 건 대문 주소뿐이라
+       * 독자가 근거를 확인할 수 없었습니다.
+       *
+       * 이제 세 단계로 봅니다. 같은 문서면 후보 그대로, 같은 기관의 다른
+       * 페이지면 기관 이름을 빌려 그 주소로, 목록에 없어도 믿을 수 있는
+       * 곳이면 주소에서 만들어 씁니다. 개인 블로그는 마지막에서 걸립니다.
+       */
+      const sourceFromUrl = (url: string): Candidate | null => {
+        const exact = candidates.find((source) => sameSourceUrl(source.url, url));
+        if (exact) return exact;
+        const sameOrganisation = candidates.find((source) => sameHost(source.url, url));
+        if (sameOrganisation) return { ...sameOrganisation, url };
+        if (!trustedSourceUrl(url)) return null;
+        let host = "";
+        try {
+          host = new URL(url).hostname.replace(/^www\./, "");
+        } catch {
+          return null;
+        }
+        return { title: host, url, publisher: host, summary: "", publishedAt: null };
+      };
       const sources = draft.usedSourceUrls
-        .map((url) => candidates.find((source) => source.url === url))
+        .map(sourceFromUrl)
         .filter((source): source is Candidate => Boolean(source));
       const approvedKnowledgeIds = new Set(writingKnowledge.map((item) => item.id));
       const knowledgeIds = [...new Set(draft.usedKnowledgeIds || [])]
         .filter((id) => approvedKnowledgeIds.has(id));
       const found: string[] = [];
-      const chars = visibleText(draft.bodyHtml).replace(/\s/g, "").length;
+      /*
+       * 알려는 주되 발행은 막지 않는 것.
+       *
+       * 아래에서 styleIssues 에 함께 넣습니다. blocked 판정이 "문체가 아닌
+       * 지적이 하나라도 있으면 막는다" 이므로, 여기 들어가면 경고로만 남습니다.
+       */
+      const styleOnlyFindings: string[] = [];
+      const chars = proseCharCount(draft.bodyHtml);
       const headings = (draft.bodyHtml.match(/<h2[\s>]/gi) || []).length;
       const quotes = (draft.bodyHtml.match(/<blockquote[\s>]/gi) || []).length;
       if (chars < COLUMN_MIN_BODY_CHARS) found.push(`본문이 짧습니다(${chars}자).`);
       if (headings < 3) found.push("H2가 3개 미만입니다.");
       if (draft.faqs.length < 3 || draft.faqs.length > 4) found.push("FAQ는 3~4개여야 합니다.");
-      const styleIssues = friendlyStyleIssues(draft.bodyHtml, draft.faqs);
+      const styleIssues = friendlyStyleIssues(proseOf(draft.bodyHtml), draft.faqs);
       found.push(...styleIssues);
-      if (sources.length < 2) found.push("독립된 공식 출처가 2개 미만입니다.");
+      if (sources.length < 2) {
+        /*
+         * 어떤 주소가 인정되지 않았는지 함께 알려 줍니다.
+         *
+         * "출처가 2개 미만입니다"만 보면 대표님이 할 수 있는 일이 없습니다.
+         * AI 가 아예 주소를 안 달았는지, 달았는데 승인 목록 밖이라 빠졌는지에
+         * 따라 해야 할 일이 다릅니다. 앞은 다시 돌리는 것이고, 뒤는 그 도메인을
+         * 목록에 넣거나 직접 링크를 붙이는 것입니다.
+         */
+        const rejected = draft.usedSourceUrls
+          .filter((url) => !sourceFromUrl(url))
+          .slice(0, 4);
+        /*
+         * 출처가 적다고 발행을 막지는 않습니다. 다만 몇 개인지, 어떤 주소가
+         * 인정되지 않았는지는 알려 줍니다. 대표님이 보고 판단하실 일입니다.
+         */
+        styleOnlyFindings.push(rejected.length
+          ? `공식 출처가 ${sources.length}개입니다. 인정되지 않은 주소: ${rejected.join(", ")}`
+          : "공식 출처가 없습니다. AI 가 참고 주소를 달지 않았습니다.");
+      }
+      found.push(...diagramFindings);
+      /*
+       * 지난 글과 얼마나 닮았는지 점수로 봅니다.
+       *
+       * 예전에는 제목 단어가 60% 겹치는지만 봤습니다. 그래서 주제군이 다르면
+       * 내용이 거의 같아도 통과했습니다. 블로그가 쓰던 판정을 그대로 씁니다.
+       *
+       * 다만 출처 구성은 세지 않습니다(ignoreSources). 칼럼은 같은 공고를
+       * 근거로 다른 관점의 글을 여러 편 씁니다. 그건 중복이 아닙니다.
+       *
+       * 주제를 직접 적어 주셨을 때는 아예 보지 않습니다. 알고 정하신 것입니다.
+       */
+      if (!input.topicHint && recentFingerprints.length) {
+        const novelty = assessNovelty({
+          candidate: fingerprintFromGenerated({
+            generated: {
+              title: draft.title,
+              summary: draft.excerpt,
+              bodyHtml: draft.bodyHtml,
+              tags: draft.tags,
+              sourceUrls: draft.usedSourceUrls,
+              // 중복 판정에는 쓰이지 않지만 형식을 맞춰 줍니다.
+              faq: [],
+              usedKnowledgeIds: [],
+            },
+            plan: topicPlan
+              ? {
+                topicFamily: topicPlan.topicFamily,
+                primaryTopic: topicPlan.primaryTopic,
+                angle: topicPlan.angle,
+                audience: topicPlan.audience,
+                keyEntities: [],
+                workingTitle: topicPlan.workingTitle,
+                rationale: topicPlan.rationale,
+                knowledgeIds: [],
+              }
+              : null,
+          }),
+          existing: recentFingerprints,
+          stage: "article",
+          ignoreSources: true,
+        });
+        if (novelty.duplicate) {
+          found.push(
+            `지난 칼럼과 너무 닮았습니다(위험 ${novelty.riskScore}점`
+            + `${novelty.matches[0] ? `, 가장 가까운 글: ${novelty.matches[0].title}` : ""}).`,
+          );
+        }
+      }
       if (draft.contentKind !== "informational" && !writingKnowledge.length) {
         found.push("하이브리드·권위형에 필요한 승인된 원천자료가 없습니다.");
       }
@@ -349,9 +753,11 @@ ${JSON.stringify(generated)}
       if (/<script|<iframe|on\w+=|javascript:/i.test(draft.bodyHtml)) {
         found.push("허용되지 않은 HTML이 있습니다.");
       }
+      found.push(...styleOnlyFindings);
       return {
         issues: found,
-        styleIssues,
+        // 경고 항목을 여기에 함께 넣어야 blocked 판정에서 빠집니다.
+        styleIssues: [...styleIssues, ...styleOnlyFindings],
         usedSources: sources,
         usedKnowledgeIds: knowledgeIds,
         charCount: chars,
@@ -440,17 +846,14 @@ ${JSON.stringify(generated.faqs)}
      * 문체만 남았으면 비공개 초안으로 저장하고, 어디를 다듬을지 함께 적어 둡니다.
      * 발행은 어차피 사람이 확인한 뒤에 합니다.
      */
-    const styleWarnings = issues.filter((issue) => checked.styleIssues.includes(issue));
-    const blocked = issues.length > styleWarnings.length;
-    if (blocked) {
-      await admin.from("column_generation_runs").update({
-        status: "blocked",
-        response_payload: generated,
-        validation_result: { issues, charCount, h2Count, blockquoteCount },
-        completed_at: new Date().toISOString(),
-      }).eq("id", run.data.id);
-      return { blocked: true, issues, expertQuestions: generated.expertQuestions || [] };
-    }
+    /*
+     * 지적을 두 갈래로 가릅니다. 화면의 두 상자가 이 결과를 그대로 그립니다.
+     * 예전에는 위 상자에 전부를 넣어, 아래 상자와 같은 문장이 두 번 나왔습니다.
+     */
+    const { styleWarnings, blockingIssues, blocked } = splitPublicationIssues(
+      issues,
+      checked.styleIssues,
+    );
 
     const slugBase = safeSlug(generated.slug || generated.title);
     const { data: duplicate } = await admin.from("column_posts").select("id").eq("slug", slugBase).maybeSingle();
@@ -461,7 +864,14 @@ ${JSON.stringify(generated.faqs)}
       publisher: source.publisher,
       publishedAt: source.publishedAt,
     }));
-    const content = `${generated.bodyHtml}${faqHtml(generated.faqs)}${sourceHtml(sourceRecords)}`;
+    /*
+     * 문장마다 빈 줄을 넣습니다.
+     *
+     * 블로그가 하던 것을 칼럼에도 붙였습니다. 표와 도식 안에는 들어가지
+     * 않습니다(SKIP_TAGS). 그게 없으면 표 칸이 세로로 늘어나 망가집니다.
+     * FAQ 와 참고자료는 시스템이 만드는 짧은 덩어리라 그대로 둡니다.
+     */
+    const content = `${insertSentenceBreaks(generated.bodyHtml)}${faqHtml(generated.faqs)}${sourceHtml(sourceRecords)}`;
     const { data: post, error: postError } = await admin.from("column_posts").insert({
       title: generated.title,
       slug,
@@ -473,7 +883,25 @@ ${JSON.stringify(generated.faqs)}
       audience: generated.audience,
       core_message: generated.coreMessage,
       published: false,
-      generation_status: styleWarnings.length ? "needs_style_fix" : "generated",
+      /**
+       * 저장소가 받는 딱지만 씁니다.
+       *
+       * 예전에는 문체가 걸리면 needs_style_fix 를 붙였습니다. 그런 딱지는
+       * 저장소에 등록된 적이 없어서, 글을 다 써 놓고 저장하는 마지막 순간에
+       * 통째로 거절당했습니다. 다듬을 곳은 바로 아래 styleWarnings 에 그대로
+       * 남고 화면에도 뜨므로, 딱지까지 따로 만들 이유가 없습니다.
+       */
+      /*
+       * 기준을 못 넘긴 글도 버리지 않고 비공개로 저장합니다.
+       *
+       * 예전에는 여기서 통째로 버렸습니다. 조사와 작성에 이미 요금을 다 쓰고
+       * 3,500자를 써 놓은 뒤에, 화면에는 "저장하지 않았습니다"와 고칠 방법 없는
+       * 지적만 남았습니다. 출처가 하나 모자란 것이 글 전체를 버릴 이유는 아닙니다.
+       *
+       * needs_expert_input 은 저장소가 원래 받아 주는 딱지인데 쓰이지 않고
+       * 있었습니다. 발행은 어차피 사람이 확인한 뒤에 합니다.
+       */
+      generation_status: (blocked ? "needs_expert_input" : "generated") satisfies ColumnStatus,
       generation_metadata: {
         run_id: run.data.id,
         sources: sourceRecords,
@@ -481,6 +909,20 @@ ${JSON.stringify(generated.faqs)}
         knowledge_ids: usedKnowledgeIds,
         validation: { charCount, h2Count, blockquoteCount, sourceCount: sourceRecords.length },
         styleWarnings,
+        // 무엇 때문에 보류됐는지 글에 붙여 둡니다. 나중에 열어 봐도 알 수 있게.
+        ...(blocked ? { blockingIssues, expertQuestions: generated.expertQuestions } : {}),
+        /*
+         * 어느 주제군으로 썼는지 남깁니다. 다음 글이 이걸 읽고 다른 주제군을
+         * 고릅니다. 안 남기면 매번 처음부터 짐작해야 하고, 짐작은 틀립니다.
+         */
+        ...(topicPlan ? { topicPlan } : {}),
+        feedTally,
+        /*
+         * 도식을 그리라고 시켰는지 남깁니다.
+         * 이게 없으면 "도식이 없는" 글을 보고도 기능이 꺼진 것인지 AI 가 안 그린
+         * 것인지 알 수 없습니다. 실제로 그것 때문에 한참 헤맸습니다.
+         */
+        diagramsRequested: drawDiagrams,
       },
       author_email: input.createdBy,
     }).select().single();
@@ -499,10 +941,10 @@ ${JSON.stringify(generated.faqs)}
 
     await admin.from("column_generation_runs").update({
       post_id: post.id,
-      status: "generated",
+      status: blocked ? "blocked" : "generated",
       response_payload: generated,
       validation_result: {
-        issues: [],
+        issues,
         styleWarnings,
         charCount,
         h2Count,
@@ -512,7 +954,9 @@ ${JSON.stringify(generated.faqs)}
       completed_at: new Date().toISOString(),
     }).eq("id", run.data.id);
     return {
-      blocked: false,
+      blocked,
+      issues,
+      blockingIssues,
       post,
       styleWarnings,
       expertQuestions: generated.expertQuestions || [],
@@ -522,12 +966,29 @@ ${JSON.stringify(generated.faqs)}
         blockquoteCount,
         faqCount: generated.faqs.length,
         sourceCount: sourceRecords.length,
+        /*
+         * 도식을 시켰는지, 실제로 몇 개 들어갔는지 화면에 보냅니다.
+         * 이게 없으면 도식 없는 글을 보고도 기능이 꺼진 것인지 AI 가 안 그린
+         * 것인지 알 수 없어, 고칠 자리를 못 찾습니다.
+         */
+        diagramsRequested: drawDiagrams,
+        diagramCount: (generated.bodyHtml.match(/<svg\b/gi) || []).length,
       },
+      topicFamily: topicPlan?.topicFamily || null,
     };
   } catch (error) {
     const retry = geminiRetryDecision(error, 0);
     await admin.from("column_generation_runs").update({
       status: "failed",
+      /*
+       * 원고를 못 만들었으면 받은 원문 앞부분이라도 남깁니다.
+       *
+       * 08-25 회차는 "position 3640" 이라는 숫자만 남기고 사라졌습니다.
+       * 그 자리에 무슨 글자가 있었는지 알 방법이 없어 코드를 처음부터
+       * 읽어야 했습니다. 앞 500자면 무엇이 깨졌는지 보입니다.
+       */
+      response_payload: generated
+        || (lastRawResponse ? { rawResponseHead: lastRawResponse.slice(0, 500) } : {}),
       error_message: error instanceof Error ? error.message : "Unknown error",
       retry_count: retry.retryCount,
       next_retry_at: retry.nextRetryAt,

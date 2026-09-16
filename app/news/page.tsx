@@ -9,7 +9,7 @@ import { buildCanonical } from "@/lib/site-config";
 import { breadcrumbSchema, itemListSchema } from "@/lib/schema";
 
 export const metadata: Metadata = {
-  title: "소식/언론보도",
+  title: "소식",
   description: "울림컴퍼니의 언론보도, 수상 소식, 주요 공지를 확인할 수 있습니다.",
   alternates: { canonical: buildCanonical("/news") },
 };
@@ -19,11 +19,11 @@ export default function NewsPage() {
     <>
       <JsonLd
         data={[
-          breadcrumbSchema([{ name: "홈", href: "/" }, { name: "알림마당", href: "/news" }, { name: "소식/언론보도", href: "/news" }]),
-          itemListSchema("울림컴퍼니 소식/언론보도", news.map((item) => ({ title: item.title, description: item.summary, href: getNewsHref(item) }))),
+          breadcrumbSchema([{ name: "홈", href: "/" }, { name: "인사이트", href: "/news" }, { name: "소식", href: "/news" }]),
+          itemListSchema("울림컴퍼니 소식", news.map((item) => ({ title: item.title, description: item.summary, href: getNewsHref(item) }))),
         ]}
       />
-      <PageHero eyebrow="알림마당" title="소식/언론보도" description="울림컴퍼니의 수상, 언론보도, 주요 활동을 카드 형태로 정리합니다." />
+      <PageHero eyebrow="인사이트" title="소식" description="울림컴퍼니의 수상, 언론보도, 주요 활동을 카드 형태로 정리합니다." />
       <section className="bg-white">
         <div className="mx-auto grid max-w-7xl gap-4 px-5 py-16 lg:px-8 lg:py-20">
           {news.map((item) => (

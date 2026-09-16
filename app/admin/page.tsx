@@ -3,6 +3,7 @@ import { Bell, Bot, CalendarDays, FileCheck2, MessageSquareText } from "lucide-r
 import AdminPortal from "@/components/admin/AdminPortal";
 import ChannelCard from "@/components/admin/ChannelCard";
 import TwoWeekSchedule from "@/components/admin/TwoWeekSchedule";
+import CollapsibleSection from "@/components/admin/CollapsibleSection";
 
 export default function AdminDashboardPage() {
   return (
@@ -74,15 +75,13 @@ export default function AdminDashboardPage() {
         </Link>
       </section>
 
-      <section className="mt-10">
-        <div className="mb-4 flex items-end justify-between gap-4">
-          <div>
-            <h2 className="text-2xl font-bold">향후 2주 발행 계획</h2>
-            <p className="mt-1 text-sm text-[var(--muted)]">날짜가 지나면 다음 일정이 자동으로 이어집니다.</p>
-          </div>
-        </div>
+      <CollapsibleSection
+        storageKey="home-schedule"
+        title="향후 2주 발행 계획"
+        description="날짜가 지나면 다음 일정이 자동으로 이어집니다."
+      >
         <TwoWeekSchedule />
-      </section>
+      </CollapsibleSection>
     </AdminPortal>
   );
 }

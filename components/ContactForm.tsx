@@ -114,10 +114,27 @@ export default function ContactForm() {
             name="message"
             required
             rows={5}
+            maxLength={2000}
             placeholder="현재 상황과 필요하신 내용을 자유롭게 적어주세요. 관련 자료가 있다면 상담 시 함께 검토합니다."
             className="form-input resize-y"
           />
         </Field>
+
+        {/*
+          사람에게는 보이지 않는 항목입니다. 자동으로 폼을 채우는 도구는 이것까지
+          채우기 때문에, 채워져 오면 사람이 아니라고 봅니다. 화면에서 감추되
+          읽기 도구와 키보드 이동에서도 빠지게 해 둡니다.
+        */}
+        <div aria-hidden="true" className="absolute left-[-9999px] h-0 w-0 overflow-hidden">
+          <label htmlFor="contact-website">이 항목은 비워 두세요</label>
+          <input
+            id="contact-website"
+            name="website"
+            type="text"
+            tabIndex={-1}
+            autoComplete="off"
+          />
+        </div>
 
         <label className="flex items-start gap-2 text-xs leading-6 text-[var(--muted)]">
           <input type="checkbox" required className="mt-1 h-4 w-4 accent-[var(--primary)]" />

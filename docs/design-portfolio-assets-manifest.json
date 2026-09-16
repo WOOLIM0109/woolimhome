@@ -1,0 +1,744 @@
+{
+  "generatedAt": "2026-09-07T10:57:22.153Z",
+  "projectCount": 26,
+  "imageCount": 92,
+  "redactedImageCount": 27,
+  "records": [
+    {
+      "project": "s-company-infographic",
+      "file": "public/images/design-portfolio/s-company-infographic/01.webp",
+      "width": 2400,
+      "height": 1350,
+      "bytes": 71896,
+      "redacted": true
+    },
+    {
+      "project": "s-company-infographic",
+      "file": "public/images/design-portfolio/s-company-infographic/02.webp",
+      "width": 2400,
+      "height": 1350,
+      "bytes": 64152,
+      "redacted": true
+    },
+    {
+      "project": "s-company-infographic",
+      "file": "public/images/design-portfolio/s-company-infographic/03.webp",
+      "width": 2400,
+      "height": 1350,
+      "bytes": 77850,
+      "redacted": true
+    },
+    {
+      "project": "s-company-infographic",
+      "file": "public/images/design-portfolio/s-company-infographic/04.webp",
+      "width": 2400,
+      "height": 1350,
+      "bytes": 67260,
+      "redacted": true
+    },
+    {
+      "project": "s-company-infographic",
+      "file": "public/images/design-portfolio/s-company-infographic/05.webp",
+      "width": 2400,
+      "height": 1835,
+      "bytes": 109910,
+      "redacted": true
+    },
+    {
+      "project": "s-company-infographic",
+      "file": "public/images/design-portfolio/s-company-infographic/06.webp",
+      "width": 2400,
+      "height": 1350,
+      "bytes": 75344,
+      "redacted": true
+    },
+    {
+      "project": "s-company-infographic",
+      "file": "public/images/design-portfolio/s-company-infographic/07.webp",
+      "width": 2400,
+      "height": 1350,
+      "bytes": 45660,
+      "redacted": true
+    },
+    {
+      "project": "s-company-infographic",
+      "file": "public/images/design-portfolio/s-company-infographic/08.webp",
+      "width": 2400,
+      "height": 1350,
+      "bytes": 31762,
+      "redacted": true
+    },
+    {
+      "project": "s-company-infographic",
+      "file": "public/images/design-portfolio/s-company-infographic/09.webp",
+      "width": 2400,
+      "height": 1350,
+      "bytes": 64142,
+      "redacted": true
+    },
+    {
+      "project": "s-company-infographic",
+      "file": "public/images/design-portfolio/s-company-infographic/10.webp",
+      "width": 2400,
+      "height": 1350,
+      "bytes": 83546,
+      "redacted": true
+    },
+    {
+      "project": "wegofair-wall",
+      "file": "public/images/design-portfolio/wegofair-wall/01.webp",
+      "width": 986,
+      "height": 2600,
+      "bytes": 115048,
+      "redacted": false
+    },
+    {
+      "project": "wegofair-wall",
+      "file": "public/images/design-portfolio/wegofair-wall/02.webp",
+      "width": 1053,
+      "height": 2600,
+      "bytes": 109648,
+      "redacted": false
+    },
+    {
+      "project": "wegofair-wall",
+      "file": "public/images/design-portfolio/wegofair-wall/03.webp",
+      "width": 986,
+      "height": 2600,
+      "bytes": 88436,
+      "redacted": false
+    },
+    {
+      "project": "allclean-card",
+      "file": "public/images/design-portfolio/allclean-card/01.webp",
+      "width": 555,
+      "height": 319,
+      "bytes": 6708,
+      "redacted": true
+    },
+    {
+      "project": "allclean-card",
+      "file": "public/images/design-portfolio/allclean-card/02.webp",
+      "width": 555,
+      "height": 319,
+      "bytes": 8562,
+      "redacted": true
+    },
+    {
+      "project": "yearon-dayhug",
+      "file": "public/images/design-portfolio/yearon-dayhug/01.webp",
+      "width": 1047,
+      "height": 321,
+      "bytes": 20354,
+      "redacted": false
+    },
+    {
+      "project": "yearon-dayhug",
+      "file": "public/images/design-portfolio/yearon-dayhug/02.webp",
+      "width": 480,
+      "height": 480,
+      "bytes": 10576,
+      "redacted": false
+    },
+    {
+      "project": "yearon-dayhug",
+      "file": "public/images/design-portfolio/yearon-dayhug/03.webp",
+      "width": 1377,
+      "height": 404,
+      "bytes": 19074,
+      "redacted": false
+    },
+    {
+      "project": "sinacell-logo",
+      "file": "public/images/design-portfolio/sinacell-logo/01.webp",
+      "width": 2400,
+      "height": 2400,
+      "bytes": 65554,
+      "redacted": false
+    },
+    {
+      "project": "sinacell-logo",
+      "file": "public/images/design-portfolio/sinacell-logo/02.webp",
+      "width": 2400,
+      "height": 2400,
+      "bytes": 67064,
+      "redacted": false
+    },
+    {
+      "project": "sinacell-logo",
+      "file": "public/images/design-portfolio/sinacell-logo/03.webp",
+      "width": 2400,
+      "height": 2400,
+      "bytes": 66976,
+      "redacted": false
+    },
+    {
+      "project": "onlyone-universe",
+      "file": "public/images/design-portfolio/onlyone-universe/01.webp",
+      "width": 2400,
+      "height": 723,
+      "bytes": 30968,
+      "redacted": false
+    },
+    {
+      "project": "onlyone-universe",
+      "file": "public/images/design-portfolio/onlyone-universe/02.webp",
+      "width": 1063,
+      "height": 591,
+      "bytes": 37874,
+      "redacted": true
+    },
+    {
+      "project": "onlyone-universe",
+      "file": "public/images/design-portfolio/onlyone-universe/03.webp",
+      "width": 1063,
+      "height": 591,
+      "bytes": 13036,
+      "redacted": false
+    },
+    {
+      "project": "onlyone-universe",
+      "file": "public/images/design-portfolio/onlyone-universe/04.webp",
+      "width": 1063,
+      "height": 591,
+      "bytes": 12884,
+      "redacted": false
+    },
+    {
+      "project": "onlyone-universe",
+      "file": "public/images/design-portfolio/onlyone-universe/05.webp",
+      "width": 1063,
+      "height": 591,
+      "bytes": 15422,
+      "redacted": false
+    },
+    {
+      "project": "yuwol-kitchen",
+      "file": "public/images/design-portfolio/yuwol-kitchen/01.webp",
+      "width": 2400,
+      "height": 1697,
+      "bytes": 58160,
+      "redacted": false
+    },
+    {
+      "project": "yuwol-kitchen",
+      "file": "public/images/design-portfolio/yuwol-kitchen/02.webp",
+      "width": 1000,
+      "height": 1000,
+      "bytes": 26938,
+      "redacted": false
+    },
+    {
+      "project": "pamity-wall",
+      "file": "public/images/design-portfolio/pamity-wall/01.webp",
+      "width": 2400,
+      "height": 1602,
+      "bytes": 191102,
+      "redacted": false
+    },
+    {
+      "project": "k-rotary",
+      "file": "public/images/design-portfolio/k-rotary/01.webp",
+      "width": 2400,
+      "height": 1161,
+      "bytes": 566460,
+      "redacted": false
+    },
+    {
+      "project": "k-rotary",
+      "file": "public/images/design-portfolio/k-rotary/02.webp",
+      "width": 2400,
+      "height": 1161,
+      "bytes": 399362,
+      "redacted": false
+    },
+    {
+      "project": "sinacell-stationery",
+      "file": "public/images/design-portfolio/sinacell-stationery/01.webp",
+      "width": 1080,
+      "height": 1080,
+      "bytes": 18866,
+      "redacted": false
+    },
+    {
+      "project": "sinacell-stationery",
+      "file": "public/images/design-portfolio/sinacell-stationery/02.webp",
+      "width": 1080,
+      "height": 1080,
+      "bytes": 15698,
+      "redacted": false
+    },
+    {
+      "project": "sinacell-stationery",
+      "file": "public/images/design-portfolio/sinacell-stationery/03.webp",
+      "width": 2200,
+      "height": 1351,
+      "bytes": 42912,
+      "redacted": true
+    },
+    {
+      "project": "sinacell-stationery",
+      "file": "public/images/design-portfolio/sinacell-stationery/04.webp",
+      "width": 2200,
+      "height": 1351,
+      "bytes": 47894,
+      "redacted": true
+    },
+    {
+      "project": "sinacell-catalog",
+      "file": "public/images/design-portfolio/sinacell-catalog/01.webp",
+      "width": 1711,
+      "height": 2400,
+      "bytes": 127312,
+      "redacted": false
+    },
+    {
+      "project": "sinacell-catalog",
+      "file": "public/images/design-portfolio/sinacell-catalog/02.webp",
+      "width": 1711,
+      "height": 2400,
+      "bytes": 276722,
+      "redacted": false
+    },
+    {
+      "project": "sinacell-catalog",
+      "file": "public/images/design-portfolio/sinacell-catalog/03.webp",
+      "width": 1711,
+      "height": 2400,
+      "bytes": 208460,
+      "redacted": false
+    },
+    {
+      "project": "sinacell-catalog",
+      "file": "public/images/design-portfolio/sinacell-catalog/04.webp",
+      "width": 1711,
+      "height": 2400,
+      "bytes": 238474,
+      "redacted": false
+    },
+    {
+      "project": "sinacell-catalog",
+      "file": "public/images/design-portfolio/sinacell-catalog/05.webp",
+      "width": 1711,
+      "height": 2400,
+      "bytes": 175558,
+      "redacted": false
+    },
+    {
+      "project": "sinacell-catalog",
+      "file": "public/images/design-portfolio/sinacell-catalog/06.webp",
+      "width": 1711,
+      "height": 2400,
+      "bytes": 210082,
+      "redacted": false
+    },
+    {
+      "project": "sinacell-catalog",
+      "file": "public/images/design-portfolio/sinacell-catalog/07.webp",
+      "width": 1711,
+      "height": 2400,
+      "bytes": 245832,
+      "redacted": false
+    },
+    {
+      "project": "sinacell-catalog",
+      "file": "public/images/design-portfolio/sinacell-catalog/08.webp",
+      "width": 1711,
+      "height": 2400,
+      "bytes": 250950,
+      "redacted": false
+    },
+    {
+      "project": "career-concert",
+      "file": "public/images/design-portfolio/career-concert/01.webp",
+      "width": 1839,
+      "height": 2600,
+      "bytes": 362346,
+      "redacted": true
+    },
+    {
+      "project": "career-concert",
+      "file": "public/images/design-portfolio/career-concert/02.webp",
+      "width": 1839,
+      "height": 2600,
+      "bytes": 191744,
+      "redacted": true
+    },
+    {
+      "project": "career-concert",
+      "file": "public/images/design-portfolio/career-concert/03.webp",
+      "width": 1839,
+      "height": 2600,
+      "bytes": 229426,
+      "redacted": true
+    },
+    {
+      "project": "career-concert",
+      "file": "public/images/design-portfolio/career-concert/04.webp",
+      "width": 1839,
+      "height": 2600,
+      "bytes": 194410,
+      "redacted": true
+    },
+    {
+      "project": "w-company-leaflet",
+      "file": "public/images/design-portfolio/w-company-leaflet/01.webp",
+      "width": 2400,
+      "height": 1748,
+      "bytes": 97280,
+      "redacted": true
+    },
+    {
+      "project": "w-company-leaflet",
+      "file": "public/images/design-portfolio/w-company-leaflet/02.webp",
+      "width": 2400,
+      "height": 1748,
+      "bytes": 130954,
+      "redacted": true
+    },
+    {
+      "project": "w-company-leaflet",
+      "file": "public/images/design-portfolio/w-company-leaflet/03.webp",
+      "width": 2400,
+      "height": 1748,
+      "bytes": 98670,
+      "redacted": true
+    },
+    {
+      "project": "w-company-leaflet",
+      "file": "public/images/design-portfolio/w-company-leaflet/04.webp",
+      "width": 2400,
+      "height": 1748,
+      "bytes": 173832,
+      "redacted": true
+    },
+    {
+      "project": "just-drip",
+      "file": "public/images/design-portfolio/just-drip/01.webp",
+      "width": 867,
+      "height": 2600,
+      "bytes": 187370,
+      "redacted": false
+    },
+    {
+      "project": "just-drip",
+      "file": "public/images/design-portfolio/just-drip/02.webp",
+      "width": 476,
+      "height": 1429,
+      "bytes": 143004,
+      "redacted": false
+    },
+    {
+      "project": "just-drip",
+      "file": "public/images/design-portfolio/just-drip/03.webp",
+      "width": 1360,
+      "height": 454,
+      "bytes": 113028,
+      "redacted": false
+    },
+    {
+      "project": "clean-care-catalog",
+      "file": "public/images/design-portfolio/clean-care-catalog/01.webp",
+      "width": 1716,
+      "height": 2400,
+      "bytes": 291768,
+      "redacted": false
+    },
+    {
+      "project": "clean-care-catalog",
+      "file": "public/images/design-portfolio/clean-care-catalog/02.webp",
+      "width": 1716,
+      "height": 2400,
+      "bytes": 113196,
+      "redacted": false
+    },
+    {
+      "project": "clean-care-catalog",
+      "file": "public/images/design-portfolio/clean-care-catalog/03.webp",
+      "width": 1716,
+      "height": 2400,
+      "bytes": 157604,
+      "redacted": false
+    },
+    {
+      "project": "clean-care-catalog",
+      "file": "public/images/design-portfolio/clean-care-catalog/04.webp",
+      "width": 1716,
+      "height": 2400,
+      "bytes": 157736,
+      "redacted": false
+    },
+    {
+      "project": "clean-care-catalog",
+      "file": "public/images/design-portfolio/clean-care-catalog/05.webp",
+      "width": 1716,
+      "height": 2400,
+      "bytes": 102052,
+      "redacted": false
+    },
+    {
+      "project": "clean-care-catalog",
+      "file": "public/images/design-portfolio/clean-care-catalog/06.webp",
+      "width": 1716,
+      "height": 2400,
+      "bytes": 71200,
+      "redacted": false
+    },
+    {
+      "project": "clean-care-catalog",
+      "file": "public/images/design-portfolio/clean-care-catalog/07.webp",
+      "width": 1716,
+      "height": 2400,
+      "bytes": 66988,
+      "redacted": true
+    },
+    {
+      "project": "catchcloud-forum",
+      "file": "public/images/design-portfolio/catchcloud-forum/01.webp",
+      "width": 2400,
+      "height": 1703,
+      "bytes": 214184,
+      "redacted": false
+    },
+    {
+      "project": "catchcloud-forum",
+      "file": "public/images/design-portfolio/catchcloud-forum/02.webp",
+      "width": 1731,
+      "height": 2400,
+      "bytes": 106428,
+      "redacted": false
+    },
+    {
+      "project": "catchcloud-forum",
+      "file": "public/images/design-portfolio/catchcloud-forum/03.webp",
+      "width": 1731,
+      "height": 2400,
+      "bytes": 163240,
+      "redacted": false
+    },
+    {
+      "project": "catchcloud-forum",
+      "file": "public/images/design-portfolio/catchcloud-forum/04.webp",
+      "width": 1731,
+      "height": 2400,
+      "bytes": 86636,
+      "redacted": false
+    },
+    {
+      "project": "catchcloud-forum",
+      "file": "public/images/design-portfolio/catchcloud-forum/05.webp",
+      "width": 1731,
+      "height": 2400,
+      "bytes": 110794,
+      "redacted": false
+    },
+    {
+      "project": "catchcloud-forum",
+      "file": "public/images/design-portfolio/catchcloud-forum/06.webp",
+      "width": 1731,
+      "height": 2400,
+      "bytes": 106028,
+      "redacted": false
+    },
+    {
+      "project": "dream-attic",
+      "file": "public/images/design-portfolio/dream-attic/01.webp",
+      "width": 1842,
+      "height": 2600,
+      "bytes": 99794,
+      "redacted": false
+    },
+    {
+      "project": "dream-attic",
+      "file": "public/images/design-portfolio/dream-attic/02.webp",
+      "width": 1842,
+      "height": 2600,
+      "bytes": 48136,
+      "redacted": false
+    },
+    {
+      "project": "dream-attic",
+      "file": "public/images/design-portfolio/dream-attic/03.webp",
+      "width": 1842,
+      "height": 2600,
+      "bytes": 32518,
+      "redacted": false
+    },
+    {
+      "project": "dream-attic",
+      "file": "public/images/design-portfolio/dream-attic/04.webp",
+      "width": 1842,
+      "height": 2600,
+      "bytes": 145878,
+      "redacted": false
+    },
+    {
+      "project": "dream-attic",
+      "file": "public/images/design-portfolio/dream-attic/05.webp",
+      "width": 1842,
+      "height": 2600,
+      "bytes": 106784,
+      "redacted": false
+    },
+    {
+      "project": "dream-attic",
+      "file": "public/images/design-portfolio/dream-attic/06.webp",
+      "width": 1842,
+      "height": 2600,
+      "bytes": 245382,
+      "redacted": false
+    },
+    {
+      "project": "dream-attic",
+      "file": "public/images/design-portfolio/dream-attic/07.webp",
+      "width": 1842,
+      "height": 2600,
+      "bytes": 31640,
+      "redacted": false
+    },
+    {
+      "project": "dream-attic",
+      "file": "public/images/design-portfolio/dream-attic/08.webp",
+      "width": 1842,
+      "height": 2600,
+      "bytes": 100230,
+      "redacted": false
+    },
+    {
+      "project": "dream-attic",
+      "file": "public/images/design-portfolio/dream-attic/09.webp",
+      "width": 1842,
+      "height": 2600,
+      "bytes": 156366,
+      "redacted": false
+    },
+    {
+      "project": "dream-attic",
+      "file": "public/images/design-portfolio/dream-attic/10.webp",
+      "width": 1842,
+      "height": 2600,
+      "bytes": 45450,
+      "redacted": false
+    },
+    {
+      "project": "c-company-leaflet",
+      "file": "public/images/design-portfolio/c-company-leaflet/01.webp",
+      "width": 2400,
+      "height": 1200,
+      "bytes": 107222,
+      "redacted": true
+    },
+    {
+      "project": "c-company-leaflet",
+      "file": "public/images/design-portfolio/c-company-leaflet/02.webp",
+      "width": 2400,
+      "height": 1200,
+      "bytes": 170988,
+      "redacted": true
+    },
+    {
+      "project": "pamity-panel-ko",
+      "file": "public/images/design-portfolio/pamity-panel-ko/01.webp",
+      "width": 1734,
+      "height": 2600,
+      "bytes": 288038,
+      "redacted": false
+    },
+    {
+      "project": "pamity-panel-en",
+      "file": "public/images/design-portfolio/pamity-panel-en/01.webp",
+      "width": 1955,
+      "height": 2600,
+      "bytes": 353880,
+      "redacted": false
+    },
+    {
+      "project": "expo-flyers",
+      "file": "public/images/design-portfolio/expo-flyers/01.webp",
+      "width": 1707,
+      "height": 2400,
+      "bytes": 196426,
+      "redacted": false
+    },
+    {
+      "project": "expo-flyers",
+      "file": "public/images/design-portfolio/expo-flyers/02.webp",
+      "width": 1707,
+      "height": 2400,
+      "bytes": 138564,
+      "redacted": false
+    },
+    {
+      "project": "expo-flyers",
+      "file": "public/images/design-portfolio/expo-flyers/03.webp",
+      "width": 1707,
+      "height": 2400,
+      "bytes": 171446,
+      "redacted": false
+    },
+    {
+      "project": "expo-flyers",
+      "file": "public/images/design-portfolio/expo-flyers/04.webp",
+      "width": 1707,
+      "height": 2400,
+      "bytes": 129802,
+      "redacted": false
+    },
+    {
+      "project": "ai-support-poster",
+      "file": "public/images/design-portfolio/ai-support-poster/01.webp",
+      "width": 1839,
+      "height": 2600,
+      "bytes": 350438,
+      "redacted": true
+    },
+    {
+      "project": "startup-poster",
+      "file": "public/images/design-portfolio/startup-poster/01.webp",
+      "width": 1879,
+      "height": 2600,
+      "bytes": 245310,
+      "redacted": false
+    },
+    {
+      "project": "buyer-response-poster",
+      "file": "public/images/design-portfolio/buyer-response-poster/01.webp",
+      "width": 2000,
+      "height": 1125,
+      "bytes": 95156,
+      "redacted": false
+    },
+    {
+      "project": "buyer-response-poster",
+      "file": "public/images/design-portfolio/buyer-response-poster/02.webp",
+      "width": 917,
+      "height": 917,
+      "bytes": 55886,
+      "redacted": false
+    },
+    {
+      "project": "water-research-poster",
+      "file": "public/images/design-portfolio/water-research-poster/01.webp",
+      "width": 1950,
+      "height": 2600,
+      "bytes": 660860,
+      "redacted": false
+    },
+    {
+      "project": "water-research-poster",
+      "file": "public/images/design-portfolio/water-research-poster/02.webp",
+      "width": 1950,
+      "height": 2600,
+      "bytes": 677804,
+      "redacted": false
+    },
+    {
+      "project": "hpc-poster",
+      "file": "public/images/design-portfolio/hpc-poster/01.webp",
+      "width": 1453,
+      "height": 2600,
+      "bytes": 237112,
+      "redacted": false
+    }
+  ]
+}

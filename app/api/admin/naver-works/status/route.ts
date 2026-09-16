@@ -19,7 +19,7 @@ export async function GET() {
       .limit(5000),
   ]);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  const candidates = (allCandidates || []).filter((candidate) => {
+  const usable = (allCandidates || []).filter((candidate) => {
     const driveFile = Array.isArray(candidate.naver_works_drive_files)
       ? candidate.naver_works_drive_files[0]
       : candidate.naver_works_drive_files;
@@ -28,6 +28,20 @@ export async function GET() {
       filePath: driveFile.file_path,
     });
   });
+  /*
+   * '후보'는 아직 쓰지 않은 것만 셉니다.
+   *
+   * 예전에는 폴더와 확장자만 보고 세서, 이미 제외된 것과 이미 다 쓴 것까지
+   * 전부 합쳐졌습니다. 그래서 실제로 쓸 수 있는 후보가 0 이던 22 일 동안에도
+   * 화면에는 '후보 21개'가 떠 있었고, 넉넉해 보이는 숫자 때문에 아무도
+   * 후보가 마른 줄 몰랐습니다. 정작 알아야 할 것을 가리던 숫자입니다.
+   */
+  const candidates = usable.filter((candidate) => candidate.status === "candidate");
+  const statusCounts = usable.reduce<Record<string, number>>((counts, candidate) => {
+    const key = String(candidate.status || "unknown");
+    counts[key] = (counts[key] || 0) + 1;
+    return counts;
+  }, {});
   return NextResponse.json({
     configured: Boolean(
       process.env.NAVER_WORKS_CLIENT_ID
@@ -36,7 +50,11 @@ export async function GET() {
     ),
     connection,
     fileCount: fileCount || 0,
+    /** 아직 쓰지 않고 기다리는 후보. 이 값이 0 이면 다음 회차가 빈손이 됩니다. */
     candidateCount: candidates.length,
+    /** 승인 폴더 안의 전체 건수. 상태별 내역과 함께 보여 줘야 오해가 없습니다. */
+    trackedCount: usable.length,
+    statusCounts,
     candidates: candidates.slice(0, 12),
   });
 }

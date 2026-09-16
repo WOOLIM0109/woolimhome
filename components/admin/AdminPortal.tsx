@@ -15,13 +15,16 @@ import {
   Newspaper,
   Palette,
   ShieldCheck,
-} from "lucide-react";
+  Trash2,
+  BookOpen,} from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { useAccess } from "@/hooks/useAccess";
 
 const NAV_ITEMS = [
   { href: "/admin", label: "전체 현황", icon: LayoutDashboard },
   { href: "/admin/columns", label: "홈페이지 칼럼", icon: Newspaper },
+  // 세 채널이 함께 쓰는 자료실입니다. 칼럼 하위에 두면 칼럼 전용처럼 보입니다.
+  { href: "/admin/knowledge", label: "노하우 자료실", icon: BookOpen },
   { href: "/admin/bot-traffic", label: "봇 트래픽", icon: Bot },
   { href: "/admin/naver-consulting", label: "컨설팅 블로그", icon: Home },
   { href: "/admin/naver-design", label: "디자인 블로그", icon: Palette },
@@ -29,6 +32,7 @@ const NAV_ITEMS = [
   { href: "/admin/schedule", label: "발행 일정", icon: CalendarDays },
   { href: "/admin/sources", label: "주제·자료 수집", icon: Bell },
   { href: "/admin/editorial-maintenance", label: "AI 비용 보호", icon: ShieldCheck },
+  { href: "/admin/retention", label: "데이터 정리", icon: Trash2 },
   { href: "/admin/openchat", label: "오픈채팅 자동배포", icon: MessageSquareText },
   { href: "/partner", label: "외주 포스팅 작업실", icon: BriefcaseBusiness },
 ];
@@ -75,9 +79,22 @@ export default function AdminPortal({
   if (!access.admin) {
     return (
       <section className="min-h-[70vh] bg-[#fffaf7] px-5 py-20 text-center">
-        <h1 className="text-2xl font-bold text-red-700">접근 권한이 없습니다.</h1>
+        <h1 className="text-2xl font-bold text-red-700">
+          {access.error ? "권한을 확인하지 못했습니다." : "접근 권한이 없습니다."}
+        </h1>
         <p className="mt-3">{access.error || `${user.email} 계정에는 관리자 권한이 없습니다.`}</p>
-        <button onClick={() => void signOut()} className="mt-6 underline">로그아웃</button>
+        <div className="mt-6 flex items-center justify-center gap-5">
+          {/*
+            확인 자체가 실패한 경우에는 다시 시도할 길을 줍니다. 예전에는 잠깐의
+            네트워크 오류 하나로 이 화면에 굳어서, 새로고침 말고는 방법이 없었습니다.
+          */}
+          {access.error && (
+            <button onClick={access.retry} className="btn-gradient rounded-xl px-5 py-2.5 font-bold text-white">
+              다시 확인
+            </button>
+          )}
+          <button onClick={() => void signOut()} className="underline">로그아웃</button>
+        </div>
       </section>
     );
   }
@@ -114,7 +131,7 @@ export default function AdminPortal({
           </div>
         </aside>
 
-        <main className="min-w-0 px-5 py-8 sm:px-8 lg:px-10 lg:py-10">
+        <div className="min-w-0 px-5 py-8 sm:px-8 lg:px-10 lg:py-10">
           <header className="flex flex-col gap-5 border-b border-[var(--line)] pb-7 sm:flex-row sm:items-end sm:justify-between">
             <div>
               <h1 className="text-3xl font-bold">{title}</h1>
@@ -123,7 +140,7 @@ export default function AdminPortal({
             {actions && <div className="flex flex-wrap gap-3">{actions}</div>}
           </header>
           {children}
-        </main>
+        </div>
       </div>
     </section>
   );

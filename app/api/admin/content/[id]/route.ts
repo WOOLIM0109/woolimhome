@@ -1,10 +1,13 @@
 import { NextResponse } from "next/server";
 import { authenticatedAdmin, contentAdmin } from "@/lib/content-ops/data";
+import { hasProductionPortfolioImageSelection } from "@/lib/portfolio/production-image-projection";
+import { readVerifiedProductionPublicationIssues } from "@/lib/portfolio/production-publication";
 import {
   validatePortfolioPublicationMetadata,
   validatePortfolioSourceState,
 } from "@/lib/content-ops/portfolio-rules";
 import type { WorkflowStatus } from "@/lib/content-ops/types";
+import { appendStatusChange } from "@/lib/content-ops/status-history";
 import { isPartnerChannel, parseStoredAssetUrl, partnerVisibilityBlockers } from "@/lib/partner-portal";
 import { validateNaverPublication } from "@/lib/publication";
 import {
@@ -24,6 +27,11 @@ import { generateContentWorkItem } from "@/lib/content-ops/generate";
 import { geminiRuntimeStatus } from "@/lib/gemini/protection";
 import { GeminiAutomationBlocked, runBudgetedGeminiAutomation } from "@/lib/gemini/automation";
 import { resolveRevisionNote } from "@/lib/content-ops/generated-content";
+import {
+  DraftRevisionUnavailable,
+  plannedRevisionCalls,
+  reviseWorkItemDraft,
+} from "@/lib/content-ops/revise-draft";
 import { sanitizeGeneratedHtml } from "@/lib/security/html";
 import {
   coverTitleRecord,
@@ -40,17 +48,17 @@ import {
   isHyundaiManualMockupTitle,
   hyundaiManualApprovalMetadata,
 } from "@/lib/portfolio/hyundai-manual-mockups";
+import {
+  isTourismMarketingWorkItem,
+  TOURISM_MANUAL_ASSET_NAMES,
+  tourismManualAssetUrls,
+  tourismManualBodyAssets,
+  tourismManualMockupFields,
+  withoutGeneratedBodyImages,
+} from "@/lib/portfolio/manual-overrides";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
-
-const TOURISM_MARKETING_WORK_ITEM_ID = "6579c77c-86fd-4b6a-9e65-654394597c8f";
-const TOURISM_MARKETING_MANUAL_ASSETS = [
-  { name: "short-main.jpg", slideIndexes: [2, 4, 5, 9, 10], width: 1600, height: 1600 },
-  { name: "short-detail-1.jpg", slideIndexes: [0, 1, 3], width: 1600, height: 900 },
-  { name: "short-detail-2.jpg", slideIndexes: [6, 7, 8], width: 1600, height: 900 },
-  { name: "short-detail-3.jpg", slideIndexes: [11, 12, 13], width: 1600, height: 900 },
-] as const;
 
 function tourismManualApprovalMetadata(
   id: string,
@@ -58,7 +66,7 @@ function tourismManualApprovalMetadata(
   origin: string,
   approvedBy: string,
 ) {
-  if (id !== TOURISM_MARKETING_WORK_ITEM_ID) return null;
+  if (!isTourismMarketingWorkItem(id)) return null;
   const value = metadata || {};
   const generated = value.generated && typeof value.generated === "object"
     ? value.generated as { bodyHtml?: unknown }
@@ -66,9 +74,7 @@ function tourismManualApprovalMetadata(
   const bodyHtml = typeof generated.bodyHtml === "string" ? generated.bodyHtml : "";
   const imageSources = [...bodyHtml.matchAll(/<img\b[^>]*\bsrc\s*=\s*["']([^"']+)["'][^>]*>/gi)]
     .map((match) => match[1].replaceAll("&amp;", "&"));
-  const expectedUrls = TOURISM_MARKETING_MANUAL_ASSETS.map(
-    (asset) => `${origin}/portfolio/manual/tourism-marketing/${asset.name}`,
-  );
+  const expectedUrls = tourismManualAssetUrls(origin);
   const figureCount = (bodyHtml.match(/<figure[\s>]/gi) || []).length;
   if (figureCount !== expectedUrls.length
     || imageSources.length !== expectedUrls.length
@@ -76,42 +82,21 @@ function tourismManualApprovalMetadata(
     return null;
   }
 
-  const previousAssets = Array.isArray(value.portfolioAssets)
-    ? value.portfolioAssets.filter((asset) => (
-      asset && typeof asset === "object" && (asset as Record<string, unknown>).kind !== "body_image"
-    ))
-    : [];
-  const manualAssets = TOURISM_MARKETING_MANUAL_ASSETS.map((asset) => ({
-    kind: "body_image" as const,
-    name: asset.name,
-    url: `${origin}/portfolio/manual/tourism-marketing/${asset.name}`,
-    caption: "원본 PowerPoint의 글꼴과 배치를 유지한 수동 확정 목업",
-    slideIndexes: [...asset.slideIndexes],
-    slideAspectRatio: 16 / 9,
-    width: asset.width,
-    height: asset.height,
-    mockupMode: "short_psd" as const,
-    aspectClass: "16:9" as const,
-  }));
+  const previousAssets = withoutGeneratedBodyImages(value.portfolioAssets);
+  const manualAssets = tourismManualBodyAssets(
+    origin,
+    "원본 PowerPoint의 글꼴과 배치를 유지한 수동 확정 목업",
+  );
   const approvedAt = new Date().toISOString();
   return {
     ...value,
     portfolioAssets: [...previousAssets, ...manualAssets],
-    portfolioMockup: {
-      ...(value.portfolioMockup && typeof value.portfolioMockup === "object"
-        ? value.portfolioMockup as Record<string, unknown>
-        : {}),
-      mode: "short_psd",
-      bodyBoardCount: 4,
-      aspectClass: "16:9",
-      selectedSlideIndexes: TOURISM_MARKETING_MANUAL_ASSETS.flatMap((asset) => [...asset.slideIndexes]),
-      manualFontPreservingOverride: true,
-    },
+    portfolioMockup: tourismManualMockupFields(value.portfolioMockup),
     manualMockupOverride: {
       kind: "powerpoint_native_unredacted",
       approvedAt,
       approvedBy,
-      assetNames: TOURISM_MARKETING_MANUAL_ASSETS.map((asset) => asset.name),
+      assetNames: TOURISM_MANUAL_ASSET_NAMES,
     },
   };
 }
@@ -151,6 +136,8 @@ async function regenerateContentItem(
   item: RegeneratableItem,
   requestedNote: unknown,
   forceNewTopic = false,
+  // 누가 다시 만들라고 했는지 단계 기록에 남깁니다.
+  actor = "admin",
 ) {
   if (!item.schedule_key) throw new Error("재생성에 필요한 작업 키가 없습니다.");
   if (item.status === "published") throw new Error("이미 발행된 글은 자동으로 다시 만들 수 없습니다.");
@@ -160,10 +147,10 @@ async function regenerateContentItem(
   }
 
   const note = resolveRevisionNote(requestedNote, item.review_note, item.metadata);
-  const metadata = {
+  const metadata = appendStatusChange({
     ...(item.metadata || {}),
     ...(note ? { pendingRevision: { note, requestedAt: new Date().toISOString() } } : {}),
-  };
+  }, "creating", actor);
   const { error: startError } = await contentAdmin()
     .from("content_work_items")
     .update({
@@ -186,6 +173,7 @@ async function regenerateContentItem(
       const retry = geminiRetryDecision(error, 0);
       await contentAdmin().from("content_work_items").update({
         status: "on_hold",
+        metadata: appendStatusChange(item.metadata, "on_hold", actor),
         review_note: `자동 재생성 보류: ${message}`,
         retry_count: retry.retryCount,
         next_retry_at: retry.nextRetryAt,
@@ -207,6 +195,8 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     || body.action === "replace_topic"
     || body.action === "rebuild_portfolio"
     || body.action === "retry_portfolio_draft"
+    // 요청사항 반영도 Gemini 를 부릅니다. 예산과 잠금을 똑같이 거쳐야 합니다.
+    || body.action === "revise_draft"
     || body.status === "creating";
   // 이전에는 이 지점에서 무조건 막았기 때문에 환경변수를 켜도 열리지 않았습니다.
   // 이제는 잠금 상태와 남은 예산을 실제로 확인해서 판단합니다.
@@ -282,7 +272,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
         published_url_normalized: validation.publication.normalizedUrl,
         published_account: validation.publication.account,
         metadata: {
-          ...metadata,
+          ...appendStatusChange(metadata, "published", user.email || "admin", completedAt),
           partnerHandoff: {
             publishedUrl: validation.publication.normalizedUrl,
             publishedAccount: validation.publication.account,
@@ -397,7 +387,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
         status: "review_required",
         review_note: null,
         metadata: {
-          ...metadata,
+          ...appendStatusChange(metadata, "review_required", user.email || "admin", clearedAt),
           validation: { ...validation, issues: [] },
           // 누가 언제 어떤 사유를 보고 풀었는지 남겨 둡니다.
           holdCleared: {
@@ -421,6 +411,35 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
       }, { status: 409 });
     }
     return NextResponse.json({ id: saved.id, status: saved.status, holdCleared: true });
+  }
+
+  /**
+   * 사람이 남긴 요청사항을 인공지능이 기존 원고에 반영합니다.
+   *
+   * 예전에는 '수정 요청'이 글을 처음부터 다시 쓰는 버튼이었고, 포트폴리오에서는
+   * 그마저 막혀 있어 목업 이미지까지 다시 만들라는 안내만 나왔습니다.
+   * 여기서는 목업에 손대지 않고 본문만 고칩니다.
+   */
+  if (body.action === "revise_draft") {
+    try {
+      const result = await runBudgetedGeminiAutomation({
+        operation: "content-revise-draft",
+        actor: user.email || "admin",
+        // 소제목 단위로 한 덩이씩 맡기므로, 덩이 수가 곧 호출 수입니다.
+        plannedCalls: await plannedRevisionCalls(id),
+      }, () => reviseWorkItemDraft(id, body.review_note, user.email || "admin"));
+      return NextResponse.json(result);
+    } catch (error) {
+      if (error instanceof GeminiAutomationBlocked) {
+        return NextResponse.json({ error: error.message, code: error.code }, { status: 409 });
+      }
+      if (error instanceof DraftRevisionUnavailable) {
+        return NextResponse.json({ error: error.message, code: error.code }, { status: 409 });
+      }
+      return NextResponse.json({
+        error: error instanceof Error ? error.message : "요청사항을 반영하지 못했습니다.",
+      }, { status: 500 });
+    }
   }
 
   if (body.action === "manual_edit") {
@@ -502,6 +521,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
         current as RegeneratableItem,
         body.review_note,
         body.action === "replace_topic",
+        user.email || "admin",
       )));
     } catch (error) {
       if (error instanceof GeminiAutomationBlocked) {
@@ -568,19 +588,8 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
   if (body.action === "restore_portfolio_draft") {
     try {
       const origin = new URL(request.url).origin;
-      const bodyAssets = id === TOURISM_MARKETING_WORK_ITEM_ID
-        ? TOURISM_MARKETING_MANUAL_ASSETS.map((asset) => ({
-          kind: "body_image" as const,
-          name: asset.name,
-          url: `${origin}/portfolio/manual/tourism-marketing/${asset.name}`,
-          caption: "원본 PowerPoint의 글꼴과 배치를 유지한 수동 확정 목업",
-          slideIndexes: [...asset.slideIndexes],
-          slideAspectRatio: 16 / 9,
-          width: asset.width,
-          height: asset.height,
-          mockupMode: "short_psd" as const,
-          aspectClass: "16:9" as const,
-        }))
+      const bodyAssets = isTourismMarketingWorkItem(id)
+        ? tourismManualBodyAssets(origin, "원본 PowerPoint의 글꼴과 배치를 유지한 수동 확정 목업")
         : undefined;
       return NextResponse.json(await restorePortfolioDraft(id, { bodyAssets }));
     } catch (error) {
@@ -668,7 +677,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     }).map((blocker) => blocker.message);
     const now = new Date().toISOString();
     const metadata = {
-      ...(current.metadata || {}),
+      ...appendStatusChange(current.metadata, "approved", user.email || "admin", now),
       partnerReleaseOverride: {
         approvedAt: now,
         approvedBy: user.email || "admin",
@@ -691,6 +700,10 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
       .eq("id", id)
       .single();
     if (currentError) return NextResponse.json({ error: currentError.message }, { status: 500 });
+    if (hasProductionPortfolioImageSelection(current.metadata)) {
+      return NextResponse.json({ error: "확정 이미지 세트에는 이전 수동 목업 정정을 적용할 수 없습니다. 본문은 일반 편집에서 수정해 주세요.",
+        code: "IMAGE_SET_LEGACY_WRITE_BLOCKED" }, { status: 409 });
+    }
     if (current.format !== "portfolio" || !isHyundaiManualMockupTitle(current.title)) {
       return NextResponse.json({ error: "해당 생활폐기물 입찰제안서 작업을 찾지 못했습니다." }, { status: 404 });
     }
@@ -720,7 +733,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     const admin = contentAdmin();
     const { data: current, error: currentError } = await admin
       .from("content_work_items")
-      .select("format,title,status,metadata,updated_at")
+      .select("id,format,title,status,metadata,updated_at,content_review_assets(*)")
       .eq("id", id)
       .single();
     if (currentError) return NextResponse.json({ error: currentError.message }, { status: 500 });
@@ -728,56 +741,67 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     statusBeforeChange = typeof current.status === "string" ? current.status : null;
     metadataBeforeChange = (current.metadata || null) as Record<string, unknown> | null;
     if (current.format === "portfolio") {
-      approvedMetadata = tourismManualApprovalMetadata(
-        id,
-        current.metadata,
-        new URL(request.url).origin,
-        user.email || "admin",
-      ) || hyundaiManualApprovalMetadata(
-        current.title,
-        current.metadata,
-        new URL(request.url).origin,
-        user.email || "admin",
-      );
-      const [mockupJobQuery, conversionJobQuery, draftJobQuery] = await Promise.all([
-        admin.from("content_jobs")
-          .select("status,result")
-          .eq("work_item_id", id)
-          .eq("job_type", "mockup")
-          .order("created_at", { ascending: false })
-          .limit(1)
-          .maybeSingle(),
-        admin.from("content_jobs")
-          .select("status,result,updated_at")
-          .eq("work_item_id", id)
-          .eq("job_type", "convert")
-          .order("created_at", { ascending: false })
-          .limit(1)
-          .maybeSingle(),
-        admin.from("content_jobs")
-          .select("status,result")
-          .eq("work_item_id", id)
-          .eq("job_type", "draft")
-          .order("created_at", { ascending: false })
-          .limit(1)
-          .maybeSingle(),
-      ]);
-      if (mockupJobQuery.error || conversionJobQuery.error || draftJobQuery.error) {
-        return NextResponse.json({
-          error: mockupJobQuery.error?.message
-            || conversionJobQuery.error?.message
-            || draftJobQuery.error?.message,
-        }, { status: 500 });
-      }
-      const issues = approvedMetadata ? [] : [
-        ...validatePortfolioPublicationMetadata(current.metadata),
-        ...validatePortfolioSourceState(
+      let issues: string[];
+      if (hasProductionPortfolioImageSelection(current.metadata)) {
+        try {
+          issues = await readVerifiedProductionPublicationIssues(current, admin);
+        } catch (proofError) {
+          const message = proofError instanceof Error ? proofError.message : "";
+          return NextResponse.json({ error: "현재 원본·기밀 검수·확정 이미지 연결을 확인하지 못해 승인을 중단했습니다.",
+            code: /^(?:MOCKUP|IMAGE_SET|THUMBNAIL)_[A-Z_]+$/.test(message) ? message : "MOCKUP_PUBLICATION_PROOF_INVALID" }, { status: 409 });
+        }
+      } else {
+        approvedMetadata = tourismManualApprovalMetadata(
+          id,
           current.metadata,
-          mockupJobQuery.data,
-          conversionJobQuery.data,
-          draftJobQuery.data,
-        ),
-      ];
+          new URL(request.url).origin,
+          user.email || "admin",
+        ) || hyundaiManualApprovalMetadata(
+          current.title,
+          current.metadata,
+          new URL(request.url).origin,
+          user.email || "admin",
+        );
+        const [mockupJobQuery, conversionJobQuery, draftJobQuery] = await Promise.all([
+          admin.from("content_jobs")
+            .select("status,result")
+            .eq("work_item_id", id)
+            .eq("job_type", "mockup")
+            .order("created_at", { ascending: false })
+            .limit(1)
+            .maybeSingle(),
+          admin.from("content_jobs")
+            .select("status,result,updated_at")
+            .eq("work_item_id", id)
+            .eq("job_type", "convert")
+            .order("created_at", { ascending: false })
+            .limit(1)
+            .maybeSingle(),
+          admin.from("content_jobs")
+            .select("status,result")
+            .eq("work_item_id", id)
+            .eq("job_type", "draft")
+            .order("created_at", { ascending: false })
+            .limit(1)
+            .maybeSingle(),
+        ]);
+        if (mockupJobQuery.error || conversionJobQuery.error || draftJobQuery.error) {
+          return NextResponse.json({
+            error: mockupJobQuery.error?.message
+              || conversionJobQuery.error?.message
+              || draftJobQuery.error?.message,
+          }, { status: 500 });
+        }
+        issues = approvedMetadata ? [] : [
+          ...validatePortfolioPublicationMetadata(current.metadata),
+          ...validatePortfolioSourceState(
+            current.metadata,
+            mockupJobQuery.data,
+            conversionJobQuery.data,
+            draftJobQuery.data,
+          ),
+        ];
+      }
       if (issues.length) {
         return NextResponse.json(
           { error: `포트폴리오 기본 규칙을 확인해 주세요: ${issues.join(" ")}` },
@@ -828,6 +852,19 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
       || metadataBeforeChange
       || {};
     patch.metadata = { ...baseMetadata, mockupOnlyRestoreState: null };
+  }
+  /*
+   * 상태가 바뀌면 여기서 한 줄 남깁니다.
+   *
+   * 위의 특별한 길(발행·보류해제·외주승인)도 각자 남기지만, 검토 화면에서
+   * 누르는 승인·보류는 전부 이 자리를 지납니다. 한 곳이라도 빠뜨리면
+   * 기록에 구멍이 나고, 구멍 난 기록은 아무도 믿지 않게 됩니다.
+   */
+  if (patch.status) {
+    const baseMetadata = (patch.metadata as Record<string, unknown> | undefined)
+      || metadataBeforeChange
+      || {};
+    patch.metadata = appendStatusChange(baseMetadata, patch.status as WorkflowStatus, user.email || "admin");
   }
   if (body.scheduled_at !== undefined) patch.scheduled_at = body.scheduled_at || null;
   if (body.status === "published") patch.published_at = body.published_at || new Date().toISOString();

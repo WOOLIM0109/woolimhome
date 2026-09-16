@@ -53,11 +53,38 @@ export function lockValue(source: string, prefix: string, html = false, lockNumb
   let value = String(source || "");
   if (html) {
     value = value.replace(/<figure\b[\s\S]*?<\/figure>/gi, (match) => add(match, true, true));
+    /*
+     * figure 로 감싸지 않고 홀로 놓인 그림도 잠급니다.
+     *
+     * 잠그지 않으면 정리기가 <img> 를 허용 목록 밖 태그로 보고 걷어냅니다.
+     * 주소만 잠긴 경우에도 주소는 태그 속성 안에 있어서 태그와 함께 사라집니다.
+     * 그림이 빠진 본문은 승인 단계에서 "본문 이미지 URL이 목업 자산과 일치하지
+     * 않습니다" 로 막히는데, 그때는 어디서 없어졌는지 알 수가 없습니다.
+     */
+    value = value.replace(/<img\b[^>]*>/gi, (match) => add(match, false, true));
     value = value.replace(/<a\b[^>]*>[\s\S]*?<\/a>/gi, (match) => add(match, false, true));
     value = value.replace(/https?:\/\/[^\s<>"']+/gi, (match) => add(match, false, true));
   }
   if (lockNumbers) {
-    value = value.replace(NUMERIC_FACT_PATTERN, (match) => add(match));
+    /*
+     * 태그 안쪽의 숫자는 잠그지 않습니다.
+     *
+     * <h2> 의 2 까지 마커로 바꾸면 태그 이름이 <hWOOLIMLOCKBODYAEND> 가 됩니다.
+     * 정리기는 그런 태그를 모르니 통째로 버리고, 그러면 되돌릴 때 마커가 없어
+     * 그 구간을 전부 잃습니다. 소제목으로 시작하는 구간은 전부 여기서 죽었습니다.
+     *
+     * 지켜야 할 것은 사람이 읽는 수치이지 태그 이름의 숫자가 아닙니다.
+     */
+    value = html
+      ? value
+        .split(/(<[^>]*>)/g)
+        .map((piece) => (
+          piece.startsWith("<") && piece.endsWith(">")
+            ? piece
+            : piece.replace(NUMERIC_FACT_PATTERN, (match) => add(match))
+        ))
+        .join("")
+      : value.replace(NUMERIC_FACT_PATTERN, (match) => add(match));
   }
   const sourceMarkers = value.match(/WOOLIMLOCK[A-Z]+?END/g) || [];
   const sourcePositions = new Map(sourceMarkers.map((marker, index) => [marker, index]));

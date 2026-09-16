@@ -9,24 +9,34 @@ import {
   dueColumnDates,
   isoWeek,
 } from "@/lib/columns/catchup";
+import { authorizeCron } from "@/lib/cron-auth";
 
 // 칼럼 본문 생성은 몇 분이 걸립니다. 30초로는 만들다가 끊깁니다.
 export const maxDuration = 300;
+
+/** 함수 상한보다 조금 짧게 잡습니다. 정확히 맞추면 마무리 기록 전에 죽습니다. */
+const RUN_BUDGET_MS = 280_000;
+
+/** 칼럼 한 편에 잡아 두는 시간. 이만큼 남지 않으면 새로 시작하지 않습니다. */
+const COLUMN_BUDGET_MS = 130_000;
 const AUTOMATION_EMAIL = "automation@woolimcompany.kr";
 
-function topicHintForDay(day: number, hasKnowledge: boolean) {
+/**
+ * 이 회차를 어떤 형식으로 쓸지 정합니다. 무엇을 쓸지는 정하지 않습니다.
+ * 주제는 generateColumn 안의 주제 기획이 주제군을 돌려 가며 고릅니다.
+ */
+function formatHintForDay(day: number, hasKnowledge: boolean) {
   if (day === 2) return "최신 공식자료 기반 정보형 주제";
   if (day === 4) return hasKnowledge ? "공식자료와 승인 원천자료를 결합한 실무 주제" : "최신 공식자료 기반 정보형 주제";
   return "승인된 인터뷰·사례 기반 노하우 주제";
 }
 
 export async function GET(request: Request) {
-  const secret = process.env.CRON_SECRET;
-  if (!secret || request.headers.get("authorization") !== `Bearer ${secret}`) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const unauthorized = authorizeCron(request);
+  if (unauthorized) return unauthorized;
   const admin = createAdminClient();
   const now = new Date();
+  const runDeadlineAt = Date.now() + RUN_BUDGET_MS;
   const kst = new Date(now.getTime() + 9 * 60 * 60 * 1_000);
   const dateKey = kst.toISOString().slice(0, 10);
   const { data: runId, error } = await admin.rpc("claim_content_automation_run", {
@@ -81,9 +91,27 @@ export async function GET(request: Request) {
   }
 
   const scheduleKey = `${dateKey}-${day}`;
-  const { data: existing, error: existingError } = await admin.from("column_generation_runs")
-    .select("id").contains("request_payload", { scheduleKey }).limit(1).maybeSingle();
+  /**
+   * 이미 만든 회차인지 봅니다.
+   *
+   * 기록은 만들기 '시작할 때' 남습니다. 그래서 중간에 함수가 죽으면 started
+   * 상태의 기록만 남고, 다음부터는 이 자리가 '이미 처리됨'으로 보였습니다.
+   * 그 날짜의 칼럼은 영영 만들어지지 않았고, 화면에는 아무 이유도 남지
+   * 않았습니다. 실제로 그렇게 사라진 회차가 있습니다.
+   *
+   * 그래서 끝난 기록만 처리된 것으로 셉니다. started 인 채로 오래 묵은 것은
+   * 죽은 것으로 보고 다시 시도합니다.
+   */
+  const { data: existingRuns, error: existingError } = await admin.from("column_generation_runs")
+    .select("id,status,created_at")
+    .contains("request_payload", { scheduleKey })
+    .order("created_at", { ascending: false })
+    .limit(5);
   if (existingError) return NextResponse.json({ error: existingError.message }, { status: 500 });
+  const deadRunCutoff = now.getTime() - 20 * 60_000;
+  const existing = (existingRuns || []).find((run) => (
+    run.status !== "started" || Date.parse(run.created_at) > deadRunCutoff
+  )) || null;
 
   const { data: knowledge, error: knowledgeError } = await admin.from("column_expert_knowledge")
     .select("id,use_count").eq("approved", true).lt("use_count", 3);
@@ -100,7 +128,7 @@ export async function GET(request: Request) {
     return NextResponse.json({ skipped: true, aiCalls: 0, reason: "Expert knowledge depleted", interviewRequest });
   }
 
-  const topicHint = topicHintForDay(day, hasKnowledge);
+  const formatHint = formatHintForDay(day, hasKnowledge);
 
   /**
    * 칼럼 초안을 실제로 만듭니다.
@@ -116,7 +144,7 @@ export async function GET(request: Request) {
     const marker = await admin.from("column_generation_runs").insert({
       status: "blocked",
       model: "cost-protection-deterministic-scheduler",
-      request_payload: { scheduleKey, day, topicHint, awaitingAiConfirmation: true },
+      request_payload: { scheduleKey, day, formatHint, awaitingAiConfirmation: true },
       response_payload: { code: "COLUMN_AUTO_GENERATION_OFF", aiCalls: 0 },
       created_by: AUTOMATION_EMAIL,
       completed_at: new Date().toISOString(),
@@ -137,22 +165,32 @@ export async function GET(request: Request) {
   const writeOne = (hint: string, key: string) => runBudgetedGeminiAutomation({
     operation: "cron-column-generate",
     actor: "cron",
-    // 조사 1 + 작성 1 + 응답 실패 시 1 + 분량 미달 시 1 + 문체 2
-    plannedCalls: 6,
+    // 주제 기획 1 + 조사 1 + 작성 1 + 응답 실패 시 1 + 분량 미달 시 1 + 문체 2
+    plannedCalls: 7,
   }, () => generateColumn({
-    topicHint: hint,
+    formatHint: hint,
     createdBy: AUTOMATION_EMAIL,
     scheduleKey: key,
   }));
 
   try {
-    const result = await writeOne(topicHint, scheduleKey);
+    const result = await writeOne(formatHint, scheduleKey);
     // 오늘 것을 만든 뒤, 지난주에 빠진 회차가 있으면 한 편만 더 채웁니다.
     let caughtUp = 0;
     let catchupReason = "";
-    if (await countMissedColumns() > 0) {
+    /**
+     * 한 편을 더 쓸 시간이 남았을 때만 시작합니다.
+     *
+     * 예전에는 시간을 보지 않고 곧바로 두 번째를 시작했습니다. 첫 편이
+     * 오래 걸린 날에는 두 번째가 함수 상한에 걸려 죽었고, 그러면 방금 만든
+     * 첫 편의 마무리 기록까지 같이 날아갔습니다.
+     */
+    const remainingMs = runDeadlineAt - Date.now();
+    if (remainingMs < COLUMN_BUDGET_MS) {
+      catchupReason = "이번 실행에 남은 시간이 모자라 밀린 회차는 다음으로 미뤘습니다.";
+    } else if (await countMissedColumns() > 0) {
       try {
-        await writeOne(topicHint, `${scheduleKey}-catchup`);
+        await writeOne(formatHint, `${scheduleKey}-catchup`);
         caughtUp = 1;
       } catch (catchupError) {
         catchupReason = catchupError instanceof Error

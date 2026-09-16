@@ -12,6 +12,9 @@ import {
 import { expectedNaverAccount } from "@/lib/publication";
 import { sanitizeGeneratedHtml } from "@/lib/security/html";
 import { PRIVATE_PORTFOLIO_SOURCE_NOTE } from "@/lib/content-ops/source-section";
+import {
+  loadProductionImageManifests, projectProductionPortfolioImages, productionImageProjectionErrorCode,
+} from "@/lib/portfolio/production-image-projection";
 
 export const dynamic = "force-dynamic";
 
@@ -53,10 +56,14 @@ type WorkItemRow = {
     partnerHandoff?: {
       publishedUrl?: string;
       completedAt?: string;
+      forceApproved?: boolean;
+      forceApprovalMemo?: string;
     };
     publicationValidation?: {
       duplicateLegacyUrl?: boolean;
     };
+    // 보존 정책이 발행 완료 원고의 본문을 비운 시각.
+    bodyPurgedAt?: string;
   } | null;
   content_review_assets: ReviewAsset[] | null;
 };
@@ -85,13 +92,24 @@ export async function GET(request: Request) {
 
   const { data, error } = await query;
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  let visibleItems = ((data || []) as WorkItemRow[]).filter((item) => isVisibleToPartner(item));
+  try {
+    const manifests = await loadProductionImageManifests(visibleItems, contentAdmin());
+    visibleItems = projectProductionPortfolioImages(visibleItems, manifests);
+  } catch (projectionError) {
+    return NextResponse.json({ error: "확정 이미지 연결을 확인하지 못했습니다. 관리자에게 알려 주세요.",
+      code: productionImageProjectionErrorCode(projectionError) }, { status: 409 });
+  }
 
   // 노출 판단은 lib/partner-portal 한 곳에서만 합니다.
   // 관리자 화면이 같은 함수로 사유를 보여 주므로, 여기서 조용히 빠지는 작업이 없습니다.
-  const items = ((data || []) as WorkItemRow[])
-    .filter((item) => isVisibleToPartner(item))
+  const items = visibleItems
     .map((item) => {
       const hasLegacyDuplicateUrl = item.metadata?.publicationValidation?.duplicateLegacyUrl === true;
+      const forceApprovalMemo = item.metadata?.partnerHandoff?.forceApproved === true
+        && typeof item.metadata.partnerHandoff.forceApprovalMemo === "string"
+        ? item.metadata.partnerHandoff.forceApprovalMemo
+        : null;
       const storedAssets = [...(item.content_review_assets || [])]
         .sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0));
       const uploadableAssets = storedAssets.filter((asset) => asset.asset_type !== "article_preview");
@@ -114,7 +132,13 @@ export async function GET(request: Request) {
           : item.published_url || item.metadata?.partnerHandoff?.publishedUrl || null,
         publicationWarning: hasLegacyDuplicateUrl
           ? "기존 발행 URL이 다른 작업과 중복되어 관리자 확인이 필요합니다."
-          : null,
+          : forceApprovalMemo
+            ? "주소 형식을 확인하지 않고 메모로 강제승인한 항목입니다."
+            : null,
+        forceApprovalMemo,
+        // 발행이 끝난 원고는 보존 정책이 본문을 비웁니다. 글이 없어진 것과
+        // 정리된 것을 화면에서 구분할 수 있어야 작가가 헤매지 않습니다.
+        bodyPurgedAt: item.metadata?.bodyPurgedAt || null,
         completedAt: item.metadata?.partnerHandoff?.completedAt || null,
         previewHtml: replaceAdminAssetUrls(originalBodyHtml, storedAssets),
         copyHtml: replaceFiguresWithMarkers(originalBodyHtml),

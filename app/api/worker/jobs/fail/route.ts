@@ -3,6 +3,7 @@ import { contentAdmin } from "@/lib/content-ops/data";
 import { authenticateWorker } from "@/lib/pc-worker/auth";
 import { workerJobFailureDisposition } from "@/lib/pc-worker/job-state";
 import { missingFontsFromMessage } from "@/lib/pc-worker/font-retry";
+import { sendAdminPush } from "@/lib/notify/web-push";
 
 export async function POST(request: Request) {
   const body = await request.json().catch(() => ({}));
@@ -133,5 +134,34 @@ export async function POST(request: Request) {
   })
     .eq("id", worker.id)
     .eq("current_job_id", job.id);
+
+  /*
+   * 변환이 멈췄다는 사실을 사람에게 알립니다.
+   *
+   * 지금까지는 데이터베이스에 '보류'와 오류 코드만 적히고 끝이었습니다.
+   * 관리자 화면을 직접 열어 보지 않으면 알 방법이 없었고, 그래서 멈춘 것을
+   * 한참 뒤에야 알아채는 일이 반복됐습니다.
+   *
+   * 알림은 곁다리라 실패해도 워커 응답을 막지 않습니다.
+   */
+  const alert = waitingForFonts
+    ? {
+      title: "포트폴리오 변환 멈춤 · 글꼴 없음",
+      body: `회사 PC에 없는 글꼴 ${missingFonts.length}개 때문에 변환이 멈췄습니다. ${missingFonts.slice(0, 3).join(", ")}${missingFonts.length > 3 ? " 외" : ""}`,
+    }
+    : disposition === "permanent" || disposition === "exhausted"
+    ? {
+      title: "포트폴리오 변환 실패",
+      body: recordedMessage.slice(0, 160),
+    }
+    : null;
+  if (alert) {
+    try {
+      await sendAdminPush({ ...alert, url: "/admin/content" });
+    } catch {
+      // 알림이 안 가도 변환 결과 기록은 이미 끝났습니다.
+    }
+  }
+
   return NextResponse.json({ ok: true, disposition: waitingForFonts ? "waiting_for_fonts" : disposition });
 }

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { executeOpenchatTask } from "@/lib/openchat/operations";
 import type { OpenchatCronTask } from "@/lib/openchat/types";
+import { authorizeCron } from "@/lib/cron-auth";
 
 export const maxDuration = 300;
 
@@ -10,10 +11,8 @@ const TASKS: OpenchatCronTask[] = [
 ];
 
 export async function GET(request: Request, context: { params: Promise<{ task: string }> }) {
-  const secret = process.env.CRON_SECRET;
-  if (!secret || request.headers.get("authorization") !== `Bearer ${secret}`) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const unauthorized = authorizeCron(request);
+  if (unauthorized) return unauthorized;
   const { task } = await context.params;
   if (!TASKS.includes(task as OpenchatCronTask)) {
     return NextResponse.json({ error: "Unknown task" }, { status: 404 });

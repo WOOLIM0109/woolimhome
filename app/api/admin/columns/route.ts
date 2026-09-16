@@ -3,6 +3,7 @@ import { isAdmin } from "@/lib/auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { sanitizeGeneratedHtml } from "@/lib/security/html";
+import { isColumnStatus } from "@/lib/columns/types";
 
 export const dynamic = "force-dynamic";
 
@@ -51,7 +52,8 @@ export async function POST(request: Request) {
       core_message: body.core_message || null,
       published,
       published_at: published ? new Date().toISOString() : null,
-      generation_status: body.generation_status || "draft",
+      // 목록에 없는 딱지는 저장소가 거절합니다. 화면이 보낸 값을 그대로 믿지 않습니다.
+      generation_status: isColumnStatus(body.generation_status) ? body.generation_status : "draft",
       generation_metadata: body.generation_metadata || {},
       author_email: user.email,
     })

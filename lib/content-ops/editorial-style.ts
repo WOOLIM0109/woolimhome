@@ -220,3 +220,19 @@ export function friendlyStyleIssues(
   issues.push(...conciseStyleIssues(bodyHtml, faq));
   return issues;
 }
+
+/**
+ * 지적을 "발행을 막는 것"과 "다듬으면 좋은 것"으로 가릅니다.
+ *
+ * 화면에 상자를 둘로 나눠 보여 주는데, 위 상자에 전부를 넣었더니 아래 상자와
+ * 같은 문장이 두 번 나왔습니다. 무엇을 꼭 해야 하는지 다시 헷갈립니다.
+ *
+ * 지키는 것은 하나입니다. 모든 지적은 두 곳 중 정확히 한 곳에만 들어갑니다.
+ * 어느 쪽에도 없으면 사람이 못 보고 지나갑니다.
+ */
+export function splitPublicationIssues(issues: string[], styleIssues: string[]) {
+  const style = new Set(styleIssues);
+  const styleWarnings = issues.filter((issue) => style.has(issue));
+  const blockingIssues = issues.filter((issue) => !style.has(issue));
+  return { styleWarnings, blockingIssues, blocked: blockingIssues.length > 0 };
+}
