@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { Loader2, Send } from "lucide-react";
+import { ArrowUpRight, Loader2, Send } from "lucide-react";
+import styles from "@/app/contact/contact.module.css";
 
 const CATEGORIES = [
   "정부지원사업",
@@ -51,12 +52,12 @@ export default function ContactForm() {
 
   if (done) {
     return (
-      <div className="card items-center p-10 text-center">
+      <div className={styles.success} role="status">
         <div className="flex h-14 w-14 items-center justify-center rounded-full bg-[var(--accent-soft)] text-[var(--primary)]">
           <Send size={24} />
         </div>
         <h3 className="mt-5 text-xl font-bold">문의가 접수되었습니다.</h3>
-        <p className="prose-muted mt-3 text-sm">
+        <p className="prose-muted mt-3 text-base">
           빠른 시간 내에 담당자가 연락드리겠습니다.
           <br />
           급한 문의는 {""}
@@ -70,12 +71,13 @@ export default function ContactForm() {
   }
 
   return (
-    <div className="card p-6 sm:p-8">
-      <form onSubmit={handleSubmit} className="grid gap-5">
+    <div className={styles.form}>
+      <form onSubmit={handleSubmit} className="grid gap-6">
         <div className="grid gap-5 sm:grid-cols-2">
           <Field label="이름 / 회사명" required>
             <input
               name="name"
+              autoComplete="name"
               required
               placeholder="예) 울림컴퍼니 박미성"
               className="form-input"
@@ -84,6 +86,8 @@ export default function ContactForm() {
           <Field label="연락처" required>
             <input
               name="phone"
+              type="tel"
+              autoComplete="tel"
               required
               inputMode="tel"
               placeholder="예) 010-0000-0000"
@@ -93,7 +97,7 @@ export default function ContactForm() {
         </div>
 
         <Field label="이메일">
-          <input name="email" type="email" placeholder="예) name@company.com" className="form-input" />
+          <input name="email" type="email" autoComplete="email" placeholder="예) name@company.com" className="form-input" />
         </Field>
 
         <Field label="상담 분야" required>
@@ -136,7 +140,7 @@ export default function ContactForm() {
           />
         </div>
 
-        <label className="flex items-start gap-2 text-xs leading-6 text-[var(--muted)]">
+        <label className="flex items-start gap-3 text-base leading-7 text-[var(--muted)]">
           <input type="checkbox" required className="mt-1 h-4 w-4 accent-[var(--primary)]" />
           <span>
             개인정보 수집·이용에 동의합니다. 입력하신 정보는 상담 답변 목적으로만 사용되며 목적 달성 후 파기됩니다.
@@ -144,7 +148,7 @@ export default function ContactForm() {
         </label>
 
         {error && (
-          <p role="alert" className="rounded-xl bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
+          <p role="alert" className="rounded-xl bg-red-50 px-4 py-3 text-base font-semibold text-red-700">
             {error}
           </p>
         )}
@@ -152,10 +156,10 @@ export default function ContactForm() {
         <button
           type="submit"
           disabled={submitting}
-          className="btn-gradient inline-flex h-12 items-center justify-center gap-2 rounded-xl px-6 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-60"
+          className={styles.submit}
         >
-          {submitting ? <Loader2 size={18} className="animate-spin" /> : <Send size={17} />}
           {submitting ? "전송 중..." : "상담 신청하기"}
+          {submitting ? <Loader2 size={18} className="animate-spin" aria-hidden="true" /> : <ArrowUpRight size={19} aria-hidden="true" />}
         </button>
       </form>
     </div>
@@ -173,7 +177,7 @@ function Field({
 }) {
   return (
     <label className="grid gap-2">
-      <span className="text-sm font-bold text-[#2d241d]">
+      <span className="text-base font-semibold text-[#303030]">
         {label}
         {required && <span className="ml-1 text-[var(--primary)]">*</span>}
       </span>

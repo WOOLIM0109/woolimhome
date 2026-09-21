@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
+import styles from "./PublicSections.module.css";
 
 type SectionHeaderProps = {
   eyebrow?: string;
@@ -20,33 +21,19 @@ export default function SectionHeader({
   linkHref,
   linkLabel,
 }: SectionHeaderProps) {
-  const centered = align === "center";
   return (
-    <div
-      className={`flex flex-col gap-4 ${centered ? "items-center text-center" : "lg:flex-row lg:items-end lg:justify-between"}`}
-    >
-      <div className={centered ? "max-w-2xl" : "max-w-2xl"}>
-        {eyebrow && <span className={`eyebrow ${light ? "eyebrow--light" : ""}`}>{eyebrow}</span>}
-        <h2
-          className={`section-title mt-4 text-3xl lg:text-[2.6rem] ${light ? "text-white" : "text-[#14100c]"}`}
-        >
-          {title}
-        </h2>
-        {description && (
-          <p className={`mt-4 text-base leading-8 ${light ? "text-white/70" : "text-[var(--muted)]"}`}>
-            {description}
-          </p>
-        )}
+    <div className={`${styles.sectionHeader} ${align === "center" ? styles.centered : ""} ${light ? styles.light : ""}`}>
+      <div className={styles.headerCopy}>
+        {eyebrow ? <span className={styles.eyebrow}>{eyebrow}</span> : null}
+        <h2 className={styles.sectionTitle}>{title}</h2>
+        {description ? <p className={styles.sectionDescription}>{description}</p> : null}
       </div>
-      {linkHref && linkLabel && (
-        <Link
-          href={linkHref}
-          className={`inline-flex items-center gap-2 whitespace-nowrap text-sm font-bold ${light ? "text-[#ef8e36]" : "text-[var(--primary)]"}`}
-        >
+      {linkHref && linkLabel ? (
+        <Link href={linkHref} className={styles.sectionLink}>
           {linkLabel}
-          <ArrowRight size={16} />
+          <ArrowRight size={18} aria-hidden="true" />
         </Link>
-      )}
+      ) : null}
     </div>
   );
 }

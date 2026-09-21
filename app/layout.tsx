@@ -1,11 +1,22 @@
 import type { Metadata } from "next";
+import localFont from "next/font/local";
 import "./globals.css";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import JsonLd from "@/components/JsonLd";
+import SiteMain from "@/components/SiteMain";
 import { site } from "@/data/site";
 import { DEFAULT_OG_IMAGE, SITE_URL, buildCanonical } from "@/lib/site-config";
 import { organizationSchema, serviceSchemas, websiteSchema } from "@/lib/schema";
+
+const pretendard = localFont({
+  src: "../public/fonts/PretendardVariable.woff2",
+  variable: "--font-pretendard",
+  weight: "100 900",
+  style: "normal",
+  display: "swap",
+  preload: true,
+});
 
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
@@ -41,11 +52,11 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="ko">
+    <html lang="ko" data-scroll-behavior="smooth" className={pretendard.variable}>
       <body>
         <JsonLd data={[websiteSchema(), organizationSchema(), ...serviceSchemas()]} />
         <Header />
-        <main>{children}</main>
+        <SiteMain>{children}</SiteMain>
         <Footer />
       </body>
     </html>

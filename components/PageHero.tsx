@@ -11,24 +11,25 @@ type PageHeroProps = {
 
 export default function PageHero({ eyebrow, title, description, ctaHref, ctaLabel }: PageHeroProps) {
   return (
-    <section className="relative overflow-hidden border-b border-[var(--line)] bg-[linear-gradient(135deg,#fff7f0_0%,#fdf0e7_55%,#f7e9df_100%)]">
-      <div className="bg-grid absolute inset-0 opacity-60" />
-      <div className="absolute right-[-8rem] top-[-6rem] h-72 w-72 rounded-full bg-[rgba(235,104,38,0.14)] blur-3xl" />
-      <div className="relative mx-auto max-w-7xl px-5 py-16 lg:px-8 lg:py-24">
-        <span className="eyebrow">{eyebrow}</span>
-        <div className="mt-5 grid gap-7 lg:grid-cols-[1fr_0.72fr] lg:items-end">
-          <h1 className="section-title max-w-3xl text-4xl leading-[1.12] text-[#14100c] lg:text-[3.4rem]">
+    <section className="border-b border-[#e8e8e8] bg-white">
+      <div className="mx-auto max-w-[1504px] px-5 pb-16 pt-16 lg:px-12 lg:pb-24 lg:pt-28">
+        <span className="inline-flex items-center gap-3 text-base font-bold tracking-[0.06em] text-[#eb6826]">
+          <span className="h-1.5 w-1.5 bg-[#eb6826]" aria-hidden="true" />
+          {eyebrow}
+        </span>
+        <div className="mt-7 grid gap-8 lg:grid-cols-[1fr_0.7fr] lg:items-end lg:gap-20">
+          <h1 className="max-w-3xl text-[2.3rem] leading-[1.3] font-bold tracking-[-0.03em] break-keep text-[#161616] lg:text-[3.6rem]">
             {title}
           </h1>
           <div>
-            <p className="text-lg leading-8 text-[var(--muted)]">{description}</p>
+            <p className="max-w-xl text-lg leading-8 break-keep text-[#686868]">{description}</p>
             {ctaHref && ctaLabel && (
               <Link
                 href={ctaHref}
-                className="btn-gradient mt-6 inline-flex h-12 items-center gap-2 rounded-xl px-6 text-sm font-bold text-white"
+                className="mt-7 inline-flex h-12 items-center gap-8 border-b border-[#262626] text-sm font-bold text-[#262626] transition-colors hover:border-[#eb6826] hover:text-[#eb6826] focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#eb6826]"
               >
                 {ctaLabel}
-                <ArrowRight size={17} />
+                <ArrowRight size={17} aria-hidden="true" />
               </Link>
             )}
           </div>

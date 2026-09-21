@@ -11,9 +11,14 @@ function publicClient() {
   });
 }
 
-export async function getPublishedColumns(): Promise<ColumnPost[]> {
+export type PublishedColumnsResult = {
+  posts: ColumnPost[];
+  available: boolean;
+};
+
+export async function getPublishedColumnsResult(): Promise<PublishedColumnsResult> {
   const supabase = publicClient();
-  if (!supabase) return [];
+  if (!supabase) return { posts: [], available: false };
 
   const { data, error } = await supabase
     .from("column_posts")
@@ -24,9 +29,13 @@ export async function getPublishedColumns(): Promise<ColumnPost[]> {
 
   if (error) {
     console.error("Failed to load columns", error);
-    return [];
+    return { posts: [], available: false };
   }
-  return data as ColumnPost[];
+  return { posts: data as ColumnPost[], available: true };
+}
+
+export async function getPublishedColumns(): Promise<ColumnPost[]> {
+  return (await getPublishedColumnsResult()).posts;
 }
 
 export async function getPublishedColumn(slug: string): Promise<ColumnPost | null> {

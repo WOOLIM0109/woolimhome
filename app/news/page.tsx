@@ -7,6 +7,7 @@ import PageHero from "@/components/PageHero";
 import { getNewsHref, news } from "@/data/news";
 import { buildCanonical } from "@/lib/site-config";
 import { breadcrumbSchema, itemListSchema } from "@/lib/schema";
+import styles from "./editorial.module.css";
 
 export const metadata: Metadata = {
   title: "소식",
@@ -23,27 +24,46 @@ export default function NewsPage() {
           itemListSchema("울림컴퍼니 소식", news.map((item) => ({ title: item.title, description: item.summary, href: getNewsHref(item) }))),
         ]}
       />
-      <PageHero eyebrow="인사이트" title="소식" description="울림컴퍼니의 수상, 언론보도, 주요 활동을 카드 형태로 정리합니다." />
-      <section className="bg-white">
-        <div className="mx-auto grid max-w-7xl gap-4 px-5 py-16 lg:px-8 lg:py-20">
-          {news.map((item) => (
-            <article key={item.title} className="card p-7 lg:flex-row lg:items-center lg:justify-between">
-              <div>
-                <p className="text-sm font-bold text-[var(--accent)]">{item.date} · {item.source}</p>
-                <h2 className="mt-3 text-2xl font-bold text-[#14100c]">{item.title}</h2>
-                <p className="prose-muted mt-4 max-w-3xl text-sm">{item.summary}</p>
-              </div>
-              {item.slug ? (
-                <Link href={`/news/${item.slug}`} className="mt-5 inline-flex h-11 shrink-0 items-center gap-2 rounded-xl border border-[var(--line)] px-5 text-sm font-bold transition hover:border-[var(--accent)] hover:text-[var(--accent)] lg:mt-0">
-                  소식 자세히 보기 <ArrowRight size={16} />
-                </Link>
-              ) : (
-                <a href={item.href} target="_blank" rel="noreferrer" className="mt-5 inline-flex h-11 shrink-0 items-center gap-2 rounded-xl border border-[var(--line)] px-5 text-sm font-bold transition hover:border-[var(--accent)] hover:text-[var(--accent)] lg:mt-0">
-                  기사 보기 <ExternalLink size={16} />
-                </a>
-              )}
-            </article>
-          ))}
+      <PageHero eyebrow="인사이트" title="소식" description="울림컴퍼니의 수상, 언론보도와 주요 활동을 전합니다." />
+      <section className={styles.page} aria-label="울림컴퍼니 소식">
+        <div className={styles.shell}>
+          <nav className={styles.tabs} aria-label="인사이트 메뉴">
+            <Link href="/news" aria-current="page">소식</Link>
+            <Link href="/columns">칼럼</Link>
+          </nav>
+          <div className={styles.list}>
+            <div className={styles.listHeading}>
+              <h2>울림의 새로운 소식</h2>
+              <span>전체 {news.length}건</span>
+            </div>
+            {news.map((item) => (
+              <article key={item.title} className={styles.row}>
+                <div className={styles.rowMeta}>
+                  <p className={styles.category}>{item.source}</p>
+                  <time dateTime={item.date}>{item.date.replaceAll("-", ".")}</time>
+                </div>
+                <div className={styles.rowCopy}>
+                  <h2>
+                    {item.slug ? (
+                      <Link href={`/news/${item.slug}`}>{item.title}</Link>
+                    ) : (
+                      <a href={item.href} target="_blank" rel="noreferrer">{item.title}</a>
+                    )}
+                  </h2>
+                  <p>{item.summary}</p>
+                </div>
+                {item.slug ? (
+                  <Link href={`/news/${item.slug}`} className={styles.rowLink}>
+                    소식 자세히 보기 <ArrowRight size={16} aria-hidden="true" />
+                  </Link>
+                ) : (
+                  <a href={item.href} target="_blank" rel="noreferrer" className={styles.rowLink}>
+                    기사 보기 <ExternalLink size={16} aria-hidden="true" />
+                  </a>
+                )}
+              </article>
+            ))}
+          </div>
         </div>
       </section>
       <ContactBand />

@@ -1,0 +1,174 @@
+.page,
+.gallery,
+.bidding {
+  background: #fff;
+  color: #171717;
+  font-family: var(--font-sans);
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+}
+
+.page :is(h1, h2, h3),
+.gallery :is(h2, h3),
+.bidding :is(h2, h3) {
+  font-family: inherit;
+  letter-spacing: -0.035em;
+  word-break: keep-all;
+}
+
+.content {
+  width: 100%;
+  max-width: 1504px;
+  margin: 0 auto;
+  padding: 104px 48px;
+}
+
+.portfolioMenus {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 30px;
+  margin-top: 52px;
+}
+
+.portfolioMenu { min-width: 0; }
+.menuImage { position: relative; aspect-ratio: 16 / 10; overflow: hidden; background: #f3f3f1; }
+.menuImage img { object-fit: cover; transition: transform 250ms ease; }
+.portfolioMenu:hover .menuImage img { transform: scale(1.025); }
+.menuCopy { padding: 28px 0; border-bottom: 1px solid #e4e4e4; }
+.menuCopy > svg { display: none; }
+.menuCopy > h2 { margin-top: 0; }
+.menuCopy > p { min-height: 102px; font-size: 17px; line-height: 1.85; }
+.menuCopy > span { color: #555; }
+.portfolioMenu:hover .menuCopy > span { color: #eb6826; }
+
+.summaryGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  width: 100%;
+  max-width: 1504px;
+  margin: 0 auto;
+  padding: 24px 48px;
+}
+.summaryGrid > div { padding: 28px 34px; }
+.summaryGrid > div:first-child { padding-left: 0; }
+.summaryNumber { color: #171717; font-size: clamp(36px, 4vw, 54px); font-weight: 650; letter-spacing: -0.055em; line-height: 1.25; }
+
+.tracks { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 56px; margin-top: 56px; }
+.track { display: flex; min-width: 0; flex-direction: column; border-top: 2px solid #222; }
+.trackCopy { flex: 1; padding: 32px 0; }
+.trackLabel { display: flex; align-items: center; gap: 12px; color: #eb6826; font-size: 15px; font-weight: 600; }
+.trackLabel svg { stroke-width: 1.4; }
+.trackCopy h2 { max-width: 440px; margin-top: 28px; font-size: 31px; line-height: 1.45; font-weight: 650; }
+.trackDescription { margin-top: 22px; color: #6b6b6b; font-size: 18px; line-height: 1.9; }
+.trackResult { margin-top: 34px; padding: 30px 0; border-top: 1px solid #e5e5e5; border-bottom: 1px solid #e5e5e5; }
+.trackResult p { color: #171717; font-size: 48px; font-weight: 600; letter-spacing: -0.055em; line-height: 1.2; }
+.trackResult span { display: block; margin-top: 12px; color: #777; font-size: 14px; }
+.trackPoints { display: grid; gap: 15px; margin-top: 28px; }
+.trackPoints li { display: flex; align-items: flex-start; gap: 12px; color: #555; font-size: 17px; line-height: 1.8; }
+.trackPoints svg { flex-shrink: 0; margin-top: 4px; color: #eb6826; }
+.trackLink { display: flex; align-items: center; justify-content: space-between; gap: 24px; padding: 21px 0; border-top: 1px solid #e5e5e5; border-bottom: 1px solid #e5e5e5; color: #333; font-size: 16px; font-weight: 600; }
+.trackLink:hover { color: #eb6826; }
+
+.featured { margin-top: 48px; scroll-margin-top: 110px; overflow: hidden; border-top: 2px solid #222; border-bottom: 1px solid #dededb; background: #fff; color: #171717; }
+.featured > div { min-width: 0; }
+.featured h2 { font-weight: 650; }
+.featuredAside { display: flex; min-width: 0; flex-direction: column; justify-content: center; padding: 44px 36px; border-left: 1px solid #e3e3df; background: #f5f5f2; color: #171717; }
+.featuredAside > div { min-width: 0; }
+.featuredAside :is(.summaryNumber, strong) { color: #171717; }
+.caseGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 48px; margin-top: 48px; }
+.case { display: flex; min-width: 0; flex-direction: column; scroll-margin-top: 110px; border: 1px solid #e5e5e5; background: #f7f7f7; }
+.case > div:first-child { flex-wrap: wrap; padding: 28px 32px; }
+.case > div:nth-child(2) { padding: 32px; }
+.case h3 { font-weight: 650; }
+
+.filters { display: flex; width: max-content; min-width: 100%; align-items: stretch; gap: 26px; border-bottom: 1px solid #dedede; }
+.gallery > .filters { width: auto; flex-wrap: wrap; gap: 0 28px; }
+.filter { display: inline-flex; align-items: center; justify-content: center; gap: 9px; min-height: 54px; padding: 13px 0; border-bottom: 2px solid transparent; color: #777; font-size: 16px; font-weight: 500; line-height: 1.5; white-space: nowrap; transition: color 160ms ease, border-color 160ms ease; }
+.filter:hover { color: #171717; }
+.filter[aria-pressed="true"], .filter[aria-selected="true"] { border-bottom-color: #eb6826; color: #171717; font-weight: 650; }
+.projectGrid, .designGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 46px 32px; margin-top: 36px; }
+.designGrid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 48px 28px; }
+.project { min-width: 0; overflow: hidden; align-self: start; padding: 0; scroll-margin-top: 110px; border: 0; background: #fff; text-align: left; cursor: pointer; }
+.projectImage { position: relative; width: 100%; aspect-ratio: 16 / 9; overflow: hidden; background: #f3f3f1; }
+.projectCopy { display: block; padding: 23px 0 26px; border-bottom: 1px solid #e6e6e6; }
+.projectCopy h2, .projectCopy > strong { font-size: 23px; font-weight: 600; line-height: 1.5; }
+.projectCopy p, .projectCopy > span { line-height: 1.8; }
+.project:hover .projectCopy h2, .project:hover .projectCopy > strong { color: #eb6826; }
+
+.dialog { position: relative; display: flex; width: 100%; max-width: 1408px; max-height: 94dvh; flex-direction: column; overflow: hidden; background: #fff; color: #171717; font-family: var(--font-sans); word-break: keep-all; }
+.dialogHeader { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; padding: 22px 28px; border-bottom: 1px solid #e3e3e3; color: #171717; }
+.dialogHeader h2 { color: #171717; font-family: inherit; font-weight: 600; letter-spacing: -0.035em; }
+.dialogClose { display: flex; width: 40px; height: 40px; flex-shrink: 0; align-items: center; justify-content: center; border: 1px solid #dedede; background: #fff; color: #171717; transition: background 160ms ease; }
+.dialogClose:hover { background: #f0f0ee; }
+.slideStage { position: relative; display: flex; min-height: 0; flex: 1; align-items: center; justify-content: center; overflow: hidden; background: #f3f3f1; }
+.designStage { position: relative; min-height: 58dvh; flex: 1; background: #f3f3f1; }
+.dialogFooter { display: flex; min-height: 56px; flex-shrink: 0; align-items: center; justify-content: center; gap: 10px; overflow-x: auto; padding: 16px; border-top: 1px solid #e3e3e3; background: #fff; }
+.evidenceTrigger { display: inline-flex; min-height: 44px; align-items: center; justify-content: center; gap: 10px; padding: 10px 16px; border: 1px solid #b9b9b9; background: #fff; color: #333; font-size: 14px; font-weight: 600; line-height: 1.6; text-align: left; }
+.evidenceTrigger:hover { border-color: #eb6826; color: #eb6826; }
+.evidenceTriggerDark { border-color: #777; background: transparent; color: #fff; }
+
+.biddingGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 48px; margin-top: 40px; }
+.biddingCase { min-width: 0; padding: 32px; scroll-margin-top: 110px; border: 1px solid #e5e5e5; background: #f7f7f7; }
+.biddingHeading { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 20px; }
+.caseIcon { display: flex; width: 34px; height: 40px; flex-shrink: 0; align-items: center; justify-content: flex-start; color: #eb6826; }
+.biddingResult { color: #171717; font-size: 23px; font-weight: 650; letter-spacing: -0.04em; line-height: 1.5; }
+.biddingCase h3 { margin-top: 28px; font-size: 27px; font-weight: 600; line-height: 1.5; }
+.biddingCase dl { margin-top: 28px; border-bottom: 0; }
+.biddingCase dl > div { padding: 24px 0; }
+.biddingCase dl > div:last-child { padding-bottom: 0; }
+.biddingCase dt { padding-top: 4px; font-size: 14px; line-height: 1.7; }
+.biddingCase dd { font-size: 18px; line-height: 1.9; }
+.filter:focus-visible, .project:focus-visible, .dialogClose:focus-visible, .evidenceTrigger:focus-visible, .portfolioMenu:focus-visible, .trackLink:focus-visible { outline: 2px solid #eb6826; outline-offset: 5px; }
+
+@media (max-width: 1023px) {
+  .portfolioMenus { gap: 22px; }
+  .tracks { gap: 36px; }
+  .trackCopy h2 { font-size: 27px; }
+  .designGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .featuredAside { border-top: 1px solid #e3e3df; border-left: 0; padding: 36px; }
+  .caseGrid, .biddingGrid { gap: 36px; }
+}
+
+@media (max-width: 767px) {
+  .content { padding: 72px 20px; }
+  .portfolioMenus { grid-template-columns: 1fr; gap: 36px; margin-top: 36px; }
+  .menuImage { aspect-ratio: 16 / 10; }
+  .menuCopy > p { min-height: 0; font-size: 16px; }
+  .summaryGrid { padding: 10px 20px; }
+  .summaryGrid > div { padding: 26px 14px; }
+  .summaryNumber { font-size: 32px; }
+  .tracks, .caseGrid, .biddingGrid { grid-template-columns: 1fr; gap: 36px; }
+  .trackCopy h2 { font-size: 28px; }
+  .trackDescription, .trackPoints li { font-size: 16px; }
+  .case > div:first-child { padding: 24px; }
+  .case > div:nth-child(2) { padding: 24px; }
+  .biddingCase { padding: 26px; }
+  .biddingCase dd { font-size: 16px; }
+  .biddingCase dl > div { padding: 22px 0; }
+  .trackResult p { font-size: 42px; }
+  .featured { margin-top: 36px; }
+  .featured h2 { font-size: 28px; line-height: 1.4; }
+  .featuredAside { padding: 30px 24px; }
+  .filter { min-height: 50px; font-size: 14px; }
+  .filters { gap: 22px; }
+  .gallery > .filters { gap: 0 22px; }
+  .projectGrid, .designGrid { gap: 34px 20px; }
+  .dialogHeader { gap: 16px; padding: 18px; }
+  .dialogHeader h2 { font-size: 20px; }
+}
+
+@media (max-width: 639px) {
+  .summaryGrid { grid-template-columns: 1fr; }
+  .summaryGrid > div, .summaryGrid > div:first-child { display: flex; align-items: center; justify-content: space-between; gap: 22px; padding: 24px 0; text-align: right; }
+  .summaryGrid > div > p:last-child { max-width: 165px; margin-top: 0; font-size: 14px; line-height: 1.8; }
+  .summaryNumber { flex-shrink: 0; font-size: 37px; }
+  .projectGrid, .designGrid { grid-template-columns: 1fr; }
+  .projectCopy { padding-top: 20px; }
+  .designStage { min-height: 52dvh; }
+  .biddingCase h3 { font-size: 22px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .menuImage img, .filter, .dialogClose { transition: none; }
+  .portfolioMenu:hover .menuImage img { transform: none; }
+}

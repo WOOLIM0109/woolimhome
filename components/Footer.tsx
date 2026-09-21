@@ -1,73 +1,73 @@
 import Link from "next/link";
 import Image from "next/image";
-import { Clock, Lock, Mail, MapPin, Phone, Printer } from "lucide-react";
-import { navigation, site } from "@/data/site";
+import { ArrowUpRight, Lock } from "lucide-react";
+import { site } from "@/data/site";
 
 export default function Footer() {
   return (
-    <footer className="border-t border-[var(--line)] bg-[#111714] text-white">
-      <div className="mx-auto grid max-w-7xl gap-10 px-5 py-12 lg:grid-cols-[1.2fr_1fr_1fr] lg:px-8">
-        <div>
-          <div className="mb-4 flex items-center gap-3">
-            <span className="flex h-10 w-12 items-center justify-center overflow-hidden rounded-sm bg-white">
-              <Image src="/images/woolim-logo-cropped.png" alt="" width={80} height={55} className="h-9 w-12 object-contain" />
-            </span>
+    <footer className="border-t border-[#e8e8e8] bg-white text-[#161616]">
+      <div className="mx-auto max-w-[1504px] px-5 lg:px-12">
+        <div className="grid gap-12 py-16 lg:grid-cols-[1.15fr_1fr] lg:gap-24 lg:py-24">
+          <div>
+            <p className="text-sm font-semibold tracking-[0.12em] text-[#858585]">WOOLIM COMPANY</p>
+            <h2 className="mt-6 text-[2rem] leading-[1.45] font-bold tracking-[-0.045em] lg:text-[2.8rem]">
+              함께 만드는
+              <br />
+              기업의 다음 성장<span className="text-[#eb6826]">.</span>
+            </h2>
+            <Link
+              href="/contact"
+              className="mt-8 inline-flex items-center gap-12 border-b border-[#262626] pb-3 text-lg font-semibold transition-colors hover:border-[#eb6826] hover:text-[#eb6826] focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#eb6826]"
+            >
+              울림과 이야기 나누기
+              <ArrowUpRight size={18} aria-hidden="true" />
+            </Link>
+          </div>
+
+          <div className="lg:justify-self-end lg:pt-2">
             <div>
-              <p className="font-bold">{site.name}</p>
-              <p className="text-xs text-white/60">{site.englishName}</p>
+              <p className="text-sm font-semibold tracking-[0.08em] text-[#858585]">울림과 이야기 나누세요</p>
+              <a
+                href={`tel:${site.phone.replaceAll("-", "")}`}
+                className="mt-5 inline-block text-[2rem] font-semibold tracking-[-0.035em] hover:text-[#eb6826] focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#eb6826] lg:text-[2.5rem]"
+              >
+                {site.phone}
+              </a>
+              <a
+                href={`mailto:${site.email}`}
+                className="mt-3 block text-lg text-[#555] hover:text-[#eb6826] focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#eb6826]"
+              >
+                {site.email}
+              </a>
+              <p className="mt-6 text-base leading-7 text-[#777]">
+                {site.businessHours}
+                <br />
+                {site.closedDays} 휴무
+              </p>
+              <p className="mt-2 text-base leading-7 text-[#777]">FAX. {site.fax}</p>
             </div>
           </div>
-          <p className="max-w-md text-sm leading-7 text-white/68">{site.description}</p>
         </div>
 
-        <div>
-          <p className="mb-4 text-sm font-bold">바로가기</p>
-          <div className="grid grid-cols-2 gap-2 text-sm text-white/68">
-            {navigation.map((item) => (
-              <Link key={item.href} href={item.href} className="hover:text-white">
-                {item.label}
-              </Link>
-            ))}
+        <div className="grid gap-7 border-t border-[#e8e8e8] py-8 lg:grid-cols-[auto_1fr_auto] lg:items-center lg:gap-12">
+          <Link href="/" className="flex w-fit items-center gap-3 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#eb6826]" aria-label="울림컴퍼니 홈">
+            <Image src="/images/woolim-logo-cropped.png" alt="" width={80} height={55} className="h-9 w-11 object-contain" />
+            <span className="text-base font-bold tracking-[-0.025em]">{site.name}</span>
+          </Link>
+          <div className="text-base leading-7 text-[#737373]">
+            <p>{site.address}</p>
+            <p className="flex flex-wrap gap-x-4">
+              <span>대표 {site.representative}</span>
+              <span>사업자등록번호 {site.registrationNumber}</span>
+              <span>개인정보관리책임자 {site.representative}</span>
+            </p>
+            <p className="mt-1">© WOOLIM COMPANY. All rights reserved.</p>
           </div>
-        </div>
-
-        <div>
-          <p className="mb-4 text-sm font-bold">문의</p>
-          <ul className="space-y-3 text-sm text-white/68">
-            <li className="flex gap-2">
-              <Phone size={16} className="mt-0.5 shrink-0" /> {site.phone}
-            </li>
-            <li className="flex gap-2">
-              <Printer size={16} className="mt-0.5 shrink-0" /> {site.fax}
-            </li>
-            <li className="flex gap-2">
-              <Mail size={16} className="mt-0.5 shrink-0" /> {site.email}
-            </li>
-            <li className="flex gap-2">
-              <MapPin size={16} className="mt-0.5 shrink-0" /> <span>{site.address}</span>
-            </li>
-            <li className="flex gap-2">
-              <Clock size={16} className="mt-0.5 shrink-0" /> {site.businessHours} · {site.closedDays}
-            </li>
-          </ul>
-        </div>
-      </div>
-      <div className="border-t border-white/10 px-5 py-5 text-xs text-white/45">
-        <div className="mx-auto flex max-w-7xl flex-col items-center gap-3 sm:flex-row sm:justify-between">
-          <p className="text-center sm:text-left">
-            대표 {site.representative} · 사업자등록번호 {site.registrationNumber} · 개인정보관리책임자 {site.representative}
-          </p>
-          {/*
-            관리자 화면으로 바로 가는 길입니다. 주소를 외워서 치지 않아도 되게
-            모든 페이지 아래에 둡니다. 손님에게는 눈에 띄지 않을 만큼만 두되,
-            숨기지는 않습니다. /admin 은 로그인과 권한으로 막혀 있어서 링크가
-            보이는 것만으로 열리지 않습니다.
-          */}
           <Link
             href="/admin"
-            className="inline-flex shrink-0 items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-white/45 transition hover:bg-white/10 hover:text-white/80 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white/60"
+            className="inline-flex w-fit shrink-0 items-center gap-1.5 py-2 text-sm text-[#737373] transition-colors hover:text-[#161616] focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#eb6826]"
           >
-            <Lock size={13} aria-hidden="true" />
+            <Lock size={12} aria-hidden="true" />
             관리자
           </Link>
         </div>

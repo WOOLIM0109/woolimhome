@@ -1,0 +1,268 @@
+.sectionHeader {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 32px;
+  color: #171717;
+}
+
+.headerCopy { max-width: 760px; }
+
+.eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  color: #6a6a6a;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  line-height: 1.5;
+}
+
+.eyebrow::before {
+  content: "";
+  width: 23px;
+  height: 2px;
+  background: #eb6826;
+}
+
+.sectionTitle {
+  margin: 20px 0 0;
+  color: inherit;
+  font-family: inherit;
+  font-size: clamp(28px, 3.1vw, 42px);
+  font-weight: 750;
+  letter-spacing: -0.03em;
+  line-height: 1.3;
+  word-break: keep-all;
+}
+
+.sectionDescription {
+  max-width: 760px;
+  margin: 20px 0 0;
+  color: #737373;
+  font-size: 18px;
+  line-height: 1.9;
+  word-break: keep-all;
+}
+
+.sectionLink {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 28px;
+  padding: 10px 0;
+  border-bottom: 1px solid #9b9b9b;
+  color: inherit;
+  font-size: 16px;
+  font-weight: 600;
+  transition: color 160ms ease, border-color 160ms ease;
+}
+
+.sectionLink:hover { border-color: #eb6826; color: #eb6826; }
+.centered { flex-direction: column; align-items: center; text-align: center; }
+.centered .sectionDescription { margin-right: auto; margin-left: auto; }
+.light { color: #fff; }
+.light .eyebrow, .light .sectionDescription { color: #c9c9c9; }
+.light .sectionLink:hover { color: #eb6826; }
+
+.contact { border-top: 1px solid #e7e7e7; background: #f6f6f4; color: #171717; }
+
+.contactInner, .faqInner {
+  width: 100%;
+  max-width: 1504px;
+  margin: 0 auto;
+  padding: 96px 48px;
+}
+
+.contactInner { display: flex; align-items: center; justify-content: space-between; gap: 64px; }
+.contactCopy { max-width: 760px; }
+
+.contactTitle {
+  margin: 22px 0 0;
+  font-family: inherit;
+  font-size: clamp(34px, 4vw, 54px);
+  font-weight: 750;
+  letter-spacing: -0.035em;
+  line-height: 1.3;
+  word-break: keep-all;
+}
+
+.contactDescription {
+  margin-top: 24px;
+  color: #737373;
+  font-size: 17px;
+  line-height: 1.9;
+  word-break: keep-all;
+}
+
+.contactActions {
+  display: flex;
+  flex: 0 0 240px;
+  flex-direction: column;
+  align-items: center;
+  gap: 24px;
+}
+
+.contactButton {
+  display: flex;
+  width: 100%;
+  min-height: 64px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 36px;
+  padding: 20px 28px;
+  background: #eb6826;
+  color: #fff;
+  font-size: 18px;
+  font-weight: 700;
+  transition: background 160ms ease;
+}
+
+.contactButton:hover { background: #eb6826; }
+.contactPhone {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 3px 0;
+  color: #555;
+  font-size: 17px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+}
+.contactPhone:hover { color: #171717; }
+
+.faq { background: #fff; }
+.faqInner { display: grid; grid-template-columns: 0.8fr 1.2fr; align-items: start; gap: 96px; }
+.faqList { border-top: 1px solid #222; }
+.faqItem { border-bottom: 1px solid #e3e3e3; }
+.faqQuestion {
+  display: flex;
+  align-items: baseline;
+  gap: 22px;
+  padding: 26px 0;
+  color: #272727;
+  cursor: pointer;
+  list-style: none;
+}
+.faqQuestion::-webkit-details-marker { display: none; }
+.faqQuestion h3 {
+  flex: 1;
+  font-family: inherit;
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.03em;
+  line-height: 1.7;
+  word-break: keep-all;
+}
+.faqQuestion:hover h3 { color: #eb6826; }
+.faqNumber { flex: 0 0 20px; color: #858585; font-size: 14px; font-weight: 500; }
+.faqIcon { flex: 0 0 20px; align-self: center; color: #777; transition: transform 180ms ease; }
+.faqItem[open] .faqIcon { transform: rotate(45deg); color: #eb6826; }
+.faqAnswer {
+  margin: -4px 42px 28px;
+  color: #737373;
+  font-size: 17px;
+  line-height: 1.95;
+  word-break: keep-all;
+}
+
+.comparison {
+  width: 100%;
+  border-collapse: collapse;
+  border-top: 0;
+  table-layout: fixed;
+  background: #fff;
+  text-align: left;
+  font-size: 17px;
+  line-height: 1.85;
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+}
+.comparisonAxis { width: 16%; }
+.comparisonOthers { width: 34%; }
+.comparisonWoolim { width: 50%; }
+.comparison th, .comparison td { padding: 30px 28px; border-bottom: 1px solid #e7e7e7; vertical-align: middle; }
+.comparison thead th { background: #f0f0f0; color: #686868; font-size: 18px; font-weight: 500; }
+.comparison thead .comparisonBrand { background: #eb6826; color: #fff; font-size: 25px; font-weight: 700; }
+.comparison tbody th { color: #2f2f2f; font-weight: 600; }
+.comparison td { color: #777; }
+.comparison .comparisonValue { border-left: 2px solid #eb6826; border-right: 2px solid #eb6826; color: #171717; font-size: 20px; font-weight: 650; }
+.comparison tr:last-child .comparisonValue { border-bottom: 2px solid #eb6826; }
+.comparisonValue > span { display: flex; align-items: flex-start; gap: 16px; }
+.comparisonValue svg { flex-shrink: 0; margin-top: 6px; color: #eb6826; stroke-width: 2.2; }
+
+.clients { border-top: 1px solid #ededed; border-bottom: 1px solid #ededed; background: #fff; }
+.clientViewport { overflow: hidden; padding: 30px 0; }
+.clientTrack { display: flex; width: max-content; animation: client-scroll 55s linear infinite; }
+.clientTrack:hover, .clientTrack:focus-within { animation-play-state: paused; }
+.clientRow { display: flex; align-items: center; gap: 64px; margin: 0; padding: 0 32px; list-style: none; }
+.clientLogo {
+  display: flex;
+  width: 160px;
+  min-height: 58px;
+  flex-shrink: 0;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+}
+.clientImage { position: relative; width: 160px; height: 44px; }
+.logoImage { object-fit: contain; }
+.clientSupportingLabel { color: #444; font-size: 13px; font-weight: 600; }
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+.sectionLink:focus-visible, .contactButton:focus-visible, .contactPhone:focus-visible, .faqQuestion:focus-visible {
+  outline: 2px solid #eb6826;
+  outline-offset: 5px;
+}
+
+@keyframes client-scroll { to { transform: translateX(-50%); } }
+
+@media (max-width: 1023px) {
+  .faqInner { grid-template-columns: 1fr; gap: 40px; }
+  .contactInner { gap: 40px; }
+}
+
+@media (max-width: 639px) {
+  .sectionHeader { align-items: flex-start; flex-direction: column; gap: 20px; }
+  .sectionHeader.centered { align-items: center; }
+  .sectionTitle { margin-top: 16px; }
+  .sectionDescription { font-size: 17px; }
+  .contactInner, .faqInner { padding: 64px 20px; }
+  .contactInner { align-items: stretch; flex-direction: column; gap: 32px; }
+  .contactActions { flex-basis: auto; align-items: flex-start; gap: 20px; }
+  .contactButton { width: auto; min-width: 230px; min-height: 56px; padding: 17px 24px; }
+  .faqQuestion { gap: 14px; padding: 22px 0; }
+  .faqQuestion h3 { font-size: 18px; }
+  .faqAnswer { margin-right: 0; margin-left: 34px; font-size: 16px; }
+  .comparison { display: block; border: 0; font-size: 16px; line-height: 1.8; }
+  .comparison colgroup, .comparison thead { display: none; }
+  .comparison tbody { display: grid; gap: 24px; }
+  .comparison tr { display: grid; border: 1px solid #e0e0e0; }
+  .comparison th, .comparison td { display: block; padding: 20px; border: 0; }
+  .comparison tbody th { padding-bottom: 12px; font-size: 18px; font-weight: 650; }
+  .comparison td[data-label]::before { content: attr(data-label); display: block; margin-bottom: 7px; font-size: 14px; font-weight: 600; }
+  .comparison .comparisonValue { grid-row: 2; margin: 0 20px; padding: 20px 0; border: 0; border-top: 3px solid #eb6826; font-size: 18px; }
+  .comparison .comparisonValue::before { color: #eb6826; }
+  .comparison td:not(.comparisonValue) { border-top: 1px solid #e7e7e7; background: #f7f7f7; }
+  .comparison tr:last-child .comparisonValue { border-bottom: 0; }
+  .comparisonValue svg { width: 21px; margin-top: 5px; }
+  .clientRow { gap: 40px; padding-right: 20px; padding-left: 20px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .clientTrack { width: 100%; animation: none; }
+  .clientRow { width: 100%; flex-wrap: wrap; justify-content: center; gap: 26px 32px; }
+  .clientRow[aria-hidden="true"] { display: none; }
+  .clientLogo, .clientImage { width: min(160px, 35vw); }
+  .sectionLink, .contactButton, .faqIcon { transition: none; }
+}

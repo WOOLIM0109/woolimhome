@@ -1,5 +1,7 @@
 "use client";
 
+import styles from "./PortfolioSuccess.module.css";
+
 import Image from "next/image";
 import { useEffect, useMemo, useState } from "react";
 import { ChevronLeft, ChevronRight, Images, Star, X } from "lucide-react";
@@ -13,12 +15,12 @@ type PortfolioProject = (typeof designPortfolioProjects)[number];
 type CategoryKey = (typeof designPortfolioCategories)[number]["key"];
 
 const stageTone: Record<PortfolioProject["preview"], string> = {
-  spread: "bg-[#edf3ea]",
-  identity: "bg-[#f1edf5]",
-  mockup: "bg-[#edf2f6]",
-  square: "bg-[#fff0d9]",
-  poster: "bg-[#e9f2f0]",
-  banner: "bg-[#e6f2ed]",
+  spread: "bg-[#f3f3f1]",
+  identity: "bg-[#f3f3f1]",
+  mockup: "bg-[#f3f3f1]",
+  square: "bg-[#f3f3f1]",
+  poster: "bg-[#f3f3f1]",
+  banner: "bg-[#f3f3f1]",
 };
 
 function ProjectPreview({ project }: { project: PortfolioProject }) {
@@ -29,7 +31,7 @@ function ProjectPreview({ project }: { project: PortfolioProject }) {
     <div className={`relative aspect-[4/3] overflow-hidden ${stageTone[project.preview]}`}>
       {project.preview === "spread" && (
         <div className="absolute inset-0 flex items-center justify-center p-5 sm:p-7">
-          <div className="relative aspect-[2.09/1] w-full overflow-hidden bg-white shadow-[0_18px_38px_rgba(42,56,36,0.2)]">
+          <div className="relative aspect-[2.09/1] w-full overflow-hidden bg-white">
             <Image
               src={cover.src}
               alt={cover.alt}
@@ -43,7 +45,7 @@ function ProjectPreview({ project }: { project: PortfolioProject }) {
 
       {project.preview === "identity" && (
         <div className="absolute inset-0 flex items-center justify-center p-6">
-          <div className="relative h-[48%] w-[86%] bg-white shadow-[0_18px_38px_rgba(71,45,84,0.16)]">
+          <div className="relative h-[48%] w-[86%] bg-white">
             <Image
               src={cover.src}
               alt={cover.alt}
@@ -52,7 +54,7 @@ function ProjectPreview({ project }: { project: PortfolioProject }) {
               className="object-contain p-7"
             />
           </div>
-          <div className="absolute bottom-[12%] right-[9%] h-[24%] w-[24%] bg-white shadow-[0_12px_28px_rgba(71,45,84,0.18)]">
+          <div className="absolute bottom-[12%] right-[9%] h-[24%] w-[24%] bg-white">
             <Image src={secondary.src} alt={secondary.alt} fill sizes="120px" className="object-contain p-3" />
           </div>
         </div>
@@ -60,7 +62,7 @@ function ProjectPreview({ project }: { project: PortfolioProject }) {
 
       {project.preview === "mockup" && (
         <div className="absolute inset-0 flex items-center justify-center p-5 sm:p-7">
-          <div className="relative h-full w-full overflow-hidden bg-white shadow-[0_18px_38px_rgba(42,56,36,0.18)]">
+          <div className="relative h-full w-full overflow-hidden bg-white">
             <Image
               src={cover.src}
               alt={cover.alt}
@@ -75,11 +77,11 @@ function ProjectPreview({ project }: { project: PortfolioProject }) {
       {project.preview === "square" && (
         <div className="absolute inset-0 flex items-center justify-center p-5">
           {project.images.length > 1 && (
-            <div className="absolute left-[12%] top-[15%] aspect-square w-[53%] rotate-[-4deg] overflow-hidden bg-white shadow-[0_14px_28px_rgba(72,48,21,0.18)]">
+            <div className="absolute left-[12%] top-[15%] aspect-square w-[53%] overflow-hidden bg-white">
               <Image src={secondary.src} alt={secondary.alt} fill sizes="260px" className="object-contain p-1" />
             </div>
           )}
-          <div className="relative ml-[16%] aspect-square w-[62%] rotate-[2deg] overflow-hidden bg-white shadow-[0_18px_38px_rgba(72,48,21,0.22)]">
+          <div className="relative ml-[16%] aspect-square w-[62%] overflow-hidden bg-white">
             <Image
               src={cover.src}
               alt={cover.alt}
@@ -93,7 +95,7 @@ function ProjectPreview({ project }: { project: PortfolioProject }) {
 
       {project.preview === "poster" && (
         <div className="absolute inset-0 flex items-center justify-center p-5">
-          <div className="relative h-[88%] w-[50%] overflow-hidden bg-white shadow-[0_18px_38px_rgba(32,62,58,0.22)]">
+          <div className="relative h-[88%] w-[50%] overflow-hidden bg-white">
             <Image
               src={cover.src}
               alt={cover.alt}
@@ -107,7 +109,7 @@ function ProjectPreview({ project }: { project: PortfolioProject }) {
 
       {project.preview === "banner" && (
         <div className="absolute inset-0 flex items-center justify-center p-5">
-          <div className="relative aspect-[3.17/1] w-[92%] overflow-hidden bg-white shadow-[0_18px_36px_rgba(27,72,60,0.2)]">
+          <div className="relative aspect-[3.17/1] w-[92%] overflow-hidden bg-white">
             <Image
               src={cover.src}
               alt={cover.alt}
@@ -120,13 +122,13 @@ function ProjectPreview({ project }: { project: PortfolioProject }) {
       )}
 
       {project.featured && (
-        <span className="absolute left-3 top-3 inline-flex items-center gap-1.5 rounded-md bg-white/92 px-2.5 py-1.5 text-xs font-black text-[#b94c18] shadow-sm backdrop-blur-sm">
+        <span className="absolute left-3 top-3 inline-flex items-center gap-1.5 bg-white/92 px-2.5 py-1.5 text-[14px] font-bold text-[#eb6826] backdrop-blur-sm">
           <Star size={14} aria-hidden="true" fill="currentColor" />
           대표작
         </span>
       )}
 
-      <span className="absolute bottom-3 right-3 inline-flex items-center gap-1.5 rounded-md bg-[#17120f]/78 px-2.5 py-1.5 text-xs font-bold text-white backdrop-blur-sm">
+      <span className="absolute bottom-3 right-3 inline-flex items-center gap-1.5 bg-black/75 px-2.5 py-1.5 text-[14px] font-bold text-white backdrop-blur-sm">
         <Images size={14} aria-hidden="true" />
         {project.images.length}
       </span>
@@ -192,19 +194,15 @@ export default function DesignPortfolioGallery() {
   }, [selectedProject]);
 
   return (
-    <div>
+    <div className={styles.gallery}>
       <div className="overflow-x-auto pb-2" role="group" aria-label="디자인 포트폴리오 종류">
-        <div className="flex w-max min-w-full gap-1 rounded-lg border border-[var(--line)] bg-[#f6f2ee] p-1">
+        <div className={styles.filters}>
           {designPortfolioCategories.map((category) => (
             <button
               key={category.key}
               type="button"
               onClick={() => setActiveCategory(category.key)}
-              className={`whitespace-nowrap rounded-md px-4 py-2.5 text-sm font-bold transition ${
-                activeCategory === category.key
-                  ? "bg-white text-[#241b15] shadow-[0_5px_16px_rgba(48,36,29,0.12)]"
-                  : "text-[var(--muted)] hover:bg-white/70 hover:text-[#241b15]"
-              }`}
+              className={styles.filter}
               aria-pressed={activeCategory === category.key}
             >
               {category.label}
@@ -213,8 +211,8 @@ export default function DesignPortfolioGallery() {
         </div>
       </div>
 
-      <div className="mt-4 flex items-center justify-between border-b border-[var(--line)] pb-4 text-sm">
-        <p className="font-bold text-[#34281f]">
+      <div className="mt-4 flex items-center justify-between border-b border-[var(--line)] pb-4 text-base lg:text-[17px]">
+        <p className="font-bold text-[#171717]">
           {activeCategory === "all"
             ? "전체 작업"
             : designPortfolioCategories.find((category) => category.key === activeCategory)?.label}
@@ -222,30 +220,30 @@ export default function DesignPortfolioGallery() {
         <p className="text-[var(--muted)]">{visibleProjects.length}개 프로젝트</p>
       </div>
 
-      <div className="mt-6 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+      <div className={styles.designGrid}>
         {visibleProjects.map((project) => (
           <button
             id={project.id}
             key={project.id}
             type="button"
             onClick={() => openProject(project)}
-            className="group scroll-mt-28 overflow-hidden rounded-lg border border-[var(--line)] bg-white text-left shadow-[var(--shadow-card)] transition duration-200 hover:-translate-y-1 hover:border-[#dec1ac] hover:shadow-[var(--shadow-float)] focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[var(--primary)]"
+            className={`${styles.project} group`}
             aria-label={`${project.client} ${project.title} 상세 보기`}
           >
             <ProjectPreview project={project} />
-            <span className="block p-5">
-              <span className="text-xs font-bold text-[var(--primary)]">
+            <span className={styles.projectCopy}>
+              <span className="text-[14px] font-bold text-[#eb6826]">
                 {getDesignCategoryLabel(project.category)}
               </span>
-              <strong className="mt-2 block text-xl font-black text-[#241b15]">{project.client}</strong>
-              <span className="mt-1 block text-sm font-semibold text-[#50443b]">{project.title}</span>
-              <span className="mt-3 block text-sm leading-6 text-[var(--muted)]">{project.deliverables}</span>
+              <strong className="mt-2 block text-xl font-bold text-[#171717]">{project.client}</strong>
+              <span className="mt-1 block text-base lg:text-[17px] font-semibold text-[#555555]">{project.title}</span>
+              <span className="mt-3 block text-base lg:text-[17px] leading-6 text-[var(--muted)]">{project.deliverables}</span>
             </span>
           </button>
         ))}
       </div>
 
-      <p className="mt-8 border-t border-[var(--line)] pt-5 text-sm leading-7 text-[var(--muted)]">
+      <p className="mt-8 border-t border-[var(--line)] pt-5 text-base lg:text-[17px] leading-7 text-[var(--muted)]">
         공개 가능한 범위의 실제 제작물을 사용했으며, 고객 정보와 일부 세부 내용은 공개 범위에 맞춰 정리했습니다.
       </p>
 
@@ -258,23 +256,23 @@ export default function DesignPortfolioGallery() {
           aria-labelledby="design-project-title"
         >
           <div
-            className="relative flex max-h-[94vh] w-full max-w-6xl flex-col overflow-hidden rounded-lg bg-[#17120f] shadow-2xl"
+            className={styles.dialog}
             onClick={(event) => event.stopPropagation()}
           >
-            <div className="flex items-start justify-between gap-4 border-b border-white/10 px-5 py-4 text-white sm:px-6">
+            <div className={styles.dialogHeader}>
               <div>
-                <p className="text-xs font-bold text-[#ff9a63]">
+                <p className="text-[14px] font-bold text-[#eb6826]">
                   {getDesignCategoryLabel(selectedProject.category)} · {selectedProject.deliverables}
                 </p>
-                <h2 id="design-project-title" className="mt-1 text-lg font-black sm:text-2xl">
+                <h2 id="design-project-title" className="mt-1 text-lg font-bold sm:text-2xl">
                   {selectedProject.client}
                 </h2>
-                <p className="mt-1 text-xs text-white/65 sm:text-sm">{selectedProject.title}</p>
+                <p className="mt-1 text-[14px] text-[#737373] sm:text-base lg:text-[17px]">{selectedProject.title}</p>
               </div>
               <button
                 type="button"
                 onClick={closeProject}
-                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white/10 text-white transition hover:bg-white/20"
+                className={styles.dialogClose}
                 aria-label="프로젝트 상세 닫기"
                 title="닫기"
                 autoFocus
@@ -283,21 +281,21 @@ export default function DesignPortfolioGallery() {
               </button>
             </div>
 
-            <div className="relative min-h-[54vh] flex-1 bg-[#e9e6e1] sm:min-h-[64vh]">
+            <div className={styles.designStage}>
               <Image
                 src={selectedProject.images[activeImage].src}
                 alt={selectedProject.images[activeImage].alt}
                 fill
                 sizes="100vw"
                 className="object-contain p-3 sm:p-7"
-                priority
+                loading="eager"
               />
               {selectedProject.images.length > 1 && (
                 <>
                   <button
                     type="button"
                     onClick={showPreviousImage}
-                    className="absolute left-2 top-1/2 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full bg-black/58 text-white backdrop-blur-sm transition hover:bg-black/80 sm:left-4"
+                    className="absolute left-2 top-1/2 flex h-11 w-11 -translate-y-1/2 items-center justify-center bg-black/58 text-white backdrop-blur-sm transition hover:bg-black/80 sm:left-4"
                     aria-label="이전 이미지"
                     title="이전 이미지"
                   >
@@ -306,7 +304,7 @@ export default function DesignPortfolioGallery() {
                   <button
                     type="button"
                     onClick={showNextImage}
-                    className="absolute right-2 top-1/2 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full bg-black/58 text-white backdrop-blur-sm transition hover:bg-black/80 sm:right-4"
+                    className="absolute right-2 top-1/2 flex h-11 w-11 -translate-y-1/2 items-center justify-center bg-black/58 text-white backdrop-blur-sm transition hover:bg-black/80 sm:right-4"
                     aria-label="다음 이미지"
                     title="다음 이미지"
                   >
@@ -316,21 +314,21 @@ export default function DesignPortfolioGallery() {
               )}
             </div>
 
-            <div className="flex min-h-14 items-center justify-center gap-2 overflow-x-auto border-t border-white/10 px-4 py-3">
+            <div className={styles.dialogFooter}>
               {selectedProject.images.length > 1 &&
                 selectedProject.images.map((image, index) => (
                   <button
                     key={image.src}
                     type="button"
                     onClick={() => setActiveImage(index)}
-                    className={`h-2.5 rounded-full transition ${
-                      activeImage === index ? "w-8 bg-[#ff7a3d]" : "w-2.5 bg-white/35 hover:bg-white/60"
+                    className={`h-2.5  transition ${
+                      activeImage === index ? "w-8 bg-[#eb6826]" : "w-2.5 bg-[#d0d0d0] hover:bg-[#aaaaaa]"
                     }`}
                     aria-label={`${index + 1}번 이미지 보기`}
                     aria-current={activeImage === index ? "true" : undefined}
                   />
                 ))}
-              <span className="ml-2 text-xs font-semibold text-white/65">
+              <span className="ml-2 text-[14px] font-semibold text-[#737373]">
                 {activeImage + 1} / {selectedProject.images.length}
               </span>
             </div>

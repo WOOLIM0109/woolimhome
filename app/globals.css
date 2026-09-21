@@ -1,13 +1,4 @@
-@import url("https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css");
 @import "tailwindcss";
-
-@font-face {
-  font-family: "Paperlogy";
-  font-style: normal;
-  font-display: swap;
-  font-weight: 700;
-  src: url("/fonts/Paperlogy-7Bold.ttf") format("truetype");
-}
 
 :root {
   --background: #fffaf7;
@@ -34,8 +25,8 @@
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: "Pretendard", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  --font-display: "Paperlogy", "Pretendard", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-sans: var(--font-pretendard), -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-display: var(--font-pretendard), -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 
 /* ---------------------------------------------------------------- */
@@ -55,14 +46,14 @@
     margin: 0;
     background: var(--background);
     color: var(--foreground);
-    font-family: "Pretendard", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    font-family: var(--font-pretendard), -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     letter-spacing: 0;
   }
 
   h1,
   h2,
   h3 {
-    font-family: "Paperlogy", "Pretendard", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    font-family: inherit;
     letter-spacing: 0;
     font-weight: 700;
   }
@@ -87,6 +78,24 @@
   ::selection {
     background: rgba(235, 104, 38, 0.2);
   }
+}
+
+.public-site {
+  --brand-gradient: #eb6826;
+  --brand-gradient-soft: #f7f7f7;
+  --shadow-button: none;
+  --primary-strong: #eb6826;
+  --accent: #eb6826;
+  --accent-soft: #f5f5f5;
+  --background: #fff;
+  --foreground: #171717;
+  --muted: #6b6b6b;
+  --line: #e7e7e7;
+  --surface-strong: #f7f7f7;
+  --deep: #262626;
+  --deep-2: #171717;
+  color: var(--foreground);
+  background: var(--background);
 }
 
 /* ---------------------------------------------------------------- */

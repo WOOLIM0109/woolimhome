@@ -1,3 +1,4 @@
+import styles from "@/components/PortfolioSuccess.module.css";
 import type { Metadata } from "next";
 import ContactBand from "@/components/ContactBand";
 import JsonLd from "@/components/JsonLd";
@@ -18,7 +19,7 @@ const businessIrCategories = projectDocCategories.filter((category) => category.
 
 export default function PortfolioBusinessIrPage() {
   return (
-    <>
+    <div className={styles.page}>
       <JsonLd
         data={[
           breadcrumbSchema([
@@ -42,11 +43,11 @@ export default function PortfolioBusinessIrPage() {
         description="사업모델·시장성·수익구조·투자 설득 흐름을 체계적으로 정리한 사업계획서와 IR 자료입니다."
       />
       <section className="bg-white">
-        <div className="mx-auto max-w-7xl px-5 py-16 lg:px-8 lg:py-20">
+        <div className={styles.content}>
           <ProjectGallery allowedCategories={["ir"]} defaultCategory="ir" />
         </div>
       </section>
       <ContactBand />
-    </>
+    </div>
   );
 }

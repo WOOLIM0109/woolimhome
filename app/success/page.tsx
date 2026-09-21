@@ -1,3 +1,4 @@
+import styles from "@/components/PortfolioSuccess.module.css";
 import Link from "next/link";
 import type { Metadata } from "next";
 import { ArrowRight, CheckCircle2, Gavel, Landmark } from "lucide-react";
@@ -81,7 +82,7 @@ const representativeResults = [
 
 export default function SuccessPage() {
   return (
-    <>
+    <div className={styles.page}>
       <JsonLd
         data={[
           breadcrumbSchema([{ name: "홈", href: "/" }, { name: "성공사례", href: "/success" }]),
@@ -95,8 +96,8 @@ export default function SuccessPage() {
         description="기업의 상황을 진단하고 전략, 문서, 발표를 연결해 선정·유치·낙찰·입점으로 이어진 실제 사례입니다."
       />
 
-      <section className="border-b border-[var(--line)] bg-[#f5efe9]" aria-label="울림컴퍼니 대표 성과">
-        <div className="mx-auto grid max-w-7xl sm:grid-cols-3">
+      <section className="border-b border-[var(--line)] bg-[#f6f6f4]" aria-label="울림컴퍼니 대표 성과">
+        <div className={styles.summaryGrid}>
           {summary.map((item, index) => (
             <div
               key={item.label}
@@ -106,97 +107,62 @@ export default function SuccessPage() {
                   : "px-5 py-8 text-center sm:px-7 sm:text-left lg:py-10"
               }
             >
-              <p className="text-4xl font-black text-[var(--primary)] lg:text-5xl">{item.value}</p>
-              <p className="mt-2 text-sm font-semibold leading-6 text-[#5c4d43]">{item.label}</p>
+              <p className={styles.summaryNumber}>{item.value}</p>
+              <p className="mt-2 text-base lg:text-[17px] font-semibold leading-6 text-[#666666]">{item.label}</p>
             </div>
           ))}
         </div>
       </section>
 
       <section className="bg-white">
-        <div className="mx-auto max-w-7xl px-5 py-16 lg:px-8 lg:py-24">
+        <div className={styles.content}>
           <SectionHeader
             eyebrow="성과 분야"
             title="필요한 결과에 맞춰 확인하세요"
             description="지원사업 선정과 입찰·입점은 준비 방식이 다릅니다. 각 분야에서 기업 과제, 울림 수행, 최종 성과를 같은 순서로 공개합니다."
           />
 
-          <div className="mt-10 grid items-stretch gap-5 lg:grid-cols-2">
+          <div className={styles.tracks}>
             {successTracks.map((track) => {
               const Icon = track.icon;
-              const green = track.accent === "green";
               return (
-                <article
-                  key={track.href}
-                  className={
-                    green
-                      ? "flex h-full flex-col overflow-hidden rounded-lg border border-[#cdded8] bg-[#f4f8f6] shadow-[var(--shadow-card)]"
-                      : "flex h-full flex-col overflow-hidden rounded-lg border border-[#ecd8ca] bg-[#fff8f2] shadow-[var(--shadow-card)]"
-                  }
-                >
-                  <div className="flex flex-1 flex-col p-6 sm:p-8">
-                    <div className="flex items-center gap-3">
-                      <span
-                        className={
-                          green
-                            ? "flex h-11 w-11 items-center justify-center rounded-lg bg-[#1f6454] text-white"
-                            : "flex h-11 w-11 items-center justify-center rounded-lg bg-[var(--primary)] text-white"
-                        }
-                      >
-                        <Icon size={22} aria-hidden="true" />
-                      </span>
-                      <p className={green ? "text-sm font-bold text-[#1f6454]" : "text-sm font-bold text-[var(--primary)]"}>
-                        {track.eyebrow}
-                      </p>
+                <article key={track.href} className={styles.track}>
+                  <div className={styles.trackCopy}>
+                    <div className={styles.trackLabel}>
+                      <Icon size={24} aria-hidden="true" />
+                      <p>{track.eyebrow}</p>
                     </div>
-
-                    <h2 className="mt-6 text-3xl font-black leading-[1.3] text-[#211811]">{track.title}</h2>
-                    <p className="mt-4 text-sm leading-7 text-[var(--muted)]">{track.description}</p>
-
-                    <div className="mt-8 border-y border-current/10 py-6">
-                      <p className={green ? "text-4xl font-black text-[#1f6454]" : "text-4xl font-black text-[var(--primary)]"}>
-                        {track.result}
-                      </p>
-                      <p className="mt-2 text-sm font-bold text-[#3d3027]">{track.resultLabel}</p>
+                    <h2>{track.title}</h2>
+                    <p className={styles.trackDescription}>{track.description}</p>
+                    <div className={styles.trackResult}>
+                      <p>{track.result}</p>
+                      <span>{track.resultLabel}</span>
                     </div>
-
-                    <ul className="mt-6 flex-1 space-y-3">
+                    <ul className={styles.trackPoints}>
                       {track.points.map((point) => (
-                        <li key={point} className="flex gap-3 text-sm leading-7 text-[#4a3c33]">
-                          <CheckCircle2
-                            size={17}
-                            className={green ? "mt-1 shrink-0 text-[#1f6454]" : "mt-1 shrink-0 text-[var(--primary)]"}
-                            aria-hidden="true"
-                          />
+                        <li key={point}>
+                          <CheckCircle2 size={17} aria-hidden="true" />
                           {point}
                         </li>
                       ))}
                     </ul>
                   </div>
-
-                  <Link
-                    href={track.href}
-                    className={
-                      green
-                        ? "flex min-h-14 items-center justify-between border-t border-[#cdded8] px-6 text-sm font-black text-[#1f6454] transition hover:bg-white sm:px-8"
-                        : "flex min-h-14 items-center justify-between border-t border-[#ecd8ca] px-6 text-sm font-black text-[var(--primary)] transition hover:bg-white sm:px-8"
-                    }
-                  >
+                  <Link href={track.href} className={styles.trackLink}>
                     상세 성공사례 보기
-                    <ArrowRight size={17} aria-hidden="true" />
+                    <ArrowRight size={18} aria-hidden="true" />
                   </Link>
                 </article>
               );
             })}
           </div>
 
-          <p className="mt-7 text-center text-xs leading-6 text-[var(--muted)]">
+          <p className="mt-7 text-center text-[14px] leading-6 text-[var(--muted)]">
             모든 고객사는 업종형 익명명으로 표기하며, 고객사 보호 범위 안에서 성과 수치와 사업명만 제공합니다.
           </p>
         </div>
       </section>
 
       <ContactBand />
-    </>
+    </div>
   );
 }

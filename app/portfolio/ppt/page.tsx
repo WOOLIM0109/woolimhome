@@ -1,3 +1,4 @@
+import styles from "@/components/PortfolioSuccess.module.css";
 import type { Metadata } from "next";
 import ContactBand from "@/components/ContactBand";
 import JsonLd from "@/components/JsonLd";
@@ -18,7 +19,7 @@ const pptCategories = projectDocCategories.filter((category) => ["intro", "propo
 
 export default function PortfolioPptPage() {
   return (
-    <>
+    <div className={styles.page}>
       <JsonLd
         data={[
           breadcrumbSchema([
@@ -42,11 +43,11 @@ export default function PortfolioPptPage() {
         description="회사소개서·제안서·보고서·발표자료까지, 목적에 맞춰 설계한 기획형 PPT 결과물입니다."
       />
       <section className="bg-white">
-        <div className="mx-auto max-w-7xl px-5 py-16 lg:px-8 lg:py-20">
+        <div className={styles.content}>
           <ProjectGallery allowedCategories={["intro", "proposal", "report"]} />
         </div>
       </section>
       <ContactBand />
-    </>
+    </div>
   );
 }

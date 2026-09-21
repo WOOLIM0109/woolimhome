@@ -1,3 +1,4 @@
+import styles from "@/components/PortfolioSuccess.module.css";
 import type { Metadata } from "next";
 import { CheckCircle2, FileText, Route, Target } from "lucide-react";
 import ContactBand from "@/components/ContactBand";
@@ -32,7 +33,7 @@ export default function FundingSuccessPage() {
   const [featuredCase, ...otherCases] = consultingCases;
 
   return (
-    <>
+    <div className={styles.page}>
       <JsonLd
         data={[
           breadcrumbSchema([
@@ -57,22 +58,22 @@ export default function FundingSuccessPage() {
         description="기업의 성장 단계와 과제 목적을 진단하고 사업계획서, R&D 전략, 발표자료를 연결해 실제 선정으로 이어진 사례입니다."
       />
 
-      <section className="border-b border-[var(--line)] bg-[#f5efe9]" aria-label="정부지원사업 성과 요약">
-        <div className="mx-auto grid max-w-7xl sm:grid-cols-3">
+      <section className="border-b border-[var(--line)] bg-[#f6f6f4]" aria-label="정부지원사업 성과 요약">
+        <div className={styles.summaryGrid}>
           {summary.map((item, index) => (
             <div
               key={item.label}
               className={`px-5 py-8 text-center sm:px-7 sm:text-left lg:py-10 ${index ? "border-t border-[var(--line)] sm:border-l sm:border-t-0" : ""}`}
             >
-              <p className="text-4xl font-black text-[var(--primary)] lg:text-5xl">{item.value}</p>
-              <p className="mt-2 text-sm font-semibold text-[#5c4d43]">{item.label}</p>
+              <p className={styles.summaryNumber}>{item.value}</p>
+              <p className="mt-2 text-base lg:text-[17px] font-semibold text-[#666666]">{item.label}</p>
             </div>
           ))}
         </div>
       </section>
 
       <section className="bg-white">
-        <div className="mx-auto max-w-7xl px-5 py-16 lg:px-8 lg:py-24">
+        <div className={styles.content}>
           <SectionHeader
             eyebrow="대표 사례"
             title="한 번의 선정이 다음 성장으로 이어지도록"
@@ -81,38 +82,38 @@ export default function FundingSuccessPage() {
 
           <article
             id={`case-${featuredCase.slug}`}
-            className="mt-10 scroll-mt-28 overflow-hidden rounded-lg bg-[#1b1714] text-white shadow-[0_26px_64px_rgba(40,25,16,0.2)]"
+            className={styles.featured}
           >
             <div className="grid lg:grid-cols-[minmax(0,1.55fr)_minmax(290px,0.65fr)]">
               <div className="p-6 sm:p-9 lg:p-12">
-                <p className="text-xs font-bold text-[#f09a66]">FEATURED CASE · {featuredCase.company}</p>
-                <h2 className="mt-4 max-w-3xl text-3xl font-black leading-[1.25] sm:text-4xl lg:text-[2.8rem]">
+                <p className="text-[14px] font-bold text-[#eb6826]">FEATURED CASE · {featuredCase.company}</p>
+                <h2 className="mt-4 max-w-3xl text-3xl font-bold leading-[1.25] sm:text-4xl lg:text-[2.8rem]">
                   {featuredCase.title}
                 </h2>
-                <p className="mt-5 max-w-2xl text-base leading-8 text-white/68">{featuredCase.field}</p>
+                <p className="mt-5 max-w-2xl text-base lg:text-[18px] leading-8 text-[#555555]">{featuredCase.field}</p>
 
-                <dl className="mt-9 divide-y divide-white/12 border-y border-white/12">
+                <dl className="mt-9 divide-y divide-[#dededb] border-y border-[#dededb]">
                   <div className="grid gap-2 py-5 sm:grid-cols-[110px_1fr]">
-                    <dt className="text-xs font-bold text-[#f09a66]">기업 상황</dt>
-                    <dd className="text-sm leading-7 text-white/82">{featuredCase.challenge}</dd>
+                    <dt className="text-[14px] font-bold text-[#eb6826]">기업 상황</dt>
+                    <dd className="text-base lg:text-[17px] leading-7 text-[#555555]">{featuredCase.challenge}</dd>
                   </div>
                   <div className="grid gap-2 py-5 sm:grid-cols-[110px_1fr]">
-                    <dt className="text-xs font-bold text-[#f09a66]">울림 수행</dt>
-                    <dd className="text-sm leading-7 text-white/82">{featuredCase.approach}</dd>
+                    <dt className="text-[14px] font-bold text-[#eb6826]">울림 수행</dt>
+                    <dd className="text-base lg:text-[17px] leading-7 text-[#555555]">{featuredCase.approach}</dd>
                   </div>
                   <div className="grid gap-2 py-5 sm:grid-cols-[110px_1fr]">
-                    <dt className="text-xs font-bold text-[#f09a66]">연결 성과</dt>
-                    <dd className="text-sm font-bold leading-7 text-white">{featuredCase.resultSummary}</dd>
+                    <dt className="text-[14px] font-bold text-[#eb6826]">연결 성과</dt>
+                    <dd className="text-base lg:text-[17px] font-bold leading-7 text-[#555555]">{featuredCase.resultSummary}</dd>
                   </div>
                 </dl>
               </div>
 
-              <aside className="flex flex-col justify-between border-t border-white/12 bg-[#271f1a] p-6 sm:p-9 lg:border-l lg:border-t-0 lg:p-10">
+              <aside className={styles.featuredAside}>
                 <div>
-                  <p className="text-xs font-bold text-white/55">대표 선정 성과</p>
-                  <p className="mt-3 text-5xl font-black text-[#f47b35] lg:text-6xl">{featuredCase.headline}</p>
+                  <p className="text-[14px] font-bold text-[#555555]">대표 선정 성과</p>
+                  <p className="mt-3 text-5xl font-bold text-[#eb6826] lg:text-6xl">{featuredCase.headline}</p>
                   <p className="mt-4 text-lg font-bold leading-7">TIPS 기술창업지원<br />최종 선정</p>
-                  <p className="mt-5 text-sm leading-7 text-white/60">
+                  <p className="mt-5 text-base lg:text-[17px] leading-7 text-[#555555]">
                     단일 성과뿐 아니라 초기 사업화부터 R&D, 수출까지 후속 과제를 연결했습니다.
                   </p>
                 </div>
@@ -123,7 +124,7 @@ export default function FundingSuccessPage() {
                     title={featuredCase.title}
                     wins={featuredCase.wins}
                     evidenceNotice={featuredCase.evidenceNotice}
-                    tone="dark"
+                    tone="light"
                   />
                 </div>
               </aside>
@@ -132,43 +133,43 @@ export default function FundingSuccessPage() {
         </div>
       </section>
 
-      <section className="border-y border-[var(--line)] bg-[#f6f3ef]">
-        <div className="mx-auto max-w-7xl px-5 py-16 lg:px-8 lg:py-24">
+      <section className="border-y border-[var(--line)] bg-white">
+        <div className={styles.content}>
           <SectionHeader
             eyebrow="분야별 사례"
             title="같은 기준으로 비교하는 선정 성과"
             description="모든 사례를 기업 과제, 울림 수행, 최종 성과의 순서로 정리했습니다."
           />
 
-          <div className="mt-10 grid items-stretch gap-5 lg:grid-cols-3">
+          <div className={styles.caseGrid}>
             {otherCases.map((item) => (
               <article
                 id={`case-${item.slug}`}
                 key={item.slug}
-                className="flex scroll-mt-28 flex-col overflow-hidden rounded-lg border border-[var(--line)] bg-white shadow-[var(--shadow-card)]"
+                className={styles.case}
               >
                 <div className="flex items-start justify-between gap-4 border-b border-[var(--line)] px-6 py-5">
                   <div>
-                    <p className="text-xs font-bold text-[var(--primary)]">{item.category}</p>
-                    <p className="mt-1 text-sm font-bold text-[#4b3d34]">{item.company}</p>
+                    <p className="text-[14px] font-bold text-[#eb6826]">{item.category}</p>
+                    <p className="mt-1 text-base lg:text-[17px] font-bold text-[#555555]">{item.company}</p>
                   </div>
-                  <p className="shrink-0 text-xl font-black text-[var(--primary)]">{item.headline}</p>
+                  <p className="shrink-0 text-xl font-bold text-[#eb6826]">{item.headline}</p>
                 </div>
                 <div className="flex flex-1 flex-col p-6">
-                  <h3 className="text-xl font-black leading-8 text-[#211811]">{item.title}</h3>
+                  <h3 className="text-xl font-bold leading-8 text-[#171717]">{item.title}</h3>
                   <dl className="mt-6 flex-1 space-y-5">
                     <div>
-                      <dt className="text-xs font-bold text-[#9b5e3d]">기업 과제</dt>
-                      <dd className="mt-2 text-sm leading-7 text-[var(--muted)]">{item.challenge}</dd>
+                      <dt className="text-[14px] font-bold text-[#777777]">기업 과제</dt>
+                      <dd className="mt-2 text-base lg:text-[17px] leading-7 text-[var(--muted)]">{item.challenge}</dd>
                     </div>
                     <div>
-                      <dt className="text-xs font-bold text-[#9b5e3d]">울림 수행</dt>
-                      <dd className="mt-2 text-sm leading-7 text-[var(--muted)]">{item.approach}</dd>
+                      <dt className="text-[14px] font-bold text-[#777777]">울림 수행</dt>
+                      <dd className="mt-2 text-base lg:text-[17px] leading-7 text-[var(--muted)]">{item.approach}</dd>
                     </div>
                   </dl>
                   <div className="mt-6 border-t border-[var(--line)] pt-5">
-                    <p className="flex gap-2 text-sm font-bold leading-6 text-[#2b211b]">
-                      <CheckCircle2 className="mt-0.5 shrink-0 text-[var(--primary)]" size={17} aria-hidden="true" />
+                    <p className="flex gap-2 text-base lg:text-[17px] font-bold leading-6 text-[#333333]">
+                      <CheckCircle2 className="mt-0.5 shrink-0 text-[#eb6826]" size={17} aria-hidden="true" />
                       {item.resultSummary}
                     </p>
                     <div className="mt-5">
@@ -188,14 +189,14 @@ export default function FundingSuccessPage() {
             ))}
           </div>
 
-          <p className="mt-8 text-center text-sm leading-7 text-[var(--muted)]">
+          <p className="mt-8 text-center text-base lg:text-[17px] leading-7 text-[var(--muted)]">
             기업 보호를 위해 고객사명은 업종형으로 표기하고, 기존 공개 범위의 성과 내역만 제공합니다.
           </p>
         </div>
       </section>
 
       <section className="bg-white">
-        <div className="mx-auto max-w-7xl px-5 py-16 lg:px-8 lg:py-20">
+        <div className={styles.content}>
           <SectionHeader
             eyebrow="수행 방식"
             title="선정 가능성을 문서 한 장이 아닌 과정으로 만듭니다"
@@ -205,11 +206,11 @@ export default function FundingSuccessPage() {
             {process.map(({ icon: Icon, step, title, description }, index) => (
               <div key={step} className={`py-7 md:px-7 ${index ? "border-t border-[var(--line)] md:border-l md:border-t-0" : ""}`}>
                 <div className="flex items-center gap-3">
-                  <Icon size={21} className="text-[var(--primary)]" aria-hidden="true" />
-                  <span className="text-xs font-black text-[#aa6743]">{step}</span>
+                  <Icon size={21} className="text-[#eb6826]" aria-hidden="true" />
+                  <span className="text-[14px] font-bold text-[#777777]">{step}</span>
                 </div>
-                <h3 className="mt-4 text-lg font-black text-[#211811]">{title}</h3>
-                <p className="mt-3 text-sm leading-7 text-[var(--muted)]">{description}</p>
+                <h3 className="mt-4 text-lg font-bold text-[#171717]">{title}</h3>
+                <p className="mt-3 text-base lg:text-[17px] leading-7 text-[var(--muted)]">{description}</p>
               </div>
             ))}
           </div>
@@ -217,6 +218,6 @@ export default function FundingSuccessPage() {
       </section>
 
       <ContactBand />
-    </>
+    </div>
   );
 }

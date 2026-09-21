@@ -39,13 +39,13 @@ export default function PricingPage() {
             <h2 className="section-title text-2xl text-[#14100c] lg:text-3xl">
               필요하신 비용은 상담으로 바로 안내드려요
             </h2>
-            <p className="prose-muted mt-4 text-sm">
+            <p className="prose-muted mt-4 text-lg">
               경영컨설팅·기업인증·사업계획서·PPT·디자인 등 필요하신 서비스와 상황을 알려주시면,
               기업에 맞는 견적을 상담을 통해 안내드립니다.
             </p>
             <Link
               href="/contact"
-              className="btn-gradient mt-8 inline-flex h-12 items-center gap-2 rounded-xl px-6 text-sm font-bold text-white"
+              className="mt-8 inline-flex min-h-14 items-center gap-8 bg-[#eb6826] px-6 py-4 text-lg font-semibold text-white focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#eb6826]"
             >
               상담으로 견적 문의하기
               <ArrowRight size={17} />

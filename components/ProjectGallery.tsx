@@ -1,5 +1,7 @@
 "use client";
 
+import styles from "./PortfolioSuccess.module.css";
+
 import Image from "next/image";
 import { useEffect, useMemo, useState } from "react";
 import { ChevronLeft, ChevronRight, Images, X } from "lucide-react";
@@ -86,16 +88,13 @@ export default function ProjectGallery({
   }, [selectedProject]);
 
   return (
-    <div>
-      <div className="flex flex-wrap gap-2">
+    <div className={styles.gallery}>
+      <div className={styles.filters} role="group" aria-label="프로젝트 종류">
         <button
           type="button"
           onClick={() => setActiveCategory("all")}
-          className={`rounded-full px-5 py-2.5 text-sm font-bold transition ${
-            activeCategory === "all"
-              ? "bg-[var(--primary)] text-white shadow-[var(--shadow-button)]"
-              : "border border-[var(--line)] bg-white text-[#3a2e25] hover:border-[#ecceba]"
-          }`}
+          className={styles.filter}
+          aria-pressed={activeCategory === "all"}
         >
           전체
         </button>
@@ -104,31 +103,28 @@ export default function ProjectGallery({
             key={category.key}
             type="button"
             onClick={() => setActiveCategory(category.key)}
-            className={`rounded-full px-5 py-2.5 text-sm font-bold transition ${
-              activeCategory === category.key
-                ? "bg-[var(--primary)] text-white shadow-[var(--shadow-button)]"
-                : "border border-[var(--line)] bg-white text-[#3a2e25] hover:border-[#ecceba]"
-            }`}
+            className={styles.filter}
+            aria-pressed={activeCategory === category.key}
           >
             {category.label}
           </button>
         ))}
       </div>
 
-      <p className="prose-muted mt-5 text-sm">
+      <p className="prose-muted mt-5 text-base lg:text-[17px]">
         프로젝트를 선택하면 울림컴퍼니가 기획·디자인한 주요 페이지를 크게 확인할 수 있습니다.
       </p>
 
       {visibleProjects.length > 0 ? (
-        <div className="mt-7 grid gap-5 sm:grid-cols-2">
+        <div className={styles.projectGrid}>
           {visibleProjects.map((project) => (
             <button
               key={project.id}
               type="button"
               onClick={() => openProject(project)}
-              className="card card-hover group overflow-hidden p-0 text-left"
+              className={`${styles.project} group`}
             >
-              <div className="relative aspect-video w-full overflow-hidden bg-[var(--surface-strong)]">
+              <div className={styles.projectImage}>
                 <Image
                   src={`/images/projects/${project.id}/thumbnail.webp`}
                   alt={`${project.company} ${project.type} 표지`}
@@ -136,27 +132,27 @@ export default function ProjectGallery({
                   sizes="(max-width: 768px) 100vw, 50vw"
                   className="object-contain transition duration-300 group-hover:scale-[1.025]"
                 />
-                <span className="absolute bottom-3 right-3 inline-flex items-center gap-1.5 rounded-full bg-black/65 px-3 py-1.5 text-xs font-bold text-white backdrop-blur">
+                <span className="absolute bottom-3 right-3 inline-flex items-center gap-1.5 bg-black/65 px-3 py-1.5 text-[14px] font-bold text-white backdrop-blur">
                   <Images size={14} />
                   4장 보기
                 </span>
               </div>
-              <div className="px-5 py-5">
-                <div className="flex flex-wrap items-center gap-2 text-xs font-semibold text-[var(--primary)]">
+              <div className={styles.projectCopy}>
+                <div className="flex flex-wrap items-center gap-2 text-[14px] font-semibold text-[#eb6826]">
                   <span>{project.type}</span>
                   <span className="text-[var(--line)]">|</span>
                   <span className="text-[var(--muted)]">{project.industry}</span>
                 </div>
-                <h2 className="mt-2 text-xl font-black tracking-tight text-[#241b15]">{project.company}</h2>
-                <p className="mt-1 text-sm text-[var(--muted)]">{project.title}</p>
+                <h2 className="mt-2 text-xl font-bold tracking-tight text-[#171717]">{project.company}</h2>
+                <p className="mt-1 text-base lg:text-[17px] text-[var(--muted)]">{project.title}</p>
               </div>
             </button>
           ))}
         </div>
       ) : (
-        <div className="mt-7 rounded-2xl border border-dashed border-[var(--line)] bg-[var(--surface)] px-6 py-14 text-center">
-          <p className="font-bold text-[#3a2e25]">해당 분야의 프로젝트를 정리하고 있습니다.</p>
-          <p className="mt-2 text-sm text-[var(--muted)]">준비되는 순서대로 업데이트하겠습니다.</p>
+        <div className="mt-7 border border-dashed border-[var(--line)] bg-[var(--surface)] px-6 py-14 text-center">
+          <p className="font-bold text-[#171717]">해당 분야의 프로젝트를 정리하고 있습니다.</p>
+          <p className="mt-2 text-base lg:text-[17px] text-[var(--muted)]">준비되는 순서대로 업데이트하겠습니다.</p>
         </div>
       )}
 
@@ -169,40 +165,40 @@ export default function ProjectGallery({
           aria-label={`${selectedProject.company} 프로젝트 상세`}
         >
           <div
-            className="relative flex max-h-[94vh] w-full max-w-6xl flex-col overflow-hidden rounded-2xl bg-[#17120f] shadow-2xl"
+            className={styles.dialog}
             onClick={(event) => event.stopPropagation()}
           >
-            <div className="flex items-start justify-between gap-4 border-b border-white/10 px-5 py-4 text-white sm:px-6">
+            <div className={styles.dialogHeader}>
               <div>
-                <p className="text-xs font-bold text-[#ff9a63]">
+                <p className="text-[14px] font-bold text-[#eb6826]">
                   {selectedProject.type} · {selectedProject.industry}
                 </p>
-                <h2 className="mt-1 text-lg font-black sm:text-2xl">{selectedProject.company}</h2>
-                <p className="mt-1 text-xs text-white/60 sm:text-sm">{selectedProject.title}</p>
+                <h2 className="mt-1 text-lg font-bold sm:text-2xl">{selectedProject.company}</h2>
+                <p className="mt-1 text-[14px] text-[#737373] sm:text-base lg:text-[17px]">{selectedProject.title}</p>
               </div>
               <button
                 type="button"
                 onClick={closeProject}
-                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white/10 text-white transition hover:bg-white/20"
+                className={styles.dialogClose}
                 aria-label="프로젝트 상세 닫기"
               >
                 <X size={21} />
               </button>
             </div>
 
-            <div className="relative flex min-h-0 flex-1 items-center justify-center bg-black">
+            <div className={styles.slideStage}>
               <Image
                 src={selectedProject.images[activeImage]}
                 alt={`${selectedProject.company} ${selectedProject.type} 이미지 ${activeImage + 1}`}
                 width={1600}
                 height={900}
                 className="max-h-[70vh] w-full object-contain"
-                priority
+                loading="eager"
               />
               <button
                 type="button"
                 onClick={showPreviousImage}
-                className="absolute left-2 flex h-11 w-11 items-center justify-center rounded-full bg-black/55 text-white backdrop-blur transition hover:bg-black/80 sm:left-4"
+                className="absolute left-2 flex h-11 w-11 items-center justify-center bg-black/55 text-white backdrop-blur transition hover:bg-black/80 sm:left-4"
                 aria-label="이전 이미지"
               >
                 <ChevronLeft size={26} />
@@ -210,27 +206,27 @@ export default function ProjectGallery({
               <button
                 type="button"
                 onClick={showNextImage}
-                className="absolute right-2 flex h-11 w-11 items-center justify-center rounded-full bg-black/55 text-white backdrop-blur transition hover:bg-black/80 sm:right-4"
+                className="absolute right-2 flex h-11 w-11 items-center justify-center bg-black/55 text-white backdrop-blur transition hover:bg-black/80 sm:right-4"
                 aria-label="다음 이미지"
               >
                 <ChevronRight size={26} />
               </button>
             </div>
 
-            <div className="flex items-center justify-center gap-2 border-t border-white/10 px-4 py-4">
+            <div className={styles.dialogFooter}>
               {selectedProject.images.map((image, index) => (
                 <button
                   key={image}
                   type="button"
                   onClick={() => setActiveImage(index)}
-                  className={`h-2.5 rounded-full transition ${
-                    activeImage === index ? "w-8 bg-[#ff7a3d]" : "w-2.5 bg-white/35 hover:bg-white/60"
+                  className={`h-2.5  transition ${
+                    activeImage === index ? "w-8 bg-[#eb6826]" : "w-2.5 bg-[#d0d0d0] hover:bg-[#aaaaaa]"
                   }`}
                   aria-label={`${index + 1}번 이미지 보기`}
                   aria-current={activeImage === index ? "true" : undefined}
                 />
               ))}
-              <span className="ml-2 text-xs font-semibold text-white/60">
+              <span className="ml-2 text-[14px] font-semibold text-[#737373]">
                 {activeImage + 1} / {selectedProject.images.length}
               </span>
             </div>

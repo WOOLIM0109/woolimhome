@@ -1,3 +1,4 @@
+import styles from "@/components/PortfolioSuccess.module.css";
 import type { Metadata } from "next";
 import { FileCheck2, Presentation, Search, Target } from "lucide-react";
 import BiddingCaseTabs from "@/components/BiddingCaseTabs";
@@ -55,7 +56,7 @@ export default function BiddingEntrySuccessPage() {
   const groups = pptCases.map(({ slug, group, items }) => ({ slug, group, items }));
 
   return (
-    <>
+    <div className={styles.page}>
       <JsonLd
         data={[
           breadcrumbSchema([
@@ -83,8 +84,8 @@ export default function BiddingEntrySuccessPage() {
         description="평가 기준과 청중의 관점을 분석해 제안 논리, 서류, 발표자료를 하나의 흐름으로 설계한 실제 성과입니다."
       />
 
-      <section className="border-b border-[var(--line)] bg-[#edf2ef]" aria-label="입찰·입점 성과 요약">
-        <div className="mx-auto grid max-w-7xl sm:grid-cols-3">
+      <section className="border-b border-[var(--line)] bg-[#f6f6f4]" aria-label="입찰·입점 성과 요약">
+        <div className={styles.summaryGrid}>
           {summary.map((item, index) => (
             <div
               key={item.label}
@@ -94,15 +95,15 @@ export default function BiddingEntrySuccessPage() {
                   : "px-5 py-8 text-center sm:px-7 sm:text-left lg:py-10"
               }
             >
-              <p className="text-4xl font-black text-[#1f6454] lg:text-5xl">{item.value}</p>
-              <p className="mt-2 text-sm font-semibold text-[#4b5e57]">{item.label}</p>
+              <p className={styles.summaryNumber}>{item.value}</p>
+              <p className="mt-2 text-base lg:text-[17px] font-semibold text-[#666666]">{item.label}</p>
             </div>
           ))}
         </div>
       </section>
 
       <section className="bg-white">
-        <div className="mx-auto max-w-7xl px-5 py-16 lg:px-8 lg:py-24">
+        <div className={styles.content}>
           <SectionHeader
             eyebrow="대표 사례"
             title="평가표의 항목을 설득력 있는 제안으로"
@@ -111,34 +112,34 @@ export default function BiddingEntrySuccessPage() {
 
           <article
             id={"case-" + featuredCase.slug}
-            className="mt-10 scroll-mt-28 overflow-hidden rounded-lg bg-[#17362f] text-white shadow-[0_26px_64px_rgba(19,53,45,0.2)]"
+            className={styles.featured}
           >
             <div className="grid lg:grid-cols-[minmax(0,1.55fr)_minmax(290px,0.65fr)]">
               <div className="p-6 sm:p-9 lg:p-12">
-                <p className="text-xs font-bold text-[#8ed2c1]">FEATURED CASE · {featuredCase.company}</p>
-                <h2 className="mt-4 max-w-3xl text-3xl font-black leading-[1.25] sm:text-4xl lg:text-[2.8rem]">
+                <p className="text-[14px] font-bold text-[#eb6826]">FEATURED CASE · {featuredCase.company}</p>
+                <h2 className="mt-4 max-w-3xl text-3xl font-bold leading-[1.25] sm:text-4xl lg:text-[2.8rem]">
                   {featuredCase.title}
                 </h2>
-                <dl className="mt-9 divide-y divide-white/12 border-y border-white/12">
+                <dl className="mt-9 divide-y divide-[#dededb] border-y border-[#dededb]">
                   <div className="grid gap-2 py-5 sm:grid-cols-[110px_1fr]">
-                    <dt className="text-xs font-bold text-[#8ed2c1]">기업 과제</dt>
-                    <dd className="text-sm leading-7 text-white/82">{featuredCase.challenge}</dd>
+                    <dt className="text-[14px] font-bold text-[#eb6826]">기업 과제</dt>
+                    <dd className="text-base lg:text-[17px] leading-7 text-[#555555]">{featuredCase.challenge}</dd>
                   </div>
                   <div className="grid gap-2 py-5 sm:grid-cols-[110px_1fr]">
-                    <dt className="text-xs font-bold text-[#8ed2c1]">울림 수행</dt>
-                    <dd className="text-sm leading-7 text-white/82">{featuredCase.approach}</dd>
+                    <dt className="text-[14px] font-bold text-[#eb6826]">울림 수행</dt>
+                    <dd className="text-base lg:text-[17px] leading-7 text-[#555555]">{featuredCase.approach}</dd>
                   </div>
                   <div className="grid gap-2 py-5 sm:grid-cols-[110px_1fr]">
-                    <dt className="text-xs font-bold text-[#8ed2c1]">최종 성과</dt>
-                    <dd className="text-sm font-bold leading-7 text-white">{featuredCase.result}</dd>
+                    <dt className="text-[14px] font-bold text-[#eb6826]">최종 성과</dt>
+                    <dd className="text-base lg:text-[17px] font-bold leading-7 text-[#555555]">{featuredCase.result}</dd>
                   </div>
                 </dl>
               </div>
 
-              <aside className="flex flex-col justify-center border-t border-white/12 bg-[#102a24] p-6 sm:p-9 lg:border-l lg:border-t-0 lg:p-10">
-                <p className="text-xs font-bold text-white/55">서울 공공서비스 용역</p>
-                <p className="mt-3 whitespace-nowrap text-5xl font-black leading-tight text-[#ff8a45]">{featuredCase.result}</p>
-                <p className="mt-5 text-sm leading-7 text-white/65">
+              <aside className={styles.featuredAside}>
+                <p className="text-[14px] font-bold text-[#555555]">서울 공공서비스 용역</p>
+                <p className="mt-3 text-5xl font-bold leading-tight text-[#eb6826]">{featuredCase.result}</p>
+                <p className="mt-5 text-base lg:text-[17px] leading-7 text-[#555555]">
                   제안 논리와 서류, 발표자료의 시각 체계를 하나로 연결해 평가자가 핵심을 빠르게 이해하도록 구성했습니다.
                 </p>
               </aside>
@@ -147,8 +148,8 @@ export default function BiddingEntrySuccessPage() {
         </div>
       </section>
 
-      <section className="border-y border-[var(--line)] bg-[#f6f4f1]">
-        <div className="mx-auto max-w-7xl px-5 py-16 lg:px-8 lg:py-24">
+      <section className="border-y border-[var(--line)] bg-white">
+        <div className={styles.content}>
           <SectionHeader
             eyebrow="분야별 사례"
             title="목적에 따라 찾아보는 10개의 성과"
@@ -163,7 +164,7 @@ export default function BiddingEntrySuccessPage() {
       </section>
 
       <section className="bg-white">
-        <div className="mx-auto max-w-7xl px-5 py-16 lg:px-8 lg:py-20">
+        <div className={styles.content}>
           <SectionHeader
             eyebrow="진행 방식"
             title="분석부터 발표까지 한 흐름으로"
@@ -182,22 +183,22 @@ export default function BiddingEntrySuccessPage() {
                   }
                 >
                   <div className="flex items-center justify-between">
-                    <Icon size={24} className="text-[#1f6454]" aria-hidden="true" />
-                    <span className="text-xs font-black text-[#9a8d83]">{item.step}</span>
+                    <Icon size={24} className="text-[#eb6826]" aria-hidden="true" />
+                    <span className="text-[14px] font-bold text-[#888888]">{item.step}</span>
                   </div>
-                  <h3 className="mt-5 text-lg font-black text-[#211811]">{item.title}</h3>
-                  <p className="mt-3 text-sm leading-7 text-[var(--muted)]">{item.description}</p>
+                  <h3 className="mt-5 text-lg font-bold text-[#171717]">{item.title}</h3>
+                  <p className="mt-3 text-base lg:text-[17px] leading-7 text-[var(--muted)]">{item.description}</p>
                 </li>
               );
             })}
           </ol>
-          <p className="mt-6 text-center text-xs leading-6 text-[var(--muted)]">
+          <p className="mt-6 text-center text-[14px] leading-6 text-[var(--muted)]">
             공개 사례 {allItems.length}건은 고객사 보호를 위해 업종형 익명명으로 표기했습니다.
           </p>
         </div>
       </section>
 
       <ContactBand />
-    </>
+    </div>
   );
 }

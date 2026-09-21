@@ -1,27 +1,31 @@
+import Image from "next/image";
 import Link from "next/link";
 import type { Metadata } from "next";
-import {
-  ArrowRight,
-  Award,
-  BarChart3,
-  CheckCircle2,
-  ExternalLink,
-  FileCheck2,
-  Lightbulb,
-  Quote,
-  Presentation,
-  TrendingUp,
-} from "lucide-react";
+import { ArrowDown, ArrowRight, ArrowUpRight, Files, Network, Search } from "lucide-react";
 import ClientMarquee from "@/components/ClientMarquee";
 import ComparisonTable from "@/components/ComparisonTable";
 import ContactBand from "@/components/ContactBand";
 import FaqList from "@/components/FaqList";
 import JsonLd from "@/components/JsonLd";
-import SectionHeader from "@/components/SectionHeader";
-import { caseHighlights, commonFaqs, projects, services, trustSignals } from "@/data/content";
+import {
+  caseHighlights,
+  commonFaqs,
+  portfolioProjects,
+  projects,
+  services,
+  trustSignals,
+} from "@/data/content";
+import { designPortfolioProjects } from "@/data/design-portfolio";
+import { homeTestimonials } from "@/data/home-testimonials";
 import { site, stats } from "@/data/site";
 import { buildCanonical } from "@/lib/site-config";
-import { breadcrumbSchema, faqSchema, itemListSchema, newsArticleSchema } from "@/lib/schema";
+import {
+  breadcrumbSchema,
+  faqSchema,
+  itemListSchema,
+  newsArticleSchema,
+} from "@/lib/schema";
+import styles from "./home.module.css";
 
 export const metadata: Metadata = {
   title: "울림컴퍼니",
@@ -30,66 +34,16 @@ export const metadata: Metadata = {
   alternates: { canonical: buildCanonical("/") },
 };
 
+const selectedPresentations = portfolioProjects.filter((project) =>
+  ["grang-factory", "wposition-data"].includes(project.id),
+);
+const selectedIdentity = designPortfolioProjects.find(
+  (project) => project.id === "sinacell-stationery",
+);
+
 export default function HomePage() {
-  const brandPillars = [
-    { label: "전략", Icon: Lightbulb },
-    { label: "문서", Icon: FileCheck2 },
-    { label: "발표", Icon: Presentation },
-  ];
-
-  const testimonials = [
-    {
-      badge: "반려동물 용품",
-      name: "들OOO 대표",
-      company: "예비창업패키지",
-      result: "최종 선정",
-      quote:
-        "우리 업종이 가능한 지원사업을 먼저 찾아주고, 공고 기준에 맞춰 사업계획서 방향을 잡아주셔서 예비창업패키지 최종 선정까지 이어졌습니다.",
-    },
-    {
-      badge: "예술단체",
-      name: "여OOOO 대표",
-      company: "지역 대표예술단체",
-      result: "6억 규모",
-      quote:
-        "공고문을 봐도 어디부터 준비해야 할지 막막했는데, 예산 구성과 발표 흐름까지 정리해주셔서 큰 규모 사업에 선정될 수 있었습니다.",
-    },
-    {
-      badge: "AI",
-      name: "박OO 대표",
-      company: "딥러닝 R&D",
-      result: "R&D 선정",
-      quote:
-        "기술 설명에만 치우쳐 있던 계획서를 개발계획, 시장성, 사업화 가능성 중심으로 다시 정리해주셔서 R&D 선정까지 갈 수 있었습니다.",
-    },
-    {
-      badge: "스포츠 용품",
-      name: "이OO 대표",
-      company: "청년창업사관학교",
-      result: "최종 합격",
-      quote:
-        "아이템 장점만 쓰던 사업계획서를 평가자가 이해하는 구조로 바꿔주셔서 서류 통과 후 최종 합격까지 이어졌습니다.",
-    },
-    {
-      badge: "차량관리",
-      name: "김OO 대표",
-      company: "예비창업패키지",
-      result: "최우수",
-      quote:
-        "발표자료가 단순 회사소개서처럼 보였는데, 심사위원 질문 흐름에 맞춰 재구성해주셔서 발표평가에서 좋은 결과를 받았습니다.",
-    },
-    {
-      badge: "커피 로스팅",
-      name: "오O 대표",
-      company: "부산TP R&D",
-      result: "선정",
-      quote:
-        "정부지원사업은 제조나 기술기업만 가능하다고 생각했는데, 부산TP R&D에서 우리 브랜드에 맞는 항목을 찾아주시고 신청자료 방향을 정리해주셔서 선정될 수 있었습니다.",
-    },
-  ];
-
   return (
-    <>
+    <div className={styles.home}>
       <JsonLd
         data={[
           breadcrumbSchema([{ name: "홈", href: "/" }]),
@@ -106,285 +60,368 @@ export default function HomePage() {
         ]}
       />
 
-      {/* HERO */}
-      <section className="relative overflow-hidden bg-white">
-        <div className="absolute inset-x-0 top-0 h-40 bg-[linear-gradient(90deg,#fff4ea_0%,#f8eee6_45%,#efe6df_100%)]" />
-        <div className="absolute right-[-12rem] top-20 h-96 w-96 rounded-full bg-[rgba(235,104,38,0.15)] blur-3xl" />
-        <div className="absolute left-[-10rem] bottom-10 h-80 w-80 rounded-full bg-[rgba(239,142,54,0.12)] blur-3xl" />
-        <div className="relative mx-auto grid max-w-7xl gap-10 px-5 py-14 lg:grid-cols-[1fr_0.78fr] lg:items-center lg:px-8 lg:py-24">
+      <section className={styles.hero} aria-labelledby="home-title">
+        <div className={styles.heroIntro}>
           <div>
-            <Link
-              href={site.awardArticleUrl}
-              target="_blank"
-              rel="noreferrer"
-              className="mb-6 inline-flex items-center gap-2 rounded-full border border-[#f1cdb9] bg-white/90 px-4 py-2 text-sm font-bold text-[var(--primary)] shadow-sm transition hover:-translate-y-0.5"
-            >
-              <Award size={17} />
-              {site.award}
-            </Link>
-            <h1 className="section-title max-w-4xl text-4xl leading-[1.12] text-[#101511] lg:text-[3.5rem]">
-              기업의 가능성을 성과로 연결하는 비즈니스 성장 파트너
+            <p className={styles.kicker}>WOOLIM COMPANY</p>
+            <h1 id="home-title" className={styles.heroTitle}>
+              기업의 가능성에,<br />
+              <span className={styles.titleLast}>
+                더 큰 울림을<span className={styles.period}>.</span>
+              </span>
             </h1>
-            <p className="prose-muted mt-6 max-w-2xl text-lg">
-              자금조달, 정부지원사업, 기업인증, 사업계획서, IR/PPT, 디자인 제작까지 — 기업 성장에 필요한
-              전 과정을 한곳에서 설계합니다.
+          </div>
+          <div className={styles.heroAside}>
+            <p>
+              사업의 방향을 찾는 순간부터<br />
+              그 가치를 세상에 전하는 순간까지.<br />
+              전략과 기획, 디자인으로 함께합니다.
             </p>
-            <div className="mt-8 flex flex-wrap gap-3">
-              <Link
-                href="/contact"
-                className="btn-gradient inline-flex h-12 items-center gap-2 rounded-xl px-6 text-sm font-bold text-white"
-              >
-                상담 신청하기
-                <ArrowRight size={17} />
-              </Link>
-              <Link
-                href="/success/funding"
-                className="inline-flex h-12 items-center gap-2 rounded-xl border border-[#ead5c7] bg-white/92 px-6 text-sm font-bold text-[#2d241d] shadow-sm transition hover:-translate-y-0.5 hover:shadow-lg"
-              >
-                성공사례 보기
-              </Link>
-            </div>
+            <Link href="/about" className={styles.textLink}>
+              울림컴퍼니 소개 <ArrowUpRight size={19} aria-hidden="true" />
+            </Link>
           </div>
-
-          <div className="relative">
-            <div className="relative min-h-[520px] overflow-hidden rounded-3xl border border-[#e6d2c4] bg-[var(--deep)] shadow-2xl">
-              <div className="absolute inset-0 bg-[url('/images/proof/plan-3.png')] bg-cover bg-center opacity-[0.16]" />
-              <div className="absolute inset-0 bg-[linear-gradient(135deg,rgba(23,16,12,0.96)_0%,rgba(44,33,26,0.86)_48%,rgba(166,66,29,0.78)_100%)]" />
-              <div className="absolute right-[-4rem] top-[-5rem] h-56 w-56 rounded-full bg-[#ef8e36]/30 blur-3xl" />
-              <div className="absolute bottom-[-6rem] left-[-5rem] h-64 w-64 rounded-full bg-[#eb6826]/25 blur-3xl" />
-              <div className="relative flex min-h-[520px] flex-col justify-between p-7">
-                <div className="glass-panel floating-card ml-auto w-56 rounded-2xl border border-white/30 p-4 text-right">
-                  <p className="text-xs font-bold text-[var(--primary)]">Growth Roadmap</p>
-                  <p className="mt-2 text-lg font-bold text-[var(--deep)]">진단 → 전략 → 문서화</p>
-                </div>
-
-                <div className="grid gap-4">
-                  <div className="floating-card max-w-sm rounded-2xl border border-white/15 bg-white/92 p-6">
-                    <div className="flex items-center justify-between gap-4">
-                      <div>
-                        <p className="text-sm font-bold text-[var(--primary)]">Business Plan</p>
-                        <h2 className="mt-2 text-2xl font-bold text-[var(--deep)]">사업계획서·IR 전략 설계</h2>
-                      </div>
-                      <FileCheck2 className="shrink-0 text-[var(--primary)]" size={32} />
-                    </div>
-                    <div className="mt-5 h-2 rounded-full bg-[#f2dfd0]">
-                      <div className="h-2 w-[76%] rounded-full bg-[linear-gradient(90deg,#ef8e36,#eb6826)]" />
-                    </div>
-                  </div>
-
-                  <div className="grid gap-3 sm:grid-cols-3">
-                    {brandPillars.map(({ label, Icon }) => (
-                      <div
-                        key={label}
-                        className="rounded-2xl border border-white/15 bg-white/12 p-4 text-white shadow-lg backdrop-blur"
-                      >
-                        <Icon size={20} className="text-[#ef8e36]" />
-                        <p className="mt-3 text-sm font-bold">{label}</p>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <div className="glass-panel floating-card rounded-2xl border border-white/25 p-5">
-                    <TrendingUp className="text-[var(--primary)]" size={24} />
-                    <p className="mt-4 text-3xl font-bold text-[var(--deep)]">20억+</p>
-                    <p className="mt-1 text-sm text-[var(--muted)]">지원사업 유치 사례</p>
-                  </div>
-                  <div className="glass-panel floating-card rounded-2xl border border-white/25 p-5">
-                    <BarChart3 className="text-[var(--primary)]" size={24} />
-                    <p className="mt-4 text-3xl font-bold text-[var(--deep)]">1,000+</p>
-                    <p className="mt-1 text-sm text-[var(--muted)]">실제 컨설팅 사례</p>
-                  </div>
-                </div>
-              </div>
-            </div>
+        </div>
+        <div className={styles.heroVisual}>
+          <Image
+            src="/images/brand/woolim-workspace-hero-v1.webp"
+            alt="자연광 아래 제안서와 오렌지색 제본 책을 놓은 작업공간 브랜드 이미지"
+            fill
+            sizes="(max-width: 1500px) 100vw, 1440px"
+            preload
+            className={styles.heroImage}
+          />
+          <div className={styles.imageCaption}>
+            <span>THOUGHTFUL STRATEGY. MEANINGFUL DESIGN.</span>
+            <a href="#business" aria-label="사업영역으로 이동">
+              <ArrowDown size={22} />
+            </a>
           </div>
+        </div>
+        <div className={styles.heroFoot}>
+          <p>
+            경영컨설팅 <span>·</span> 비즈니스문서 / PPT <span>·</span> 디자인
+          </p>
+          <Link href="/contact">
+            프로젝트 문의 <ArrowUpRight size={16} aria-hidden="true" />
+          </Link>
         </div>
       </section>
 
-      {/* STATS */}
-      <section className="border-y border-[var(--line)] bg-[linear-gradient(135deg,#fff4ea,#f8ede4)]">
-        <div className="mx-auto grid max-w-7xl grid-cols-2 gap-px px-5 py-10 lg:grid-cols-4 lg:px-8">
-          {stats.map((stat) => (
-            <div key={stat.label} className="px-4 text-center lg:text-left">
-              <p className="text-4xl font-bold text-[var(--primary)]">{stat.value}</p>
-              <p className="mt-2 text-sm text-[var(--muted)]">{stat.label}</p>
-            </div>
+      <section
+        id="business"
+        className={`${styles.section} ${styles.business}`}
+        aria-labelledby="business-title"
+      >
+        <div className={styles.sectionHeading}>
+          <div>
+            <p className={styles.kicker}>OUR BUSINESS</p>
+            <h2 id="business-title">
+              좋은 전략이<br />
+              분명한 결과가 되도록.
+            </h2>
+          </div>
+          <p className={styles.intro}>
+            문서 하나, 디자인 하나를 만들기 전에<br />
+            기업의 상황과 목적을 먼저 읽습니다.<br />
+            성장에 필요한 일을 함께 설계하고 완성합니다.
+          </p>
+        </div>
+        <div className={styles.serviceList}>
+          {services.map((service, index) => (
+            <Link
+              key={service.href}
+              href={service.href}
+              className={styles.service}
+            >
+              <span className={styles.serviceNumber}>0{index + 1}</span>
+              <div className={styles.serviceName}>
+                <h3>{service.title}</h3>
+                <p>{service.eyebrow}</p>
+              </div>
+              <p className={styles.serviceDescription}>{service.summary}</p>
+              <span className={styles.circleArrow}>
+                <ArrowUpRight size={22} aria-hidden="true" />
+              </span>
+            </Link>
           ))}
         </div>
       </section>
 
-      {/* CLIENTS */}
-      <ClientMarquee />
-
-      {/* SERVICES */}
-      <section className="bg-white">
-        <div className="mx-auto max-w-7xl px-5 py-16 lg:px-8 lg:py-24">
-          <SectionHeader
-            eyebrow="사업영역"
-            title="성장 단계에 맞춘 맞춤 서비스"
-            description="문서 하나, 디자인 하나만 보는 것이 아니라 기업의 상황과 목적을 먼저 읽고 필요한 실행 순서를 함께 정리합니다."
+      <section className={styles.approach} aria-labelledby="approach-title">
+        <div className={styles.approachImage}>
+          <Image
+            src="/images/brand/woolim-editorial-detail-v1.webp"
+            alt="인쇄물과 컬러 스와치로 표현한 울림의 기획·편집 디자인 브랜드 이미지"
+            fill
+            sizes="(max-width: 800px) 100vw, 50vw"
           />
-          <div className="mt-10 grid items-stretch gap-5 lg:grid-cols-3">
-            {services.map((service) => {
-              const Icon = service.icon;
-              return (
-                <Link key={service.href} href={service.href} className="card card-hover h-full p-7">
-                  <Icon className="mb-7 text-[var(--primary)]" size={30} />
-                  <p className="mb-2 text-xs font-bold uppercase tracking-wide text-[var(--accent)]">
-                    {service.eyebrow}
-                  </p>
-                  <h3 className="text-2xl font-bold text-[#14100c]">{service.title}</h3>
-                  <p className="prose-muted mt-4 flex-1 text-sm">{service.summary}</p>
-                  <span className="mt-6 inline-flex items-center gap-2 text-sm font-bold text-[var(--primary)]">
-                    자세히 보기 <ArrowRight size={16} />
-                  </span>
-                </Link>
-              );
-            })}
+        </div>
+        <div className={styles.approachCopy}>
+          <p className={styles.kicker}>THE WAY WE WORK</p>
+          <h2 id="approach-title">
+            생각을 정리하고,<br />
+            가치를 보이게 합니다.
+          </h2>
+          <p className={styles.intro}>
+            기업의 이야기를 이해하는 일에서 시작합니다.<br />
+            복잡한 내용을 명확한 전략으로, 좋은 아이디어를
+            <br className={styles.desktopBreak} /> 설득력 있는 문서와 디자인으로 완성합니다.
+          </p>
+          <Link href="/about" className={styles.textLink}>
+            울림이 일하는 방식 <ArrowUpRight size={20} aria-hidden="true" />
+          </Link>
+        </div>
+        <div className={styles.processWrap}>
+          <div className={styles.processHeading}>
+            <h3>진단에서 완성까지, 하나로 이어지는 과정</h3>
+            <p>기업을 이해한 전략이 실제 결과물에 담기도록.</p>
           </div>
+          <ol className={styles.process}>
+            <li>
+              <div className={styles.processPath}><span>01</span><ArrowRight aria-hidden="true" /></div>
+              <div className={styles.processTitle}><Search size={28} aria-hidden="true" /><h4>진단</h4></div>
+              <p>기업과 과제를 이해합니다.</p>
+              <div className={styles.processDetails}>현황과 목표 확인 · 보유 자료 검토</div>
+            </li>
+            <li>
+              <div className={styles.processPath}><span>02</span><ArrowRight aria-hidden="true" /></div>
+              <div className={styles.processTitle}><Network size={28} aria-hidden="true" /><h4>기획</h4></div>
+              <p>전략과 전달 흐름을 설계합니다.</p>
+              <div className={styles.processDetails}>핵심 메시지 도출 · 문서 구조 설계</div>
+            </li>
+            <li>
+              <div className={styles.processPath}><span>03</span><ArrowUpRight aria-hidden="true" /></div>
+              <div className={styles.processTitle}><Files size={28} aria-hidden="true" /><h4>완성</h4></div>
+              <p>문서와 디자인으로 구현합니다.</p>
+              <div className={styles.processDetails}>내용과 디자인 연결 · 결과물 검토</div>
+            </li>
+          </ol>
         </div>
       </section>
 
-      {/* RESULTS */}
-      <section className="bg-[var(--surface-strong)]">
-        <div className="mx-auto max-w-7xl px-5 py-16 lg:px-8 lg:py-24">
-          <SectionHeader
-            eyebrow="성과"
-            title="숫자로 증명하는 성과"
-            description="창업 2년 만에 지원사업 누적 20억 원 이상 유치. 실제 기업과 함께 만든 결과입니다."
-            linkHref="/success/funding"
-            linkLabel="전체 사례 보기"
-          />
-          <div className="mt-10 grid items-stretch gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            {caseHighlights.map((item) => {
-              const Icon = item.icon ?? TrendingUp;
-              return (
-                <article key={item.title} className="card h-full p-6">
-                  <Icon className="text-[var(--primary)]" size={26} />
-                  <p className="mt-5 text-xs font-bold text-[var(--accent)]">{item.category}</p>
-                  <h3 className="mt-2 text-lg font-bold leading-7 text-[#14100c]">{item.title}</h3>
-                  <p className="mt-4 text-2xl font-bold text-[var(--primary)]">{item.result}</p>
-                  <p className="prose-muted mt-3 flex-1 text-sm">{item.description}</p>
-                </article>
-              );
-            })}
+      <section className={styles.section} aria-labelledby="works-title">
+        <div className={styles.sectionHeading}>
+          <div>
+            <p className={styles.kicker}>SELECTED WORKS</p>
+            <h2 id="works-title">
+              생각의 깊이를<br />
+              결과물로 보여드립니다.
+            </h2>
           </div>
+          <Link href="/portfolio" className={styles.textLink}>
+            포트폴리오 전체 보기 <ArrowUpRight size={19} aria-hidden="true" />
+          </Link>
+        </div>
+        <div className={styles.works}>
+          {selectedPresentations.map((project) => (
+            <Link key={project.id} href="/portfolio/ppt" className={styles.work}>
+              <div className={styles.workImage}>
+                <Image
+                  src={project.cover}
+                  alt={project.title}
+                  fill
+                  sizes="(max-width: 640px) 100vw, (max-width: 1000px) 50vw, 33vw"
+                />
+              </div>
+              <div className={styles.workMeta}>
+                <span>{project.type}</span>
+                <ArrowUpRight size={19} aria-hidden="true" />
+              </div>
+              <h3>{project.company}</h3>
+              <p>{project.title}</p>
+            </Link>
+          ))}
+          {selectedIdentity && (
+            <Link href="/portfolio/design" className={styles.work}>
+              <div className={`${styles.workImage} ${styles.identityImage}`}>
+                <Image
+                  src={selectedIdentity.images[0].src}
+                  alt={selectedIdentity.images[0].alt}
+                  fill
+                  sizes="(max-width: 640px) 100vw, (max-width: 1000px) 50vw, 33vw"
+                />
+              </div>
+              <div className={styles.workMeta}>
+                <span>브랜딩 · 편집 디자인</span>
+                <ArrowUpRight size={19} aria-hidden="true" />
+              </div>
+              <h3>{selectedIdentity.client}</h3>
+              <p>{selectedIdentity.title}</p>
+            </Link>
+          )}
+        </div>
+        <div className={styles.portfolioLinks}>
+          {projects.map((project) => (
+            <Link
+              key={project.title}
+              href={
+                project.type === "사업계획서/IR"
+                  ? "/portfolio/business-ir"
+                  : "/portfolio/ppt"
+              }
+            >
+              <span>{project.title}</span>
+              <span>{project.note}</span>
+              <ArrowUpRight size={17} aria-hidden="true" />
+            </Link>
+          ))}
         </div>
       </section>
 
-      {/* TESTIMONIALS */}
-      <section className="bg-[linear-gradient(180deg,#fffaf6_0%,#fff4ea_100%)]">
-        <div className="mx-auto max-w-7xl px-5 py-16 lg:px-8 lg:py-24">
-          <SectionHeader
-            eyebrow="고객 후기"
-            title="선정된 대표님들이 말한 울림컴퍼니의 차이"
-            description="결과를 만든 대표님들은 울림컴퍼니의 차이를 이렇게 말했습니다."
-          />
-          <div className="mt-10 grid items-stretch gap-5 md:grid-cols-2 xl:grid-cols-3">
-            {testimonials.map((item) => (
-              <article
-                key={`${item.name}-${item.company}`}
-                className="card h-full p-6 shadow-[0_18px_45px_rgba(120,67,33,0.08)]"
-              >
-                <div className="flex items-start justify-between gap-4">
-                  <div className="flex items-center gap-4">
-                    <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-[linear-gradient(135deg,#ff8a2a,#ef5d1b)] px-2 text-center text-[11px] font-black leading-tight text-white shadow-[0_12px_28px_rgba(239,93,27,0.24)]">
-                      {item.badge}
-                    </div>
-                    <div>
-                      <h3 className="text-lg font-bold text-[#14100c]">{item.name}</h3>
-                      <p className="mt-1 text-sm text-[var(--muted)]">{item.company}</p>
-                    </div>
-                  </div>
-                  <span className="shrink-0 rounded-full bg-[#fff1e8] px-3 py-1 text-xs font-black text-[var(--primary)]">
-                    {item.result}
-                  </span>
-                </div>
-                <div className="mt-6 rounded-2xl bg-[#fff7f1] p-5">
-                  <Quote className="mb-4 text-[var(--primary)]" size={22} />
-                  <p className="text-[17px] font-bold leading-8 text-[#14100c]">
-                    {item.quote}
-                  </p>
-                </div>
+      <section className={styles.results} aria-labelledby="results-title">
+        <div className={styles.section}>
+          <div className={styles.sectionHeading}>
+            <div>
+              <p className={styles.kicker}>OUR IMPACT</p>
+              <h2 id="results-title">
+                함께 만든 변화,<br />
+                숫자로 남은 성과.
+              </h2>
+            </div>
+            <Link href="/success" className={styles.textLink}>
+              성공사례 보기 <ArrowUpRight size={19} aria-hidden="true" />
+            </Link>
+          </div>
+          <dl className={styles.stats}>
+            {stats.map((stat) => (
+              <div key={stat.label}>
+                <dt>{stat.label}</dt>
+                <dd>{stat.value}</dd>
+              </div>
+            ))}
+          </dl>
+          <div className={styles.resultList}>
+            {caseHighlights.map((item) => (
+              <article key={item.title}>
+                <p className={styles.category}>{item.category}</p>
+                <h3>{item.title}</h3>
+                <p>{item.description}</p>
+                <strong>{item.result}</strong>
               </article>
             ))}
           </div>
-          <p className="mt-6 text-center text-xs leading-6 text-[var(--muted)]">
-            개인정보 보호를 위해 이름과 일부 표현은 익명 처리했습니다.
+        </div>
+      </section>
+
+      <div className={styles.clientHeading}>
+        <p className={styles.kicker}>OUR CLIENTS</p>
+        <p>다양한 분야의 기업과 기관이 울림과 함께했습니다.</p>
+      </div>
+      <ClientMarquee />
+
+      <section
+        className={`${styles.section} ${styles.trust}`}
+        aria-labelledby="trust-title"
+      >
+        <div>
+          <p className={styles.kicker}>EXPERTISE & TRUST</p>
+          <h2 id="trust-title">
+            경험에 전문성을 더해,<br />
+            기업의 다음을 봅니다.
+          </h2>
+          <p className={styles.intro}>
+            국가공인 경영지도사인 대표의 전문성과<br />
+            실제 프로젝트 경험을 바탕으로<br />
+            기업의 성장 로드맵을 제안합니다.
           </p>
+          <Link href="/about" className={styles.textLink}>
+            회사소개 보기 <ArrowUpRight size={18} aria-hidden="true" />
+          </Link>
         </div>
+        <ul className={styles.credentials}>
+          {trustSignals.map((signal, index) => (
+            <li key={signal}>
+              <span>0{index + 1}</span>
+              {signal}
+            </li>
+          ))}
+        </ul>
       </section>
 
-      {/* WHY WOOLIM (비교) */}
-      <section className="bg-white">
-        <div className="mx-auto max-w-7xl px-5 py-16 lg:px-8 lg:py-24">
-          <SectionHeader
-            eyebrow="울림의 차별점"
-            title="왜 울림컴퍼니인가"
-            description="단일 과제 해결이 아니라, 기업 성장 단계 전체를 함께 봅니다. 서류부터 디자인까지 내부 팀이 직접 진행합니다."
-          />
-          <div className="mt-10">
-            <ComparisonTable />
-          </div>
-        </div>
-      </section>
-
-      {/* TRUST */}
-      <section className="bg-[var(--deep)] text-white">
-        <div className="mx-auto grid max-w-7xl gap-12 px-5 py-16 lg:grid-cols-[0.8fr_1fr] lg:px-8 lg:py-24">
-          <div>
-            <span className="eyebrow eyebrow--light">신뢰</span>
-            <h2 className="section-title mt-4 text-3xl lg:text-4xl">성과로 증명하는 컨설팅</h2>
-            <p className="mt-5 text-base leading-8 text-white/65">
-              울림컴퍼니는 국가공인 경영지도사인 대표의 전문성과 실제 프로젝트 경험을 바탕으로 기업의 성장
-              로드맵을 제안합니다.
+      <section className={styles.voices} aria-labelledby="voices-title">
+        <div className={styles.section}>
+          <div className={styles.sectionHeading}>
+            <div>
+              <p className={styles.kicker}>CLIENT VOICES</p>
+              <h2 id="voices-title">함께한 고객의 이야기.</h2>
+            </div>
+            <p className={styles.intro}>
+              결과를 만든 대표님들이 전하는<br />
+              울림컴퍼니와의 경험입니다.
             </p>
-            <Link
-              href="/about"
-              className="mt-7 inline-flex items-center gap-2 text-sm font-bold text-[#ef8e36]"
-            >
-              회사소개 보기 <ArrowRight size={16} />
-            </Link>
           </div>
-          <div className="grid gap-3">
-            {trustSignals.map((signal) => (
-              <div key={signal} className="flex gap-3 rounded-2xl border border-white/10 bg-white/5 p-5">
-                <CheckCircle2 className="mt-0.5 shrink-0 text-[var(--accent)]" size={19} />
-                <p className="text-sm leading-6 text-white/80">{signal}</p>
-              </div>
+          <div className={styles.quotes}>
+            {homeTestimonials.map((item) => (
+              <figure key={`${item.name}-${item.company}`}>
+                <span className={styles.quoteMark} aria-hidden="true">“</span>
+                <blockquote>{item.quote}</blockquote>
+                <figcaption>
+                  <div>
+                    <strong>{item.name}</strong>
+                    <span>{item.badge} · {item.company}</span>
+                  </div>
+                  <em>{item.result}</em>
+                </figcaption>
+              </figure>
             ))}
           </div>
-        </div>
-      </section>
-
-      {/* NEWS */}
-      <section className="bg-white">
-        <div className="mx-auto max-w-7xl px-5 py-16 lg:px-8 lg:py-20">
-          <SectionHeader eyebrow="인사이트" title="소식과 칼럼" linkHref="/news" linkLabel="인사이트 보기" />
-          <article className="card mt-9 p-7 lg:flex lg:items-center lg:justify-between">
-            <div>
-              <p className="text-sm font-bold text-[var(--accent)]">2026.06.23 · 공감신문</p>
-              <h3 className="mt-2 text-2xl font-bold text-[#14100c]">{site.award}</h3>
-              <p className="prose-muted mt-3 max-w-3xl text-sm">
-                전문성과 고객 중심 서비스 역량을 인정받아 경영컨설팅 부문 수상 브랜드로 이름을 올렸습니다.
-              </p>
+          <p className={styles.privacyNote}>
+            개인정보 보호를 위해 이름과 일부 표현은 익명 처리했습니다.
+          </p>
+          <section className={styles.comparison} aria-labelledby="difference-title">
+            <div className={styles.comparisonIntro}>
+              <div>
+                <p className={styles.kicker}>WHY WOOLIM</p>
+                <h2 id="difference-title">성장 전략부터 디자인까지,<br /><span>하나의 팀</span>으로.</h2>
+              </div>
+              <p className={styles.intro}>기업의 성장 단계에 맞춰 방향을 설계하고,<br />컨설팅·기획·디자인을 내부 팀이 함께 완성합니다.</p>
             </div>
-            <a
-              href={site.awardArticleUrl}
-              target="_blank"
-              rel="noreferrer"
-              className="mt-5 inline-flex h-11 items-center gap-2 rounded-xl border border-[var(--line)] px-5 text-sm font-bold lg:mt-0"
-            >
-              기사 보기 <ExternalLink size={16} />
-            </a>
-          </article>
+            <ComparisonTable />
+          </section>
         </div>
       </section>
 
+      <section
+        className={`${styles.section} ${styles.news}`}
+        aria-labelledby="news-title"
+      >
+        <div className={styles.sectionHeading}>
+          <div>
+            <p className={styles.kicker}>NEWS & INSIGHTS</p>
+            <h2 id="news-title">울림의 새로운 소식.</h2>
+          </div>
+          <Link href="/news" className={styles.textLink}>
+            전체 소식 보기 <ArrowUpRight size={19} aria-hidden="true" />
+          </Link>
+        </div>
+        <a
+          href={site.awardArticleUrl}
+          target="_blank"
+          rel="noreferrer"
+          className={styles.newsArticle}
+        >
+          <div>
+            <span className={styles.category}>언론보도</span>
+            <p>2026.06.23 · 공감신문</p>
+          </div>
+          <div>
+            <h3>{site.award}</h3>
+            <p>
+              전문성과 고객 중심 서비스 역량을 인정받아 경영컨설팅 부문 수상 브랜드로 이름을 올렸습니다.
+            </p>
+          </div>
+          <ArrowUpRight size={25} aria-hidden="true" />
+        </a>
+        <Link href="/columns" className={styles.columnLink}>
+          <span>사업에 도움이 되는 실무 이야기</span>
+          <strong>
+            울림 인사이트 · 칼럼 <ArrowRight size={18} aria-hidden="true" />
+          </strong>
+        </Link>
+      </section>
       <FaqList faqs={commonFaqs} />
       <ContactBand />
-    </>
+    </div>
   );
 }

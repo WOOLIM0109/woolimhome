@@ -1,3 +1,4 @@
+import styles from "@/components/PortfolioSuccess.module.css";
 import type { Metadata } from "next";
 import ContactBand from "@/components/ContactBand";
 import DesignPortfolioGallery from "@/components/DesignPortfolioGallery";
@@ -18,7 +19,7 @@ export const metadata: Metadata = {
 
 export default function PortfolioDesignPage() {
   return (
-    <>
+    <div className={styles.page}>
       <JsonLd
         data={[
           breadcrumbSchema([
@@ -42,8 +43,8 @@ export default function PortfolioDesignPage() {
         description="브랜드의 첫인상부터 복잡한 정보의 시각화까지, 실제 제작 결과물을 분야별로 정리했습니다."
       />
 
-      <section className="bg-[#f8f6f3]">
-        <div className="mx-auto max-w-7xl px-5 py-16 lg:px-8 lg:py-20">
+      <section className="bg-[#ffffff]">
+        <div className={styles.content}>
           <SectionHeader
             eyebrow="실제 제작 사례"
             title="종류별 디자인 포트폴리오"
@@ -56,17 +57,17 @@ export default function PortfolioDesignPage() {
       </section>
 
       <section className="border-y border-[var(--line)] bg-white">
-        <div className="mx-auto max-w-7xl px-5 py-16 lg:px-8 lg:py-20">
+        <div className={styles.content}>
           <SectionHeader
             eyebrow="제작 범위"
             title="이런 디자인을 만듭니다"
-            description="기존 제작 분야 정보는 그대로 유지하고, 실제 사례와 연결해 계속 보강합니다."
+            description="브랜드와 목적에 맞춰 인쇄물부터 공간 그래픽까지 설계합니다."
           />
           <div className="mt-9 grid border-l border-t border-[var(--line)] sm:grid-cols-2 lg:grid-cols-3">
             {designFields.map((field) => (
               <article key={field.name} className="border-b border-r border-[var(--line)] p-5 sm:p-6">
-                <h2 className="text-base font-bold text-[#241b15]">{field.name}</h2>
-                <p className="mt-2 text-sm leading-7 text-[var(--muted)]">{field.desc}</p>
+                <h2 className="text-base lg:text-[18px] font-bold text-[#171717]">{field.name}</h2>
+                <p className="mt-2 text-base lg:text-[17px] leading-7 text-[var(--muted)]">{field.desc}</p>
               </article>
             ))}
           </div>
@@ -74,6 +75,6 @@ export default function PortfolioDesignPage() {
       </section>
 
       <ContactBand />
-    </>
+    </div>
   );
 }
