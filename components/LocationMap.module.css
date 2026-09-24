@@ -1,0 +1,24 @@
+.map { min-width: 0; align-self: start; }
+.trigger { display: block; width: 100%; padding: 0; border: 0; background: transparent; text-align: left; cursor: zoom-in; }
+.trigger > img { display: block; width: 100%; height: auto; }
+.caption { display: flex; align-items: center; justify-content: flex-end; gap: 6px; padding-top: 12px; color: #686868; font-size: 14px; }
+.trigger:hover .caption { color: #eb6826; }
+.trigger:focus-visible, .close:focus-visible { outline: 2px solid #eb6826; outline-offset: 5px; }
+.dialog { position: fixed; inset: 0; width: min(1480px, calc(100vw - 32px)); max-width: none; max-height: calc(100dvh - 32px); margin: auto; padding: 0; overflow: hidden; border: 0; border-radius: 12px; background: #fff; color: #202020; box-shadow: 0 24px 80px #0004; }
+.dialog[open] { display: flex; flex-direction: column; }
+.dialog::backdrop { background: rgb(0 0 0 / 72%); }
+.header { display: flex; flex-shrink: 0; align-items: center; justify-content: space-between; gap: 16px; padding: 12px 20px; border-bottom: 1px solid #e3e3e3; }
+.header h2 { margin: 0; font-size: 20px; font-weight: 700; }
+.close { display: grid; width: 44px; height: 44px; flex-shrink: 0; place-items: center; border: 0; border-radius: 50%; background: #f2f2f0; cursor: pointer; }
+.close:hover { background: #e8e8e5; }
+.mobileHint { display: none; }
+.viewer { min-height: 0; overflow: auto; overscroll-behavior: contain; }
+.fullImage { display: block; width: 100%; height: auto; max-height: calc(100dvh - 104px); object-fit: contain; }
+
+@media (max-width: 639px) {
+  .dialog { width: calc(100vw - 16px); max-height: calc(100dvh - 24px); }
+  .header { padding: 8px 12px; }
+  .header h2 { font-size: 18px; }
+  .mobileHint { display: block; flex-shrink: 0; margin: 0; padding: 10px 12px; color: #686868; font-size: 13px; }
+  .fullImage { width: 900px; max-width: none; max-height: none; }
+}

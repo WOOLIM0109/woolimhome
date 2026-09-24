@@ -4,6 +4,7 @@ import type { Metadata } from "next";
 import { ArrowUpRight, Award, BadgeCheck, Banknote, Car, Clock, FileText, Landmark, Mail, MapPin, MessageCircle, Phone, Printer, TrainFront } from "lucide-react";
 import ContactBand from "@/components/ContactBand";
 import JsonLd from "@/components/JsonLd";
+import LocationMap from "@/components/LocationMap";
 import PageHero from "@/components/PageHero";
 import SectionHeader from "@/components/SectionHeader";
 import { ceo, trustSignals } from "@/data/content";
@@ -25,7 +26,6 @@ const pillars = [
   { icon: FileText, title: "비즈니스문서 기획·디자인", desc: "회사소개서·IR 자료·제안서·PPT 등 기업의 가치를 효과적으로 전달하는 비즈니스 문서를 기획하고 디자인합니다." },
 ];
 const credentials = [...new Set([...ceo.credentials, ...trustSignals])];
-const mapSrc = "https://www.google.com/maps?q=" + encodeURIComponent(site.address) + "&hl=ko&z=17&output=embed";
 const contactInfo = [
   { icon: MapPin, label: "주소", value: site.address },
   { icon: Phone, label: "대표번호", value: site.phone, href: "tel:" + site.phone.replaceAll("-", "") },
@@ -107,9 +107,7 @@ export default function AboutPage() {
         <div className={styles.section}>
           <SectionHeader eyebrow="오시는 길" title="울림컴퍼니 위치" description="방문 상담은 전화 또는 카카오톡 채널로 일정을 먼저 문의해 주세요." />
           <div className={styles.locationGrid}>
-            <div className={styles.map}>
-              <iframe title="울림컴퍼니 위치" src={mapSrc} loading="lazy" referrerPolicy="no-referrer-when-downgrade" />
-            </div>
+            <LocationMap />
             <dl className={styles.contactDetails}>
               {contactInfo.map(({ icon: Icon, label, value, href }) => (
                 <div key={label}>
