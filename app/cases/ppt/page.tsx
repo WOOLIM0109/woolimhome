@@ -3,18 +3,19 @@ import ContactBand from "@/components/ContactBand";
 import JsonLd from "@/components/JsonLd";
 import PageHero from "@/components/PageHero";
 import SectionHeader from "@/components/SectionHeader";
-import { pptCases } from "@/data/content";
+import { getPptCases } from "@/data/success-content";
 import { buildCanonical } from "@/lib/site-config";
 import { breadcrumbSchema, itemListSchema } from "@/lib/schema";
 
 export const metadata: Metadata = {
   title: "주요사례 | 입찰/입점/PPT",
   description:
-    "울림컴퍼니의 입찰제안서·입점 제안·발표 PT·수상 자료 주요 성과 — 공공조달 입찰 12억·10억 낙찰, 더현대·CJ온스타일·카카오 선물하기 입점 등.",
+    "울림컴퍼니의 입찰제안서·입점 제안·발표 PT·수상 자료 주요 성과 — 입찰 낙찰, 더현대·CJ온스타일·카카오 선물하기 입점 등.",
   alternates: { canonical: buildCanonical("/cases/ppt") },
 };
 
-export default function PptCasesPage() {
+export default async function PptCasesPage() {
+  const pptCases = await getPptCases();
   const allItems = pptCases.flatMap((g) => g.items);
   return (
     <>

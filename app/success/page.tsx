@@ -18,7 +18,7 @@ export const metadata: Metadata = {
 };
 
 
-const successTracks = [
+const successTracks = (metrics: Awaited<ReturnType<typeof getSuccessMetrics>>) => [
   {
     href: "/success/funding",
     icon: Landmark,
@@ -26,12 +26,12 @@ const successTracks = [
     title: "기업의 성장 단계에 맞는 과제를 연결합니다",
     description:
       "사업화, R&D, 정책자금의 목적을 구분하고 기업 상황에 맞는 로드맵과 평가 문서를 설계합니다.",
-    result: "8억 원",
+    result: `${metrics.summary.largestGrant.value} 원`,
     resultLabel: "TIPS R&D 단일 과제 최대 선정",
     points: [
-      "AI 플랫폼 스타트업 지원사업 5건 연속 선정",
-      "수면테크 앱 기업 사업화·R&D 2억 7천만 원",
-      "문화예술 지원사업 6억 원 선정",
+      "AI 플랫폼 스타트업 지원사업·투자 연계",
+      `${metrics.funding.count}건의 정부지원사업 최종 선정`,
+      "문화예술 지원사업 최종 선정",
     ],
     accent: "orange",
   },
@@ -42,10 +42,10 @@ const successTracks = [
     title: "평가항목을 읽히는 제안 논리로 바꿉니다",
     description:
       "입찰서류, 입점 제안서, 발표자료의 메시지와 시각 체계를 한 흐름으로 구성해 의사결정을 돕습니다.",
-    result: "12억 원",
-    resultLabel: "서울 공공서비스 용역 낙찰",
+    result: `${metrics.summary.largestBid.value} 원`,
+    resultLabel: "CJ올리브네트웍스 SI 용역 낙찰",
     points: [
-      "공공조달 입찰 낙찰 사례 5건",
+      `입찰 낙찰 사례 ${metrics.bidding.count}건`,
       "더현대·CJ온스타일·카카오 입점·제휴",
       "발표 코칭 포함 대회·수상 사례 2건",
     ],
@@ -53,21 +53,16 @@ const successTracks = [
   },
 ];
 
-const representativeResults = [
+const representativeResults = (metrics: Awaited<ReturnType<typeof getSuccessMetrics>>) => [
   {
     title: "AI 플랫폼 스타트업 TIPS R&D 선정",
-    description: "사업화부터 후속 R&D까지 연결해 TIPS 8억 원을 포함한 지원사업 5건 선정",
+    description: `사업화부터 투자와 R&D까지 연결해 TIPS ${metrics.summary.largestGrant.value} 원 선정`,
     href: "/success/funding#case-ai-platform-tips",
   },
   {
-    title: "수면테크 앱 기업 R&D 확장",
-    description: "초기창업패키지와 창업성장기술개발 디딤돌을 연결해 총 2억 7천만 원 선정",
-    href: "/success/funding#case-sleep-tech-rnd",
-  },
-  {
-    title: "서울 공공서비스 용역 낙찰",
-    description: "평가항목 분석부터 입찰서류와 발표자료까지 기획·디자인해 12억 원 낙찰",
-    href: "/success/bidding-entry#case-seoul-public-service",
+    title: "CJ올리브네트웍스 SI 용역 낙찰",
+    description: `입찰서류와 발표자료 기획·디자인으로 ${metrics.summary.largestBid.value} 원 낙찰`,
+    href: "/success/bidding-entry#case-cj-si",
   },
   {
     title: "백화점·플랫폼 입점 및 제휴",
@@ -84,7 +79,7 @@ export default async function SuccessPage() {
       <JsonLd
         data={[
           breadcrumbSchema([{ name: "홈", href: "/" }, { name: "성공사례", href: "/success" }]),
-          itemListSchema("울림컴퍼니 대표 성공사례", representativeResults),
+          itemListSchema("울림컴퍼니 대표 성공사례", representativeResults(metrics)),
         ]}
       />
 
@@ -121,7 +116,7 @@ export default async function SuccessPage() {
           />
 
           <div className={styles.tracks}>
-            {successTracks.map((track) => {
+            {successTracks(metrics).map((track) => {
               const Icon = track.icon;
               return (
                 <article key={track.href} className={styles.track}>

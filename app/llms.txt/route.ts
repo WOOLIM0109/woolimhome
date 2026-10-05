@@ -1,11 +1,13 @@
+import { getCaseHighlights, getConsultingCases, getPptCases } from "@/data/success-content";
 import { NextResponse } from "next/server";
-import { caseHighlights, clients, comparison, consultingCases, pptCases, services } from "@/data/content";
+import { clients, comparison, services } from "@/data/content";
 import { site } from "@/data/site";
 import { toAbsoluteUrl } from "@/lib/site-config";
 
 export const revalidate = 3600;
 
-export function GET() {
+export async function GET() {
+  const [caseHighlights, consultingCases, pptCases] = await Promise.all([getCaseHighlights(), getConsultingCases(), getPptCases()]);
   const markdown = `# ${site.name}(${site.englishName}) - AI Reference
 
 ${site.description}

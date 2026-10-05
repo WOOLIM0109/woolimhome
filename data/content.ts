@@ -142,18 +142,18 @@ export const ceo = {
 /* ------------------------------------------------------------------ */
 /* 홈 - 주요사례 하이라이트                                             */
 /* ------------------------------------------------------------------ */
-export const caseHighlights = [
+export const caseHighlightDefinitions = [
   {
     category: "정부지원사업",
     title: "TIPS R&D 기술창업지원 최종 선정",
-    result: "8억 원",
+    ledgerId: "wposition-tips",
     description: "AI 커뮤니티 플랫폼 개발 기업의 기술창업지원 사업 선정을 지원했습니다.",
     icon: TrendingUp,
   },
   {
     category: "공공조달 입찰",
-    title: "서울 공공 서비스 용역 입찰 수주",
-    result: "12억 원 낙찰",
+    title: "CJ올리브네트웍스 SI 용역 수주",
+    ledgerId: "cj-si",
     description: "입찰 서류와 발표자료의 구조·설득 흐름·디자인을 통합 제작했습니다.",
     icon: Gavel,
   },
@@ -208,137 +208,104 @@ export const clients = [
 /* ------------------------------------------------------------------ */
 /* 컨설팅 / 사업계획서 주요사례 (정부지원사업 성과)                      */
 /* ------------------------------------------------------------------ */
-export const consultingCases = [
+export const consultingCaseDefinitions = [
   {
     slug: "ai-platform-tips",
+    ledgerIds: ["wposition-investment", "wposition-tips", "wposition-startup", "wposition-data", "wposition-export", "wposition-rise", "wposition-city", "wposition-dtech"],
     company: "AI 플랫폼 스타트업",
     category: "R&D",
     field: "AI 커뮤니티 플랫폼 개발 · 사업화",
-    title: "단계별 지원사업 로드맵을 연결해 TIPS R&D 최종 선정",
-    headline: "8억 원",
+    title: "아이템 설계부터 투자유치와 TIPS까지 함께한 성장",
     image: "/images/proof/plan-3.png",
     evidencePublic: false,
     evidenceNotice: "제품명과 QR 코드가 포함된 원본 자료는 고객사 보호를 위해 공개하지 않습니다.",
     challenge: "초기 사업화 이후 후속 R&D와 시장 진입을 함께 준비해야 했습니다.",
     approach: "성장 단계에 맞는 과제를 연결하고 사업계획서와 발표자료의 설득 구조를 정리했습니다.",
-    resultSummary: "TIPS를 포함한 지원사업 5건 선정",
-    wins: [
-      "TIPS(기술창업지원) 최종 선정 — 8억 원",
-      "초기창업패키지 최종 선정 — 7,000만 원",
-      "데이터가공 지원사업 최종 선정 — 5,500만 원",
-      "테크서비스 수출바우처 — 3,000만 원",
-      "RISE 산학공동연구(R&D) 선정 — 3,000만 원",
-    ],
   },
   {
     slug: "pet-product-growth",
+    ledgerIds: ["leathers-prestartup"],
     company: "반려동물 제품 기업",
     category: "창업사업화",
     field: "반려동물용품 개발 · 사업화",
-    title: "예비창업부터 청년창업사관학교까지 연속 선정",
-    headline: "1억 4천만 원",
+    title: "제품과 사업모델을 구체화해 예비창업패키지 선정",
     image: "/images/proof/plan-7.png",
     evidencePublic: false,
     evidenceNotice: "선정 결과 원본은 고객사를 식별할 수 있어 홈페이지에 공개하지 않습니다.",
     challenge: "아이디어를 제품과 사업모델로 구체화하고 성장 단계별 지원사업을 연결해야 했습니다.",
     approach: "사업모델과 제품화 방향을 정리하고 공고별 평가 기준에 맞춰 계획서 구조를 설계했습니다.",
-    resultSummary: "창업사업화 지원사업 2건 연속 선정",
-    wins: [
-      "예비창업패키지 최종 선정 — 7,000만 원",
-      "청년창업사관학교 최종 선정 — 7,000만 원",
-    ],
-  },
-  {
-    slug: "sleep-tech-rnd",
-    company: "수면테크 앱 기업",
-    category: "R&D",
-    field: "수면 APP 개발 · 사업화",
-    title: "초기 사업화 성과를 기술개발 R&D로 확장",
-    headline: "2억 7천만 원",
-    image: "/images/proof/plan-1.png",
-    evidencePublic: false,
-    evidenceNotice: "선정 결과 원본은 고객사를 식별할 수 있어 홈페이지에 공개하지 않습니다.",
-    challenge: "서비스의 시장성과 기술개발 필요성을 하나의 성장 논리로 연결해야 했습니다.",
-    approach: "사업화 계획과 기술개발 목표를 구분해 초기창업 및 디딤돌 R&D 전략을 구성했습니다.",
-    resultSummary: "사업화와 기술개발 지원사업 연속 선정",
-    wins: [
-      "초기창업패키지 최종 선정 — 7,000만 원",
-      "창업성장기술개발 디딤돌 — 2억 원",
-    ],
   },
   {
     slug: "performing-arts-program",
+    ledgerIds: ["regional-arts"],
     company: "공연 기획·운영 단체",
     category: "문화·콘텐츠",
     field: "공연 기획 · 연출 · 운영",
     title: "지역 대표 문화예술 사업의 기획·운영 구조 구체화",
-    headline: "6억 원",
     image: "/images/proof/plan-9.png",
     evidencePublic: false,
     evidenceNotice: "선정 결과 원본은 고객사를 식별할 수 있어 홈페이지에 공개하지 않습니다.",
     challenge: "공연의 기획 의도와 연간 운영계획, 예산의 타당성을 함께 설명해야 했습니다.",
     approach: "사업 목적과 프로그램 운영 흐름을 정리하고 실행계획과 예산 논리를 구조화했습니다.",
-    resultSummary: "지역대표 예술단체 지원사업 선정",
-    wins: ["문체부 ‘지역대표 예술단체 지원사업’ 선정 — 6억 원"],
   },
 ];
 
 // 경영컨설팅 페이지용 빠른 성과 사례
-export const quickWins = [
-  { item: "반려동물용품 개발", program: "예비창업패키지", amount: "7,000만 원" },
-  { item: "승마용품 제조", program: "스포츠산업 창업지원(예비창업)", amount: "4,000만 원" },
-  { item: "차량관리 플랫폼", program: "예비창업패키지", amount: "6,000만 원" },
-  { item: "AI 플랫폼 개발", program: "창업중심대학", amount: "7,000만 원" },
-  { item: "AI 커뮤니티 플랫폼", program: "TIPS R&D", amount: "8억 원" },
-  { item: "에듀테크 AI 플랫폼", program: "신용보증기금 NEST", amount: "1억 원" },
+export const quickWinDefinitions = [
+  { item: "반려동물용품 개발", ledgerId: "leathers-prestartup" },
+  { item: "승마용품 제조", ledgerId: "sports-startup" },
+  { item: "창업 사업화", ledgerId: "youth-academy" },
+  { item: "AI 플랫폼 개발", ledgerId: "wposition-startup" },
+  { item: "AI 커뮤니티 플랫폼", ledgerId: "wposition-tips" },
+  { item: "에듀테크 AI 플랫폼", ledgerId: "nest" },
 ];
 
 /* ------------------------------------------------------------------ */
 /* 입찰 / 입점 / 대회 주요사례 (PPT·서류 기획/디자인)                    */
 /* ------------------------------------------------------------------ */
-export const pptCases = [
+export const pptCaseDefinitions = [
   {
     slug: "public-bidding",
     group: "공공조달 입찰",
     icon: Gavel,
     items: [
       {
-        slug: "seoul-public-service",
-        company: "공공서비스 운영 기업",
-        title: "서울 공공 서비스 용역 입찰제안",
-        result: "12억 원 낙찰",
+        slug: "cj-si",
+        ledgerId: "cj-si",
+        company: "IT 시스템 구축 기업",
+        title: "CJ올리브네트웍스 SI 용역 입찰제안",
         challenge: "사업 수행 역량과 운영계획을 평가항목에 맞춰 제한된 지면 안에서 증명해야 했습니다.",
         approach: "평가항목 분석 · 제안 논리 설계 · 입찰서류 및 발표자료 기획·디자인",
       },
       {
         slug: "district-waste-service",
+        ledgerId: "district-waste-service",
         company: "환경서비스 기업",
-        title: "지역구 폐기물 수집·처리 용역 입찰제안",
-        result: "10억 원 낙찰",
+        title: "부산 금정구 1구역 폐기물 수집·처리 용역 입찰제안",
         challenge: "지역 특성과 수집·처리 체계를 반영한 구체적인 운영계획이 필요했습니다.",
         approach: "과업 요구사항 분석 · 운영 프로세스 구조화 · 제안서 시각화",
       },
       {
         slug: "career-education-program",
+        ledgerId: "career-education-program",
         company: "진로교육 기업",
-        title: "진로 교육 기획 수업 입찰제안",
-        result: "3.5억 원 낙찰",
+        title: "원격영상 진로멘토링 기획수업 운영 입찰제안",
         challenge: "교육 프로그램의 차별성과 현장 운영 역량을 함께 전달해야 했습니다.",
         approach: "교육 목표 정리 · 프로그램 구성 · 운영 및 성과관리 계획 시각화",
       },
       {
         slug: "local-festival",
+        ledgerId: "local-festival",
         company: "지역축제 기획사",
-        title: "지자체 축제 개최 입찰제안",
-        result: "1억 원 낙찰",
+        title: "광양 시민의 날 개최 입찰제안",
         challenge: "행사 콘셉트부터 안전·운영계획까지 하나의 제안 흐름으로 연결해야 했습니다.",
         approach: "평가 기준 분석 · 행사 스토리라인 · 실행계획 및 발표자료 구성",
       },
       {
         slug: "facility-waterproofing",
+        ledgerId: "facility-waterproofing",
         company: "시설관리 기업",
-        title: "공동주택 방수·페인트 입찰제안",
-        result: "1억 원 낙찰",
+        title: "문현아파트 방수·페인트 입찰제안",
         challenge: "시공 품질과 일정, 민원 대응 방안을 이해하기 쉽게 설명해야 했습니다.",
         approach: "시공 프로세스 정리 · 품질관리 체계 · 제안서 및 발표자료 디자인",
       },
@@ -349,8 +316,12 @@ export const pptCases = [
     group: "입점 · 제휴",
     icon: Store,
     items: [
+      { slug: "daiso-homeplus", ledgerId: "daiso-homeplus", company: "유통 기업", title: "다이소@홈플러스 상봉점 입점", result: "입점 확정", challenge: "매장과 상품의 적합성을 전달해야 했습니다.", approach: "입점 제안 내용 정리 · 제안서 기획·디자인" },
+      { slug: "musinsa-entry", ledgerId: "musinsa-entry", company: "패션 브랜드", title: "무신사 입점", result: "입점 확정", challenge: "플랫폼에 맞는 브랜드와 상품 소개가 필요했습니다.", approach: "브랜드 강점 정리 · 입점 제안서 기획·디자인" },
+      { slug: "hyundai-capital", ledgerId: "hyundai-capital", company: "모빌리티 기업", title: "현대캐피탈 제휴", result: "제휴 확정", challenge: "서비스와 제휴의 가치를 전달해야 했습니다.", approach: "제휴 논리 정리 · 제안서 기획·디자인" },
       {
         slug: "the-hyundai-popup",
+        ledgerId: "the-hyundai-popup",
         company: "소비재 브랜드",
         title: "강남 더현대 팝업스토어 입점",
         result: "입점 확정",
@@ -359,6 +330,7 @@ export const pptCases = [
       },
       {
         slug: "cj-live-commerce",
+        ledgerId: "cj-live-commerce",
         company: "라이프스타일 브랜드",
         title: "CJ온스타일 라이브커머스 협업제안",
         result: "협업 확정",
@@ -367,6 +339,7 @@ export const pptCases = [
       },
       {
         slug: "kakao-gift-entry",
+        ledgerId: "kakao-gift-entry",
         company: "라이프스타일 브랜드",
         title: "카카오톡 선물하기 기획상품 입점",
         result: "입점 확정",
@@ -383,7 +356,7 @@ export const pptCases = [
       {
         slug: "quality-circle-award",
         company: "제조기업",
-        title: "품질분임조 경진대회 (발표코칭 포함)",
+        title: "롯데케미칼 품질분임조 경진대회 (발표코칭 포함)",
         result: "지역부문 최우수상",
         challenge: "개선 활동의 과정과 정량 성과를 심사위원이 빠르게 이해하도록 정리해야 했습니다.",
         approach: "성과 논리 재구성 · 발표자료 디자인 · 발표 흐름 및 전달 코칭",
@@ -391,7 +364,7 @@ export const pptCases = [
       {
         slug: "emergency-service-presentation",
         company: "공공기관",
-        title: "구급업무 연찬 발표대회",
+        title: "부평소방서 구급업무 연찬 발표대회",
         result: "2등 수상",
         challenge: "현장 사례와 개선 제안을 제한된 발표 시간 안에 설득력 있게 전달해야 했습니다.",
         approach: "핵심 메시지 정리 · 사례 구조화 · 발표자료 기획·디자인",

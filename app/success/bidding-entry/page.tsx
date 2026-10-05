@@ -7,14 +7,14 @@ import ContactBand from "@/components/ContactBand";
 import JsonLd from "@/components/JsonLd";
 import PageHero from "@/components/PageHero";
 import SectionHeader from "@/components/SectionHeader";
-import { pptCases } from "@/data/content";
+import { getPptCases } from "@/data/success-content";
 import { buildCanonical } from "@/lib/site-config";
 import { breadcrumbSchema, itemListSchema } from "@/lib/schema";
 
 export const metadata: Metadata = {
   title: "성공사례 | 입찰/입점",
   description:
-    "울림컴퍼니가 입찰서류와 발표자료를 기획·디자인해 만든 공공조달 12억 원 낙찰, 백화점·플랫폼 입점 등 실제 성공사례를 소개합니다.",
+    "울림컴퍼니가 입찰서류와 발표자료를 기획·디자인해 만든 CJ올리브네트웍스 SI 용역 낙찰, 백화점·플랫폼 입점 등 실제 성공사례를 소개합니다.",
   alternates: { canonical: buildCanonical("/success/bidding-entry") },
 };
 
@@ -47,6 +47,7 @@ const workingProcess = [
 ];
 
 export default async function BiddingEntrySuccessPage() {
+  const pptCases = await getPptCases();
   const metrics = await getSuccessMetrics();
   const summary = [metrics.summary.total, metrics.summary.largestBid, metrics.summary.entries];
   const allItems = pptCases.flatMap((group) => group.items);
@@ -135,7 +136,7 @@ export default async function BiddingEntrySuccessPage() {
               </div>
 
               <aside className={styles.featuredAside}>
-                <p className="text-[14px] font-bold text-[#555555]">서울 공공서비스 용역</p>
+                <p className="text-[14px] font-bold text-[#555555]">CJ올리브네트웍스 SI 용역</p>
                 <p className="mt-3 text-5xl font-bold leading-tight text-[#eb6826]">{featuredCase.result}</p>
                 <p className="mt-5 text-base lg:text-[17px] leading-7 text-[#555555]">
                   제안 논리와 서류, 발표자료의 시각 체계를 하나로 연결해 평가자가 핵심을 빠르게 이해하도록 구성했습니다.
@@ -150,7 +151,7 @@ export default async function BiddingEntrySuccessPage() {
         <div className={styles.content}>
           <SectionHeader
             eyebrow="분야별 사례"
-            title="목적에 따라 찾아보는 10개의 성과"
+            title={`목적에 따라 찾아보는 ${allItems.length}개의 성과`}
             description="공공조달 입찰, 입점·제휴, 대회·수상 사례를 같은 정보 기준으로 비교할 수 있습니다."
             linkHref="/portfolio/ppt"
             linkLabel="PPT 포트폴리오 보기"

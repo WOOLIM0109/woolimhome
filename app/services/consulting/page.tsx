@@ -1,3 +1,4 @@
+import { getQuickWins } from "@/data/success-content";
 import Image from "next/image";
 import type { Metadata } from "next";
 import ContactBand from "@/components/ContactBand";
@@ -7,7 +8,7 @@ import PageHero from "@/components/PageHero";
 import SectionHeader from "@/components/SectionHeader";
 import RelatedServices from "@/components/RelatedServices";
 import CertificationFlow from "@/components/CertificationFlow";
-import { consultingTracks, quickWins, services } from "@/data/content";
+import { consultingTracks, services } from "@/data/content";
 import { buildCanonical } from "@/lib/site-config";
 import { breadcrumbSchema, faqSchema } from "@/lib/schema";
 import styles from "@/components/BusinessPages.module.css";
@@ -20,7 +21,8 @@ export const metadata: Metadata = {
   alternates: { canonical: buildCanonical("/services/consulting") },
 };
 
-export default function ConsultingPage() {
+export default async function ConsultingPage() {
+  const quickWins = await getQuickWins();
   return (
     <div className={styles.page}>
       <JsonLd data={[

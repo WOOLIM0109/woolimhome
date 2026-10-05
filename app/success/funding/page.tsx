@@ -7,7 +7,7 @@ import JsonLd from "@/components/JsonLd";
 import PageHero from "@/components/PageHero";
 import SectionHeader from "@/components/SectionHeader";
 import SuccessEvidenceDialog from "@/components/SuccessEvidenceDialog";
-import { consultingCases } from "@/data/content";
+import { getConsultingCases } from "@/data/success-content";
 import { buildCanonical } from "@/lib/site-config";
 import { breadcrumbSchema, itemListSchema } from "@/lib/schema";
 
@@ -26,6 +26,7 @@ const process = [
 ];
 
 export default async function FundingSuccessPage() {
+  const consultingCases = await getConsultingCases();
   const metrics = await getSuccessMetrics();
   const summary = [metrics.summary.total, metrics.summary.production, metrics.summary.largestGrant];
   const [featuredCase, ...otherCases] = consultingCases;
@@ -108,9 +109,9 @@ export default async function FundingSuccessPage() {
 
               <aside className={styles.featuredAside}>
                 <div>
-                  <p className="text-[14px] font-bold text-[#555555]">대표 선정 성과</p>
+                  <p className="text-[14px] font-bold text-[#555555]">선정·투자 누계</p>
                   <p className="mt-3 text-5xl font-bold text-[#eb6826] lg:text-6xl">{featuredCase.headline}</p>
-                  <p className="mt-4 text-lg font-bold leading-7">TIPS 기술창업지원<br />최종 선정</p>
+                  <p className="mt-4 text-lg font-bold leading-7">사업화·R&D 선정<br />투자유치 연계</p>
                   <p className="mt-5 text-base lg:text-[17px] leading-7 text-[#555555]">
                     단일 성과뿐 아니라 초기 사업화부터 R&D, 수출까지 후속 과제를 연결했습니다.
                   </p>

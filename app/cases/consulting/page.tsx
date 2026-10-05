@@ -5,7 +5,7 @@ import ContactBand from "@/components/ContactBand";
 import JsonLd from "@/components/JsonLd";
 import PageHero from "@/components/PageHero";
 import SectionHeader from "@/components/SectionHeader";
-import { consultingCases } from "@/data/content";
+import { getConsultingCases } from "@/data/success-content";
 import { buildCanonical } from "@/lib/site-config";
 import { breadcrumbSchema, itemListSchema } from "@/lib/schema";
 
@@ -22,7 +22,8 @@ const summary = [
   { value: "8억", label: "단일 과제 최대 선정 (TIPS R&D)" },
 ];
 
-export default function ConsultingCasesPage() {
+export default async function ConsultingCasesPage() {
+  const consultingCases = await getConsultingCases();
   return (
     <>
       <JsonLd

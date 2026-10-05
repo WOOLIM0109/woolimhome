@@ -1,3 +1,4 @@
+import { getCaseHighlights } from "@/data/success-content";
 import Image from "next/image";
 import Link from "next/link";
 import type { Metadata } from "next";
@@ -8,7 +9,6 @@ import ContactBand from "@/components/ContactBand";
 import FaqList from "@/components/FaqList";
 import JsonLd from "@/components/JsonLd";
 import {
-  caseHighlights,
   commonFaqs,
   portfolioProjects,
   projects,
@@ -47,6 +47,7 @@ const selectedIdentity = designPortfolioProjects.find(
 
 export default async function HomePage() {
   const stats = await getStats();
+  const caseHighlights = await getCaseHighlights();
   return (
     <div className={styles.home}>
       <JsonLd
