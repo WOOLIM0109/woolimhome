@@ -17,7 +17,7 @@ import {
 } from "@/data/content";
 import { designPortfolioProjects } from "@/data/design-portfolio";
 import { homeTestimonials } from "@/data/home-testimonials";
-import { site, stats } from "@/data/site";
+import { site, getStats } from "@/data/site";
 import { buildCanonical } from "@/lib/site-config";
 import {
   breadcrumbSchema,
@@ -27,12 +27,16 @@ import {
 } from "@/lib/schema";
 import styles from "./home.module.css";
 
-export const metadata: Metadata = {
+export async function generateMetadata(): Promise<Metadata> {
+  const { getSuccessMetrics } = await import("@/data/success-metrics");
+  const metrics = await getSuccessMetrics();
+  return {
   title: "울림컴퍼니",
   description:
-    "울림컴퍼니는 경영컨설팅, 정부지원사업, 기업인증, 사업계획서, IR/PPT, 디자인 제작을 연결하는 비즈니스 성장 파트너입니다. 진입 2년 만에 지원사업 20억 이상 유치, 1,000건 이상 컨설팅 사례 보유.",
+    `울림컴퍼니는 경영컨설팅, 정부지원사업, 기업인증, 사업계획서, IR/PPT, 디자인 제작을 연결하는 비즈니스 성장 파트너입니다. ${metrics.period} ${metrics.summary.total.value} ${metrics.summary.total.label}, ${metrics.summary.production.value} ${metrics.summary.production.label}.`,
   alternates: { canonical: buildCanonical("/") },
-};
+  };
+}
 
 const selectedPresentations = portfolioProjects.filter((project) =>
   ["grang-factory", "wposition-data"].includes(project.id),
@@ -41,7 +45,8 @@ const selectedIdentity = designPortfolioProjects.find(
   (project) => project.id === "sinacell-stationery",
 );
 
-export default function HomePage() {
+export default async function HomePage() {
+  const stats = await getStats();
   return (
     <div className={styles.home}>
       <JsonLd

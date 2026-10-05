@@ -1,3 +1,4 @@
+import { getSuccessMetrics } from "@/data/success-metrics";
 import styles from "@/components/PortfolioSuccess.module.css";
 import type { Metadata } from "next";
 import { CheckCircle2, FileText, Route, Target } from "lucide-react";
@@ -17,11 +18,6 @@ export const metadata: Metadata = {
   alternates: { canonical: buildCanonical("/success/funding") },
 };
 
-const summary = [
-  { value: "20억+", label: "사업 진입 2년 내 누적 유치" },
-  { value: "1,000+", label: "보유 컨설팅 사례" },
-  { value: "8억", label: "단일 과제 최대 선정" },
-];
 
 const process = [
   { icon: Target, step: "01", title: "기업 상황 진단", description: "성장 단계, 자금 목적, 준비 수준을 먼저 확인합니다." },
@@ -29,7 +25,9 @@ const process = [
   { icon: FileText, step: "03", title: "문서·발표 구조화", description: "평가 기준에 맞춰 계획서와 발표자료의 논리를 정리합니다." },
 ];
 
-export default function FundingSuccessPage() {
+export default async function FundingSuccessPage() {
+  const metrics = await getSuccessMetrics();
+  const summary = [metrics.summary.total, metrics.summary.production, metrics.summary.largestGrant];
   const [featuredCase, ...otherCases] = consultingCases;
 
   return (

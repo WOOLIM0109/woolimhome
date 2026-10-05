@@ -8,7 +8,7 @@ import LocationMap from "@/components/LocationMap";
 import PageHero from "@/components/PageHero";
 import SectionHeader from "@/components/SectionHeader";
 import { ceo, trustSignals } from "@/data/content";
-import { site, stats } from "@/data/site";
+import { site, getStats } from "@/data/site";
 import { buildCanonical } from "@/lib/site-config";
 import { breadcrumbSchema } from "@/lib/schema";
 import styles from "@/components/BusinessPages.module.css";
@@ -35,7 +35,8 @@ const contactInfo = [
   { icon: MessageCircle, label: "카카오톡 채널", value: "채널로 바로 문의하기", href: site.kakaoUrl },
 ];
 
-export default function AboutPage() {
+export default async function AboutPage() {
+  const stats = await getStats();
   return (
     <div className={styles.page}>
       <JsonLd data={breadcrumbSchema([{ name: "홈", href: "/" }, { name: "회사소개", href: "/about" }])} />

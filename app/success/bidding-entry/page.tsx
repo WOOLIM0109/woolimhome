@@ -1,3 +1,4 @@
+import { getSuccessMetrics } from "@/data/success-metrics";
 import styles from "@/components/PortfolioSuccess.module.css";
 import type { Metadata } from "next";
 import { FileCheck2, Presentation, Search, Target } from "lucide-react";
@@ -17,11 +18,6 @@ export const metadata: Metadata = {
   alternates: { canonical: buildCanonical("/success/bidding-entry") },
 };
 
-const summary = [
-  { value: "12억", label: "단일 공공조달 최대 낙찰" },
-  { value: "10건", label: "홈페이지 공개 성공사례" },
-  { value: "3개", label: "공공조달·입점·수상 분야" },
-];
 
 const workingProcess = [
   {
@@ -50,7 +46,9 @@ const workingProcess = [
   },
 ];
 
-export default function BiddingEntrySuccessPage() {
+export default async function BiddingEntrySuccessPage() {
+  const metrics = await getSuccessMetrics();
+  const summary = [metrics.summary.total, metrics.summary.largestBid, metrics.summary.entries];
   const allItems = pptCases.flatMap((group) => group.items);
   const featuredCase = pptCases[0].items[0];
   const groups = pptCases.map(({ slug, group, items }) => ({ slug, group, items }));

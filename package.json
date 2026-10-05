@@ -8,7 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
-    "test": "node --test \"lib/**/*.test.mjs\"",
+    "test": "node --test \"lib/**/*.test.mjs\" \"data/**/*.test.mjs\"",
     "verify": "npm run typecheck && npm run lint && npm test",
     "doctor": "node scripts/doctor.mjs",
     "mockup-check": "node scripts/mockup-check.mjs",

@@ -1,3 +1,4 @@
+import { getSuccessMetrics } from "@/data/success-metrics";
 import styles from "@/components/PortfolioSuccess.module.css";
 import Link from "next/link";
 import type { Metadata } from "next";
@@ -16,11 +17,6 @@ export const metadata: Metadata = {
   alternates: { canonical: buildCanonical("/success") },
 };
 
-const summary = [
-  { value: "20억+", label: "사업 진입 2년 내 지원사업 누적 유치" },
-  { value: "12억", label: "단일 공공조달 최대 낙찰" },
-  { value: "1,000+", label: "보유한 실제 컨설팅 사례" },
-];
 
 const successTracks = [
   {
@@ -80,7 +76,9 @@ const representativeResults = [
   },
 ];
 
-export default function SuccessPage() {
+export default async function SuccessPage() {
+  const metrics = await getSuccessMetrics();
+  const summary = [metrics.summary.total, metrics.summary.largestBid, metrics.summary.production];
   return (
     <div className={styles.page}>
       <JsonLd

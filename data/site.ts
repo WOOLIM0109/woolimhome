@@ -82,9 +82,8 @@ export const navigation = [
   },
 ];
 
-export const stats = [
-  { value: "1,000+", label: "실제 컨설팅 사례" },
-  { value: "20억+", label: "지원사업 유치 (진입 2년)" },
-  { value: "2026", label: "고객만족브랜드대상 1위" },
-  { value: "33기", label: "국가공인 경영지도사" },
-];
+export async function getStats() {
+  const { getSuccessMetrics } = await import("./success-metrics.ts");
+  const { summary } = await getSuccessMetrics();
+  return [summary.total, summary.production, summary.largestBid, summary.largestGrant];
+}
