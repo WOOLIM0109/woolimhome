@@ -7,11 +7,11 @@ import { useEffect, useMemo, useState } from "react";
 import { ChevronLeft, ChevronRight, Images, Star, X } from "lucide-react";
 import {
   designPortfolioCategories,
-  designPortfolioProjects,
   getDesignCategoryLabel,
 } from "@/data/design-portfolio";
 
-type PortfolioProject = (typeof designPortfolioProjects)[number];
+import type { getPublicDesignProjects } from "@/data/public-content";
+type PortfolioProject = ReturnType<typeof getPublicDesignProjects>[number];
 type CategoryKey = (typeof designPortfolioCategories)[number]["key"];
 
 const stageTone: Record<PortfolioProject["preview"], string> = {
@@ -136,7 +136,7 @@ function ProjectPreview({ project }: { project: PortfolioProject }) {
   );
 }
 
-export default function DesignPortfolioGallery() {
+export default function DesignPortfolioGallery({ projects }: { projects: PortfolioProject[] }) {
   const [activeCategory, setActiveCategory] = useState<CategoryKey>("all");
   const [selectedProject, setSelectedProject] = useState<PortfolioProject | null>(null);
   const [activeImage, setActiveImage] = useState(0);
@@ -144,9 +144,9 @@ export default function DesignPortfolioGallery() {
   const visibleProjects = useMemo(
     () =>
       activeCategory === "all"
-        ? designPortfolioProjects
-        : designPortfolioProjects.filter((project) => project.category === activeCategory),
-    [activeCategory],
+        ? projects
+        : projects.filter((project) => project.category === activeCategory),
+    [activeCategory, projects],
   );
 
   function openProject(project: PortfolioProject) {

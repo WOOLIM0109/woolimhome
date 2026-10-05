@@ -5,15 +5,18 @@ import styles from "./PortfolioSuccess.module.css";
 import Image from "next/image";
 import { useEffect, useMemo, useState } from "react";
 import { ChevronLeft, ChevronRight, Images, X } from "lucide-react";
-import { portfolioProjects, projectDocCategories } from "@/data/content";
+import { projectDocCategories } from "@/data/content";
 
-type PortfolioProject = (typeof portfolioProjects)[number];
+import type { getPublicPortfolioProjects } from "@/data/public-content";
+type PortfolioProject = ReturnType<typeof getPublicPortfolioProjects>[number];
 type ProjectCategory = (typeof projectDocCategories)[number]["key"];
 
 export default function ProjectGallery({
+  projects,
   allowedCategories,
   defaultCategory = "all",
 }: {
+  projects: PortfolioProject[];
   allowedCategories?: ProjectCategory[];
   defaultCategory?: ProjectCategory | "all";
 }) {
@@ -34,13 +37,13 @@ export default function ProjectGallery({
   const visibleProjects = useMemo(
     () => {
       const scoped = allowedCategories
-        ? portfolioProjects.filter((project) => allowedCategories.includes(project.category))
-        : portfolioProjects;
+        ? projects.filter((project) => allowedCategories.includes(project.category))
+        : projects;
       return activeCategory === "all"
         ? scoped
         : scoped.filter((project) => project.category === activeCategory);
     },
-    [activeCategory, allowedCategories],
+    [activeCategory, allowedCategories, projects],
   );
 
   function openProject(project: PortfolioProject) {

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { getConsultingCases, getPptCases, getQuickWins, getCaseHighlights } from "./success-content.ts";
+import "../lib/testing/server-only.mjs";
+const { getConsultingCases, getPptCases, getQuickWins, getCaseHighlights } = await import("./success-content.ts");
 import { getSuccessLedger } from "./success-ledger.ts";
 
 test("확정 선정 사례만 노출하고 모든 금액을 원장으로부터 구성한다", async () => {

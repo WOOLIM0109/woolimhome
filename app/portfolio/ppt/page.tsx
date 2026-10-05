@@ -1,3 +1,4 @@
+import { getPublicPortfolioProjects } from "@/data/public-content";
 import styles from "@/components/PortfolioSuccess.module.css";
 import type { Metadata } from "next";
 import ContactBand from "@/components/ContactBand";
@@ -44,7 +45,7 @@ export default function PortfolioPptPage() {
       />
       <section className="bg-white">
         <div className={styles.content}>
-          <ProjectGallery allowedCategories={["intro", "proposal", "report"]} />
+          <ProjectGallery projects={getPublicPortfolioProjects()} allowedCategories={["intro", "proposal", "report"]} />
         </div>
       </section>
       <ContactBand />

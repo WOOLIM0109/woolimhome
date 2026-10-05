@@ -12,12 +12,11 @@ import FaqList from "@/components/FaqList";
 import JsonLd from "@/components/JsonLd";
 import {
   commonFaqs,
-  portfolioProjects,
   projects,
   services,
   trustSignals,
 } from "@/data/content";
-import { designPortfolioProjects } from "@/data/design-portfolio";
+import { getPublicPortfolioProjects, getPublicDesignProjects } from "@/data/public-content";
 import { homeTestimonials } from "@/data/home-testimonials";
 import { site, getStats } from "@/data/site";
 import { buildCanonical } from "@/lib/site-config";
@@ -40,10 +39,10 @@ export async function generateMetadata(): Promise<Metadata> {
   };
 }
 
-const selectedPresentations = portfolioProjects.filter((project) =>
+const selectedPresentations = getPublicPortfolioProjects().filter((project) =>
   ["grang-factory", "wposition-data"].includes(project.id),
 );
-const selectedIdentity = designPortfolioProjects.find(
+const selectedIdentity = getPublicDesignProjects().find(
   (project) => project.id === "sinacell-stationery",
 );
 

@@ -1,3 +1,4 @@
+import { getPublicPortfolioProjects } from "@/data/public-content";
 import type { Metadata } from "next";
 import Image from "next/image";
 import Link from "next/link";
@@ -8,7 +9,7 @@ import JsonLd from "@/components/JsonLd";
 import PageHero from "@/components/PageHero";
 import SectionHeader from "@/components/SectionHeader";
 import RelatedServices from "@/components/RelatedServices";
-import { docProcess, docTypes, portfolioProjects, services } from "@/data/content";
+import { docProcess, docTypes, services } from "@/data/content";
 import { buildCanonical } from "@/lib/site-config";
 import { breadcrumbSchema, faqSchema } from "@/lib/schema";
 import styles from "@/components/BusinessPages.module.css";
@@ -29,7 +30,7 @@ const targets = [
   "제품·서비스를 이해하기 쉽게 소개하고 싶은 기업",
   "입찰·제휴·납품·영업용 제안서가 필요한 기업",
 ];
-const samples = portfolioProjects.slice(0, 3);
+const samples = getPublicPortfolioProjects().slice(0, 3);
 
 export default function BusinessDocsPage() {
   return (

@@ -1,6 +1,7 @@
+import { getPublicLogoClients } from "@/data/public-content";
 import { getCaseHighlights, getConsultingCases, getPptCases } from "@/data/success-content";
 import { NextResponse } from "next/server";
-import { clients, comparison, services } from "@/data/content";
+import { comparison, services } from "@/data/content";
 import { site } from "@/data/site";
 import { toAbsoluteUrl } from "@/lib/site-config";
 
@@ -34,7 +35,7 @@ ${consultingCases.map((c) => `- ${c.company} (${c.field}): ${c.headline} — ${c
 ${pptCases.flatMap((g) => g.items.map((i) => `- [${g.group}] ${i.company}: ${i.title} — ${i.result}`)).join("\n")}
 
 ## Notable Clients (enterprise & public institutions)
-${clients.map((client) => client.name).join(", ")}
+${getPublicLogoClients().map((client) => client.name).join(", ")}
 
 ## Why Woolim (vs general competitors)
 ${comparison.map((c) => `- ${c.axis}: 타사 — ${c.others} / 울림컴퍼니 — ${c.woolim}`).join("\n")}

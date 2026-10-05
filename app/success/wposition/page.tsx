@@ -17,7 +17,7 @@ export const metadata: Metadata = {
 
 export default async function WpositionSuccessPage() {
   const [ledger, metrics] = await Promise.all([getSuccessLedger(), getSuccessMetrics()]);
-  const records = ledger.filter((item) => item.customerId === "wposition" && item.stage === "final" && item.publicApproved);
+  const records = ledger.filter((item) => item.clientKey === "wposition" && item.stage === "final" && item.publicApproved);
   const investment = records.find((item) => item.track === "investment");
   const tips = records.find((item) => item.id === "wposition-tips");
   const grants = records.filter((item) => item.track === "funding" && item.id !== "wposition-tips").sort((a, b) => (a.year ?? 0) - (b.year ?? 0));

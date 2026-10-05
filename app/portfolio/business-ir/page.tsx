@@ -1,3 +1,4 @@
+import { getPublicPortfolioProjects } from "@/data/public-content";
 import styles from "@/components/PortfolioSuccess.module.css";
 import type { Metadata } from "next";
 import ContactBand from "@/components/ContactBand";
@@ -44,7 +45,7 @@ export default function PortfolioBusinessIrPage() {
       />
       <section className="bg-white">
         <div className={styles.content}>
-          <ProjectGallery allowedCategories={["ir"]} defaultCategory="ir" />
+          <ProjectGallery projects={getPublicPortfolioProjects()} allowedCategories={["ir"]} defaultCategory="ir" />
         </div>
       </section>
       <ContactBand />

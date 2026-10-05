@@ -176,33 +176,33 @@ export const caseHighlightDefinitions = [
 /* ------------------------------------------------------------------ */
 /* 대기업·공공기관 고객사 (실적)                                        */
 /* ------------------------------------------------------------------ */
-export const clients = [
-  { name: "SK", logo: "/logos/sk.png" },
-  { name: "삼성화재", logo: "/logos/samsung-fire.png" },
-  { name: "CJ", logo: "/logos/cj.svg" },
-  { name: "중소벤처기업부", logo: "/logos/mss.svg" },
-  { name: "중소벤처기업진흥공단", logo: "/logos/kosmes.svg" },
-  { name: "한국수자원공사", logo: "/logos/kwater.png" },
-  { name: "애경산업", logo: "/logos/aekyung.png" },
-  { name: "IBK투자증권", logo: "/logos/ibk-securities.png" },
-  { name: "금호석유화학", logo: "/logos/kumho-petrochemical.png" },
+export const clientLogoDefinitions = [
+  { clientKey: "sk-group", logo: "/logos/sk.png" },
+  { clientKey: "samsung-fire", logo: "/logos/samsung-fire.png" },
+  { clientKey: "cj-group", logo: "/logos/cj.svg" },
+  { clientKey: "mss", logo: "/logos/mss.svg" },
+  { clientKey: "kosmes", logo: "/logos/kosmes.svg" },
+  { clientKey: "korea-water", logo: "/logos/kwater.png" },
+  { clientKey: "aekyung", logo: "/logos/aekyung.png" },
+  { clientKey: "ibk-securities", logo: "/logos/ibk-securities.png" },
+  { clientKey: "kumho", logo: "/logos/kumho-petrochemical.png" },
   {
-    name: "한국법교육센터",
+    clientKey: "korea-law-education",
     logo: "/logos/korea-law-education-black.png",
   },
-  { name: "충북대학교", logo: "/logos/chungbuk-university.png" },
-  { name: "광주소방서", logo: "/logos/gwangju-fire.png" },
+  { clientKey: "chungbuk-university", logo: "/logos/chungbuk-university.png" },
+  { clientKey: "gwangju-fire", logo: "/logos/gwangju-fire.png" },
   {
-    name: "부평소방서",
+    clientKey: "bupyeong-fire",
     logo: "/logos/bupyeong-fire.png",
     supportingLabel: "부평소방서",
   },
   {
-    name: "인천광역시 장애인체육회",
+    clientKey: "incheon-para-sports",
     logo: "/logos/incheon-para-sports.png",
   },
-  { name: "초록우산", logo: "/logos/childfund-korea.png" },
-  { name: "청곡종합사회복지관", logo: "/logos/cheonggok-welfare.png" },
+  { clientKey: "childfund", logo: "/logos/childfund-korea.png" },
+  { clientKey: "cheonggok-welfare", logo: "/logos/cheonggok-welfare.png" },
 ];
 
 /* ------------------------------------------------------------------ */
@@ -212,7 +212,6 @@ export const consultingCaseDefinitions = [
   {
     slug: "ai-platform-tips",
     ledgerIds: ["wposition-investment", "wposition-tips", "wposition-startup", "wposition-data", "wposition-export", "wposition-rise", "wposition-city", "wposition-dtech"],
-    company: "AI 플랫폼 스타트업",
     category: "R&D",
     field: "AI 커뮤니티 플랫폼 개발 · 사업화",
     title: "아이템 설계부터 투자유치와 TIPS까지 함께한 성장",
@@ -225,7 +224,6 @@ export const consultingCaseDefinitions = [
   {
     slug: "pet-product-growth",
     ledgerIds: ["leathers-prestartup"],
-    company: "반려동물 제품 기업",
     category: "창업사업화",
     field: "반려동물용품 개발 · 사업화",
     title: "제품과 사업모델을 구체화해 예비창업패키지 선정",
@@ -238,7 +236,6 @@ export const consultingCaseDefinitions = [
   {
     slug: "performing-arts-program",
     ledgerIds: ["regional-arts"],
-    company: "공연 기획·운영 단체",
     category: "문화·콘텐츠",
     field: "공연 기획 · 연출 · 운영",
     title: "지역 대표 문화예술 사업의 기획·운영 구조 구체화",
@@ -272,7 +269,6 @@ export const pptCaseDefinitions = [
       {
         slug: "cj-si",
         ledgerId: "cj-si",
-        company: "IT 시스템 구축 기업",
         title: "CJ올리브네트웍스 SI 용역 입찰제안",
         challenge: "사업 수행 역량과 운영계획을 평가항목에 맞춰 제한된 지면 안에서 증명해야 했습니다.",
         approach: "평가항목 분석 · 제안 논리 설계 · 입찰서류 및 발표자료 기획·디자인",
@@ -280,7 +276,6 @@ export const pptCaseDefinitions = [
       {
         slug: "district-waste-service",
         ledgerId: "district-waste-service",
-        company: "환경서비스 기업",
         title: "부산 금정구 1구역 폐기물 수집·처리 용역 입찰제안",
         challenge: "지역 특성과 수집·처리 체계를 반영한 구체적인 운영계획이 필요했습니다.",
         approach: "과업 요구사항 분석 · 운영 프로세스 구조화 · 제안서 시각화",
@@ -288,7 +283,6 @@ export const pptCaseDefinitions = [
       {
         slug: "career-education-program",
         ledgerId: "career-education-program",
-        company: "진로교육 기업",
         title: "원격영상 진로멘토링 기획수업 운영 입찰제안",
         challenge: "교육 프로그램의 차별성과 현장 운영 역량을 함께 전달해야 했습니다.",
         approach: "교육 목표 정리 · 프로그램 구성 · 운영 및 성과관리 계획 시각화",
@@ -296,7 +290,6 @@ export const pptCaseDefinitions = [
       {
         slug: "local-festival",
         ledgerId: "local-festival",
-        company: "지역축제 기획사",
         title: "광양 시민의 날 개최 입찰제안",
         challenge: "행사 콘셉트부터 안전·운영계획까지 하나의 제안 흐름으로 연결해야 했습니다.",
         approach: "평가 기준 분석 · 행사 스토리라인 · 실행계획 및 발표자료 구성",
@@ -304,7 +297,6 @@ export const pptCaseDefinitions = [
       {
         slug: "facility-waterproofing",
         ledgerId: "facility-waterproofing",
-        company: "시설관리 기업",
         title: "문현아파트 방수·페인트 입찰제안",
         challenge: "시공 품질과 일정, 민원 대응 방안을 이해하기 쉽게 설명해야 했습니다.",
         approach: "시공 프로세스 정리 · 품질관리 체계 · 제안서 및 발표자료 디자인",
@@ -316,13 +308,12 @@ export const pptCaseDefinitions = [
     group: "입점 · 제휴",
     icon: Store,
     items: [
-      { slug: "daiso-homeplus", ledgerId: "daiso-homeplus", company: "유통 기업", title: "다이소@홈플러스 상봉점 입점", result: "입점 확정", challenge: "매장과 상품의 적합성을 전달해야 했습니다.", approach: "입점 제안 내용 정리 · 제안서 기획·디자인" },
-      { slug: "musinsa-entry", ledgerId: "musinsa-entry", company: "패션 브랜드", title: "무신사 입점", result: "입점 확정", challenge: "플랫폼에 맞는 브랜드와 상품 소개가 필요했습니다.", approach: "브랜드 강점 정리 · 입점 제안서 기획·디자인" },
-      { slug: "hyundai-capital", ledgerId: "hyundai-capital", company: "모빌리티 기업", title: "현대캐피탈 제휴", result: "제휴 확정", challenge: "서비스와 제휴의 가치를 전달해야 했습니다.", approach: "제휴 논리 정리 · 제안서 기획·디자인" },
+      { slug: "daiso-homeplus", ledgerId: "daiso-homeplus", title: "다이소@홈플러스 상봉점 입점", result: "입점 확정", challenge: "매장과 상품의 적합성을 전달해야 했습니다.", approach: "입점 제안 내용 정리 · 제안서 기획·디자인" },
+      { slug: "musinsa-entry", ledgerId: "musinsa-entry", title: "무신사 입점", result: "입점 확정", challenge: "플랫폼에 맞는 브랜드와 상품 소개가 필요했습니다.", approach: "브랜드 강점 정리 · 입점 제안서 기획·디자인" },
+      { slug: "hyundai-capital", ledgerId: "hyundai-capital", title: "현대캐피탈 제휴", result: "제휴 확정", challenge: "서비스와 제휴의 가치를 전달해야 했습니다.", approach: "제휴 논리 정리 · 제안서 기획·디자인" },
       {
         slug: "the-hyundai-popup",
         ledgerId: "the-hyundai-popup",
-        company: "소비재 브랜드",
         title: "강남 더현대 팝업스토어 입점",
         result: "입점 확정",
         challenge: "브랜드 상품성과 팝업 운영안을 짧고 선명한 제안서로 전달해야 했습니다.",
@@ -331,7 +322,6 @@ export const pptCaseDefinitions = [
       {
         slug: "cj-live-commerce",
         ledgerId: "cj-live-commerce",
-        company: "라이프스타일 브랜드",
         title: "CJ온스타일 라이브커머스 협업제안",
         result: "협업 확정",
         challenge: "상품 경쟁력과 방송 적합성, 판매 계획을 채널 관점에서 설명해야 했습니다.",
@@ -340,7 +330,6 @@ export const pptCaseDefinitions = [
       {
         slug: "kakao-gift-entry",
         ledgerId: "kakao-gift-entry",
-        company: "라이프스타일 브랜드",
         title: "카카오톡 선물하기 기획상품 입점",
         result: "입점 확정",
         challenge: "선물 수요에 맞는 상품 기획과 플랫폼 적합성을 함께 보여줘야 했습니다.",
@@ -354,16 +343,14 @@ export const pptCaseDefinitions = [
     icon: Award,
     items: [
       {
-        slug: "quality-circle-award",
-        company: "제조기업",
+        slug: "quality-circle-award", clientKey: "lotte-chemical-team",
         title: "롯데케미칼 품질분임조 경진대회 (발표코칭 포함)",
         result: "지역부문 최우수상",
         challenge: "개선 활동의 과정과 정량 성과를 심사위원이 빠르게 이해하도록 정리해야 했습니다.",
         approach: "성과 논리 재구성 · 발표자료 디자인 · 발표 흐름 및 전달 코칭",
       },
       {
-        slug: "emergency-service-presentation",
-        company: "공공기관",
+        slug: "emergency-service-presentation", clientKey: "bupyeong-fire",
         title: "부평소방서 구급업무 연찬 발표대회",
         result: "2등 수상",
         challenge: "현장 사례와 개선 제안을 제한된 발표 시간 안에 설득력 있게 전달해야 했습니다.",
@@ -561,8 +548,8 @@ export const projectDocCategories = [
 export const portfolioProjects = [
   {
     id: "onnuri-store",
-    company: "온누리스토어",
-    title: "판토모나 건강기능식품 브랜드·제품 소개서",
+    clientKey: "onnuri",
+    title: "건강기능식품 브랜드·제품 소개서",
     type: "브랜드 소개서",
     industry: "건강기능식품",
     category: "intro",
@@ -576,7 +563,7 @@ export const portfolioProjects = [
   },
   {
     id: "keepu",
-    company: "㈜킵유",
+    clientKey: "keepu",
     title: "유기농 블루베리즙 제품소개서",
     type: "제품소개서",
     industry: "유통·판매",
@@ -591,7 +578,7 @@ export const portfolioProjects = [
   },
   {
     id: "lekaming",
-    company: "르카밍",
+    clientKey: "lekaming",
     title: "스킨케어 제품소개서",
     type: "제품소개서",
     industry: "뷰티",
@@ -606,7 +593,7 @@ export const portfolioProjects = [
   },
   {
     id: "vaa",
-    company: "VAA",
+    clientKey: "vaa",
     title: "모델 에이전시 회사소개서",
     type: "회사소개서",
     industry: "모델 에이전시",
@@ -621,7 +608,7 @@ export const portfolioProjects = [
   },
   {
     id: "dreamheart",
-    company: "드림하트",
+    clientKey: "dreamheart",
     title: "신발 깔창 제품소개서",
     type: "제품소개서",
     industry: "신발 깔창 판매",
@@ -636,7 +623,7 @@ export const portfolioProjects = [
   },
   {
     id: "yeoyu",
-    company: "여유협동조합",
+    clientKey: "yeoyu",
     title: "바질페스토 상품소개서",
     type: "제품소개서",
     industry: "식품",
@@ -651,7 +638,7 @@ export const portfolioProjects = [
   },
   {
     id: "wiznmi",
-    company: "WIZNMI",
+    clientKey: "wiznmi",
     title: "뷰티 메디컬 병원소개서",
     type: "회사소개서",
     industry: "병원·의료·뷰티",
@@ -666,7 +653,7 @@ export const portfolioProjects = [
   },
   {
     id: "growth-helper",
-    company: "그로스헬퍼",
+    clientKey: "growth-helper",
     title: "설문·시장검증 사업소개서",
     type: "회사소개서",
     industry: "마케팅",
@@ -681,7 +668,7 @@ export const portfolioProjects = [
   },
   {
     id: "devnium",
-    company: "데브늄",
+    clientKey: "devnium",
     title: "모바일 답례품 플랫폼 사업소개서",
     type: "회사소개서",
     industry: "IT",
@@ -696,7 +683,7 @@ export const portfolioProjects = [
   },
   {
     id: "geonbong",
-    company: "건봉국밥",
+    clientKey: "geonbong",
     title: "외식·식품 브랜드 회사소개서",
     type: "회사소개서",
     industry: "식품",
@@ -711,7 +698,7 @@ export const portfolioProjects = [
   },
   {
     id: "wigo-fair",
-    company: "위고페어",
+    clientKey: "wigo-fair",
     title: "온라인 브랜드 보호 서비스소개서",
     type: "서비스소개서",
     industry: "IT·AI",
@@ -726,7 +713,7 @@ export const portfolioProjects = [
   },
   {
     id: "jc-global",
-    company: "JC글로벌",
+    clientKey: "jc-global",
     title: "글로벌 항공·물류 회사소개서",
     type: "회사소개서",
     industry: "해외 물류",
@@ -741,7 +728,7 @@ export const portfolioProjects = [
   },
   {
     id: "hoc",
-    company: "HOC",
+    clientKey: "hoc",
     title: "가상 대학병원 플랫폼 회사소개서",
     type: "회사소개서",
     industry: "의료·IT",
@@ -756,7 +743,7 @@ export const portfolioProjects = [
   },
   {
     id: "elnox",
-    company: "엘녹스",
+    clientKey: "elnox",
     title: "반려견 케어 브랜드 소개서",
     type: "브랜드 소개서",
     industry: "반려동물",
@@ -771,7 +758,7 @@ export const portfolioProjects = [
   },
   {
     id: "ms-global",
-    company: "MS글로벌",
+    clientKey: "ms-global",
     title: "B2B 푸드 솔루션 회사소개서",
     type: "회사소개서",
     industry: "유통·식품·컨설팅",
@@ -786,7 +773,7 @@ export const portfolioProjects = [
   },
   {
     id: "grang-factory",
-    company: "그랑팩토리",
+    clientKey: "grang-factory",
     title: "종합광고대행 사업제안서",
     type: "사업제안서",
     industry: "종합광고대행",
@@ -801,7 +788,7 @@ export const portfolioProjects = [
   },
   {
     id: "suseongbyeol",
-    company: "주식회사 수성별",
+    clientKey: "suseongbyeol",
     title: "장병 여가복지 시설제안서",
     type: "시설제안서",
     industry: "국군 여가복지",
@@ -816,7 +803,7 @@ export const portfolioProjects = [
   },
   {
     id: "rolssi",
-    company: "롤시",
+    clientKey: "lolsy",
     title: "카카오톡 선물하기 입점제안서",
     type: "입점제안서",
     industry: "가죽·패션",
@@ -831,7 +818,7 @@ export const portfolioProjects = [
   },
   {
     id: "mirae-int",
-    company: "미래아이앤택",
+    clientKey: "mirae",
     title: "한국투자저축은행 ITO 제안서",
     type: "ITO 제안서",
     industry: "금융·IT",
@@ -846,7 +833,7 @@ export const portfolioProjects = [
   },
   {
     id: "mono-mansion",
-    company: "모노맨션",
+    clientKey: "mono-mansion",
     title: "셀프 포토 스튜디오 입점제안서",
     type: "입점제안서",
     industry: "셀프 포토 스튜디오",
@@ -861,8 +848,8 @@ export const portfolioProjects = [
   },
   {
     id: "rose-road",
-    company: "로즈로드",
-    title: "NARINFLA 올리브영 입점제안서",
+    clientKey: "rose-road",
+    title: "올리브영 입점제안서",
     type: "입점제안서",
     industry: "뷰티",
     category: "proposal",
@@ -876,7 +863,7 @@ export const portfolioProjects = [
   },
   {
     id: "manpower-korea",
-    company: "맨파워코리아",
+    clientKey: "manpower-korea",
     title: "아난티 기물관리 도급 운영제안서",
     type: "도급 운영제안서",
     industry: "호텔·도급",
@@ -891,7 +878,7 @@ export const portfolioProjects = [
   },
   {
     id: "lumos",
-    company: "루모스",
+    clientKey: "lumos",
     title: "무선 고데기 입점제안서",
     type: "입점제안서",
     industry: "뷰티·제조",
@@ -906,7 +893,7 @@ export const portfolioProjects = [
   },
   {
     id: "uyu",
-    company: "UYU",
+    clientKey: "uyu",
     title: "K-뷰티 유통 투자제안서",
     type: "투자제안서",
     industry: "온라인 유통·뷰티·패션",
@@ -921,7 +908,7 @@ export const portfolioProjects = [
   },
   {
     id: "pamity",
-    company: "파미티",
+    clientKey: "pamity",
     title: "Spatial AI 투자제안서",
     type: "IR",
     industry: "IT·공간지능 AI",
@@ -936,8 +923,8 @@ export const portfolioProjects = [
   },
   {
     id: "parutparut",
-    company: "파릇푸릇",
-    title: "푸르땡 OEM 제안서",
+    clientKey: "parutparut",
+    title: "OEM 제안서",
     type: "OEM 제안서",
     industry: "농산물 가공·유통",
     category: "proposal",
@@ -951,7 +938,7 @@ export const portfolioProjects = [
   },
   {
     id: "open-cinema",
-    company: "영화사 오픈시네마",
+    clientKey: "open-cinema",
     title: "콘텐츠 투자제안서",
     type: "투자제안서",
     industry: "미디어·문화",
@@ -966,7 +953,7 @@ export const portfolioProjects = [
   },
   {
     id: "woori-paint",
-    company: "우리페인트",
+    clientKey: "woori-paint",
     title: "아파트 방수·도장 입찰제안서",
     type: "입찰제안서",
     industry: "페인트·시공",
@@ -981,7 +968,7 @@ export const portfolioProjects = [
   },
   {
     id: "mirae-service",
-    company: "미래아이앤택",
+    clientKey: "mirae",
     title: "흥국생명 전산 용역제안서",
     type: "용역제안서",
     industry: "IT·전산",
@@ -996,7 +983,7 @@ export const portfolioProjects = [
   },
   {
     id: "awesome",
-    company: "어썸",
+    clientKey: "awesome",
     title: "원격영상 진로멘토링 입찰제안서",
     type: "입찰제안서",
     industry: "IT·교육",
@@ -1011,7 +998,7 @@ export const portfolioProjects = [
   },
   {
     id: "lotte-kids-cafe",
-    company: "롯데웰푸드",
+    clientKey: "lotte-wellfood",
     title: "키즈카페 운영 사업계획서",
     type: "사업계획서",
     industry: "키즈카페",
@@ -1026,7 +1013,7 @@ export const portfolioProjects = [
   },
   {
     id: "misa-coffee",
-    company: "미사동커피공동체협동조합",
+    clientKey: "misa-coffee",
     title: "커피 교육·취업 연계 사업계획서",
     type: "사업계획서",
     industry: "커피·제조·카페",
@@ -1041,7 +1028,7 @@ export const portfolioProjects = [
   },
   {
     id: "moran-makgeolli",
-    company: "모란막걸리",
+    clientKey: "moran-makgeolli",
     title: "전통주 사업계획서",
     type: "사업계획서",
     industry: "주류·막걸리",
@@ -1056,7 +1043,7 @@ export const portfolioProjects = [
   },
   {
     id: "cheonggok-welfare",
-    company: "청곡종합사회복지관",
+    clientKey: "cheonggok-welfare",
     title: "주민 환경사업 계획서",
     type: "사업계획서",
     industry: "공공기관·복지관",
@@ -1071,7 +1058,7 @@ export const portfolioProjects = [
   },
   {
     id: "fresh-farm",
-    company: "더 신선팜",
+    clientKey: "fresh-farm",
     title: "아쿠아포닉스 스마트팜 사업계획서",
     type: "사업계획서",
     industry: "스마트팜",
@@ -1086,7 +1073,7 @@ export const portfolioProjects = [
   },
   {
     id: "heim",
-    company: "주식회사 하임",
+    clientKey: "heim",
     title: "셀프 포토 스튜디오 사업계획서",
     type: "사업계획서",
     industry: "스튜디오·사진",
@@ -1101,7 +1088,7 @@ export const portfolioProjects = [
   },
   {
     id: "roof-tiger",
-    company: "지붕위의 호랑이",
+    clientKey: "roof-tiger",
     title: "외식 프랜차이즈 사업계획서",
     type: "사업계획서",
     industry: "식품·외식",
@@ -1116,7 +1103,7 @@ export const portfolioProjects = [
   },
   {
     id: "korea-construction-school",
-    company: "한국건설직업전문학교",
+    clientKey: "korea-construction-school",
     title: "희망리턴패키지 사업계획서",
     type: "사업계획서",
     industry: "교육",
@@ -1131,7 +1118,7 @@ export const portfolioProjects = [
   },
   {
     id: "knife-place",
-    company: "칼가는 곳",
+    clientKey: "knife-place",
     title: "칼 연마 매칭 플랫폼 IR",
     type: "IR",
     industry: "IT·플랫폼",
@@ -1146,7 +1133,7 @@ export const portfolioProjects = [
   },
   {
     id: "biologen",
-    company: "바이올로젠",
+    clientKey: "biologen",
     title: "친환경 수소에너지 IR",
     type: "IR",
     industry: "에너지·친환경",
@@ -1161,7 +1148,7 @@ export const portfolioProjects = [
   },
   {
     id: "eve-electronic",
-    company: "이브일렉트로닉",
+    clientKey: "eve-electronic",
     title: "ESS 배터리 사업계획서",
     type: "IR",
     industry: "에너지·친환경",
@@ -1176,7 +1163,7 @@ export const portfolioProjects = [
   },
   {
     id: "gwangju-fire",
-    company: "광주소방서",
+    clientKey: "gwangju-fire",
     title: "고층건축물 추락사고 연구 발표",
     type: "발표 PT",
     industry: "공공기관·안전",
@@ -1191,7 +1178,7 @@ export const portfolioProjects = [
   },
   {
     id: "pamity-presentation",
-    company: "파미티",
+    clientKey: "pamity",
     title: "Spatial AI 사업 발표자료",
     type: "발표 PT",
     industry: "IT·AI",
@@ -1206,7 +1193,7 @@ export const portfolioProjects = [
   },
   {
     id: "wposition-data",
-    company: "더블유포지션",
+    clientKey: "wposition",
     title: "데이터 산업 지원사업 중간보고",
     type: "발표 PT",
     industry: "IT·데이터",
@@ -1221,7 +1208,7 @@ export const portfolioProjects = [
   },
   {
     id: "samsung-fire",
-    company: "삼성화재",
+    clientKey: "samsung-fire",
     title: "부유층 자동차보험 마케팅 분석",
     type: "발표 PT",
     industry: "보험",
@@ -1236,7 +1223,7 @@ export const portfolioProjects = [
   },
   {
     id: "korea-water",
-    company: "한국수자원공사",
+    clientKey: "korea-water",
     title: "수인성 노로바이러스 국제표준화 발표",
     type: "발표 PT",
     industry: "공공기관·환경",
@@ -1251,7 +1238,7 @@ export const portfolioProjects = [
   },
   {
     id: "sk-chemical-report",
-    company: "SK케미칼",
+    clientKey: "sk-chemical",
     title: "AI 기반 작업위험성평가 보고서",
     type: "보고서",
     industry: "화학·제조",
@@ -1266,7 +1253,7 @@ export const portfolioProjects = [
   },
   {
     id: "cheongmyeong-report",
-    company: "유한회사 청명",
+    clientKey: "cheongmyeong",
     title: "프리랜서 마케터 운영 성과보고",
     type: "보고서",
     industry: "환경·자원재활용",
@@ -1281,7 +1268,7 @@ export const portfolioProjects = [
   },
   {
     id: "sunrang-jdc",
-    company: "선랑 JDC",
+    clientKey: "sunrang-jdc",
     title: "AI 에듀스포츠 입주기업 발표",
     type: "발표 PT",
     industry: "AI·스포츠",
@@ -1296,7 +1283,7 @@ export const portfolioProjects = [
   },
   {
     id: "pamity-bit-presentation",
-    company: "파미티",
+    clientKey: "pamity",
     title: "AI 안전 모니터링 사업 발표자료",
     type: "발표 PT",
     industry: "IT·AI",

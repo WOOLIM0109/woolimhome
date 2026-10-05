@@ -6,7 +6,7 @@ import JsonLd from "@/components/JsonLd";
 import PageHero from "@/components/PageHero";
 import SectionHeader from "@/components/SectionHeader";
 import { designFields } from "@/data/content";
-import { designPortfolioProjects } from "@/data/design-portfolio";
+import { getPublicDesignProjects } from "@/data/public-content";
 import { buildCanonical } from "@/lib/site-config";
 import { breadcrumbSchema, itemListSchema } from "@/lib/schema";
 
@@ -18,6 +18,7 @@ export const metadata: Metadata = {
 };
 
 export default function PortfolioDesignPage() {
+  const designPortfolioProjects = getPublicDesignProjects();
   return (
     <div className={styles.page}>
       <JsonLd
@@ -51,7 +52,7 @@ export default function PortfolioDesignPage() {
             description="인쇄·편집부터 브랜딩, 인포그래픽, 포스터와 공간 그래픽까지 실제 공개 가능한 결과물을 모았습니다."
           />
           <div className="mt-9">
-            <DesignPortfolioGallery />
+            <DesignPortfolioGallery projects={designPortfolioProjects} />
           </div>
         </div>
       </section>

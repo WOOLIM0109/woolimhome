@@ -1,8 +1,9 @@
 import Image from "next/image";
-import { clients } from "@/data/content";
+import { getPublicLogoClients } from "@/data/public-content";
 import styles from "./PublicSections.module.css";
 
 export default function ClientMarquee() {
+  const clients = getPublicLogoClients();
   return (
     <section className={styles.clients} aria-label="주요 고객사">
       <div className={styles.clientViewport}>
@@ -10,7 +11,7 @@ export default function ClientMarquee() {
           {[false, true].map((duplicate) => (
             <ul key={String(duplicate)} className={styles.clientRow} aria-hidden={duplicate || undefined}>
               {clients.map((client) => (
-                <li key={client.name} className={styles.clientLogo} title={client.name}>
+                <li key={client.clientKey} className={styles.clientLogo} title={client.name}>
                   <div className={styles.clientImage}>
                     <Image
                       src={client.logo}

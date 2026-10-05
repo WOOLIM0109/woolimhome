@@ -40,8 +40,8 @@ export function calculateSuccessMetrics(ledger: readonly SuccessRecord[]) {
   return { totalWon, total: formatWon(totalWon), funding, bidding, investment, breakdown, summary,
     period: years.length ? `${Math.min(...years)}~${Math.max(...years)}` : "",
     wposition: {
-      totalWon: sum(confirmed.filter((item) => item.customerId === "wposition" && ["funding", "investment"].includes(item.track))),
-      fundingWon: sum(confirmed.filter((item) => item.customerId === "wposition" && item.track === "funding")),
+      totalWon: sum(confirmed.filter((item) => item.clientKey === "wposition" && ["funding", "investment"].includes(item.track))),
+      fundingWon: sum(confirmed.filter((item) => item.clientKey === "wposition" && item.track === "funding")),
     },
   };
 }

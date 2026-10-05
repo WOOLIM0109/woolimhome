@@ -1,3 +1,4 @@
+import { getPublicClientName } from "@/data/public-content";
 import SuccessBreakdown from "@/components/SuccessBreakdown";
 import { getSuccessMetrics } from "@/data/success-metrics";
 import { getSuccessLedger } from "@/data/success-ledger";
@@ -165,7 +166,7 @@ export default async function SuccessPage() {
           </div>
 
           <p className="mt-7 text-center text-[14px] leading-6 text-[var(--muted)]">
-            모든 고객사는 업종형 익명명으로 표기하며, 고객사 보호 범위 안에서 성과 수치와 사업명만 제공합니다.
+            고객사 텍스트는 이니셜과 회사 업종으로 표기하고, 공개 지정 기관과 발주처·입점처는 실명을 유지하며, 고객사 보호 범위 안에서 성과 수치와 사업명만 제공합니다.
           </p>
         </div>
       </section>
@@ -174,7 +175,7 @@ export default async function SuccessPage() {
         <div className={styles.content}>
           <SectionHeader eyebrow="인증·기타" title="인증부터 실증과 입주까지" description="확정된 인증·입주·공공 수주 이력입니다. 금액이 확인된 선정·낙찰·투자 합계와 구분합니다." />
           <ul className="mt-8 divide-y divide-[var(--line)]">
-            {otherResults.map((item) => <li key={item.id} className="flex flex-wrap justify-between gap-3 py-5"><span>{item.year} · {item.program}</span><span className="text-[var(--muted)]">{item.company}</span></li>)}
+            {otherResults.map((item) => <li key={item.id} className="flex flex-wrap justify-between gap-3 py-5"><span>{item.year} · {item.program}</span><span className="text-[var(--muted)]">{getPublicClientName(item.clientKey)}</span></li>)}
           </ul>
         </div>
       </section>
