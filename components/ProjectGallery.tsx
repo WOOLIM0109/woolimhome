@@ -134,7 +134,7 @@ export default function ProjectGallery({
                 />
                 <span className="absolute bottom-3 right-3 inline-flex items-center gap-1.5 bg-black/65 px-3 py-1.5 text-[14px] font-bold text-white backdrop-blur">
                   <Images size={14} />
-                  4장 보기
+                  {project.images.length}장 보기
                 </span>
               </div>
               <div className={styles.projectCopy}>
