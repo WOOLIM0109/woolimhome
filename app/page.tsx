@@ -1,3 +1,5 @@
+import SuccessBreakdown from "@/components/SuccessBreakdown";
+import { getSuccessMetrics } from "@/data/success-metrics";
 import { getCaseHighlights } from "@/data/success-content";
 import Image from "next/image";
 import Link from "next/link";
@@ -47,6 +49,7 @@ const selectedIdentity = designPortfolioProjects.find(
 
 export default async function HomePage() {
   const stats = await getStats();
+  const metrics = await getSuccessMetrics();
   const caseHighlights = await getCaseHighlights();
   return (
     <div className={styles.home}>
@@ -297,6 +300,7 @@ export default async function HomePage() {
               </div>
             ))}
           </dl>
+          <SuccessBreakdown metrics={metrics} />
           <div className={styles.resultList}>
             {caseHighlights.map((item) => (
               <article key={item.title}>

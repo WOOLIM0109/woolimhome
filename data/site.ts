@@ -70,6 +70,7 @@ export const navigation = [
     children: [
       { label: "정부지원사업/정책자금", href: "/success/funding" },
       { label: "입찰/입점", href: "/success/bidding-entry" },
+      { label: "투자유치", href: "/success/investment" },
     ],
   },
   {

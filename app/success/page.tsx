@@ -1,8 +1,9 @@
+import SuccessBreakdown from "@/components/SuccessBreakdown";
 import { getSuccessMetrics } from "@/data/success-metrics";
 import styles from "@/components/PortfolioSuccess.module.css";
 import Link from "next/link";
 import type { Metadata } from "next";
-import { ArrowRight, CheckCircle2, Gavel, Landmark } from "lucide-react";
+import { ArrowRight, CheckCircle2, Gavel, Landmark, TrendingUp } from "lucide-react";
 import ContactBand from "@/components/ContactBand";
 import JsonLd from "@/components/JsonLd";
 import PageHero from "@/components/PageHero";
@@ -51,13 +52,24 @@ const successTracks = (metrics: Awaited<ReturnType<typeof getSuccessMetrics>>) =
     ],
     accent: "green",
   },
+  {
+    href: "/success/investment",
+    icon: TrendingUp,
+    eyebrow: "투자유치",
+    title: "아이템 설계부터 자본 조달까지 함께합니다",
+    description: "사업 전략과 IR 자료 제작을 연결해 투자 검토와 TIPS 추천에 필요한 준비를 이어갑니다.",
+    result: metrics.investment.amount + " 원",
+    resultLabel: "TIPS 추천을 위한 투자유치 확정",
+    points: ["아이템 설계부터 IR 자료 네 차례 제작", "투자유치와 TIPS 선정 연계", "금액과 단계만 공개"],
+    accent: "orange",
+  },
 ];
 
 const representativeResults = (metrics: Awaited<ReturnType<typeof getSuccessMetrics>>) => [
   {
     title: "AI 플랫폼 스타트업 TIPS R&D 선정",
     description: `사업화부터 투자와 R&D까지 연결해 TIPS ${metrics.summary.largestGrant.value} 원 선정`,
-    href: "/success/funding#case-ai-platform-tips",
+    href: "/success/wposition",
   },
   {
     title: "CJ올리브네트웍스 SI 용역 낙찰",
@@ -105,6 +117,7 @@ export default async function SuccessPage() {
             </div>
           ))}
         </div>
+        <SuccessBreakdown metrics={metrics} />
       </section>
 
       <section className="bg-white">
@@ -112,7 +125,7 @@ export default async function SuccessPage() {
           <SectionHeader
             eyebrow="성과 분야"
             title="필요한 결과에 맞춰 확인하세요"
-            description="지원사업 선정과 입찰·입점은 준비 방식이 다릅니다. 각 분야에서 기업 과제, 울림 수행, 최종 성과를 같은 순서로 공개합니다."
+            description="지원사업 선정, 입찰·입점, 투자유치는 준비 방식이 다릅니다. 각 분야에서 기업 과제, 울림 수행, 최종 성과를 같은 순서로 공개합니다."
           />
 
           <div className={styles.tracks}>

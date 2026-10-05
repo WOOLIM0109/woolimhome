@@ -1,3 +1,5 @@
+import SuccessBreakdown from "@/components/SuccessBreakdown";
+import { getSuccessMetrics } from "@/data/success-metrics";
 import Image from "next/image";
 import Link from "next/link";
 import type { Metadata } from "next";
@@ -37,6 +39,7 @@ const contactInfo = [
 
 export default async function AboutPage() {
   const stats = await getStats();
+  const metrics = await getSuccessMetrics();
   return (
     <div className={styles.page}>
       <JsonLd data={breadcrumbSchema([{ name: "홈", href: "/" }, { name: "회사소개", href: "/about" }])} />
@@ -102,6 +105,7 @@ export default async function AboutPage() {
         </div>
         <div className={styles.award}><Award size={26} aria-hidden="true" /><p>{site.award}</p></div>
         <dl className={styles.stats}>{stats.map((stat) => <div key={stat.label}><dt>{stat.label}</dt><dd>{stat.value}</dd></div>)}</dl>
+          <SuccessBreakdown metrics={metrics} />
       </section>
 
       <section id="location" className={styles.muted + " " + styles.location}>

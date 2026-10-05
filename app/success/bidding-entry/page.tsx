@@ -1,3 +1,4 @@
+import SuccessBreakdown from "@/components/SuccessBreakdown";
 import { getSuccessMetrics } from "@/data/success-metrics";
 import styles from "@/components/PortfolioSuccess.module.css";
 import type { Metadata } from "next";
@@ -99,6 +100,7 @@ export default async function BiddingEntrySuccessPage() {
             </div>
           ))}
         </div>
+        <SuccessBreakdown metrics={metrics} />
       </section>
 
       <section className="bg-white">

@@ -1,3 +1,5 @@
+import Link from "next/link";
+import SuccessBreakdown from "@/components/SuccessBreakdown";
 import { getSuccessMetrics } from "@/data/success-metrics";
 import styles from "@/components/PortfolioSuccess.module.css";
 import type { Metadata } from "next";
@@ -14,7 +16,7 @@ import { breadcrumbSchema, itemListSchema } from "@/lib/schema";
 export const metadata: Metadata = {
   title: "성공사례 | 정부지원사업/정책자금",
   description:
-    "울림컴퍼니가 사업 단계 진단과 계획서 전략을 통해 TIPS R&D 8억 원 등 실제 선정으로 연결한 정부지원사업·정책자금 성공사례를 소개합니다.",
+    "울림컴퍼니가 사업 단계 진단과 계획서 전략을 통해 TIPS R&D 등 실제 선정으로 연결한 정부지원사업·정책자금 성공사례를 소개합니다.",
   alternates: { canonical: buildCanonical("/success/funding") },
 };
 
@@ -69,6 +71,7 @@ export default async function FundingSuccessPage() {
             </div>
           ))}
         </div>
+        <SuccessBreakdown metrics={metrics} />
       </section>
 
       <section className="bg-white">
@@ -116,6 +119,7 @@ export default async function FundingSuccessPage() {
                     단일 성과뿐 아니라 초기 사업화부터 R&D, 수출까지 후속 과제를 연결했습니다.
                   </p>
                 </div>
+                <Link href="/success/wposition" className="mt-6 font-bold text-[var(--primary)]">아이템 설계부터 투자유치까지 전체 기록 →</Link>
                 <div className="mt-8">
                   <SuccessEvidenceDialog
                     slug={featuredCase.slug}
