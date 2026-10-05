@@ -44,7 +44,7 @@ const nextConfig: NextConfig = {
       },
       {
         source: "/projects/business-docs",
-        destination: "/portfolio",
+        destination: "/portfolio/business-ir",
         permanent: true,
       },
       {
