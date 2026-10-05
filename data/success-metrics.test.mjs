@@ -26,6 +26,14 @@ test("누적 표기는 억 단위로 내림하고 경계를 넘을 때만 바뀐
   assert.equal(floorAchievement(500_000 * 10_000), "50억+");
 });
 
+test("인증·기타 다섯 이력은 금액 집계에 더하지 않는다", async () => {
+  const ledger = await getSuccessLedger();
+  const other = ledger.filter((item) => item.track === "certification");
+  assert.equal(other.length, 5);
+  assert.ok(other.every((item) => item.amountWon === 0 && item.stage === "final" && item.publicApproved));
+  assert.deepEqual(calculateSuccessMetrics(ledger), calculateSuccessMetrics(ledger.filter((item) => item.track !== "certification")));
+});
+
 test("서류합격과 공개 미승인 실적은 금액과 최대값에 포함하지 않는다", async () => {
   const ledger = await getSuccessLedger();
   assert.equal(ledger.filter((item) => item.stage === "screening").length, 2);

@@ -1,5 +1,6 @@
 import SuccessBreakdown from "@/components/SuccessBreakdown";
 import { getSuccessMetrics } from "@/data/success-metrics";
+import { getSuccessLedger } from "@/data/success-ledger";
 import styles from "@/components/PortfolioSuccess.module.css";
 import Link from "next/link";
 import type { Metadata } from "next";
@@ -85,6 +86,7 @@ const representativeResults = (metrics: Awaited<ReturnType<typeof getSuccessMetr
 
 export default async function SuccessPage() {
   const metrics = await getSuccessMetrics();
+  const otherResults = (await getSuccessLedger()).filter((item) => item.track === "certification" && item.stage === "final" && item.publicApproved);
   const summary = [metrics.summary.total, metrics.summary.largestBid, metrics.summary.production];
   return (
     <div className={styles.page}>
@@ -168,6 +170,14 @@ export default async function SuccessPage() {
         </div>
       </section>
 
+      <section className="border-t border-[var(--line)] bg-white" aria-label="인증·기타 실적">
+        <div className={styles.content}>
+          <SectionHeader eyebrow="인증·기타" title="인증부터 실증과 입주까지" description="확정된 인증·입주·공공 수주 이력입니다. 금액이 확인된 선정·낙찰·투자 합계와 구분합니다." />
+          <ul className="mt-8 divide-y divide-[var(--line)]">
+            {otherResults.map((item) => <li key={item.id} className="flex flex-wrap justify-between gap-3 py-5"><span>{item.year} · {item.program}</span><span className="text-[var(--muted)]">{item.company}</span></li>)}
+          </ul>
+        </div>
+      </section>
       <ContactBand />
     </div>
   );

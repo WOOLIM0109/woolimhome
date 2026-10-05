@@ -64,6 +64,11 @@ const SUCCESS_LEDGER: readonly SuccessRecord[] = [
   { id: "wposition-investment", year: null, program: "TIPS 추천을 위한 IR 투자유치", customerId: "wposition", company: "더블유포지션", amountWon: 200_000_000, track: "investment", stage: "final", publicApproved: true },
   ...entries.map(([id, program, customerId, company]): SuccessRecord =>
     ({ id, year: null, program, customerId, company, amountWon: 0, track: "entry", stage: "final", publicApproved: true })),
+  { id: "eve-venture", year: 2023, program: "벤처인증 완료", customerId: "eve-electronic", company: "이브일렉트로닉스", amountWon: 0, track: "certification", stage: "final", publicApproved: true },
+  { id: "rensys-sandbox", year: 2024, program: "규제 샌드박스 실증계획서 선정", customerId: "rensys", company: "렌시스코리아", amountWon: 0, track: "certification", stage: "final", publicApproved: true },
+  { id: "wposition-dash", year: 2024, program: "DASH 입주 선정 (2024.11)", customerId: "wposition", company: "더블유포지션", amountWon: 0, track: "certification", stage: "final", publicApproved: true },
+  { id: "hana-permit", year: 2023, program: "공공 수주 · 출입국관리 외국인 법인 허가", customerId: "hana", company: "하나법무회계법인", amountWon: 0, track: "certification", stage: "final", publicApproved: true },
+  { id: "dreamwings-job", year: 2023, program: "공공 수주 · 취업날개서비스", customerId: "dreamwings", company: "드림윙즈", amountWon: 0, track: "certification", stage: "final", publicApproved: true },
   { id: "sleep-tech-screening", year: null, program: "창업성장기술개발 디딤돌 1차 서류합격", customerId: "sleep-tech", company: "수면테크 앱 기업", amountWon: 200_000_000, track: "funding", stage: "screening", publicApproved: false },
   { id: "leathers-screening", year: null, program: "청년창업사관학교 1차 합격", customerId: "leathers", company: "들레더스", amountWon: 70_000_000, track: "funding", stage: "screening", publicApproved: false },
 ];
