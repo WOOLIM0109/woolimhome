@@ -37,6 +37,6 @@ export async function GET() {
     // 이전 단일 PC 화면과의 호환을 위해 가장 최근 PC도 함께 제공합니다.
     worker: summary.workers[0] || null,
     waitingCount: waitingResult.count || 0,
-    nextRunHint: "화·금 오전 9시 · 사용할 PC는 오전 8시 30분까지 로그인 권장",
+    nextRunHint: "화요일 오전 9시 · 사용할 PC는 오전 8시 30분까지 로그인 권장",
   });
 }

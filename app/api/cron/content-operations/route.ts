@@ -68,7 +68,7 @@ const RUN_BUDGET_MS = 280_000;
 /**
  * 드라이브 동기화를 돌릴 시각 (KST).
  *
- * 포트폴리오 회차가 화·금 9시라, 그보다 한 시간 앞서 후보를 채워 둡니다.
+ * 포트폴리오 회차가 화요일 9시라, 그보다 한 시간 앞서 후보를 채워 둡니다.
  */
 const PORTFOLIO_SYNC_HOUR = 8;
 
@@ -138,12 +138,12 @@ export async function GET(request: Request) {
    * 22일 동안 후보가 0이었습니다. 크론은 매시간 정상으로 돌았지만 쓸 것이
    * 없었고, 빈손이라는 기록조차 남지 않아 아무도 몰랐습니다.
    *
-   * 포트폴리오를 만드는 날(화·금) 그 시각 전에만 돌립니다. 매시간 훑으면
+   * 포트폴리오를 만드는 날(화요일) 그 시각 전에만 돌립니다. 매시간 훑으면
    * NAVER WORKS 를 하루 스물몇 번씩 부르게 되는데, 파일은 그렇게 자주
    * 바뀌지 않습니다.
    */
   const kst = kstParts(now);
-  const portfolioDayAhead = (kst.weekday === 2 || kst.weekday === 5)
+  const portfolioDayAhead = kst.weekday === 2
     && kst.hour === PORTFOLIO_SYNC_HOUR;
   if (portfolioDayAhead) {
     try {

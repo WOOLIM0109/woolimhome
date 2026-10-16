@@ -59,7 +59,6 @@ export const EDITORIAL_SLOTS: EditorialSlot[] = [
   { key: "consult-fri", channel: "naver_consulting", format: "informational", weekday: 5, hour: 10, label: "정보형" },
   { key: "design-tue", channel: "naver_design", format: "portfolio", weekday: 2, hour: 9, label: "포트폴리오" },
   { key: "design-thu", channel: "naver_design", format: "design_insight", weekday: 4, hour: 9, label: "기획·디자인 콘텐츠" },
-  { key: "design-fri", channel: "naver_design", format: "portfolio", weekday: 5, hour: 9, label: "포트폴리오" },
 ];
 
 export const STATUS_LABELS: Record<WorkflowStatus, string> = {
