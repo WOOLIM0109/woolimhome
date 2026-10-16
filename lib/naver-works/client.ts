@@ -128,7 +128,7 @@ async function refreshConnection(refreshTokenEncrypted: string) {
   return token.access_token;
 }
 
-export async function accessToken() {
+export async function accessToken(options: { readOnly?: boolean } = {}) {
   const admin = createAdminClient();
   const { data, error } = await admin.from("naver_works_connections")
     .select("status,access_token_encrypted,refresh_token_encrypted,token_expires_at")
@@ -137,6 +137,7 @@ export async function accessToken() {
   if (!data?.access_token_encrypted || !data.refresh_token_encrypted) throw new Error("NAVER WORKS Drive가 연결되지 않았습니다.");
   const expiresAt = data.token_expires_at ? new Date(data.token_expires_at).getTime() : 0;
   if (expiresAt > Date.now() + 5 * 60 * 1000) return decryptToken(data.access_token_encrypted);
+  if (options.readOnly) throw new Error("중복 검수용 Drive 읽기 토큰이 만료되었습니다. 동기화 후 다시 확인해 주세요.");
   try {
     return await refreshConnection(data.refresh_token_encrypted);
   } catch (refreshError) {
@@ -158,8 +159,8 @@ export async function worksApi<T>(path: string) {
   return response.json() as Promise<T>;
 }
 
-export async function sharedDriveDownloadAuthorization(sharedriveId: string, fileId: string) {
-  const token = await accessToken();
+export async function sharedDriveDownloadAuthorization(sharedriveId: string, fileId: string, options: { readOnly?: boolean } = {}) {
+  const token = await accessToken(options);
   const response = await fetch(
     `${API_BASE}/sharedrives/${encodeURIComponent(sharedriveId)}/files/${encodeURIComponent(fileId)}/download`,
     {
@@ -179,8 +180,8 @@ export async function sharedDriveDownloadAuthorization(sharedriveId: string, fil
   };
 }
 
-export async function downloadSharedDriveFile(sharedriveId: string, fileId: string) {
-  const download = await sharedDriveDownloadAuthorization(sharedriveId, fileId);
+export async function downloadSharedDriveFile(sharedriveId: string, fileId: string, options: { readOnly?: boolean } = {}) {
+  const download = await sharedDriveDownloadAuthorization(sharedriveId, fileId, options);
   const fileResponse = await fetch(download.url, {
     headers: { Authorization: download.authorization },
     redirect: "follow",

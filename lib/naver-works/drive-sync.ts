@@ -24,6 +24,7 @@ import {
   type WorksDriveFile,
 } from "./client";
 import { contentAdmin } from "@/lib/content-ops/data";
+import { normalizePortfolioProjectName } from "@/lib/portfolio/project-name";
 
 type PageResult = {
   files: WorksDriveFile[];
@@ -92,7 +93,7 @@ async function saveFiles(rootId: string, files: WorksDriveFile[]) {
     const projectName = file.file_name.replace(/\.(ppt|pptx|pdf)$/i, "");
     return {
       drive_file_id: file.id,
-      project_key: `${file.file_path || ""}/${projectName}`.toLowerCase(),
+      project_key: normalizePortfolioProjectName(projectName) || file.id,
       project_name: projectName,
       status: "candidate",
       quality_score: Math.round(Math.min(95, 45 + Math.min(35, sizeMegabytes * 2)) * 100) / 100,

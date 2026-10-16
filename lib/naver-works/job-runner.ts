@@ -1,4 +1,5 @@
 import { contentAdmin } from "@/lib/content-ops/data";
+import { assertPortfolioDedupePassed } from "@/lib/portfolio/dedupe-inventory";
 
 const MAX_DOWNLOAD_ATTEMPTS = 5;
 const SIZE_EXCLUSION_CODE = "source_too_large";
@@ -95,6 +96,7 @@ export async function processNextPortfolioDownload(candidateId?: string) {
   if (jobError) throw new Error(jobError.message);
   const job = jobs?.[0];
   if (!job) return null;
+  await assertPortfolioDedupePassed(job.candidate_id);
 
   const startedAt = new Date().toISOString();
   await admin.from("content_jobs").update({

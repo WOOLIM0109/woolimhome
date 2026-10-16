@@ -1,4 +1,6 @@
 import { contentAdmin } from "@/lib/content-ops/data";
+import { readPortfolioDedupeInventory } from "@/lib/portfolio/dedupe-inventory";
+import { PORTFOLIO_DEDUPE_VERSION } from "@/lib/portfolio/project-dedupe";
 import {
   type CandidateRow,
   type PortfolioPrepareResult,
@@ -21,16 +23,24 @@ export async function prepareNextPortfolioCandidate(options: {
   scheduledAt?: string;
 } = {}): Promise<PortfolioPrepareResult> {
   const admin = contentAdmin();
-  const { data, error } = await admin.from("portfolio_candidates")
-    .select(`
-      id,project_key,project_name,quality_score,status,metadata,
-      naver_works_drive_files!inner(id,file_name,file_path,file_extension,file_size,root_id,modified_at)
-    `)
-    .eq("status", "candidate")
-    .limit(500);
-  if (error) throw new Error(error.message);
-
-  const decision = selectPortfolioCandidate((data || []) as CandidateRow[]);
+  const { data: control, error: controlError } = await admin.from("portfolio_automation_control").select("*").eq("id", true).single();
+  if (controlError) throw new Error(controlError.message);
+  if (!control.first_run_approved) return { prepared: false, inspected: 0, eligible: 0, reason: "기존 보류 정리와 후보 미리보기 확인 후 첫 제작 승인이 필요합니다." };
+  const inventory = await readPortfolioDedupeInventory(control.hash_threshold);
+  const decision = selectPortfolioCandidate(inventory.accepted);
+  for (const check of inventory.decisions) {
+    if (check.candidate.id === decision.selected?.candidate.id) continue;
+    const row = check.candidate as CandidateRow & { updated_at: string };
+    const { error } = await admin.from("portfolio_candidates").update({
+      duplicate_score: check.duplicateScore,
+      updated_at: new Date().toISOString(),
+      ...(check.match ? { status: "excluded", exclusion_reasons: [check.reason] } : {}),
+      metadata: { ...row.metadata, normalizedProjectName: check.normalizedName,
+        imageReviewReason: check.reason || (inventory.needsImageReview.some(candidate => candidate.id === row.id) ? "대표 이미지 해시를 확인할 수 없어 제작 전 검수가 필요합니다." : null),
+        ...(check.match ? { duplicateMatch: check.match } : {}) },
+    }).eq("id", row.id).eq("status", "candidate").eq("updated_at", row.updated_at);
+    if (error) throw new Error(error.message);
+  }
   const { selected, shortlist } = decision;
   /*
    * 고르지 못했으면 왜 못 골랐는지 알려 줍니다.
@@ -58,8 +68,11 @@ export async function prepareNextPortfolioCandidate(options: {
     };
   }
   const scheduleKey = options.scheduleKey || `naver-works-portfolio-${candidate.id}`;
-
-  const { data: workItem, error: workError } = await admin.from("content_work_items").upsert({
+  const { data: existingItem, error: existingItemError } = await admin.from("content_work_items").select("id").eq("schedule_key", scheduleKey).maybeSingle();
+  if (existingItemError) throw new Error(existingItemError.message);
+  if (existingItem) return { prepared: false, inspected: decision.inspected, eligible: decision.eligible, reason: "이 일정에 이미 작업이 있어 보존했습니다." };
+  const inspected = inventory.decisions.find(check => check.candidate.id === candidate.id)!;
+  const workPayload = {
     channel: "naver_design",
     format: "portfolio",
     title: candidate.project_name,
@@ -86,54 +99,25 @@ export async function prepareNextPortfolioCandidate(options: {
       automated: true,
     },
     updated_at: new Date().toISOString(),
-  }, { onConflict: "schedule_key" }).select("id").single();
-  if (workError) throw new Error(workError.message);
-
-  const { error: candidateError } = await admin.from("portfolio_candidates").update({
-    status: "selected",
-    quality_score: Math.min(99, selected.score),
-    selection_reasons: selected.reasons.length
-      ? selected.reasons
-      : ["파일명·경로 기준 1차 후보 선별", "실제 페이지 시각 판정 대기"],
-    metadata: {
-      ...(candidate.metadata || {}),
-      workItemId: workItem.id,
-      selectedAt: new Date().toISOString(),
-      selectionScore: selected.score,
-      shortlist,
-    },
-    updated_at: new Date().toISOString(),
-  }).eq("id", candidate.id);
-  if (candidateError) throw new Error(candidateError.message);
-
-  const steps = ["download", "convert", "font_check", "privacy_check", "mockup", "draft"] as const;
-  const { data: existingJobs, error: existingError } = await admin.from("content_jobs")
-    .select("job_type")
-    .eq("candidate_id", candidate.id);
-  if (existingError) throw new Error(existingError.message);
-  const existing = new Set((existingJobs || []).map((job) => job.job_type));
-  const jobs = steps.filter((step) => !existing.has(step)).map((step, index) => ({
-    candidate_id: candidate.id,
-    work_item_id: workItem.id,
-    job_type: step,
-    status: index === 0 ? "queued" : "on_hold",
-    payload: {
-      stepOrder: index + 1,
-      waitsFor: index ? steps[index - 1] : null,
-      driveFileId: file.id,
-    },
-  }));
-  if (jobs.length) {
-    const { error: jobsError } = await admin.from("content_jobs").insert(jobs);
-    if (jobsError) throw new Error(jobsError.message);
-  }
+  };
+  const { data: workItemId, error: reservationError } = await admin.rpc("reserve_deduplicated_portfolio_candidate", {
+    p_id: candidate.id, p_updated_at: (candidate as CandidateRow & { updated_at: string }).updated_at,
+    p_normalized_name: inspected.normalizedName,
+    p_metadata: { ...candidate.metadata, normalizedProjectName: inspected.normalizedName,
+      dedupeVersion: PORTFOLIO_DEDUPE_VERSION, selectionScore: selected.score, shortlist,
+      duplicateScore: inspected.duplicateScore, selectionReasons: selected.reasons },
+    p_work_item: workPayload,
+  });
+  if (reservationError) throw new Error(reservationError.message);
+  if (!workItemId) return { prepared: false, inspected: decision.inspected, eligible: decision.eligible,
+    reason: "다른 실행에서 같은 프로젝트 또는 일정을 먼저 선택했습니다." };
 
   return {
     prepared: true,
     inspected: decision.inspected,
     eligible: decision.eligible,
     candidateId: candidate.id,
-    workItemId: workItem.id,
+    workItemId,
     projectName: candidate.project_name,
     score: selected.score,
     shortlistCount: shortlist.length,

@@ -1,4 +1,5 @@
 import { contentAdmin } from "@/lib/content-ops/data";
+import { assertPortfolioRestartApproved } from "./restart-control";
 import { runBudgetedGeminiAutomation } from "@/lib/gemini/automation";
 import { geminiRuntimeStatus } from "@/lib/gemini/protection";
 import { portfolioDraftQueueState, portfolioDraftFailure } from "./draft-state";
@@ -731,6 +732,7 @@ export async function processNextPortfolioMockup(
   candidateId?: string,
   options: { deadlineAt?: number } = {},
 ) {
+  await assertPortfolioRestartApproved();
   const admin = contentAdmin();
   // 한 번 실행에서 여러 건을 이어 처리할 때, 뒤에 오는 건이 제한 시간을 넘기지 않도록
   // 부르는 쪽이 남은 시간을 함께 넘깁니다.
@@ -1673,6 +1675,7 @@ export async function processNextPortfolioMockup(
 }
 
 export async function processNextPortfolioDraft(candidateId?: string, options: { deadlineAt?: number } = {}) {
+  await assertPortfolioRestartApproved();
   const admin = contentAdmin();
   const executionDeadlineAt = Math.min(Date.now() + 225_000, options.deadlineAt ?? Infinity);
   if (Date.now() >= executionDeadlineAt - 65_000) return null;
@@ -2364,6 +2367,7 @@ export async function reflowPortfolioDraftImages(workItemId: string) {
 }
 
 export async function retryPortfolioDraft(workItemId: string) {
+  await assertPortfolioRestartApproved();
   const admin = contentAdmin();
   const { data: workItem, error } = await admin.from("content_work_items")
     .select("id,status,metadata")
