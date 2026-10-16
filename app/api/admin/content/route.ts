@@ -27,12 +27,12 @@ export const dynamic = "force-dynamic";
 
 const CREATABLE_STATUSES = new Set<WorkflowStatus>([
   "topic_candidate", "researching", "creating", "review_required", "approved",
-  "naver_ready", "scheduled", "on_hold",
+  "naver_ready", "scheduled", "on_hold", "draft_waiting",
 ]);
 
 const PORTFOLIO_JOB_TYPES = new Set(["mockup", "draft"]);
 const PORTFOLIO_JOB_STATUSES = new Set([
-  "queued", "running", "completed", "failed", "on_hold",
+  "queued", "running", "completed", "failed", "on_hold", "draft_waiting",
 ]);
 
 function applyManualTourismMockups(item: Record<string, unknown>, origin: string) {

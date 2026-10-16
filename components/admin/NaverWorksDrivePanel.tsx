@@ -11,6 +11,8 @@ type Candidate = {
   privacy_risk: string;
   font_status: string;
   selection_reasons: string[];
+  exclusion_reasons?: string[];
+  metadata?: { imageReviewReason?: string; duplicateMatch?: { title: string; url?: string; candidateId?: string } };
 };
 
 type StatusPayload = {
@@ -239,10 +241,16 @@ export default function NaverWorksDrivePanel() {
             {data?.candidates?.length ? (
               <div className="mt-3 divide-y divide-[var(--line)] rounded-xl border border-[var(--line)]">
                 {data.candidates.map((candidate) => (
-                  <article key={candidate.id} className="flex flex-col gap-2 p-4 sm:flex-row sm:items-center sm:justify-between">
+                  <article id={`candidate-${candidate.id}`} key={candidate.id} className="flex flex-col gap-2 p-4 sm:flex-row sm:items-center sm:justify-between">
                     <div>
                       <h4 className="font-bold">{candidate.project_name}</h4>
+                      {candidate.status === "candidate" && candidate.metadata?.imageReviewReason && <p className="text-sm text-amber-800">검수 필요 · {candidate.metadata.imageReviewReason}</p>}
                       {candidate.status === "candidate" && <button type="button" className="mt-2 text-sm underline" onClick={() => setPublishedCandidate(candidate.id)}>이미 블로그에 있음</button>}
+                      {candidate.status === "excluded" && <details className="mt-2 text-sm"><summary>중복·제외 사유 보기</summary>
+                        {(candidate.exclusion_reasons || []).map(reason => <p key={reason}>{reason}</p>)}
+                        {candidate.metadata?.duplicateMatch && <a className="underline" href={candidate.metadata.duplicateMatch.url?.startsWith("https://blog.naver.com/wl_0109/")
+                          ? candidate.metadata.duplicateMatch.url : `#candidate-${candidate.metadata.duplicateMatch.candidateId || ""}`}>{candidate.metadata.duplicateMatch.title}</a>}
+                      </details>}
                       {publishedCandidate === candidate.id && <div className="mt-2 grid gap-2">
                         <input aria-label="기존 블로그 글 URL" placeholder="https://blog.naver.com/wl_0109/..." value={publishedUrl} onChange={event => setPublishedUrl(event.target.value)} className="rounded border p-2" />
                         <input aria-label="기존 블로그 글 제목" placeholder="기존 글 제목" value={publishedTitle} onChange={event => setPublishedTitle(event.target.value)} className="rounded border p-2" />
@@ -253,7 +261,7 @@ export default function NaverWorksDrivePanel() {
                     </div>
                     <div className="flex items-center gap-2 text-xs font-bold">
                       <span className="rounded-full bg-[#fff3e9] px-3 py-1.5">적합도 {Math.round(candidate.quality_score)}점</span>
-                      <span className="rounded-full bg-slate-100 px-3 py-1.5">개인정보 검사 전</span>
+                      <span className="rounded-full bg-slate-100 px-3 py-1.5">{candidate.status === "excluded" && candidate.exclusion_reasons?.some(reason => reason.startsWith("중복:")) ? "중복 제외" : CANDIDATE_STATUS_LABELS[candidate.status] || candidate.status}</span>
                     </div>
                   </article>
                 ))}

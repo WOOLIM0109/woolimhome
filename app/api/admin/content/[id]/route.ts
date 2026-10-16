@@ -104,7 +104,7 @@ function tourismManualApprovalMetadata(
 
 const STATUSES: WorkflowStatus[] = [
   "topic_candidate", "researching", "creating", "review_required", "approved",
-  "naver_ready", "scheduled", "published", "on_hold",
+  "naver_ready", "scheduled", "published", "on_hold", "draft_waiting",
 ];
 
 type RegeneratableItem = {
