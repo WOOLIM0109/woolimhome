@@ -7,7 +7,7 @@ import {
   processNextPortfolioDownload,
   restorePcEligibleOversizedCandidates,
 } from "@/lib/naver-works/job-runner";
-import { processNextPortfolioMockup } from "@/lib/portfolio/job-runner";
+import { processNextPortfolioMockup, processNextPortfolioDraft } from "@/lib/portfolio/job-runner";
 import { generateContentWorkItem } from "@/lib/content-ops/generate";
 import { GeminiAutomationBlocked, runBudgetedGeminiAutomation } from "@/lib/gemini/automation";
 import type { EditorialSlot } from "@/lib/content-ops/types";
@@ -440,6 +440,10 @@ export async function GET(request: Request) {
       lastMockup = mockup;
       processedMockups += 1;
     }
+    if (Date.now() < runDeadlineAt - 65_000) {
+      const draft = await processNextPortfolioDraft(undefined, { deadlineAt: runDeadlineAt });
+      if (draft) localProgress.push(draft);
+    }
     if (!lastMockup && Date.now() < runDeadlineAt) {
       const download = await processNextPortfolioDownload();
       if (download) localProgress.push(download);
@@ -461,7 +465,7 @@ export async function GET(request: Request) {
     autoGeneration,
     exhaustedCount: exhausted.length,
     // 문체 재작성과 포트폴리오 본문은 여전히 사람이 눌러야 시작합니다.
-    skippedAiStages: ["style_retry", "portfolio_draft"],
+    skippedAiStages: ["style_retry"],
   };
   await admin.from("content_automation_runs").update({
     status: "completed",

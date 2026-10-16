@@ -567,11 +567,8 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
   }
   if (body.action === "retry_portfolio_draft") {
     try {
-      const result = await runBudgetedGeminiAutomation({
-        operation: "portfolio-draft-retry",
-        actor: user.email || "admin",
-        plannedCalls: 3,
-      }, () => retryPortfolioDraft(id));
+      // The worker owns the budget gate for both cron and manual retries.
+      const result = await retryPortfolioDraft(id);
       if (!result) {
         return NextResponse.json({ error: "다시 생성할 포트폴리오 본문 작업을 찾지 못했습니다." }, { status: 409 });
       }
