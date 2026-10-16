@@ -47,6 +47,25 @@ export default function NaverWorksDrivePanel() {
   const [syncing, setSyncing] = useState(false);
   const [preparing, setPreparing] = useState(false);
   const [message, setMessage] = useState("");
+  const [publishedCandidate, setPublishedCandidate] = useState<string | null>(null);
+  const [publishedUrl, setPublishedUrl] = useState("");
+  const [publishedTitle, setPublishedTitle] = useState("");
+  const [savingPublication, setSavingPublication] = useState(false);
+
+  async function registerPublished() {
+    setSavingPublication(true);
+    try {
+      const response = await fetch(`/api/admin/naver-works/candidates/${publishedCandidate}/published`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: publishedUrl, title: publishedTitle }),
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || "발행 원장 등록 실패");
+      setPublishedCandidate(null); setPublishedUrl(""); setPublishedTitle("");
+      await loadStatus();
+    } catch (error) { setMessage(error instanceof Error ? error.message : "등록 실패"); }
+    finally { setSavingPublication(false); }
+  }
 
   /** 상태별 내역을 사람 말로 한 줄로 적습니다. */
   const statusBreakdown = Object.entries(data?.statusCounts || {})
@@ -223,6 +242,13 @@ export default function NaverWorksDrivePanel() {
                   <article key={candidate.id} className="flex flex-col gap-2 p-4 sm:flex-row sm:items-center sm:justify-between">
                     <div>
                       <h4 className="font-bold">{candidate.project_name}</h4>
+                      {candidate.status === "candidate" && <button type="button" className="mt-2 text-sm underline" onClick={() => setPublishedCandidate(candidate.id)}>이미 블로그에 있음</button>}
+                      {publishedCandidate === candidate.id && <div className="mt-2 grid gap-2">
+                        <input aria-label="기존 블로그 글 URL" placeholder="https://blog.naver.com/wl_0109/..." value={publishedUrl} onChange={event => setPublishedUrl(event.target.value)} className="rounded border p-2" />
+                        <input aria-label="기존 블로그 글 제목" placeholder="기존 글 제목" value={publishedTitle} onChange={event => setPublishedTitle(event.target.value)} className="rounded border p-2" />
+                        <button type="button" disabled={savingPublication || !publishedTitle.trim() || !publishedUrl.trim()} onClick={() => void registerPublished()}>원장 등록 및 후보 제외</button>
+                        <button type="button" onClick={() => setPublishedCandidate(null)}>취소</button>
+                      </div>}
                       <p className="mt-1 text-xs text-[var(--muted)]">{candidate.selection_reasons.join(" · ")}</p>
                     </div>
                     <div className="flex items-center gap-2 text-xs font-bold">

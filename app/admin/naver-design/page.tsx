@@ -8,6 +8,7 @@ import TwoWeekSchedule from "@/components/admin/TwoWeekSchedule";
 import CollapsibleSection from "@/components/admin/CollapsibleSection";
 import PcWorkerStatus from "@/components/admin/PcWorkerStatus";
 import PortfolioGenerateButton from "@/components/admin/PortfolioGenerateButton";
+import NaverWorksDrivePanel from "@/components/admin/NaverWorksDrivePanel";
 
 export default function NaverDesignAdminPage() {
   return (
@@ -44,6 +45,9 @@ export default function NaverDesignAdminPage() {
       </section>
 
       <PcWorkerStatus />
+      <CollapsibleSection storageKey="design-candidates" title="프로젝트 후보 및 중복 제외">
+        <NaverWorksDrivePanel />
+      </CollapsibleSection>
 
       <CollapsibleSection storageKey="design-schedule" title="향후 2주 일정">
         <TwoWeekSchedule channel="naver_design" />

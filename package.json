@@ -15,11 +15,11 @@
     "prepare-local": "node --experimental-strip-types scripts/prepare-portfolio-local.mjs"
   },
   "dependencies": {
-    "@xmldom/xmldom": "0.8.13",
     "@supabase/ssr": "^0.8.0",
     "@supabase/supabase-js": "^2.93.3",
-    "lucide-react": "^0.556.0",
+    "@xmldom/xmldom": "0.8.13",
     "jszip": "3.10.1",
+    "lucide-react": "^0.556.0",
     "mammoth": "^1.11.0",
     "next": "^16.3.0",
     "react": "19.2.0",
@@ -29,6 +29,7 @@
     "web-push": "^3.6.7"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "^0.5.10",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",

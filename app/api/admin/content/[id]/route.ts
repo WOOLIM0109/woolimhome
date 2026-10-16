@@ -1,3 +1,4 @@
+import { portfolioPublicationEvidence } from "@/lib/portfolio/publication-ledger";
 import { NextResponse } from "next/server";
 import { authenticatedAdmin, contentAdmin } from "@/lib/content-ops/data";
 import { hasProductionPortfolioImageSelection } from "@/lib/portfolio/production-image-projection";
@@ -262,6 +263,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
       }, { status: 409 });
     }
     const completedAt = new Date().toISOString();
+  const publicationEvidence = await portfolioPublicationEvidence(id);
     const metadata = (current.metadata || {}) as Record<string, unknown>;
     const { data: saved, error: saveError } = await contentAdmin()
       .from("content_work_items")
@@ -273,6 +275,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
         published_account: validation.publication.account,
         metadata: {
           ...appendStatusChange(metadata, "published", user.email || "admin", completedAt),
+          ...(publicationEvidence ? { portfolioPublication: publicationEvidence } : {}),
           partnerHandoff: {
             publishedUrl: validation.publication.normalizedUrl,
             publishedAccount: validation.publication.account,
