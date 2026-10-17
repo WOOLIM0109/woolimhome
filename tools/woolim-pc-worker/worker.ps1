@@ -6,7 +6,7 @@
 )
 
 $ErrorActionPreference = "Stop"
-$WorkerVersion = "2.10.0"
+$WorkerVersion = "2.10.1"
 
 # The console window cannot be hidden reliably: PowerPoint COM needs the
 # interactive session. So the window will be seen, and an unlabeled PowerShell
@@ -423,6 +423,157 @@ function Upload-SignedFile {
     -InFile $FilePath `
     -UseBasicParsing | Out-Null
 }
+
+function Get-NormalizedWorkerFont {
+  param([string]$Name)
+  return ($Name -replace '\s+(Thin|ExtraLight|Light|Regular|Medium|SemiBold|DemiBold|Bold|ExtraBold|Black|Italic)$', '').Trim()
+}
+
+function Get-WorkerFontAliases {
+  param([object[]]$Families)
+  $names = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
+  foreach ($family in $Families) {
+    $aliases = @([string]$family.Name, [string]$family.GetName(1033), [string]$family.GetName(1042))
+    if (@($aliases | Where-Object { $_ -match 'Test' }).Count) { continue }
+    foreach ($alias in $aliases) {
+      if ($alias) { [void]$names.Add((Get-NormalizedWorkerFont $alias)) }
+    }
+  }
+  return ,$names
+}
+
+function Get-WorkerSlideThemes {
+  param([string]$SourcePath)
+  $result = @{}
+  if ([IO.Path]::GetExtension($SourcePath) -notin @('.pptx', '.pptm')) { return $result }
+  Add-Type -AssemblyName System.IO.Compression.FileSystem
+  $archive = [IO.Compression.ZipFile]::OpenRead($SourcePath)
+  $cache = @{}
+  $xmlBytes = 0L
+  function Read-FontPart([string]$Part) {
+    if ($cache.ContainsKey($Part)) { return $cache[$Part] }
+    $entries = @($archive.Entries | Where-Object { $_.FullName -ceq $Part })
+    if ($entries.Count -ne 1 -or $entries[0].Length -gt 4194304) { throw 'FONT_THEME_PART_INVALID' }
+    $settings = [Xml.XmlReaderSettings]::new()
+    $settings.DtdProcessing = [Xml.DtdProcessing]::Prohibit
+    $settings.XmlResolver = $null
+    $settings.MaxCharactersInDocument = 4194304
+    $stream = $entries[0].Open()
+    $reader = $null
+    try {
+      $reader = [Xml.XmlReader]::Create($stream, $settings)
+      $document = [Xml.XmlDocument]::new()
+      $document.XmlResolver = $null
+      $document.Load($reader)
+      $cache[$Part] = $document
+      return ,$document
+    } finally {
+      if ($reader) { $reader.Dispose() }
+      $stream.Dispose()
+    }
+  }
+  function Follow-FontRelation([string]$Part, [string]$Kind, [string]$Id = '') {
+    $slash = $Part.LastIndexOf('/')
+    $rels = $Part.Substring(0, $slash + 1) + '_rels/' + $Part.Substring($slash + 1) + '.rels'
+    $doc = Read-FontPart $rels
+    if (@($doc.SelectNodes('/*[local-name()="Relationships"]/*[local-name()="Relationship"]') | Where-Object { $_.GetAttribute('Type').EndsWith('/themeOverride') }).Count) { throw 'FONT_THEME_OVERRIDE_UNSUPPORTED' }
+    $links = @($doc.SelectNodes('/*[local-name()="Relationships"]/*[local-name()="Relationship"]') | Where-Object {
+      $_.GetAttribute('Type').EndsWith('/' + $Kind) -and (-not $Id -or $_.GetAttribute('Id') -ceq $Id)
+    })
+    if ($links.Count -ne 1 -or $links[0].GetAttribute('TargetMode') -eq 'External') { throw 'FONT_THEME_RELATION_INVALID' }
+    $target = $links[0].GetAttribute('Target')
+    if (-not $target -or $target -match '[\\%?#:]') { throw 'FONT_THEME_TARGET_INVALID' }
+    $uri = [Uri]::new([Uri]('https://package.invalid/' + $Part), $target)
+    if ($uri.Host -ne 'package.invalid' -or -not $uri.AbsolutePath.StartsWith('/ppt/')) { throw 'FONT_THEME_TARGET_INVALID' }
+    return $uri.AbsolutePath.TrimStart('/')
+  }
+  try {
+    if ($archive.Entries.Count -gt 10000) { throw 'FONT_THEME_PACKAGE_TOO_LARGE' }
+    foreach ($entry in $archive.Entries) {
+      if ($entry.FullName.EndsWith('.xml') -or $entry.FullName.EndsWith('.rels')) { $xmlBytes += $entry.Length }
+    }
+    if ($xmlBytes -gt 67108864) { throw 'FONT_THEME_PACKAGE_TOO_LARGE' }
+    $presentation = Read-FontPart 'ppt/presentation.xml'
+    $slides = @($presentation.SelectNodes('/*[local-name()="presentation"]/*[local-name()="sldIdLst"]/*[local-name()="sldId"]'))
+    foreach ($slide in $slides) {
+      $slideId = $slide.GetAttribute('id')
+      $relationId = @($slide.Attributes | Where-Object { $_.LocalName -eq 'id' -and $_.NamespaceURI.EndsWith('/relationships') })
+      if (-not $slideId -or $relationId.Count -ne 1 -or $result.ContainsKey($slideId)) { throw 'FONT_THEME_SLIDE_INVALID' }
+      $part = Follow-FontRelation 'ppt/presentation.xml' 'slide' $relationId[0].Value
+      foreach ($kind in @('slideLayout', 'slideMaster', 'theme')) { $part = Follow-FontRelation $part $kind }
+      $theme = Read-FontPart $part
+      $scheme = $theme.SelectSingleNode('/*[local-name()="theme"]/*[local-name()="themeElements"]/*[local-name()="fontScheme"]')
+      if (-not $scheme) { throw 'FONT_THEME_SCHEME_MISSING' }
+      $fonts = @{}
+      foreach ($familyName in @('majorFont', 'minorFont')) {
+        $family = $scheme.SelectSingleNode('*[local-name()="' + $familyName + '"]')
+        if (-not $family) { throw 'FONT_THEME_SCHEME_MISSING' }
+        $values = @{}
+        foreach ($child in $family.ChildNodes) {
+          if ($child.NodeType -ne [Xml.XmlNodeType]::Element) { continue }
+          $key = $child.LocalName
+          if ($key -eq 'font') { $key = 'script:' + $child.GetAttribute('script') }
+          if ($values.ContainsKey($key)) { throw 'FONT_THEME_SCHEME_AMBIGUOUS' }
+          $values[$key] = $child.GetAttribute('typeface')
+        }
+        $fonts[$familyName] = $values
+      }
+      $result[$slideId] = $fonts
+    }
+    return $result
+  } finally { $archive.Dispose() }
+}
+
+function Resolve-WorkerFont {
+  param([string]$Name, [hashtable]$Theme, [string]$Text, [int]$LanguageId = 0)
+  if (-not $Name.StartsWith('+')) { return $Name }
+  if ($Name -notmatch '^\+(mj|mn)-(lt|ea|cs)$') { throw 'FONT_THEME_TOKEN_UNKNOWN' }
+  $familyName = if ($Matches[1] -eq 'mj') { 'majorFont' } else { 'minorFont' }
+  $kind = @{ lt='latin'; ea='ea'; cs='cs' }[$Matches[2]]
+  if (-not $Theme -or -not $Theme.ContainsKey($familyName)) { throw 'FONT_THEME_UNRESOLVED' }
+  $family = $Theme[$familyName]
+  $resolved = [string]$family[$kind]
+  if (-not $resolved -and $kind -eq 'ea') {
+    $primaryLanguage = $LanguageId -band 1023
+    $scriptName = if ($Text -match '[\uac00-\ud7af\u1100-\u11ff\u3130-\u318f]' -or $primaryLanguage -eq 18) { 'Hang' }
+      elseif ($Text -match '[\u3040-\u30ff]' -or $primaryLanguage -eq 17) { 'Jpan' }
+      elseif ($primaryLanguage -eq 4) { if ($LanguageId -in @(1028,3076,5124)) { 'Hant' } else { 'Hans' } }
+      else { '' }
+    if ($scriptName) { $resolved = [string]$family['script:' + $scriptName] }
+  }
+  if (-not $resolved -or $resolved.StartsWith('+')) { throw 'FONT_THEME_UNRESOLVED' }
+  return $resolved
+}
+
+function Get-WorkerShapeFonts {
+  param($Shape, [hashtable]$Theme, [int]$Depth = 0)
+  if ($Depth -gt 32) { throw 'FONT_SHAPE_DEPTH_EXCEEDED' }
+  if ([int]$Shape.Type -eq 6) {
+    foreach ($child in $Shape.GroupItems) { Get-WorkerShapeFonts $child $Theme ($Depth + 1) }
+    return
+  }
+  if ($Shape.HasTable) {
+    for ($row = 1; $row -le $Shape.Table.Rows.Count; $row++) {
+      for ($column = 1; $column -le $Shape.Table.Columns.Count; $column++) {
+        Get-WorkerShapeFonts $Shape.Table.Cell($row,$column).Shape $Theme ($Depth + 1)
+      }
+    }
+    return
+  }
+  if (-not $Shape.HasTextFrame -or -not $Shape.TextFrame.HasText) { return }
+  $range = $Shape.TextFrame.TextRange
+  $count = [int]$range.Runs().Count
+  if ($count -lt 1 -or $count -gt 100000) { throw 'FONT_TEXT_INSPECTION_FAILED' }
+  for ($index = 1; $index -le $count; $index++) {
+    $run = $range.Runs($index,1)
+    if (-not ([string]$run.Text).Trim()) { continue }
+    $names = @([string]$run.Font.Name)
+    if ([string]$run.Text -match '[\u2e80-\u9fff\uac00-\ud7af\u1100-\u11ff\u3130-\u318f]') { $names += [string]$run.Font.NameFarEast }
+    if (@($names | Where-Object { -not $_ }).Count) { throw 'FONT_TEXT_INSPECTION_FAILED' }
+    foreach ($name in $names) { Resolve-WorkerFont $name $Theme ([string]$run.Text) ([int]$run.LanguageID) }
+  }
+}
+
 
 function Get-SourceFile {
   param(
@@ -1864,41 +2015,20 @@ function Convert-Document {
       }
 
       Add-Type -AssemblyName System.Drawing
-      $installedFonts = [System.Drawing.Text.InstalledFontCollection]::new().Families | Where-Object {
-        $_.Name -notmatch 'Test' -and $_.GetName(1033) -notmatch 'Test' -and $_.GetName(1042) -notmatch 'Test'
-      } | ForEach-Object { $_.Name }
-      $installedNormalized = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
-      foreach ($installedFont in $installedFonts) {
-        $normalizedInstalled = ([string]$installedFont -replace '\s+(Thin|ExtraLight|Light|Regular|Medium|SemiBold|DemiBold|Bold|ExtraBold|Black|Italic)$', '').Trim()
-        [void]$installedNormalized.Add($normalizedInstalled)
-      }
+      $fontCollection = [System.Drawing.Text.InstalledFontCollection]::new()
+      try { $installedNormalized = Get-WorkerFontAliases $fontCollection.Families }
+      finally { $fontCollection.Dispose() }
+      $slideThemes = Get-WorkerSlideThemes $SourcePath
       $declaredFonts = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
       foreach ($slide in $presentation.Slides) {
+        $theme = $slideThemes[[string]$slide.SlideID]
         foreach ($shape in $slide.Shapes) {
-          try {
-            if ($shape.HasTextFrame -and $shape.TextFrame.HasText) {
-              $fontName = [string]$shape.TextFrame.TextRange.Font.Name
-              if ($fontName) { [void]$declaredFonts.Add($fontName) }
-            }
-            if ([int]$shape.Type -eq 6) {
-              foreach ($child in $shape.GroupItems) {
-                try {
-                  if ($child.HasTextFrame -and $child.TextFrame.HasText) {
-                    $childFontName = [string]$child.TextFrame.TextRange.Font.Name
-                    if ($childFontName) { [void]$declaredFonts.Add($childFontName) }
-                  }
-                } catch {}
-              }
-            }
-          } catch {}
+          foreach ($fontName in @(Get-WorkerShapeFonts $shape $theme)) { [void]$declaredFonts.Add($fontName) }
         }
       }
       $missingFonts = New-Object System.Collections.Generic.List[string]
       foreach ($declaredFont in $declaredFonts) {
-        $normalizedDeclared = ([string]$declaredFont -replace '\s+(Thin|ExtraLight|Light|Regular|Medium|SemiBold|DemiBold|Bold|ExtraBold|Black|Italic)$', '').Trim()
-        if (-not $installedNormalized.Contains($normalizedDeclared)) {
-          $missingFonts.Add([string]$declaredFont)
-        }
+        if (-not $installedNormalized.Contains((Get-NormalizedWorkerFont $declaredFont))) { $missingFonts.Add($declaredFont) }
       }
       if ($missingFonts.Count -gt 0) {
         throw "MISSING_FONTS: PowerPoint cannot find these source fonts: $($missingFonts -join ', ')."
