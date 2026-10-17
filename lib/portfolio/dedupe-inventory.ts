@@ -18,8 +18,8 @@ export async function readAllPortfolioRows(table: string, columns = "*") {
     if (data.length < 500) return rows;
   }
 }
-/** Read-only: neither conversion requests nor AI calls are allowed in this inventory. */
-export async function readPortfolioDedupeInventory(threshold: number) {
+/** Never queues conversion or AI. Only preview GET must also forbid OAuth refresh writes. */
+export async function readPortfolioDedupeInventory(threshold: number, options: { readOnly?: boolean } = {}) {
   const [rows, ledger, sets, jobs, items] = await Promise.all([
     readAllPortfolioRows("portfolio_candidates", "*,naver_works_drive_files!inner(id,file_name,file_path,file_extension,file_size,root_id,modified_at)"),
     readAllPortfolioRows("portfolio_publication_ledger"), readAllPortfolioRows("portfolio_image_sets"),
@@ -59,7 +59,7 @@ export async function readPortfolioDedupeInventory(threshold: number) {
         if (error) throw new Error(error.message);
         const roots = source.naver_works_drive_roots as unknown as { external_drive_id: string } | { external_drive_id: string }[];
         const root = Array.isArray(roots) ? roots[0] : roots;
-        const response = await downloadSharedDriveFile(root.external_drive_id, source.external_file_id, { readOnly: true });
+        const response = await downloadSharedDriveFile(root.external_drive_id, source.external_file_id, options);
         const zip = await JSZip.loadAsync(await response.arrayBuffer());
         try {
           const sourceFonts = await readPptxSourceFonts(zip);

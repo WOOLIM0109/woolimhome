@@ -5,6 +5,7 @@ import { decryptToken, encryptToken } from "./crypto";
 const AUTHORIZE_URL = "https://auth.worksmobile.com/oauth2/v2.0/authorize";
 const TOKEN_URL = "https://auth.worksmobile.com/oauth2/v2.0/token";
 const API_BASE = "https://www.worksapis.com/v1.0";
+const EXPIRED_DRIVE_TOKEN_MESSAGE = "중복 검수용 Drive 읽기 토큰이 만료되었습니다. 동기화 후 다시 확인해 주세요.";
 
 type TokenResponse = {
   access_token: string;
@@ -137,16 +138,17 @@ export async function accessToken(options: { readOnly?: boolean } = {}) {
   if (!data?.access_token_encrypted || !data.refresh_token_encrypted) throw new Error("NAVER WORKS Drive가 연결되지 않았습니다.");
   const expiresAt = data.token_expires_at ? new Date(data.token_expires_at).getTime() : 0;
   if (expiresAt > Date.now() + 5 * 60 * 1000) return decryptToken(data.access_token_encrypted);
-  if (options.readOnly) throw new Error("중복 검수용 Drive 읽기 토큰이 만료되었습니다. 동기화 후 다시 확인해 주세요.");
+  if (options.readOnly) throw new Error(EXPIRED_DRIVE_TOKEN_MESSAGE);
   try {
     return await refreshConnection(data.refresh_token_encrypted);
   } catch (refreshError) {
-    await admin.from("naver_works_connections").update({
+    const reason = refreshError instanceof Error ? refreshError.message : "토큰 갱신 실패";
+    const { error: recordError } = await admin.from("naver_works_connections").update({
       status: "expired",
-      last_error: refreshError instanceof Error ? refreshError.message : "토큰 갱신 실패",
+      last_error: reason,
       updated_at: new Date().toISOString(),
     }).eq("id", "primary");
-    throw refreshError;
+    throw new Error(`${EXPIRED_DRIVE_TOKEN_MESSAGE} 갱신 실패: ${reason}${recordError ? ` (실패 사유 저장 오류: ${recordError.message})` : ""}`);
   }
 }
 
