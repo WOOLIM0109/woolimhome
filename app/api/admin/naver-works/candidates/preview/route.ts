@@ -16,7 +16,7 @@ export async function GET(request: Request) {
   const threshold = Number(new URL(request.url).searchParams.get("threshold") ?? 4);
   if (!Number.isInteger(threshold) || threshold < 0 || threshold > 8) return NextResponse.json({ error: "해시 기준은 0~8 정수입니다." }, { status: 400 });
   try {
-    const inventory = await readPortfolioDedupeInventory(threshold);
+    const inventory = await readPortfolioDedupeInventory(threshold, { readOnly: true });
     const top10 = deterministicShortlist(inventory.accepted.filter(metadataEligible)).map(rank => {
       const candidate = inventory.accepted.find(candidate => candidate.id === rank.id)!;
       return { ...rank, title: candidate.project_name, file: driveFile(candidate)?.file_name,
