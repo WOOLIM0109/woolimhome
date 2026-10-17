@@ -1,5 +1,6 @@
 import { contentAdmin } from "@/lib/content-ops/data";
 import { assertPortfolioRestartApproved } from "./restart-control";
+import { portfolioFontExclusion } from "./font-policy";
 import { runBudgetedGeminiAutomation } from "@/lib/gemini/automation";
 import { geminiRuntimeStatus } from "@/lib/gemini/protection";
 import { portfolioDraftQueueState, portfolioDraftFailure } from "./draft-state";
@@ -2724,7 +2725,7 @@ export async function retryPortfolioConversion(
 
   const [candidateResult, sourceResult, downstreamResult] = await Promise.all([
     admin.from("portfolio_candidates")
-      .select("id")
+      .select("id,missing_fonts,exclusion_reasons,metadata")
       .eq("id", conversion.candidate_id)
       .maybeSingle(),
     admin.from("content_jobs")
@@ -2746,6 +2747,8 @@ export async function retryPortfolioConversion(
   if (!candidateResult.data) {
     throw new PortfolioConversionRetryConflict("연결된 포트폴리오 후보가 없어 다시 시도하지 않았습니다.");
   }
+  const fontExclusion = portfolioFontExclusion(candidateResult.data);
+  if (fontExclusion) throw new PortfolioConversionRetryConflict(fontExclusion);
   if ((sourceResult.data || []).length > 1) {
     throw new PortfolioConversionRetryConflict("완료된 원본 다운로드 작업이 중복 연결되어 있어 다시 시도하지 않았습니다.");
   }

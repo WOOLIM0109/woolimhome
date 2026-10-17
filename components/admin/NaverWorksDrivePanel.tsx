@@ -12,7 +12,7 @@ type Candidate = {
   font_status: string;
   selection_reasons: string[];
   exclusion_reasons?: string[];
-  metadata?: { imageReviewReason?: string; duplicateMatch?: { title: string; url?: string; candidateId?: string } };
+  metadata?: { imageReviewReason?: string; fontReviewReason?: string; duplicateMatch?: { title: string; url?: string; candidateId?: string } };
 };
 
 type StatusPayload = {
@@ -245,6 +245,7 @@ export default function NaverWorksDrivePanel() {
                     <div>
                       <h4 className="font-bold">{candidate.project_name}</h4>
                       {candidate.status === "candidate" && candidate.metadata?.imageReviewReason && <p className="text-sm text-amber-800">검수 필요 · {candidate.metadata.imageReviewReason}</p>}
+                      {candidate.status === "candidate" && candidate.metadata?.fontReviewReason && <p className="text-sm text-amber-800">{candidate.metadata.fontReviewReason}</p>}
                       {candidate.status === "candidate" && <button type="button" className="mt-2 text-sm underline" onClick={() => setPublishedCandidate(candidate.id)}>이미 블로그에 있음</button>}
                       {candidate.status === "excluded" && <details className="mt-2 text-sm"><summary>중복·제외 사유 보기</summary>
                         {(candidate.exclusion_reasons || []).map(reason => <p key={reason}>{reason}</p>)}

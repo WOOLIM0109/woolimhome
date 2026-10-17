@@ -34,8 +34,10 @@ export async function prepareNextPortfolioCandidate(options: {
     const { error } = await admin.from("portfolio_candidates").update({
       duplicate_score: check.duplicateScore,
       updated_at: new Date().toISOString(),
-      ...(check.match ? { status: "excluded", exclusion_reasons: [check.reason] } : {}),
+      ...(check.match || check.fontExclusionReason ? { status: "excluded", exclusion_reasons: [check.reason] } : {}),
       metadata: { ...row.metadata, normalizedProjectName: check.normalizedName,
+        fontExclusionReason: check.fontExclusionReason,
+        fontReviewReason: inventory.needsFontReview.some(candidate => candidate.id === row.id) ? "검수 필요: 변환 전 원본 글꼴 확인 필요" : null,
         imageReviewReason: check.reason || (inventory.needsImageReview.some(candidate => candidate.id === row.id) ? "대표 이미지 해시를 확인할 수 없어 제작 전 검수가 필요합니다." : null),
         ...(check.match ? { duplicateMatch: check.match } : {}) },
     }).eq("id", row.id).eq("status", "candidate").eq("updated_at", row.updated_at);

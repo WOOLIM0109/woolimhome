@@ -5,6 +5,7 @@ export function portfolioDisplayState(item: { status: string; review_note?: stri
   const fonts = Array.isArray(metadata.missingFonts) ? metadata.missingFonts.map(String).join(", ") : missing;
   if (item.status === "review_required") return { label: "검수 필요", detail: null };
   if (item.status === "published" || item.status === "approved" || item.status === "scheduled") return null;
+  if (/유료 글꼴 미보유:/.test(reason)) return { label: "제외", detail: reason };
   if (fonts || /MISSING_FONTS/.test(reason)) return { label: "글꼴 대기", detail: fonts || reason };
   if (/retry limit|RETRY_LIMIT|MAX_ATTEMPTS/i.test(reason + String(metadata.portfolioTerminalErrorCode || ""))) return { label: "변환 실패(재시도 한도)", detail: reason };
   if (item.status === "draft_waiting" || ["design_completed", "draft_failed", "draft_waiting", "draft_retry_wait"].includes(String(metadata.portfolioStage))) {

@@ -1,4 +1,5 @@
 import { normalizePortfolioProjectName } from "./project-name.ts";
+import { portfolioFontExclusion } from "./font-policy.ts";
 import { driveFile, type CandidateRow } from "../naver-works/portfolio-selection.ts";
 
 export const PORTFOLIO_DEDUPE_VERSION = "project-dedupe-v1";
@@ -36,6 +37,7 @@ export function inspectPortfolioDuplicates(rows: CandidateRow[], publications: P
   const active = rows.filter(row => ["selected", "processed", "on_hold"].includes(row.status)).map(reference);
   const accepted: CandidateRow[] = [];
   const decisions = rows.filter(row => row.status === "candidate").sort(compareProjectSources).map(row => {
+    const fontExclusionReason = portfolioFontExclusion(row);
     const key = name(row), hashes = validProjectHashes(row.metadata?.representativeHashes);
     const references = [...publications, ...active, ...accepted.map(reference)].filter(ref => ref.candidateId !== row.id);
     let bestScore = 0;
@@ -49,9 +51,9 @@ export function inspectPortfolioDuplicates(rows: CandidateRow[], publications: P
       if (score > bestScore) bestScore = score;
       if (closest <= hashThreshold && (!match || distance === null || closest < distance)) { match = ref; distance = closest; }
     }
-    if (!match && key) accepted.push(row);
-    return { candidate: row, normalizedName: key, duplicateScore: bestScore, match, distance,
-      reason: match ? `중복: ${match.title} (${match.url || match.candidateId || match.id})` : key ? null : "검수 필요: 정규화 프로젝트명이 비어 있습니다." };
+    if (!match && key && !fontExclusionReason) accepted.push(row);
+    return { candidate: row, normalizedName: key, duplicateScore: bestScore, match, distance, fontExclusionReason,
+      reason: fontExclusionReason || (match ? `중복: ${match.title} (${match.url || match.candidateId || match.id})` : key ? null : "검수 필요: 정규화 프로젝트명이 비어 있습니다.") };
   });
   const groups = [...new Set(decisions.map(row => row.normalizedName))].map(key => ({ normalizedName: key,
     files: decisions.filter(row => row.normalizedName === key).map(row => row.candidate.id),

@@ -1,4 +1,5 @@
 import { contentAdmin } from "@/lib/content-ops/data";
+import { canRetryCandidateFonts, portfolioFontExclusion } from "../portfolio/font-policy";
 export { missingFontsFromMessage } from "./font-error";
 
 export async function retryMissingFontCandidates(
@@ -10,14 +11,23 @@ export async function retryMissingFontCandidates(
   if (!fingerprint) return { requeued: 0, candidateIds: [] as string[] };
   const admin = contentAdmin();
   let query = admin.from("portfolio_candidates")
-    .select("id,font_retry_fingerprint")
+    .select("id,font_retry_fingerprint,missing_fonts,exclusion_reasons,metadata")
     .eq("font_status", "missing")
     .in("status", ["excluded", "on_hold"])
     .limit(50);
   if (candidateId) query = query.eq("id", candidateId);
   const { data: candidates, error } = await query;
   if (error) throw new Error(error.message);
-  const due = (candidates || []).filter((candidate) => force || candidate.font_retry_fingerprint !== fingerprint);
+  for (const candidate of candidates || []) {
+    const reason = portfolioFontExclusion(candidate);
+    if (!reason) continue;
+    const { error: exclusionError } = await admin.from("portfolio_candidates").update({
+      status: "excluded", exclusion_reasons: [reason],
+      metadata: { ...candidate.metadata, fontExclusionReason: reason }, updated_at: new Date().toISOString(),
+    }).eq("id", candidate.id).in("status", ["excluded", "on_hold"]);
+    if (exclusionError) throw new Error(exclusionError.message);
+  }
+  const due = (candidates || []).filter(candidate => canRetryCandidateFonts(candidate, fingerprint, force));
   const candidateIds: string[] = [];
   for (const candidate of due) {
     const { data: jobs, error: jobsError } = await admin.from("content_jobs")

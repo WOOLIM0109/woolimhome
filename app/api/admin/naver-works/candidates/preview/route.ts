@@ -23,10 +23,11 @@ export async function GET(request: Request) {
         reasons: ["프로젝트명·발행 원장·대표 이미지 중복 검사 통과", ...rank.reasons] };
     });
     return NextResponse.json({ readOnly: true, threshold, top10, groups: inventory.groups,
-      excluded: inventory.decisions.filter(row => row.match).map(row => ({ id: row.candidate.id, title: row.candidate.project_name,
+      excluded: inventory.decisions.filter(row => row.match || row.fontExclusionReason).map(row => ({ id: row.candidate.id, title: row.candidate.project_name,
         duplicateScore: row.duplicateScore, distance: row.distance, reason: row.reason, match: row.match })),
       reviewRequired: inventory.decisions.filter(row => !row.normalizedName).map(row => ({ id: row.candidate.id, title: row.candidate.project_name, reason: row.reason }))
-        .concat(inventory.needsImageReview.map(row => ({ id: row.id, title: row.project_name, reason: "변환 전 대표 이미지 확인 필요" }))),
+        .concat(inventory.needsImageReview.map(row => ({ id: row.id, title: row.project_name, reason: "변환 전 대표 이미지 확인 필요" })))
+        .concat(inventory.needsFontReview.map(row => ({ id: row.id, title: row.project_name, reason: "변환 전 원본 글꼴 확인 필요" }))),
       files: inventory.decisions.map(row => ({ id: row.candidate.id, title: row.candidate.project_name, file: driveFile(row.candidate),
         normalizedName: row.normalizedName })),
       sourcePreference: "PPTX 우선 → 최신 수정일 우선 → 사본 후순위",

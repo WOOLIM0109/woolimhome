@@ -255,6 +255,7 @@ function Get-FontInventoryFingerprint {
     if (-not $properties) { continue }
     foreach ($property in $properties.PSObject.Properties) {
       if ($property.Name.StartsWith("PS")) { continue }
+      if ($property.Name -match 'Test' -or [System.IO.Path]::GetFileName([string]$property.Value) -match 'Test') { continue }
       $fontNames.Add("$($property.Name)=$($property.Value)".ToLowerInvariant())
     }
   }
@@ -1863,7 +1864,9 @@ function Convert-Document {
       }
 
       Add-Type -AssemblyName System.Drawing
-      $installedFonts = [System.Drawing.Text.InstalledFontCollection]::new().Families.Name
+      $installedFonts = [System.Drawing.Text.InstalledFontCollection]::new().Families | Where-Object {
+        $_.Name -notmatch 'Test' -and $_.GetName(1033) -notmatch 'Test' -and $_.GetName(1042) -notmatch 'Test'
+      } | ForEach-Object { $_.Name }
       $installedNormalized = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
       foreach ($installedFont in $installedFonts) {
         $normalizedInstalled = ([string]$installedFont -replace '\s+(Thin|ExtraLight|Light|Regular|Medium|SemiBold|DemiBold|Bold|ExtraBold|Black|Italic)$', '').Trim()
