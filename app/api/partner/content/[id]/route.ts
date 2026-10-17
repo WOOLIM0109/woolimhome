@@ -1,3 +1,4 @@
+import { portfolioPublicationEvidence } from "@/lib/portfolio/publication-ledger";
 import { NextResponse } from "next/server";
 import { apiError } from "@/lib/api-error";
 import { authenticatedPartner, contentAdmin } from "@/lib/content-ops/data";
@@ -145,6 +146,7 @@ export async function PATCH(
   }
 
   const completedAt = new Date().toISOString();
+  const publicationEvidence = await portfolioPublicationEvidence(id);
   const handoffMetadata = forceRequested
     ? {
         forceApproved: true,
@@ -168,7 +170,8 @@ export async function PATCH(
       published_account: publication?.account || null,
       metadata: {
         ...metadata,
-        partnerHandoff: handoffMetadata,
+        ...(publicationEvidence ? { portfolioPublication: publicationEvidence } : {}),
+          partnerHandoff: handoffMetadata,
       },
       updated_at: completedAt,
     })

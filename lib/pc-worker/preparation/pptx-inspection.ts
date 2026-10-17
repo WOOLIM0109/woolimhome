@@ -434,7 +434,7 @@ export async function inspectPptx(buffer: Buffer, options: { installedFonts: rea
     aspect: pageSize.aspect, pageSizeVariant: pageSize.pageSizeVariant, slideSizeType, issues: [], slides: [] };
   if (!report.totalSlides || report.totalSlides > 500) throw new Error("UNSUPPORTED_SLIDE_COUNT: expected 1..500");
   if (report.aspect === "unknown" || report.aspect === "4:3") report.issues.push(issue("NO_APPROVED_SUITE", report.aspect));
-  const installed = new Set(options.installedFonts.map(normalizedFont));
+  const installed = new Set(options.installedFonts.filter(name => !/test/i.test(name)).map(normalizedFont));
   const embedded = new Set(descendants(presentation, "embeddedFont")
     .map((e) => normalizedFont(one(e,"font")?.getAttribute("typeface") || "")).filter(Boolean));
   const seenParts = new Set<string>();

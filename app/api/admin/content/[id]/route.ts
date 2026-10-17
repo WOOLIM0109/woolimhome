@@ -1,3 +1,4 @@
+import { portfolioPublicationEvidence } from "@/lib/portfolio/publication-ledger";
 import { NextResponse } from "next/server";
 import { authenticatedAdmin, contentAdmin } from "@/lib/content-ops/data";
 import { hasProductionPortfolioImageSelection } from "@/lib/portfolio/production-image-projection";
@@ -103,7 +104,7 @@ function tourismManualApprovalMetadata(
 
 const STATUSES: WorkflowStatus[] = [
   "topic_candidate", "researching", "creating", "review_required", "approved",
-  "naver_ready", "scheduled", "published", "on_hold",
+  "naver_ready", "scheduled", "published", "on_hold", "draft_waiting",
 ];
 
 type RegeneratableItem = {
@@ -262,6 +263,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
       }, { status: 409 });
     }
     const completedAt = new Date().toISOString();
+  const publicationEvidence = await portfolioPublicationEvidence(id);
     const metadata = (current.metadata || {}) as Record<string, unknown>;
     const { data: saved, error: saveError } = await contentAdmin()
       .from("content_work_items")
@@ -273,6 +275,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
         published_account: validation.publication.account,
         metadata: {
           ...appendStatusChange(metadata, "published", user.email || "admin", completedAt),
+          ...(publicationEvidence ? { portfolioPublication: publicationEvidence } : {}),
           partnerHandoff: {
             publishedUrl: validation.publication.normalizedUrl,
             publishedAccount: validation.publication.account,
@@ -567,11 +570,8 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
   }
   if (body.action === "retry_portfolio_draft") {
     try {
-      const result = await runBudgetedGeminiAutomation({
-        operation: "portfolio-draft-retry",
-        actor: user.email || "admin",
-        plannedCalls: 3,
-      }, () => retryPortfolioDraft(id));
+      // The worker owns the budget gate for both cron and manual retries.
+      const result = await retryPortfolioDraft(id);
       if (!result) {
         return NextResponse.json({ error: "다시 생성할 포트폴리오 본문 작업을 찾지 못했습니다." }, { status: 409 });
       }

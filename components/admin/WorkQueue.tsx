@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ChevronDown, RotateCcw, Search, Sparkles, Trash2, Upload } from "lucide-react";
 import StatusBadge from "./StatusBadge";
+import { portfolioDisplayState } from "@/lib/portfolio/display-state";
 import ProductionMockupEditor from "./ProductionMockupEditor";
 import type { ContentChannel, WorkflowStatus } from "@/lib/content-ops/types";
 import { faqAnswerHtml, faqQuestionHtml } from "@/lib/content-ops/editorial-style";
@@ -557,6 +558,7 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
       const statusOrder: Record<string, number> = {
         review_required: 0,
         on_hold: 1,
+        draft_waiting: 1,
         creating: 2,
         researching: 3,
         topic_candidate: 4,
@@ -1202,6 +1204,9 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
             <span className="min-w-0">
               <span className="block truncate font-bold">{item.title}</span>
               {item.summary && <span className="mt-1 block truncate text-xs text-[var(--muted)]">{item.summary}</span>}
+              {item.channel === "naver_design" && portfolioDisplayState(item)?.detail && (
+                <span className="mt-1 block whitespace-normal text-xs text-amber-900">{portfolioDisplayState(item)?.detail}</span>
+              )}
             </span>
             <span className="text-xs text-[var(--muted)] sm:text-right">
               <span className="block truncate">{item.source_label || "자동 일정"}</span>
@@ -1211,7 +1216,7 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
                 </span>
               )}
             </span>
-            <StatusBadge status={item.status} />
+            <StatusBadge status={item.status} label={item.channel === "naver_design" ? portfolioDisplayState(item)?.label : undefined} />
             <ChevronDown
               aria-hidden="true"
               size={20}

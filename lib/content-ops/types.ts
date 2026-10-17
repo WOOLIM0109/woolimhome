@@ -10,6 +10,7 @@ export type WorkflowStatus =
   | "topic_candidate"
   | "researching"
   | "creating"
+  | "draft_waiting"
   | "review_required"
   | "approved"
   | "naver_ready"

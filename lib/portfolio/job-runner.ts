@@ -1,4 +1,9 @@
 import { contentAdmin } from "@/lib/content-ops/data";
+import { assertPortfolioRestartApproved } from "./restart-control";
+import { portfolioFontExclusion } from "./font-policy";
+import { runBudgetedGeminiAutomation } from "@/lib/gemini/automation";
+import { geminiRuntimeStatus } from "@/lib/gemini/protection";
+import { portfolioDraftQueueState, portfolioDraftFailure } from "./draft-state";
 import {
   createPortfolioSourceFingerprint,
   PORTFOLIO_RULE_VERSION,
@@ -728,6 +733,7 @@ export async function processNextPortfolioMockup(
   candidateId?: string,
   options: { deadlineAt?: number } = {},
 ) {
+  await assertPortfolioRestartApproved();
   const admin = contentAdmin();
   // 한 번 실행에서 여러 건을 이어 처리할 때, 뒤에 오는 건이 제한 시간을 넘기지 않도록
   // 부르는 쪽이 남은 시간을 함께 넘깁니다.
@@ -1221,17 +1227,18 @@ export async function processNextPortfolioMockup(
     // Bind the visible result to the work-item snapshot that existed while the
     // job was running. A rebuild/source invalidation changes updated_at and
     // therefore prevents a stale runner from publishing its metadata.
+    const draftQueueState = portfolioDraftQueueState(geminiRuntimeStatus());
     const { data: committedWorkItem, error: workUpdateError } = await admin.from("content_work_items").update({
       summary: mockupOnly
         ? restoredSummary
-        : "포트폴리오 디자인 목업을 완성했습니다. AI 본문 자동 생성은 비용 보호 모드에서 대기합니다.",
-      status: mockupOnly ? restoredStatus : "on_hold",
+        : "포트폴리오 디자인 목업을 완성했습니다. 본문 작성 대기 중입니다.",
+      status: mockupOnly ? restoredStatus : "draft_waiting",
       source_label: mockupOnly
         ? workItem.source_label
         : "NAVER WORKS 실제 프로젝트 · 로컬 시각 분석",
       review_note: mockupOnly
         ? restoredReviewNote
-        : "디자인 목업은 저장되었습니다. Gemini 본문은 관리자 확인 없이 생성하지 않습니다.",
+        : draftQueueState.error_message,
       metadata: {
         ...workItemMetadata,
         portfolioReview: review,
@@ -1247,7 +1254,7 @@ export async function processNextPortfolioMockup(
           ? workItemMetadata.portfolioStage || "design_completed"
           : "design_completed",
         designCompletedAt: completedAt,
-        ...(!mockupOnly ? { awaitingAiConfirmation: true } : {}),
+        ...(!mockupOnly ? { awaitingAiConfirmation: false, draftLastErrorCode: draftQueueState.last_error_code } : {}),
       },
       updated_at: completedAt,
     }).eq("id", job.work_item_id)
@@ -1406,13 +1413,11 @@ export async function processNextPortfolioMockup(
       ? pendingDraft.payload as Record<string, unknown>
       : {};
     const { data: queuedDraft, error: draftQueueError } = await admin.from("content_jobs").update({
-      status: "on_hold",
+      ...draftQueueState,
       attempts: 0,
       started_at: null,
-      completed_at: completedAt,
+      completed_at: null,
       next_retry_at: null,
-      last_error_code: "GEMINI_COST_PROTECTION_ACTIVE",
-      error_message: "Gemini 본문은 관리자 확인 없이 생성하지 않습니다.",
       payload: {
         ...pendingDraftPayload,
         portfolioGenerationId: generationId,
@@ -1434,7 +1439,7 @@ export async function processNextPortfolioMockup(
     return {
       candidateId: job.candidate_id,
       workItemId: job.work_item_id,
-      status: "on_hold",
+      status: "draft_waiting",
       stage: "design_completed",
       assetCount: assets.length,
     };
@@ -1670,23 +1675,35 @@ export async function processNextPortfolioMockup(
   }
 }
 
-export async function processNextPortfolioDraft(candidateId?: string) {
+export async function processNextPortfolioDraft(candidateId?: string, options: { deadlineAt?: number } = {}) {
+  await assertPortfolioRestartApproved();
   const admin = contentAdmin();
-  const executionDeadlineAt = Date.now() + 225_000;
+  const executionDeadlineAt = Math.min(Date.now() + 225_000, options.deadlineAt ?? Infinity);
+  if (Date.now() >= executionDeadlineAt - 65_000) return null;
   const shouldYield = () => Date.now() >= executionDeadlineAt - 65_000;
   const staleBefore = new Date(Date.now() - 8 * 60 * 1000).toISOString();
   const staleAt = new Date().toISOString();
   let staleQuery = admin.from("content_jobs").update({
-    status: "failed",
-    attempts: 0,
+    status: "draft_waiting",
     next_retry_at: null,
-    error_message: "AI_STEP_TIMEOUT: 이전 본문 생성 작업이 제한 시간 안에 끝나지 않아 저장된 단계부터 다시 시작합니다.",
+    last_error_code: "AI_STEP_TIMEOUT",
+    error_message: "AI_STEP_TIMEOUT: 이전 본문 생성이 제한 시간 안에 끝나지 않았습니다. 관리자 재시도가 필요합니다.",
     completed_at: staleAt,
     updated_at: staleAt,
   }).eq("job_type", "draft").eq("status", "running").lt("updated_at", staleBefore);
   if (candidateId) staleQuery = staleQuery.eq("candidate_id", candidateId);
-  const { error: staleError } = await staleQuery;
+  const { data: staleDrafts, error: staleError } = await staleQuery.select("work_item_id,payload");
   if (staleError) throw new Error(staleError.message);
+  for (const stale of staleDrafts || []) {
+    if (!stale.work_item_id) continue;
+    const generation = (stale.payload as Record<string, unknown> | null)?.portfolioGenerationId;
+    await updatePortfolioWorkItemIfOwned(admin, {
+      workItemId: stale.work_item_id,
+      owns: (metadata) => Boolean(generation) && (metadata as Record<string, unknown>)?.portfolioGenerationId === generation,
+      values: (metadata) => ({ status: "draft_waiting", review_note: "AI_STEP_TIMEOUT: 관리자 재시도가 필요합니다.",
+        metadata: { ...metadata, portfolioStage: "draft_waiting", draftLastErrorCode: "AI_STEP_TIMEOUT" }, updated_at: staleAt }),
+    });
+  }
 
   let query = admin.from("content_jobs")
     .select("id,candidate_id,work_item_id,status,result,payload,attempts,max_attempts,error_message,next_retry_at,created_at,updated_at")
@@ -1709,30 +1726,7 @@ export async function processNextPortfolioDraft(candidateId?: string) {
       .select("metadata").eq("id", pendingJob.work_item_id).single();
     if (protectedWorkItemError) throw new Error(protectedWorkItemError.message);
     assertLegacyPortfolioImageWriteAllowed(protectedWorkItem.metadata);
-    let pendingResult = (pendingJob.result || {}) as Record<string, unknown>;
-    let pendingAttempts = Number(pendingJob.attempts || 0);
-    const recoverableJsonFailure = /Unexpected non-whitespace|AI JSON|JSON 객체|AI_STEP_TIMEOUT/i
-      .test(String(pendingJob.error_message || ""));
-    const recoveryField = /AI_STEP_TIMEOUT/i.test(String(pendingJob.error_message || ""))
-      ? "timeoutRecoveryAttemptedAt"
-      : "jsonFormatRecoveryAttemptedAt";
-    if (pendingAttempts >= Number(pendingJob.max_attempts || 3)) {
-      if (!recoverableJsonFailure || pendingResult[recoveryField]) continue;
-      const recoveryAt = new Date().toISOString();
-      pendingResult = { ...pendingResult, [recoveryField]: recoveryAt };
-      const { error: recoveryError } = await admin.from("content_jobs").update({
-        attempts: 0,
-        result: pendingResult,
-        error_message: null,
-        updated_at: recoveryAt,
-      }).eq("id", pendingJob.id)
-        .eq("status", pendingJob.status)
-        .eq("attempts", pendingAttempts);
-      if (recoveryError) throw new Error(recoveryError.message);
-      pendingAttempts = 0;
-      pendingJob.attempts = 0;
-      pendingJob.result = pendingResult;
-    }
+    if (Number(pendingJob.attempts || 0) >= Number(pendingJob.max_attempts || 3)) continue;
     const { data: mockupJob, error: mockupError } = await admin.from("content_jobs")
       .select("id,result")
       .eq("candidate_id", pendingJob.candidate_id)
@@ -1830,7 +1824,10 @@ export async function processNextPortfolioDraft(candidateId?: string) {
       designCompleted: true,
       draftStartedAt: claimStartedAt,
     });
-    const { draft, validation } = await createPortfolioDraft({
+    const { draft, validation } = await runBudgetedGeminiAutomation({
+      operation: "portfolio-draft", actor: "portfolio-worker", plannedCalls: 3,
+      estimatedInputTokens: 60_000, estimatedOutputTokens: 60_000,
+    }, () => createPortfolioDraft({
       review: mockup.review,
       assets: mockup.assets,
       // 장표에서 읽어낸 제목을 넘겨 줍니다.
@@ -1841,7 +1838,7 @@ export async function processNextPortfolioDraft(candidateId?: string) {
       onProgress: async (progress) => {
         await checkpoint({ portfolioDraftProgress: progress });
       },
-    });
+    }));
     const completedAt = new Date().toISOString();
     const hasBlockingIssue = hasBlockingPortfolioDraftIssue(validation.issues);
     await assertClaim();
@@ -2003,7 +2000,7 @@ export async function processNextPortfolioDraft(candidateId?: string) {
     if (error instanceof PortfolioCheckpointYield) {
       const checkpointedAt = new Date().toISOString();
       const { data: yieldedJob, error: yieldError } = await admin.from("content_jobs").update({
-        status: "queued",
+        status: attempts >= Number(job.max_attempts || 3) ? "draft_waiting" : "queued",
         attempts,
         started_at: null,
         completed_at: null,
@@ -2032,7 +2029,7 @@ export async function processNextPortfolioDraft(candidateId?: string) {
           portfolioRuleVersion: mockup.portfolioRuleVersion,
         },
         values: (metadata) => ({
-          status: "creating",
+          status: "draft_waiting",
           summary: "포트폴리오 디자인은 완료되었습니다. 저장된 단계부터 본문 작성을 이어서 진행합니다.",
           review_note: null,
           metadata: { ...metadata, portfolioStage: "design_completed" },
@@ -2042,75 +2039,15 @@ export async function processNextPortfolioDraft(candidateId?: string) {
       return {
         candidateId: job.candidate_id,
         workItemId: job.work_item_id,
-        status: "creating",
+        status: "draft_waiting",
         stage: "design_completed",
         checkpointed: true,
-      };
-    }
-    if (error instanceof GeminiRequestError) {
-      const retry = geminiRetryDecision(error, Number(result.retryCount || 0));
-      result = { ...result, retryCount: retry.retryCount };
-      const retryAt = new Date().toISOString();
-      const { data: retriedJob, error: retryUpdateError } = await admin.from("content_jobs").update({
-        status: retry.retryable ? "failed" : "on_hold",
-        attempts: retry.retryable ? 0 : attempts,
-        next_retry_at: retry.nextRetryAt,
-        last_error_code: retry.code,
-        error_message: error.message,
-        completed_at: retryAt,
-        result,
-        updated_at: retryAt,
-      }).eq("id", job.id)
-        .eq("status", "running")
-        .eq("started_at", claimStartedAt)
-        .select("id")
-        .maybeSingle();
-      if (retryUpdateError) throw new Error(retryUpdateError.message);
-      if (!retriedJob) return null;
-      await updatePortfolioWorkItemIfOwned(admin, {
-        workItemId: job.work_item_id,
-        owns: (metadata) => ownsPortfolioGeneration(
-          metadata,
-          mockup.portfolioGenerationId,
-          mockup.sourceFingerprint,
-          mockup.portfolioRuleVersion,
-        ),
-        requiredMetadata: {
-          portfolioGenerationId: mockup.portfolioGenerationId,
-          portfolioSourceFingerprint: mockup.sourceFingerprint,
-          portfolioRuleVersion: mockup.portfolioRuleVersion,
-        },
-        values: (metadata) => ({
-          status: retry.retryable ? "creating" : "on_hold",
-          summary: retry.retryable
-            ? "포트폴리오 디자인은 완료되었습니다. Gemini 글쓰기만 자동 재시도합니다."
-            : "포트폴리오 디자인은 완료되었지만 본문 생성은 관리자 확인이 필요합니다.",
-          review_note: retry.retryable
-            ? `Gemini 글쓰기 일시 오류로 자동 재시도 예정: ${retry.nextRetryAt}`
-            : `본문 자동 생성 보류: ${error.message}`,
-          metadata: {
-            ...metadata,
-            portfolioStage: retry.retryable ? "draft_retry_wait" : "draft_failed",
-            draftRetryAt: retry.nextRetryAt,
-            draftLastErrorCode: retry.code,
-          },
-          updated_at: retryAt,
-        }),
-      });
-      return {
-        candidateId: job.candidate_id,
-        workItemId: job.work_item_id,
-        status: retry.retryable ? "creating" : "on_hold",
-        stage: retry.retryable ? "draft_retry_wait" : "draft_failed",
-        retry,
-        assetCount: mockup.assets.length,
       };
     }
     const message = error instanceof Error ? error.message : "포트폴리오 본문 생성 실패";
     const failedAt = new Date().toISOString();
     const { data: failedJob, error: failedJobError } = await admin.from("content_jobs").update({
-      status: "failed",
-      error_message: message,
+      ...portfolioDraftFailure(error),
       completed_at: failedAt,
       updated_at: failedAt,
     }).eq("id", job.id)
@@ -2134,14 +2071,14 @@ export async function processNextPortfolioDraft(candidateId?: string) {
         portfolioRuleVersion: mockup.portfolioRuleVersion,
       },
       values: (metadata) => ({
-        status: "on_hold",
+        status: "draft_waiting",
         summary: "포트폴리오 디자인은 완료되었지만 본문 생성은 관리자 확인이 필요합니다.",
         review_note: `본문 자동 생성 보류: ${message}`,
-        metadata: { ...metadata, portfolioStage: "draft_failed" },
+        metadata: { ...metadata, portfolioStage: "draft_waiting", draftLastErrorCode: portfolioDraftFailure(error).last_error_code },
         updated_at: failedAt,
       }),
     });
-    throw error;
+    return { workItemId: job.work_item_id, status: "draft_waiting", reason: message };
   }
 }
 
@@ -2431,6 +2368,7 @@ export async function reflowPortfolioDraftImages(workItemId: string) {
 }
 
 export async function retryPortfolioDraft(workItemId: string) {
+  await assertPortfolioRestartApproved();
   const admin = contentAdmin();
   const { data: workItem, error } = await admin.from("content_work_items")
     .select("id,status,metadata")
@@ -2787,7 +2725,7 @@ export async function retryPortfolioConversion(
 
   const [candidateResult, sourceResult, downstreamResult] = await Promise.all([
     admin.from("portfolio_candidates")
-      .select("id")
+      .select("id,missing_fonts,exclusion_reasons,metadata")
       .eq("id", conversion.candidate_id)
       .maybeSingle(),
     admin.from("content_jobs")
@@ -2809,6 +2747,8 @@ export async function retryPortfolioConversion(
   if (!candidateResult.data) {
     throw new PortfolioConversionRetryConflict("연결된 포트폴리오 후보가 없어 다시 시도하지 않았습니다.");
   }
+  const fontExclusion = portfolioFontExclusion(candidateResult.data);
+  if (fontExclusion) throw new PortfolioConversionRetryConflict(fontExclusion);
   if ((sourceResult.data || []).length > 1) {
     throw new PortfolioConversionRetryConflict("완료된 원본 다운로드 작업이 중복 연결되어 있어 다시 시도하지 않았습니다.");
   }

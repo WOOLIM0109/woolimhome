@@ -15,6 +15,8 @@ export type CandidateRow = {
   project_name: string;
   quality_score: number;
   status: string;
+  missing_fonts?: string[];
+  exclusion_reasons?: string[];
   metadata?: Record<string, unknown>;
   naver_works_drive_files:
     | CandidateDriveFile

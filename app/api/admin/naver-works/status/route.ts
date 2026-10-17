@@ -14,7 +14,7 @@ export async function GET() {
       .eq("id", "primary").single(),
     admin.from("naver_works_drive_files").select("id", { count: "exact", head: true }),
     admin.from("portfolio_candidates")
-      .select("id,project_name,status,quality_score,privacy_risk,font_status,selection_reasons,created_at,naver_works_drive_files(file_name,file_path,file_extension,file_size,modified_at)")
+      .select("id,project_name,status,quality_score,privacy_risk,font_status,selection_reasons,exclusion_reasons,metadata,created_at,naver_works_drive_files(file_name,file_path,file_extension,file_size,modified_at)")
       .order("quality_score", { ascending: false })
       .limit(5000),
   ]);
@@ -55,6 +55,6 @@ export async function GET() {
     /** 승인 폴더 안의 전체 건수. 상태별 내역과 함께 보여 줘야 오해가 없습니다. */
     trackedCount: usable.length,
     statusCounts,
-    candidates: candidates.slice(0, 12),
+    candidates: usable,
   });
 }

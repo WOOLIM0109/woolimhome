@@ -113,6 +113,7 @@ function Get-FontInventory {
         try { $english = ([string]$family.Name).Trim() } catch {}
       }
       if (-not $korean) { $korean = $english }
+      if ($english -match 'Test' -or $korean -match 'Test') { continue }
       if ($english -or $korean) {
         $families.Add([PSCustomObject]@{
           english = if ($english) { $english } else { $null }
@@ -137,6 +138,7 @@ function Get-FontInventory {
     if (-not (Test-Path -LiteralPath $root.path -PathType Container)) { continue }
     foreach ($file in @(Get-ChildItem -LiteralPath $root.path -File -Recurse -ErrorAction SilentlyContinue)) {
       if ($file.Extension.ToLowerInvariant() -notin @(".ttf", ".otf", ".ttc", ".otc", ".fon")) { continue }
+      if ($file.Name -match 'Test') { continue }
       $fontFileEntries.Add((
         "{0}|{1}|{2}|{3}" -f
           $root.label,

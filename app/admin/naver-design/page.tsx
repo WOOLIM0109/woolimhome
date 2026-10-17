@@ -8,6 +8,7 @@ import TwoWeekSchedule from "@/components/admin/TwoWeekSchedule";
 import CollapsibleSection from "@/components/admin/CollapsibleSection";
 import PcWorkerStatus from "@/components/admin/PcWorkerStatus";
 import PortfolioGenerateButton from "@/components/admin/PortfolioGenerateButton";
+import NaverWorksDrivePanel from "@/components/admin/NaverWorksDrivePanel";
 
 export default function NaverDesignAdminPage() {
   return (
@@ -30,7 +31,7 @@ export default function NaverDesignAdminPage() {
     >
       <section className="mt-8 grid gap-5 md:grid-cols-3">
         {[
-          { icon: ImageIcon, label: "포트폴리오", value: "주 2회", note: "중복 없는 프로젝트 자동 선정" },
+          { icon: ImageIcon, label: "포트폴리오", value: "주 1회 · 화요일", note: "중복 없는 프로젝트 자동 선정" },
           { icon: Lightbulb, label: "기획·디자인 콘텐츠", value: "초기 주 1회", note: "대표님의 판단과 실제 사례 중심" },
           { icon: ShieldCheck, label: "기본 개인정보 보호", value: "자동 확인", note: "연락처·주소·등록번호·개인 이름" },
         ].map(({ icon: Icon, label, value, note }) => (
@@ -44,6 +45,9 @@ export default function NaverDesignAdminPage() {
       </section>
 
       <PcWorkerStatus />
+      <CollapsibleSection storageKey="design-candidates" title="프로젝트 후보 및 중복 제외">
+        <NaverWorksDrivePanel />
+      </CollapsibleSection>
 
       <CollapsibleSection storageKey="design-schedule" title="향후 2주 일정">
         <TwoWeekSchedule channel="naver_design" />

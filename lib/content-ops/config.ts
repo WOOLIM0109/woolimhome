@@ -59,13 +59,13 @@ export const EDITORIAL_SLOTS: EditorialSlot[] = [
   { key: "consult-fri", channel: "naver_consulting", format: "informational", weekday: 5, hour: 10, label: "정보형" },
   { key: "design-tue", channel: "naver_design", format: "portfolio", weekday: 2, hour: 9, label: "포트폴리오" },
   { key: "design-thu", channel: "naver_design", format: "design_insight", weekday: 4, hour: 9, label: "기획·디자인 콘텐츠" },
-  { key: "design-fri", channel: "naver_design", format: "portfolio", weekday: 5, hour: 9, label: "포트폴리오" },
 ];
 
 export const STATUS_LABELS: Record<WorkflowStatus, string> = {
   topic_candidate: "주제 후보",
   researching: "자료 조사",
   creating: "제작 중",
+  draft_waiting: "본문 작성 대기",
   review_required: "검토 필요",
   approved: "승인 완료",
   naver_ready: "네이버 입력 대기",
@@ -78,6 +78,7 @@ export const STATUS_STYLES: Record<WorkflowStatus, string> = {
   topic_candidate: "bg-stone-100 text-stone-700",
   researching: "bg-blue-50 text-blue-800",
   creating: "bg-violet-50 text-violet-800",
+  draft_waiting: "bg-blue-50 text-blue-800",
   review_required: "bg-amber-50 text-amber-900",
   approved: "bg-emerald-50 text-emerald-800",
   naver_ready: "bg-cyan-50 text-cyan-800",

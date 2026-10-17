@@ -3,6 +3,7 @@ import { contentAdmin } from "@/lib/content-ops/data";
 import { authenticateWorker } from "@/lib/pc-worker/auth";
 import { workerJobFailureDisposition } from "@/lib/pc-worker/job-state";
 import { missingFontsFromMessage } from "@/lib/pc-worker/font-retry";
+import { portfolioFontExclusion } from "@/lib/portfolio/font-policy";
 import { sendAdminPush } from "@/lib/notify/web-push";
 
 export async function POST(request: Request) {
@@ -16,6 +17,7 @@ export async function POST(request: Request) {
   const now = new Date().toISOString();
   const message = String(body.error || "PC document conversion failed.").slice(0, 1000);
   const missingFonts = missingFontsFromMessage(message);
+  const fontExclusion = portfolioFontExclusion({ missing_fonts: missingFonts });
   const { data: job, error: jobError } = await admin.from("content_jobs")
     .select("id,work_item_id,candidate_id,attempts,max_attempts")
     .eq("id", body.jobId)
@@ -37,18 +39,18 @@ export async function POST(request: Request) {
     maxAttempts: Number(job.max_attempts || 0),
   });
   const waitingForFonts = missingFonts.length > 0;
-  const willRetry = disposition === "retry";
-  const recordedMessage = disposition === "exhausted"
+  const willRetry = !fontExclusion && disposition === "retry";
+  const recordedMessage = fontExclusion || (disposition === "exhausted"
     ? `${message}\nPC worker retry limit reached (${job.attempts}/${job.max_attempts}).`.slice(0, 1000)
-    : message;
+    : message);
   const failureUpdate = waitingForFonts
     ? {
-        status: "on_hold",
+        status: fontExclusion ? "failed" : "on_hold",
         claimed_by_worker_id: null,
         claimed_at: null,
         lease_expires_at: null,
         error_message: recordedMessage,
-        last_error_code: "MISSING_FONTS",
+        last_error_code: fontExclusion ? "UNOWNED_PAID_FONT" : "MISSING_FONTS",
         completed_at: null,
         updated_at: now,
       }
@@ -88,20 +90,22 @@ export async function POST(request: Request) {
   if (job.work_item_id) {
     await admin.from("content_work_items").update({
       status: "on_hold",
-      summary: waitingForFonts
+      summary: fontExclusion || (waitingForFonts
         ? "원본 글꼴이 설치되면 회사 PC 변환을 자동으로 다시 시도합니다."
         : disposition === "retry"
         ? "문서 변환 PC에서 오류가 발생해 다른 워커가 다시 시도할 예정입니다."
         : disposition === "exhausted"
           ? "문서 변환 재시도 한도에 도달해 자동 처리를 중단했습니다. 관리자 확인 후 다시 실행해 주세요."
-          : "발표자료 적합성 또는 원본 글꼴 검증을 통과하지 못해 자동 제작 대상에서 제외했습니다.",
+          : "발표자료 적합성 또는 원본 글꼴 검증을 통과하지 못해 자동 제작 대상에서 제외했습니다."),
+      last_error_code: fontExclusion ? "UNOWNED_PAID_FONT" : waitingForFonts ? "MISSING_FONTS" : null,
       review_note: recordedMessage,
       updated_at: now,
     }).eq("id", job.work_item_id);
   }
   if (waitingForFonts && job.candidate_id) {
     await admin.from("portfolio_candidates").update({
-      status: "on_hold",
+      status: fontExclusion ? "excluded" : "on_hold",
+      ...(fontExclusion ? { exclusion_reasons: [fontExclusion] } : {}),
       font_status: "missing",
       missing_fonts: missingFonts,
       font_retry_fingerprint: typeof body.fontInventoryFingerprint === "string"
@@ -144,7 +148,9 @@ export async function POST(request: Request) {
    *
    * 알림은 곁다리라 실패해도 워커 응답을 막지 않습니다.
    */
-  const alert = waitingForFonts
+  const alert = fontExclusion
+    ? { title: "포트폴리오 원본 제외", body: fontExclusion }
+    : waitingForFonts
     ? {
       title: "포트폴리오 변환 멈춤 · 글꼴 없음",
       body: `회사 PC에 없는 글꼴 ${missingFonts.length}개 때문에 변환이 멈췄습니다. ${missingFonts.slice(0, 3).join(", ")}${missingFonts.length > 3 ? " 외" : ""}`,
@@ -163,5 +169,5 @@ export async function POST(request: Request) {
     }
   }
 
-  return NextResponse.json({ ok: true, disposition: waitingForFonts ? "waiting_for_fonts" : disposition });
+  return NextResponse.json({ ok: true, disposition: fontExclusion ? "excluded" : waitingForFonts ? "waiting_for_fonts" : disposition });
 }
