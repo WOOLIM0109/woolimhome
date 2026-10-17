@@ -111,13 +111,19 @@ async function record(root, relative) {
   const bytes = await readFile(absolute);
   return { path: relative, bytes: bytes.length, sha256: hash(bytes) };
 }
-async function tree(root, relative = "") {
+async function tree(root, relative = "", { excludeRootNodeModules = false } = {}) {
   const result = [];
   const entries = await readdir(path.join(root, relative), { withFileTypes: true });
   for (const entry of entries) {
     const next = relative ? `${relative}/${entry.name}` : entry.name;
     safeRelative(next);
     if (entry.isSymbolicLink()) fail("PREPARATION_PACKAGE_UNSAFE_FILE");
+    // Only dependency collection excludes this real directory. Inspecting the
+    // finished package must still traverse every file, including node_modules.
+    if (excludeRootNodeModules && !relative && entry.name === "node_modules") {
+      if (!entry.isDirectory()) fail("PREPARATION_PACKAGE_UNSAFE_FILE");
+      continue;
+    }
     if (entry.isDirectory()) result.push(...await tree(root, next));
     else if (entry.isFile()) result.push(next);
     else fail("PREPARATION_PACKAGE_UNSAFE_FILE");
@@ -202,9 +208,8 @@ export async function packagePreparationRuntime(outputRoot, { sourceRoot = prepa
   const sourceFiles = new Set(PREPARATION_RUNTIME_SOURCE_FILES);
   for (const dependency of dependencies) {
     const directory = await safeRoot(path.join(source, dependency.path));
-    for (const relative of await tree(directory)) {
+    for (const relative of await tree(directory, "", { excludeRootNodeModules: true })) {
       // Nested packages are handled by the explicit dependency closure, not copied indiscriminately.
-      if (relative.startsWith("node_modules/")) continue;
       if (/(^|\/)\.env(?:\.|$)/i.test(relative)) fail("PREPARATION_PACKAGE_ENV_FILE_FORBIDDEN");
       sourceFiles.add(`${dependency.path}/${relative}`);
     }
