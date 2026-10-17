@@ -6,7 +6,7 @@
 )
 
 $ErrorActionPreference = "Stop"
-$WorkerVersion = "2.10.0"
+$WorkerVersion = "2.10.2"
 
 # The console window cannot be hidden reliably: PowerPoint COM needs the
 # interactive session. So the window will be seen, and an unlabeled PowerShell
@@ -424,6 +424,54 @@ function Upload-SignedFile {
     -UseBasicParsing | Out-Null
 }
 
+function Get-SafeSourceDownloadDiagnostic {
+  param([string[]]$Lines, [int]$ExitCode)
+  $httpStatus = 'unknown'
+  $hostName = 'unknown'
+  $requestHash = 'none'
+  # Raw curl metadata may contain signed URLs. Only these derived fields leave this function.
+  if ($Lines.Count -eq 4 -and (($Lines -join '').Length -le 8192)) {
+    if ($Lines[0] -match '^WOOLIM_HTTP=([0-9]{3})$') { $httpStatus = $Matches[1] }
+    if ($Lines[1].StartsWith('WOOLIM_URL=')) {
+      $uri = $null
+      if ([Uri]::TryCreate($Lines[1].Substring(11), [UriKind]::Absolute, [ref]$uri) -and $uri.Scheme -in @('https','http')) {
+        if ($uri.IdnHost -match '^[a-zA-Z0-9.:[\]-]{1,253}$') { $hostName = $uri.IdnHost.ToLowerInvariant() }
+      }
+    }
+    if ($Lines[2].StartsWith('WOOLIM_REQUEST=') -and $Lines[3].StartsWith('WOOLIM_TRACE=')) {
+      $request = $Lines[2].Substring(15)
+      $trace = $Lines[3].Substring(13)
+      if (($request -or $trace) -and $request.Length -le 256 -and $trace.Length -le 256 -and ($request + $trace) -notmatch '[\x00-\x1f\x7f]') {
+        $hash = [Security.Cryptography.SHA256]::Create()
+        try { $requestHash = ([BitConverter]::ToString($hash.ComputeHash([Text.Encoding]::UTF8.GetBytes($request + "`n" + $trace)))).Replace('-','').ToLowerInvariant() }
+        finally { $hash.Dispose() }
+      }
+    }
+  }
+  return "curl=$ExitCode http=$httpStatus host=$hostName request_id_sha256=$requestHash"
+}
+
+function Invoke-WorkerSourceCurl {
+  param([string[]]$CurlArguments)
+  $exitCode = -1
+  $lines = @()
+  $previousPreference = $ErrorActionPreference
+  try {
+    # Native stderr can contain full URLs. Discard it and retain only safe write-out metadata.
+    $ErrorActionPreference = 'Continue'
+    $global:LASTEXITCODE = -1
+    $lines = @(& curl.exe @CurlArguments 2>$null)
+    $exitCode = $LASTEXITCODE
+  } catch {
+    $lines = @()
+  } finally { $ErrorActionPreference = $previousPreference }
+  return [PSCustomObject]@{
+    ExitCode = $exitCode
+    Diagnostic = Get-SafeSourceDownloadDiagnostic -Lines $lines -ExitCode $exitCode
+  }
+}
+
+
 function Get-SourceFile {
   param(
     [string]$SourceUrl,
@@ -474,10 +522,11 @@ function Get-SourceFile {
       if ($AuthorizationHeader) {
         $curlArguments += @("--header", $AuthorizationHeader)
       }
-      $curlArguments += $SourceUrl
-      & curl.exe @curlArguments
-      if ($LASTEXITCODE -ne 0) {
-        throw "curl exited with code $LASTEXITCODE."
+      $curlArguments += @('--write-out', 'WOOLIM_HTTP=%{http_code}\nWOOLIM_URL=%{url_effective}\nWOOLIM_REQUEST=%header{x-request-id}\nWOOLIM_TRACE=%header{x-ncp-apigw-trace-id}', '--url', $SourceUrl)
+      $transfer = Invoke-WorkerSourceCurl -CurlArguments $curlArguments
+      Write-WorkerLog "Source download response (attempt $attempt/3): $($transfer.Diagnostic)"
+      if ($transfer.ExitCode -ne 0) {
+        throw "SOURCE_DOWNLOAD_FAILED: $($transfer.Diagnostic)"
       }
       if ((Get-Item -LiteralPath $SourcePath).Length -lt 1024) {
         throw "Downloaded source file is unexpectedly small."
