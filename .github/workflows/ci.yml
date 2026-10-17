@@ -4,7 +4,7 @@ name: CI
 # 이 검사가 빨간불이면 배포 전에 멈추므로, 오류를 운영 중에 발견하지 않게 됩니다.
 on:
   push:
-    branches: [main]
+    branches: [main, fix/ci-preparation-package]
   pull_request:
 
 jobs:
