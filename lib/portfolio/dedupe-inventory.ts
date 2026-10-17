@@ -5,9 +5,10 @@ import type { CandidateRow } from "../naver-works/portfolio-selection";
 import { fingerprintPortfolioImage } from "./image-fingerprint";
 import JSZip from "jszip";
 import { driveFile } from "../naver-works/portfolio-selection";
-import { downloadSharedDriveFile } from "../naver-works/client";
+import { accessToken, downloadSharedDriveFile, DriveFileDownloadError } from "../naver-works/client";
 import { PORTFOLIO_FONT_POLICY_VERSION, portfolioFontExclusion } from "./font-policy";
 import { readPptxSourceFonts } from "./source-fonts";
+import { cachedSourceInspection, sourceInspectionFailure, SOURCE_INSPECTION_VERSION, type SourceInspectionFailure } from "./source-inspection";
 
 export async function readAllPortfolioRows(table: string, columns = "*") {
   const rows: Record<string, unknown>[] = [];
@@ -20,6 +21,9 @@ export async function readAllPortfolioRows(table: string, columns = "*") {
 }
 /** Never queues conversion or AI. Only preview GET must also forbid OAuth refresh writes. */
 export async function readPortfolioDedupeInventory(threshold: number, options: { readOnly?: boolean } = {}) {
+  const startedAt = Date.now();
+  const sourceFailures: SourceInspectionFailure[] = [];
+  const metrics = { downloaded: 0, cached: 0, failed: 0, durationMs: 0 };
   const [rows, ledger, sets, jobs, items] = await Promise.all([
     readAllPortfolioRows("portfolio_candidates", "*,naver_works_drive_files!inner(id,file_name,file_path,file_extension,file_size,root_id,modified_at)"),
     readAllPortfolioRows("portfolio_publication_ledger"), readAllPortfolioRows("portfolio_image_sets"),
@@ -37,43 +41,104 @@ export async function readPortfolioDedupeInventory(threshold: number, options: {
     const hash = (await fingerprintPortfolioImage(Buffer.from(await data.arrayBuffer()))).visualHash;
     hashCache.set(key, hash); return hash;
   }
-  for (const candidate of candidates) {
-    if (portfolioFontExclusion(candidate)) continue;
+  async function persistInspection(candidate: CandidateRow, failed = false) {
+    if (options.readOnly) return;
+    const current = candidate as CandidateRow & { updated_at: string };
+    const updatedAt = new Date().toISOString();
+    const { data, error } = await contentAdmin().from("portfolio_candidates").update({
+      metadata: candidate.metadata, updated_at: updatedAt,
+      ...(failed ? { status: "excluded", exclusion_reasons: candidate.exclusion_reasons } : {}),
+    }).eq("id", candidate.id).eq("status", "candidate").eq("updated_at", current.updated_at).select("id").maybeSingle();
+    if (error) throw new Error(error.message);
+    if (!data) throw new Error("원본 검사 중 후보가 변경되었습니다. 동시 실행 결과를 확인해 주세요.");
+    current.updated_at = updatedAt;
+  }
+  async function inspectCandidate(candidate: CandidateRow) {
+    if (portfolioFontExclusion(candidate)) return;
     const file = driveFile(candidate);
-    const cached = candidate.status !== "candidate" || Boolean(file?.modified_at && candidate.metadata?.hashSourceModifiedAt === file.modified_at);
+    const sourceCache = file && candidate.status === "candidate" ? cachedSourceInspection(candidate.metadata?.sourceInspection, file) : null;
+    if (sourceCache) {
+      metrics.cached++;
+      candidate.metadata = { ...candidate.metadata, sourceFonts: sourceCache.sourceFonts,
+        representativeHashes: sourceCache.representativeHashes, fontPolicyVersion: sourceCache.fontPolicyVersion,
+        fontSourceModifiedAt: sourceCache.modifiedAt, hashSourceModifiedAt: sourceCache.modifiedAt };
+      return;
+    }
+    const cached = candidate.status !== "candidate";
     const hashes = cached ? validProjectHashes(candidate.metadata?.representativeHashes) : [];
     const conversion = jobs.filter(job => job.candidate_id === candidate.id && job.job_type === "convert" && job.status === "completed")
       .sort((a,b) => String(b.updated_at).localeCompare(String(a.updated_at)))[0];
     const result = conversion?.result as { bucket?: string; slidePaths?: string[] } | undefined;
     if (result?.bucket && result.slidePaths?.length && (candidate.status !== "candidate"
-      || (file?.modified_at && Date.parse(String(conversion.updated_at)) >= Date.parse(file.modified_at)))) {
+      || (file?.modified_at && candidate.metadata?.hashSourceFileSize === file.file_size
+        && Date.parse(String(conversion.updated_at)) >= Date.parse(file.modified_at)))) {
       for (const path of result.slidePaths.slice(0, 3)) hashes.push(await storedHash(result.bucket, path));
     }
-    const fontsVerified = candidate.metadata?.fontPolicyVersion === PORTFOLIO_FONT_POLICY_VERSION
-      && Boolean(file?.modified_at && candidate.metadata?.fontSourceModifiedAt === file.modified_at);
-    if (candidate.status === "candidate" && (!hashes.length || !fontsVerified)) {
-      if (!fontsVerified) candidate.metadata = { ...candidate.metadata, fontPolicyVersion: null };
+    if (candidate.status === "candidate") {
+      candidate.metadata = { ...candidate.metadata, fontPolicyVersion: null };
       if (file && /\.pptx$/i.test(file.file_name) && file.file_size <= 100 * 1024 * 1024) {
         const { data: source, error } = await contentAdmin().from("naver_works_drive_files")
           .select("external_file_id,naver_works_drive_roots!inner(external_drive_id)").eq("id", file.id).single();
         if (error) throw new Error(error.message);
         const roots = source.naver_works_drive_roots as unknown as { external_drive_id: string } | { external_drive_id: string }[];
         const root = Array.isArray(roots) ? roots[0] : roots;
-        const response = await downloadSharedDriveFile(root.external_drive_id, source.external_file_id, options);
-        const zip = await JSZip.loadAsync(await response.arrayBuffer());
+        let response: Response;
+        let failure: SourceInspectionFailure | undefined;
         try {
-          const sourceFonts = await readPptxSourceFonts(zip);
-          candidate.metadata = { ...candidate.metadata, sourceFonts, fontPolicyVersion: PORTFOLIO_FONT_POLICY_VERSION,
-            fontSourceModifiedAt: file.modified_at, fontReviewReason: null };
-        } catch {
-          candidate.metadata = { ...candidate.metadata, fontPolicyVersion: null, fontReviewReason: "검수 필요: 원본 글꼴을 확인하지 못했습니다." };
+          metrics.downloaded++;
+          response = await downloadSharedDriveFile(root.external_drive_id, source.external_file_id, options);
+        } catch (error) {
+          // OAuth / DB failures remain global; they must not exclude every source file.
+          if (!(error instanceof DriveFileDownloadError)) throw error;
+          failure = sourceInspectionFailure(candidate.id, file, error.httpStatus, error.stage);
         }
-        const thumbnail = Object.values(zip.files).find(entry => /^docProps\/thumbnail\.(png|jpe?g)$/i.test(entry.name));
-        if (thumbnail) hashes.push((await fingerprintPortfolioImage(await thumbnail.async("nodebuffer"))).visualHash);
+        if (!failure) {
+          try {
+            const zip = await JSZip.loadAsync(await response!.arrayBuffer());
+            const sourceFonts = await readPptxSourceFonts(zip);
+            const thumbnail = Object.values(zip.files).find(entry => /^docProps\/thumbnail\.(png|jpe?g)$/i.test(entry.name));
+            if (thumbnail) hashes.push((await fingerprintPortfolioImage(await thumbnail.async("nodebuffer"))).visualHash);
+            candidate.metadata = { ...candidate.metadata, sourceFonts, fontPolicyVersion: PORTFOLIO_FONT_POLICY_VERSION,
+              fontSourceModifiedAt: file.modified_at, fontReviewReason: null, sourceInspectionFailure: null,
+              sourceInspection: { version: SOURCE_INSPECTION_VERSION, driveFileId: file.id, modifiedAt: file.modified_at,
+                fileSize: file.file_size, fontPolicyVersion: PORTFOLIO_FONT_POLICY_VERSION, sourceFonts,
+                representativeHashes: [...new Set(validProjectHashes(hashes))], inspectedAt: new Date().toISOString() } };
+          } catch {
+            failure = sourceInspectionFailure(candidate.id, file, null, "parse");
+          }
+        }
+        if (failure) {
+          sourceFailures.push(failure); metrics.failed++;
+          candidate.metadata = { ...candidate.metadata, sourceInspection: null, sourceInspectionFailure: failure, representativeHashes: [], fontPolicyVersion: null };
+          candidate.exclusion_reasons = [failure.reason];
+          await persistInspection(candidate, true);
+          candidate.status = "excluded";
+          console.warn("[portfolio-source-inspection]", JSON.stringify(failure));
+          return;
+        }
+        candidate.metadata = { ...candidate.metadata, representativeHashes: [...new Set(validProjectHashes(hashes))], hashSourceModifiedAt: file.modified_at || null, hashSourceFileSize: file.file_size };
+        await persistInspection(candidate);
       }
     }
     candidate.metadata = { ...candidate.metadata, representativeHashes: [...new Set(validProjectHashes(hashes))], hashSourceModifiedAt: file?.modified_at || null };
   }
+  // Refresh once before parallel downloads, avoiding concurrent refresh-token rotation.
+  if (candidates.some(candidate => {
+    const file = driveFile(candidate);
+    return candidate.status === "candidate" && !portfolioFontExclusion(candidate) && file
+      && /\.pptx$/i.test(file.file_name) && file.file_size <= 100 * 1024 * 1024
+      && !cachedSourceInspection(candidate.metadata?.sourceInspection, file);
+  })) await accessToken(options);
+  // Bound download memory/concurrency; wait for all in-flight inspections before returning a fatal error.
+  let next = 0;
+  let fatal: unknown;
+  await Promise.all(Array.from({ length: 2 }, async () => {
+    while (next < candidates.length && !fatal) {
+      const candidate = candidates[next++];
+      try { await inspectCandidate(candidate); } catch (error) { fatal = error; }
+    }
+  }));
+  if (fatal) throw fatal;
   const references: ProjectReference[] = ledger.map(entry => ({ id: String(entry.id), title: String(entry.title),
     normalizedName: String(entry.normalized_project_name), url: String(entry.blog_url),
     candidateId: typeof entry.candidate_id === "string" ? entry.candidate_id : undefined,
@@ -103,7 +168,9 @@ export async function readPortfolioDedupeInventory(threshold: number, options: {
   // Unknown visual evidence is a review task, never permission to convert first.
   const needsImageReview = inspection.accepted.filter(row => !validProjectHashes(row.metadata?.representativeHashes).length);
   const needsFontReview = inspection.accepted.filter(row => row.metadata?.fontPolicyVersion !== PORTFOLIO_FONT_POLICY_VERSION);
-  return { ...inspection, needsImageReview, needsFontReview, accepted: inspection.accepted.filter(row =>
+  metrics.durationMs = Date.now() - startedAt;
+  if (!options.readOnly) console.info("[portfolio-inventory]", JSON.stringify(metrics));
+  return { ...inspection, sourceFailures, metrics, needsImageReview, needsFontReview, accepted: inspection.accepted.filter(row =>
     validProjectHashes(row.metadata?.representativeHashes).length && row.metadata?.fontPolicyVersion === PORTFOLIO_FONT_POLICY_VERSION) };
 }
 

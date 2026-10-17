@@ -23,6 +23,7 @@ export async function GET(request: Request) {
         reasons: ["프로젝트명·발행 원장·대표 이미지 중복 검사 통과", ...rank.reasons] };
     });
     return NextResponse.json({ readOnly: true, threshold, top10, groups: inventory.groups,
+      sourceFailures: inventory.sourceFailures, inspectionMetrics: inventory.metrics,
       excluded: inventory.decisions.filter(row => row.match || row.fontExclusionReason).map(row => ({ id: row.candidate.id, title: row.candidate.project_name,
         duplicateScore: row.duplicateScore, distance: row.distance, reason: row.reason, match: row.match })),
       reviewRequired: inventory.decisions.filter(row => !row.normalizedName).map(row => ({ id: row.candidate.id, title: row.candidate.project_name, reason: row.reason }))
