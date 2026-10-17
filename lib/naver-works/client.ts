@@ -7,6 +7,13 @@ const TOKEN_URL = "https://auth.worksmobile.com/oauth2/v2.0/token";
 const API_BASE = "https://www.worksapis.com/v1.0";
 const EXPIRED_DRIVE_TOKEN_MESSAGE = "중복 검수용 Drive 읽기 토큰이 만료되었습니다. 동기화 후 다시 확인해 주세요.";
 
+/** Contains no signed URL, authorization header or provider response body. */
+export class DriveFileDownloadError extends Error {
+  constructor(public readonly httpStatus: number | null, public readonly stage: "download_url" | "download") {
+    super(`NAVER WORKS 파일 다운로드${stage === "download_url" ? " URL 요청" : ""} 실패: ${httpStatus ?? "네트워크 오류"}`);
+  }
+}
+
 type TokenResponse = {
   access_token: string;
   refresh_token?: string;
@@ -169,13 +176,14 @@ export async function sharedDriveDownloadAuthorization(sharedriveId: string, fil
       headers: { Authorization: `Bearer ${token}` },
       redirect: "manual",
       cache: "no-store",
+      signal: AbortSignal.timeout(45_000),
     },
-  );
+  ).catch(() => { throw new DriveFileDownloadError(null, "download_url"); });
   if (response.status !== 302) {
-    throw new Error(`NAVER WORKS 파일 다운로드 URL 요청 실패: ${response.status} ${await response.text()}`);
+    throw new DriveFileDownloadError(response.status, "download_url");
   }
   const location = response.headers.get("location");
-  if (!location) throw new Error("NAVER WORKS 파일 다운로드 URL이 비어 있습니다.");
+  if (!location) throw new DriveFileDownloadError(null, "download_url");
   return {
     url: location,
     authorization: `Bearer ${token}`,
@@ -189,8 +197,8 @@ export async function downloadSharedDriveFile(sharedriveId: string, fileId: stri
     redirect: "follow",
     cache: "no-store",
     signal: AbortSignal.timeout(45_000),
-  });
-  if (!fileResponse.ok) throw new Error(`NAVER WORKS 파일 다운로드 실패: ${fileResponse.status}`);
+  }).catch(() => { throw new DriveFileDownloadError(null, "download"); });
+  if (!fileResponse.ok) throw new DriveFileDownloadError(fileResponse.status, "download");
   return fileResponse;
 }
 

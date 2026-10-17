@@ -126,40 +126,45 @@ async function saveFiles(rootId: string, files: WorksDriveFile[]) {
         exclusion_reasons: ["완성본_외부공유금지/PPT 폴더 밖의 자료"],
         updated_at: now,
       })
-      .in("drive_file_id", excludedFileIds);
+      .in("drive_file_id", excludedFileIds).eq("status", "candidate");
     if (cleanupError) throw new Error(cleanupError.message);
   }
   return { indexed: rows.length, supported: candidates.length };
 }
 
-function portfolioFolderPath(filePath: string) {
+export function portfolioFolderPath(filePath: string) {
   const segments = filePath
     .split(/[\\/>]+/)
     .map((segment) => segment.trim())
     .filter(Boolean);
   const completedRoot = segments.findIndex((segment) => segment === "완성본_외부공유금지");
   if (completedRoot < 0) return false;
+  if (segments.some(segment => segment === "레퍼런스")) return false;
   const nextFolder = segments[completedRoot + 1];
   return !nextFolder || nextFolder.toLowerCase() === "ppt";
 }
 
-async function crawlRoot(
+export async function crawlRoot(
   rootId: string,
   rootPath: string,
   rootLister: FileLister,
   childLister: ChildLister,
-  limit = 1000,
+  limit = 5000,
+  deadline = Date.now() + 240_000,
 ) {
+  const startedAt = new Date().toISOString();
   let indexed = 0;
   let supported = 0;
   const folders: FolderTarget[] = [];
-  const deadline = Date.now() + 40_000;
+  let complete = true;
+  const visited = new Set<string>();
 
   async function consume(lister: FileLister, parentPath: string) {
     let cursor: string | undefined;
     do {
       const page = await lister(cursor);
       const remaining = Math.max(0, limit - indexed);
+      if (page.files.length > remaining) complete = false;
       const files = page.files.slice(0, remaining).map((file) => ({
         ...file,
         filePath: `${parentPath}/${file.fileName}`,
@@ -188,19 +193,52 @@ async function crawlRoot(
       folders.push(...discoveredFolders);
       cursor = page.responseMetaData?.nextCursor;
     } while (cursor && indexed < limit && Date.now() < deadline);
+    if (cursor) complete = false;
   }
 
   await consume(rootLister, rootPath);
   while (folders.length && indexed < limit && Date.now() < deadline) {
     const folder = folders.shift()!;
+    if (visited.has(folder.fileId)) continue;
+    visited.add(folder.fileId);
     await consume((cursor) => childLister(folder.fileId, cursor), folder.filePath);
   }
-  await contentAdmin().from("naver_works_drive_roots").update({
-    last_synced_at: new Date().toISOString(),
-    last_error: null,
+  complete = complete && !folders.length;
+  const { error: rootError } = await contentAdmin().from("naver_works_drive_roots").update({
+    ...(complete ? { last_synced_at: new Date().toISOString() } : {}),
+    last_error: complete ? null : "DRIVE_SYNC_INCOMPLETE: 시간 또는 파일 수 제한으로 목록 일부만 확인했습니다. 원본 없음 처리는 하지 않았습니다.",
     updated_at: new Date().toISOString(),
   }).eq("id", rootId);
-  return { indexed, supported };
+  if (rootError) throw new Error(rootError.message);
+  if (!complete) throw new Error("DRIVE_SYNC_INCOMPLETE: 전체 목록을 확인하지 못했습니다. 원본 없음 처리는 하지 않았습니다.");
+  const missing = await excludeMissingSources(rootId, startedAt);
+  return { indexed, supported, missing, complete };
+}
+
+/** Absence is evidence only after every allowed folder/page was read successfully. */
+export async function excludeMissingSources(rootId: string, startedAt: string) {
+  const admin = contentAdmin();
+  const missing: { id: string }[] = [];
+  for (let offset = 0; ; offset += 500) {
+    const { data, error } = await admin.from("naver_works_drive_files").select("id")
+      .eq("root_id", rootId).eq("supported", true).lt("last_seen_at", startedAt).order("id").range(offset, offset + 499);
+    if (error) throw new Error(error.message);
+    missing.push(...data);
+    if (data.length < 500) break;
+  }
+  let excluded = 0;
+  for (const file of missing) {
+    const { data: marked, error } = await admin.from("naver_works_drive_files").update({ sync_status: "ignored", supported: false,
+      updated_at: new Date().toISOString() }).eq("id", file.id).lt("last_seen_at", startedAt).select("id");
+    if (error) throw new Error(error.message);
+    if (!marked?.length) continue;
+    const { data, error: candidateError } = await admin.from("portfolio_candidates")
+      .update({ status: "excluded", exclusion_reasons: ["원본 없음"], updated_at: new Date().toISOString() })
+      .eq("drive_file_id", file.id).eq("status", "candidate").select("id");
+    if (candidateError) throw new Error(candidateError.message);
+    excluded += data?.length || 0;
+  }
+  return { files: missing.length, excludedCandidates: excluded };
 }
 
 async function crawlSharedDrives(limit = 1000) {
@@ -247,7 +285,7 @@ async function removeIneligibleCandidates() {
     const { data: invalidCandidates, error: candidateReadError } = await admin
       .from("portfolio_candidates")
       .select("id,metadata")
-      .in("drive_file_id", chunk);
+      .in("drive_file_id", chunk).eq("status", "candidate");
     if (candidateReadError) throw new Error(candidateReadError.message);
     const workItemIds = (invalidCandidates || [])
       .map((candidate) => candidate.metadata?.workItemId)
@@ -258,7 +296,7 @@ async function removeIneligibleCandidates() {
         exclusion_reasons: ["완성본_외부공유금지/PPT 폴더 밖의 자료"],
         updated_at: new Date().toISOString(),
       })
-      .in("drive_file_id", chunk);
+      .in("drive_file_id", chunk).eq("status", "candidate");
     if (cleanupError) throw new Error(cleanupError.message);
     excludedCandidates += invalidCandidates?.length || 0;
     workItemIds.forEach((id) => preservedWorkItemIds.add(id));
@@ -282,6 +320,25 @@ export type DriveSyncResult = {
 };
 
 export async function syncNaverWorksDrive(): Promise<DriveSyncResult> {
+
+    // The approved shared drive used to wait behind unrelated roots, then lose the
+    // rest of its tree at a 40-second cutoff. Read it first, with its own full budget.
+    const drives = await listSharedDrives();
+    const portfolioDrives = (drives.sharedrives || []).filter(drive => drive.name === "완성본_외부공유금지");
+    if (portfolioDrives.length) {
+      let indexed = 0, supported = 0, missingFiles = 0;
+      const deadline = Date.now() + 240_000;
+      for (const drive of portfolioDrives) {
+        const rootId = await ensureRoot("shared_drive", drive.name, drive.sharedriveId);
+        const result = await crawlRoot(rootId, drive.name,
+          cursor => listSharedDriveRoot(drive.sharedriveId, cursor),
+          (fileId, cursor) => listSharedDriveChildren(drive.sharedriveId, fileId, cursor), 5000, deadline);
+        indexed += result.indexed; supported += result.supported; missingFiles += result.missing.files;
+      }
+      const cleanup = await removeIneligibleCandidates();
+      return { indexed, supported, source: "승인된 공용 드라이브", cleanup,
+        note: `완성본_외부공유금지/PPT 목록 전체 확인 완료. 원본 없음 ${missingFiles}개(삭제 없음).` };
+    }
 
     let indexed = 0;
     let supported = 0;

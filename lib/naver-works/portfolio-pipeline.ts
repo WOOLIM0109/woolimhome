@@ -55,7 +55,8 @@ export async function prepareNextPortfolioCandidate(options: {
       prepared: false,
       inspected: decision.inspected,
       eligible: decision.eligible,
-      reason: decision.reason,
+      reason: inventory.sourceFailures.length && !inventory.decisions.length
+        ? `원본 확인 실패: 후보 ${inventory.sourceFailures.length}건을 모두 제외했습니다.` : decision.reason,
     };
   }
 
@@ -99,6 +100,7 @@ export async function prepareNextPortfolioCandidate(options: {
         reasons: item.reasons,
       })),
       automated: true,
+      sourceInspectionMetrics: inventory.metrics,
     },
     updated_at: new Date().toISOString(),
   };
