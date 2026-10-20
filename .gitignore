@@ -7,6 +7,7 @@ out/
 
 # Vercel local project metadata
 .vercel/
+supabase/.temp/
 
 # Codex-only local scratch files (may contain diagnostics or local tokens)
 .codex-tmp/

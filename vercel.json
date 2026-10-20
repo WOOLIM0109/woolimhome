@@ -1,6 +1,14 @@
 {
   "crons": [
     {
+      "path": "/api/cron/openchat/attachments",
+      "schedule": "10,40 23 * * 0-4"
+    },
+    {
+      "path": "/api/cron/openchat/attachments",
+      "schedule": "10 0 * * 1-5"
+    },
+    {
       "path": "/api/cron/columns",
       "schedule": "17 1 * * 2,4,6"
     },

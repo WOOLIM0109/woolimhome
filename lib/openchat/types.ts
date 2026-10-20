@@ -83,6 +83,7 @@ export type OpenchatContentDraft = {
 };
 
 export type OpenchatCronTask =
+  | "attachments"
   | "morning-collect"
   | "morning-repair"
   | "morning-draft-notify"
