@@ -1,8 +1,17 @@
 import { isIP } from "node:net";
 import { lookup } from "node:dns/promises";
+import { createHash } from "node:crypto";
 
 export const MAX_ATTACHMENT_BYTES = 30 * 1024 * 1024;
 export type AttachmentLink = { fileName: string; fileExt: string; sourceUrl: string };
+
+/** Supabase object keys accept ASCII; the original display name stays in file_name. */
+export function attachmentStorageName(fileName: string) {
+  const encoded = Buffer.from(fileName, "utf8").toString("base64url");
+  const extension = fileName.match(/\.(hwpx?|pdf|zip)$/i)?.[1]?.toLowerCase();
+  const key = encoded.length <= 900 ? `u8-${encoded}` : `sha256-${createHash("sha256").update(fileName).digest("hex")}`;
+  return key + (extension ? `.${extension}` : "");
+}
 const FILE = /([^<>"/\\|?*]{1,200}\.(?:hwpx?|pdf|zip))(?=\s|$|[),])/i;
 // Only the configured public agencies may initiate downloads. External destinations
 // require an inspected adapter; this also prevents attacker-controlled DNS rebinding.

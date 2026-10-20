@@ -3,7 +3,7 @@ import sanitizeHtml from "sanitize-html";
 import { createClient } from "@supabase/supabase-js";
 import type { createAdminClient } from "../supabase/admin";
 import {
-  AttachmentTooLarge, MAX_ATTACHMENT_BYTES, attachmentFileName, extractAttachments, fetchAttachmentResource,
+  AttachmentTooLarge, MAX_ATTACHMENT_BYTES, attachmentFileName, attachmentStorageName, extractAttachments, fetchAttachmentResource,
   type AttachmentLink,
 } from "./attachments";
 import {
@@ -15,6 +15,7 @@ const BUCKET = "program-attachments";
 const RUN_MILLISECONDS = 240_000;
 const MAX_PROCESSED = 15;
 const MAX_DISCOVERED = 30;
+const MAX_ZIP_CACHE_BYTES = 100 * 1024 * 1024;
 const DETAIL_BYTES = 2 * 1024 * 1024;
 const SELECT_ATTACHMENT = "id,program_id,parent_id,file_name,file_ext,source_url,storage_path,sha256,attempts";
 
@@ -34,6 +35,7 @@ type Dependencies = {
 type Summary = {
   discovered: number; discoveredAttachments: number; discoveryFailed: number; processed: number;
   extracted: number; noText: number; failed: number; skipped: number; reused: number; expanded: number; deferred: number;
+  zipCachePeakBytes: number; zipCacheEvictions: number;
   stoppedForTime: boolean;
 };
 
@@ -123,10 +125,32 @@ export async function runAttachmentTask(overrides: Partial<Dependencies> = {}) {
   const { admin, now } = dependencies;
   const summary: Summary = {
     discovered: 0, discoveredAttachments: 0, discoveryFailed: 0, processed: 0,
-    extracted: 0, noText: 0, failed: 0, skipped: 0, reused: 0, expanded: 0, deferred: 0, stoppedForTime: false,
+    extracted: 0, noText: 0, failed: 0, skipped: 0, reused: 0, expanded: 0, deferred: 0,
+    zipCachePeakBytes: 0, zipCacheEvictions: 0, stoppedForTime: false,
   };
   const attempted = new Set<string>();
   const zipCache = new Map<string, ExpandedAttachment[]>();
+  let zipCacheBytes = 0;
+  function cacheZip(parentId: string, children: ExpandedAttachment[]) {
+    const size = children.reduce((sum, child) => sum + child.bytes.byteLength, 0);
+    const existing = zipCache.get(parentId);
+    if (existing) {
+      zipCacheBytes -= existing.reduce((sum, child) => sum + child.bytes.byteLength, 0);
+      zipCache.delete(parentId);
+    }
+    // Originals remain private in Storage; evicted children can always be reexpanded.
+    while (zipCache.size && (zipCache.size >= 2 || zipCacheBytes + size > MAX_ZIP_CACHE_BYTES)) {
+      const oldest = zipCache.keys().next().value!;
+      const removed = zipCache.get(oldest)!;
+      zipCacheBytes -= removed.reduce((sum, child) => sum + child.bytes.byteLength, 0);
+      zipCache.delete(oldest);
+      summary.zipCacheEvictions++;
+    }
+    if (size > MAX_ZIP_CACHE_BYTES) return;
+    zipCache.set(parentId, children);
+    zipCacheBytes += size;
+    summary.zipCachePeakBytes = Math.max(summary.zipCachePeakBytes, zipCacheBytes);
+  }
   const date = new Date(started + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
   const timeLeft = () => end - now();
   const hasTime = () => timeLeft() > 45_000;
@@ -209,7 +233,7 @@ export async function runAttachmentTask(overrides: Partial<Dependencies> = {}) {
         .eq("id", attachment.parent_id).abortSignal(signal()).single();
       if (error || !data?.storage_path) throw new Error("ZIP 원본 없음");
       children = await dependencies.expandZip(await storedBytes(data.storage_path));
-      zipCache.set(attachment.parent_id, children);
+      cacheZip(attachment.parent_id, children);
     }
     const child = children.find((entry) => entry.fileName === attachment.file_name);
     if (!child) throw new Error("ZIP 하위 첨부 없음");
@@ -218,7 +242,7 @@ export async function runAttachmentTask(overrides: Partial<Dependencies> = {}) {
 
   async function saveOriginal(attachment: Attachment, bytes: Buffer, fileName: string, fileExt: string, sha256: string) {
     if (attachment.storage_path) return attachment.storage_path;
-    const storagePath = `${date.slice(0, 4)}/${date.slice(5, 7)}/${attachment.program_id}/${encodeURIComponent(fileName)}`;
+    const storagePath = `${date.slice(0, 4)}/${date.slice(5, 7)}/${attachment.program_id}/${attachmentStorageName(fileName)}`;
     const { error } = await admin.storage.from(BUCKET).upload(storagePath, bytes, {
       upsert: false, contentType: documentMime(fileExt),
     });
@@ -262,7 +286,7 @@ export async function runAttachmentTask(overrides: Partial<Dependencies> = {}) {
       if (!hasTime()) { await defer(); return true; }
       if (name.fileExt === "zip") {
         const children = await dependencies.expandZip(resource.bytes);
-        zipCache.set(attachment.id, children);
+        cacheZip(attachment.id, children);
         if (children.length) {
           const { error } = await admin.from("openchat_program_attachments").upsert(children.map((child) => ({
             program_id: attachment.program_id, parent_id: attachment.id, file_name: child.fileName,
