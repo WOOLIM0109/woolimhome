@@ -1,4 +1,5 @@
 import { createAdminClient } from "@/lib/supabase/admin";
+import { runAttachmentTask } from "@/lib/program-review/attachment-runner";
 import { analyzeProgramDeterministically, analyzePrograms, generateAfternoonContent } from "./ai";
 import { collectSource, hydratePrograms } from "./collectors";
 import { MORNING_REPAIR_LIMIT, morningProgramLimit } from "./config";
@@ -539,6 +540,7 @@ async function makeAfternoonReady(date: string) {
 }
 
 export async function executeOpenchatTask(task: OpenchatCronTask, requestedDate?: string) {
+  if (task === "attachments") return runAttachmentTask();
   const date = requestedDate || kstDate();
   const runId = await createRun(task);
   try {

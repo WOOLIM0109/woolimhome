@@ -1,5 +1,6 @@
 import { normalizeText } from "./utils";
 import type { CollectedProgram, OpenchatSource } from "./types";
+export { extractAttachments } from "../program-review/attachments";
 
 const USER_AGENT = "Mozilla/5.0 (compatible; WoolimSupportCollector/1.0; +https://www.woolimcompany.kr/)";
 const PROGRAM_KEYWORDS = /(지원사업|모집|공고|창업|사업화|R&D|연구개발|소상공인|기업지원|정책자금|바우처|시제품|판로|수출)/i;
