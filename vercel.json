@@ -51,6 +51,14 @@
     {
       "path": "/api/cron/retention",
       "schedule": "40 20 * * *"
+    },
+    {
+      "path": "/api/cron/program-review",
+      "schedule": "*/2 23 * * 0-4"
+    },
+    {
+      "path": "/api/cron/program-review",
+      "schedule": "*/2 0 * * 1-5"
     }
   ]
 }
