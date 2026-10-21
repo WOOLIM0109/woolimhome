@@ -36,6 +36,10 @@ export class AttachmentLimitError extends Error {
 }
 
 function result(status: TextExtractionResult["status"], text = "", error: string | null = null): TextExtractionResult {
+  // PostgreSQL text rejects U+0000. Preserve every other character and evidence marker.
+  // Parser size checks run before this boundary, so NULs cannot bypass input limits.
+  text = text.replace(/\u0000/g, "");
+  if (status === "extracted" && !text.trim()) return { status: "no_text", text: "", textChars: 0, error: "스캔본 추정" };
   return { status, text, textChars: text.length, error };
 }
 
@@ -272,7 +276,8 @@ async function extractPdf(bytes: Uint8Array): Promise<TextExtractionResult> {
     const { text: pages } = await extractPdfText(pdf, { mergePages: false });
     const rawText = pages.join("\n");
     assertTextSize(rawText);
-    if (rawText.trim().length < 50) return result("no_text", "", "스캔본 추정");
+    // Count usable body text before adding page markers; NULs are not document text.
+    if (rawText.replace(/\u0000/g, "").trim().length < 50) return result("no_text", "", "스캔본 추정");
     const text = pages.map((page, index) => `\n\n[p.${index + 1}]\n${page.trim()}`).join("");
     assertTextSize(text);
     return result("extracted", text);

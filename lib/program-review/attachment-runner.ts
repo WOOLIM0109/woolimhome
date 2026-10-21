@@ -78,7 +78,17 @@ function downloadFailure(error: unknown) {
   if (error instanceof AttachmentTooLarge) return "파일당 30MB 초과";
   if (error instanceof Error && /^(?:TimeoutError|AbortError)$/.test(error.name)) return "첨부 다운로드 시간 초과";
   if (error instanceof Error && /^기관 HTTP \d{3}$/.test(error.message)) return error.message;
-  return "첨부 다운로드 또는 비공개 저장 실패";
+  return "첨부 다운로드 실패";
+}
+
+type AttachmentStage = "download" | "original_store" | "text_extract" | "result_store";
+function attachmentFailure(error: unknown, stage: AttachmentStage) {
+  if (error instanceof AttachmentLimitError) return "ZIP 또는 문서 안전 크기·경로 제한 초과";
+  if (error instanceof AttachmentTooLarge) return "파일당 30MB 초과";
+  if (stage === "original_store") return "첨부 원본 비공개 저장 실패";
+  if (stage === "text_extract") return "첨부 텍스트 추출 실패";
+  if (stage === "result_store") return "첨부 추출 결과 저장 실패";
+  return downloadFailure(error);
 }
 
 function boundedAdmin(now: () => number, end: number) {
@@ -292,7 +302,9 @@ export async function runAttachmentTask(overrides: AttachmentTaskOptions = {}) {
     if (!claimed?.length) return false;
     attachment = claimed[0] as Attachment;
     summary.processed++;
+    let stage: AttachmentStage = "download";
     async function defer(values: Record<string, unknown> = {}) {
+      stage = "result_store";
       await updateAttachment(attachment.id, {
         ...values, text_status: "pending", processing_started_at: null, attempts: Math.max(0, attachment.attempts - 1),
       });
@@ -307,16 +319,20 @@ export async function runAttachmentTask(overrides: AttachmentTaskOptions = {}) {
         : attachmentFileName(resource.headers, attachment.file_name, resource.bytes);
       const sha256 = createHash("sha256").update(resource.bytes).digest("hex");
       if (!hasTime()) { await defer(); return true; }
+      stage = "original_store";
       const storagePath = await saveOriginal(attachment, resource.bytes, name.fileName, name.fileExt, sha256);
       const metadata = {
         storage_path: storagePath, byte_size: resource.bytes.byteLength, sha256, file_ext: name.fileExt, file_name: name.fileName,
       };
       if (!hasTime()) { await defer(metadata); return true; }
+      stage = "result_store";
       await updateAttachment(attachment.id, metadata);
       if (!hasTime()) { await defer(); return true; }
       if (name.fileExt === "zip") {
+        stage = "text_extract";
         const children = await dependencies.expandZip(resource.bytes);
         cacheZip(attachment.id, children);
+        stage = "result_store";
         if (children.length) {
           const { error } = await admin.from("openchat_program_attachments").upsert(children.map((child) => ({
             program_id: attachment.program_id, parent_id: attachment.id, file_name: child.fileName,
@@ -331,6 +347,7 @@ export async function runAttachmentTask(overrides: AttachmentTaskOptions = {}) {
         });
         return true;
       }
+      stage = "text_extract";
       const { data: cached, error: cacheError } = await admin.from("openchat_program_attachments")
         .select("text_status,text_content,text_chars,error").eq("sha256", sha256).neq("id", attachment.id)
         .in("text_status", ["extracted", "no_text"]).limit(1).abortSignal(signal());
@@ -338,18 +355,21 @@ export async function runAttachmentTask(overrides: AttachmentTaskOptions = {}) {
       if (!hasTime()) { await defer(); return true; }
       if (cached?.length) {
         const previous = cached[0];
+        stage = "result_store";
         await finishAttachment(attachment, {
           status: previous.text_status, text: previous.text_content || "", textChars: previous.text_chars, error: previous.error,
         });
         summary.reused++;
       } else {
-        await finishAttachment(attachment, await dependencies.extractText(resource.bytes, name.fileExt));
+        const extracted = await dependencies.extractText(resource.bytes, name.fileExt);
+        stage = "result_store";
+        await finishAttachment(attachment, extracted);
       }
     } catch (error) {
       const limited = error instanceof AttachmentTooLarge || error instanceof AttachmentLimitError;
       await finishAttachment(attachment, {
         status: limited ? "skipped" : "failed", text: "", textChars: 0,
-        error: error instanceof AttachmentLimitError ? "ZIP 또는 문서 안전 크기·경로 제한 초과" : downloadFailure(error),
+        error: attachmentFailure(error, stage),
       });
     }
     return true;
