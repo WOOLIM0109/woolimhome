@@ -47,4 +47,3 @@ returns jsonb language sql security invoker set search_path='' as $$
     'remaining',count(*) filter(where requirement_status is distinct from 'extracted' or due),
     'pendingInputChars',coalesce(sum(least(60000,chars)) filter(where extracted>0 and due),0)) from facts;
 $$;
-
