@@ -15,15 +15,16 @@ const BUCKET = "program-attachments";
 const RUN_MILLISECONDS = 240_000;
 const MAX_PROCESSED = 15;
 const MAX_DISCOVERED = 30;
+const MAX_MANUAL_BATCH = 100;
 const MAX_ZIP_CACHE_BYTES = 100 * 1024 * 1024;
 const DETAIL_BYTES = 2 * 1024 * 1024;
-const SELECT_ATTACHMENT = "id,program_id,parent_id,file_name,file_ext,source_url,storage_path,sha256,attempts";
+const SELECT_ATTACHMENT = "id,program_id,parent_id,file_name,file_ext,source_url,storage_path,sha256,attempts,created_at";
 
 type Admin = ReturnType<typeof createAdminClient>;
 type Program = { id: string; source_url: string; created_at: string };
 type Attachment = {
   id: string; program_id: string; parent_id: string | null; file_name: string; file_ext: string;
-  source_url: string; storage_path: string | null; sha256: string | null; attempts: number;
+  source_url: string; storage_path: string | null; sha256: string | null; attempts: number; created_at: string;
 };
 type Dependencies = {
   admin: Admin;
@@ -32,12 +33,25 @@ type Dependencies = {
   extractText: typeof extractAttachmentText;
   expandZip: typeof expandZipAttachments;
 };
+export type AttachmentTaskOptions = Partial<Dependencies> & {
+  maxProcessed?: number;
+  maxDiscovered?: number;
+  includeExcluded?: boolean;
+  lookbackDays?: number;
+  knownDeadlineOnly?: boolean;
+};
 type Summary = {
   discovered: number; discoveredAttachments: number; discoveryFailed: number; processed: number;
   extracted: number; noText: number; failed: number; skipped: number; reused: number; expanded: number; deferred: number;
   zipCachePeakBytes: number; zipCacheEvictions: number;
   stoppedForTime: boolean;
+  scope: { includeExcluded: boolean; lookbackDays: number | null; knownDeadlineOnly: boolean; maxProcessed: number; maxDiscovered: number };
 };
+
+function boundedBatch(value: number | undefined, fallback: number) {
+  return typeof value === "number" && Number.isFinite(value) && value > 0
+    ? Math.max(1, Math.min(MAX_MANUAL_BATCH, Math.floor(value))) : fallback;
+}
 
 /** Keep source evidence numbered without including markup, active content, or link attributes. */
 export function attachmentDetailText(html: string) {
@@ -112,7 +126,7 @@ function fanfandaeroDetail(value: unknown) {
 }
 
 /** Independent read track: existing program records are only selected, never updated. */
-export async function runAttachmentTask(overrides: Partial<Dependencies> = {}) {
+export async function runAttachmentTask(overrides: AttachmentTaskOptions = {}) {
   const clock = overrides.now ?? Date.now;
   const started = clock();
   const end = started + RUN_MILLISECONDS;
@@ -123,12 +137,22 @@ export async function runAttachmentTask(overrides: Partial<Dependencies> = {}) {
     expandZip: overrides.expandZip ?? expandZipAttachments,
   };
   const { admin, now } = dependencies;
+  const maxProcessed = boundedBatch(overrides.maxProcessed, MAX_PROCESSED);
+  const maxDiscovered = boundedBatch(overrides.maxDiscovered, MAX_DISCOVERED);
+  const includeExcluded = overrides.includeExcluded === true;
+  const knownDeadlineOnly = overrides.knownDeadlineOnly === true;
+  // The normal cron keeps its original unbounded date scope. The separate
+  // review-only claim is limited to recent 60-day notices, even for manual runs.
+  const lookbackDays = includeExcluded || overrides.lookbackDays !== undefined
+    ? Math.min(60, boundedBatch(overrides.lookbackDays, 60)) : null;
   const summary: Summary = {
     discovered: 0, discoveredAttachments: 0, discoveryFailed: 0, processed: 0,
     extracted: 0, noText: 0, failed: 0, skipped: 0, reused: 0, expanded: 0, deferred: 0,
     zipCachePeakBytes: 0, zipCacheEvictions: 0, stoppedForTime: false,
+    scope: { includeExcluded, lookbackDays, knownDeadlineOnly, maxProcessed, maxDiscovered },
   };
   const attempted = new Set<string>();
+  const discoveryAttempted = new Set<string>();
   const zipCache = new Map<string, ExpandedAttachment[]>();
   let zipCacheBytes = 0;
   function cacheZip(parentId: string, children: ExpandedAttachment[]) {
@@ -173,6 +197,7 @@ export async function runAttachmentTask(overrides: Partial<Dependencies> = {}) {
   }
 
   async function discover(program: Program) {
+    discoveryAttempted.add(program.id);
     try {
       const resource = await dependencies.fetchResource(program.source_url, DETAIL_BYTES, Math.min(20_000, timeLeft() - 5_000));
       const encoding = resource.headers.get("content-type")?.match(/charset\s*=\s*["']?([^\s;"']+)/i)?.[1] || "utf-8";
@@ -205,6 +230,7 @@ export async function runAttachmentTask(overrides: Partial<Dependencies> = {}) {
       if (error) throw new Error("상세 탐색 결과 저장 실패");
       summary.discovered++;
       summary.discoveredAttachments += links.length;
+      return links.length > 0;
     } catch {
       summary.discoveryFailed++;
       const { error } = await admin.from("openchat_program_attachment_discovery").upsert({
@@ -212,6 +238,7 @@ export async function runAttachmentTask(overrides: Partial<Dependencies> = {}) {
         error: "기관 상세 페이지 조회 또는 첨부 탐색 실패", checked_at: new Date(now()).toISOString(),
       }).abortSignal(signal());
       if (error) throw new Error("상세 탐색 결과 저장 실패");
+      return false;
     }
   }
 
@@ -257,7 +284,10 @@ export async function runAttachmentTask(overrides: Partial<Dependencies> = {}) {
 
   async function process(attachment: Attachment) {
     attempted.add(attachment.id);
-    const { data: claimed, error: claimError } = await admin.rpc("claim_openchat_attachment", { attachment_id: attachment.id }).abortSignal(signal());
+    const { data: claimed, error: claimError } = await admin.rpc(
+      includeExcluded ? "claim_openchat_review_attachment" : "claim_openchat_attachment",
+      { attachment_id: attachment.id },
+    ).abortSignal(signal());
     if (claimError) throw new Error("첨부 처리 잠금 실패");
     if (!claimed?.length) return false;
     attachment = claimed[0] as Attachment;
@@ -325,6 +355,65 @@ export async function runAttachmentTask(overrides: Partial<Dependencies> = {}) {
     return true;
   }
 
+  type DeadlineScope = "all" | "known" | "unknown";
+  function eligiblePrograms(deadlineScope: DeadlineScope, cursor: { created_at: string; id: string } | null = null, ids?: string[]) {
+    const deadlineFilter = `deadline_at.is.null,deadline_at.gte.${new Date(now()).toISOString()}`;
+    const eligibleFilter = cursor
+      ? `and(or(${deadlineFilter}),or(created_at.lt.${cursor.created_at},and(created_at.eq.${cursor.created_at},id.lt.${cursor.id})))`
+      : deadlineFilter;
+    let query = admin.from("openchat_programs").select("id,source_url,created_at").or(eligibleFilter);
+    if (deadlineScope === "known") query = query.gte("deadline_at", new Date(now()).toISOString());
+    else if (deadlineScope === "unknown") query = query.is("deadline_at", null);
+    if (!includeExcluded) query = query.neq("status", "excluded");
+    if (lookbackDays !== null) query = query.gte("created_at", new Date(now() - lookbackDays * 86400_000).toISOString());
+    if (ids) query = query.in("id", ids);
+    return query;
+  }
+
+  /** Skip completed programs without one HTTP query per program; page beyond the REST row limit. */
+  async function pendingProgramIds(programs: Program[]) {
+    const ids = new Set<string>();
+    let cursor: string | null = null;
+    while (hasTime()) {
+      let query = admin.from("openchat_program_attachments").select("id,program_id")
+        .in("program_id", programs.map((program) => program.id)).in("text_status", ["pending", "failed"])
+        .lt("attempts", 3).order("id").limit(1000);
+      if (cursor) query = query.gt("id", cursor);
+      const { data, error } = await query.abortSignal(signal());
+      if (error) throw new Error("미처리 첨부 대상 조회 실패");
+      for (const item of data || []) ids.add(item.program_id);
+      if (!data?.length || data.length < 1000 || ids.size === programs.length) break;
+      cursor = data[data.length - 1].id;
+    }
+    return ids;
+  }
+
+  async function processPending(program: Program) {
+    let cursor: { created_at: string; id: string } | null = null;
+    while (hasTime() && summary.processed < maxProcessed) {
+      let query = admin.from("openchat_program_attachments").select(SELECT_ATTACHMENT)
+        .eq("program_id", program.id).in("text_status", ["pending", "failed"])
+        .lt("attempts", 3).order("created_at").order("id").limit(100);
+      if (cursor) query = query.or(`created_at.gt.${cursor.created_at},and(created_at.eq.${cursor.created_at},id.gt.${cursor.id})`);
+      const { data, error } = await query.abortSignal(signal());
+      if (error) throw new Error("미처리 첨부 조회 실패");
+      const pending = (data || []) as Attachment[];
+      const next = pending.filter((item) => !attempted.has(item.id));
+      if (!next.length) {
+        if (pending.length < 100) break;
+        cursor = pending[pending.length - 1];
+        continue;
+      }
+      for (const attachment of next) {
+        if (!hasTime() || summary.processed >= maxProcessed) break;
+        await process(attachment);
+      }
+      // ZIP expansion can add children before an existing cursor. Recheck the
+      // prefix after work, then page past already-attempted/leased rows if needed.
+      cursor = null;
+    }
+  }
+
   try {
     const { data: run, error: runError } = await admin.from("openchat_run_logs")
       .insert({ task: "attachments", status: "running" }).select("id").abortSignal(signal()).single();
@@ -333,47 +422,73 @@ export async function runAttachmentTask(overrides: Partial<Dependencies> = {}) {
     const { data: bucket, error: bucketError } = await admin.storage.getBucket(BUCKET);
     if (bucketError || !bucket || bucket.public !== false) throw new Error("비공개 첨부 저장소 확인 실패");
 
-    // Cursor through all eligible stored notices without modifying the publication queue.
-    let cursor: { created_at: string; id: string } | null = null;
-    let done = false;
-    while (!done && hasTime() && summary.processed < MAX_PROCESSED) {
-      const deadlineFilter = `deadline_at.is.null,deadline_at.gte.${new Date(now()).toISOString()}`;
-      const eligibleFilter = cursor
-        ? `and(or(${deadlineFilter}),or(created_at.lt.${cursor.created_at},and(created_at.eq.${cursor.created_at},id.lt.${cursor.id})))`
-        : deadlineFilter;
-      const query = admin.from("openchat_programs").select("id,source_url,created_at")
-        .neq("status", "excluded").or(eligibleFilter)
-        .order("created_at", { ascending: false }).order("id", { ascending: false }).limit(100);
-      const { data, error } = await query.abortSignal(signal());
-      if (error) throw new Error("첨부 대상 공고 조회 실패");
-      const programs = (data || []) as Program[];
-      done = programs.length < 100;
-      if (!programs.length) break;
-      cursor = programs[programs.length - 1];
-      const { data: checks, error: checksError } = await admin.from("openchat_program_attachment_discovery")
-        .select("program_id,status,checked_at").in("program_id", programs.map((program) => program.id)).abortSignal(signal());
-      if (checksError) throw new Error("첨부 탐색 이력 조회 실패");
-      const discovered = new Map((checks || []).map((check) => [check.program_id, check]));
-      for (const program of programs) {
-        if (!hasTime() || summary.processed >= MAX_PROCESSED) break;
-        const check = discovered.get(program.id);
-        if (summary.discovered + summary.discoveryFailed < MAX_DISCOVERED
-          && (!check || check.status === "failed" || now() - Date.parse(check.checked_at) >= 24 * 60 * 60 * 1000)) {
-          await discover(program);
-        }
-        // Requery after ZIP expansion; unprocessed children remain pending for the next invocation.
-        while (hasTime() && summary.processed < MAX_PROCESSED) {
-          const { data: pending, error: pendingError } = await admin.from("openchat_program_attachments")
-            .select(SELECT_ATTACHMENT).eq("program_id", program.id).in("text_status", ["pending", "failed"])
-            .lt("attempts", 3).order("created_at").limit(100).abortSignal(signal());
-          if (pendingError) throw new Error("미처리 첨부 조회 실패");
-          const next = (pending || []).filter((item) => !attempted.has(item.id)) as Attachment[];
-          if (!next.length) break;
-          for (const attachment of next) {
-            if (!hasTime() || summary.processed >= MAX_PROCESSED) break;
-            await process(attachment);
+    // The manual review first exhausts confirmed open deadlines, keeping unknown
+    // deadlines separate. The original cron retains its single combined order.
+    const deadlineScopes: DeadlineScope[] = knownDeadlineOnly ? ["known"] : includeExcluded ? ["known", "unknown"] : ["all"];
+    for (const deadlineScope of deadlineScopes) {
+      if (!hasTime() || summary.processed >= maxProcessed) break;
+      // Cursor through all eligible stored notices without modifying the publication queue.
+      let cursor: { created_at: string; id: string } | null = null;
+      let done = false;
+      while (!done && hasTime() && summary.processed < maxProcessed) {
+        const query = eligiblePrograms(deadlineScope, cursor)
+          .order("created_at", { ascending: false }).order("id", { ascending: false }).limit(100);
+        const { data, error } = await query.abortSignal(signal());
+        if (error) throw new Error("첨부 대상 공고 조회 실패");
+        const programs = (data || []) as Program[];
+        done = programs.length < 100;
+        if (!programs.length) break;
+        cursor = programs[programs.length - 1];
+        const { data: checks, error: checksError } = await admin.from("openchat_program_attachment_discovery")
+          .select("program_id,status,checked_at").in("program_id", programs.map((program) => program.id)).abortSignal(signal());
+        if (checksError) throw new Error("첨부 탐색 이력 조회 실패");
+        const discovered = new Map((checks || []).map((check) => [check.program_id, check]));
+        const pending = await pendingProgramIds(programs);
+        for (const program of programs) {
+          if (!hasTime() || summary.processed >= maxProcessed) break;
+          const check = discovered.get(program.id);
+          let newDocuments = false;
+          // Previously failed or stale prefixes must not consume the budget before
+          // older, never-examined notices get their first discovery attempt.
+          if (!check && summary.discovered + summary.discoveryFailed < maxDiscovered) {
+            newDocuments = Boolean(await discover(program));
           }
+          if (newDocuments || pending.has(program.id)) await processPending(program);
         }
+      }
+      // Retry the oldest checked records, not a fixed newest-program prefix.
+      // Successful checks become due after 24h; failures rotate by checked_at.
+      for (const phase of ["stale", "failed"] as const) {
+        let checkCursor: { checked_at: string; program_id: string } | null = null;
+        while (hasTime() && summary.processed < maxProcessed
+          && summary.discovered + summary.discoveryFailed < maxDiscovered) {
+          let query = admin.from("openchat_program_attachment_discovery").select("program_id,status,checked_at")
+            .order("checked_at").order("program_id").limit(100);
+          if (phase === "stale") query = query.in("status", ["found", "none"])
+            .lt("checked_at", new Date(now() - 24 * 3600_000).toISOString());
+          else query = query.eq("status", "failed");
+          if (checkCursor) query = query.or(`checked_at.gt.${checkCursor.checked_at},and(checked_at.eq.${checkCursor.checked_at},program_id.gt.${checkCursor.program_id})`);
+          const { data: checks, error: checksError } = await query.abortSignal(signal());
+          if (checksError) throw new Error("첨부 재탐색 이력 조회 실패");
+          if (!checks?.length) break;
+          checkCursor = checks[checks.length - 1];
+          const { data, error } = await eligiblePrograms(deadlineScope, null, checks.map((check) => check.program_id)).abortSignal(signal());
+          if (error) throw new Error("첨부 재탐색 대상 조회 실패");
+          const programs = (data || []) as Program[];
+          const mapped = new Map(programs.map((program) => [program.id, program]));
+          const pending = programs.length ? await pendingProgramIds(programs) : new Set<string>();
+          for (const check of checks) {
+            if (!hasTime() || summary.processed >= maxProcessed
+              || summary.discovered + summary.discoveryFailed >= maxDiscovered) break;
+            const program = mapped.get(check.program_id);
+            if (!program || discoveryAttempted.has(program.id)) continue;
+            const newDocuments = await discover(program);
+            if (newDocuments || pending.has(program.id)) await processPending(program);
+          }
+          if (checks.length < 100) break;
+        }
+        if (!hasTime() || summary.processed >= maxProcessed
+          || summary.discovered + summary.discoveryFailed >= maxDiscovered) break;
       }
     }
     summary.stoppedForTime = !hasTime();

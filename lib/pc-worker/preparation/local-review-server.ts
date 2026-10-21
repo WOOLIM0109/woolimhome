@@ -685,17 +685,21 @@ async function readPostJson(request: IncomingMessage) {
   const contentType = exactHeader(request, "content-type");
   if (contentType?.toLowerCase() !== "application/json") fail("INVALID_BODY", "JSON 요청만 허용됩니다.");
   const declaredLength = exactHeader(request, "content-length");
-  if (declaredLength !== null && (!/^\d+$/.test(declaredLength) || Number(declaredLength) > MAX_POST_BYTES)) {
-    fail("BODY_TOO_LARGE", "편집 요청이 허용된 크기를 넘었습니다.");
-  }
+  let oversized = declaredLength !== null && (!/^\d+$/.test(declaredLength) || Number(declaredLength) > MAX_POST_BYTES);
   const chunks: Buffer[] = [];
   let total = 0;
+  // Consume rejected uploads without retaining them. Ending a Connection: close
+  // response with unread bytes can reset TCP before the client receives its 413.
+  // Throwing inside this iterator also destroys IncomingMessage prematurely.
+  // The server's existing requestTimeout bounds an unfinished upload to 10s.
   for await (const chunk of request) {
     const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
     total += buffer.length;
-    if (total > MAX_POST_BYTES) fail("BODY_TOO_LARGE", "편집 요청이 허용된 크기를 넘었습니다.");
-    chunks.push(buffer);
+    if (total > MAX_POST_BYTES) oversized = true;
+    if (oversized) chunks.length = 0;
+    else chunks.push(buffer);
   }
+  if (oversized) fail("BODY_TOO_LARGE", "편집 요청이 허용된 크기를 넘었습니다.");
   if (!total) fail("INVALID_BODY", "편집 요청 내용이 없습니다.");
   try {
     const parsed = JSON.parse(Buffer.concat(chunks).toString("utf8")) as unknown;
