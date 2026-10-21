@@ -36,6 +36,9 @@ export class AttachmentLimitError extends Error {
 }
 
 function result(status: TextExtractionResult["status"], text = "", error: string | null = null): TextExtractionResult {
+  // PostgreSQL text rejects U+0000. Preserve every other character and evidence marker.
+  // Parser size checks run before this boundary, so NULs cannot bypass input limits.
+  text = text.replace(/\u0000/g, "");
   return { status, text, textChars: text.length, error };
 }
 
