@@ -34,6 +34,7 @@ const NAV_ITEMS = [
   { href: "/admin/editorial-maintenance", label: "AI 비용 보호", icon: ShieldCheck },
   { href: "/admin/retention", label: "데이터 정리", icon: Trash2 },
   { href: "/admin/openchat", label: "오픈채팅 자동배포", icon: MessageSquareText },
+  { href: "/admin/program-review", label: "공고 검토", icon: FileCheck2 },
   { href: "/partner", label: "외주 포스팅 작업실", icon: BriefcaseBusiness },
 ];
 
