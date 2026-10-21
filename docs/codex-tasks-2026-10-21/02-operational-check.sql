@@ -354,7 +354,12 @@ order by s.priority,s.name;
        them. Daily rows likewise overlap. Earlier 01/02 remain the original daily
        NONEXCLUDED flow; these rows do not reinterpret excluded as publishable.
        A notice with any extracted text is not necessarily fully extracted.
-       The >=50 check concerns extracted requirements, not attachments or attempts.
+       HWP/HWPX/PDF are supported documents; images/TXT/unknown formats remain
+       unsupported and never count as passed. ZIP containers are counted separately.
+       Supported-document completion does not certify unsupported files or OCR.
+       Scope >=50 is availability, not evidence of >=50 actual test executions.
+       Report checked notices, attempted requirements, and successful requirements
+       independently; the successful >=50 indicator is not a new acceptance gate.
    ============================================================================ */
 with bounds as (
   select date '2026-10-21' as report_date,now() as observed_at,
@@ -373,6 +378,17 @@ with bounds as (
       or (s.deadline_kind='unknown' and p.deadline_at is null))
 ), documents as (
   select a.program_id,count(*) filter(where a.file_ext<>'zip') as documents,
+    count(*) filter(where a.file_ext in ('hwp','hwpx','pdf')) as supported_documents,
+    count(*) filter(where a.file_ext in ('hwp','hwpx','pdf') and a.text_status='extracted'
+      and length(coalesce(a.text_content,''))>0) as supported_extracted_documents,
+    count(*) filter(where a.file_ext in ('hwp','hwpx','pdf') and a.text_status='pending') as supported_pending_documents,
+    count(*) filter(where a.file_ext in ('hwp','hwpx','pdf') and a.text_status='failed') as supported_failed_documents,
+    count(*) filter(where a.file_ext in ('hwp','hwpx','pdf') and a.text_status='no_text') as supported_no_text_documents,
+    count(*) filter(where a.file_ext in ('hwp','hwpx','pdf') and a.text_status='skipped') as supported_skipped_documents,
+    count(*) filter(where a.file_ext not in ('hwp','hwpx','pdf','zip') or a.file_ext is null) as unsupported_documents,
+    count(*) filter(where a.file_ext not in ('hwp','hwpx','pdf','zip') and a.text_status='no_text') as unsupported_no_text_documents,
+    count(*) filter(where a.file_ext not in ('hwp','hwpx','pdf','zip') and a.text_status='skipped') as unsupported_skipped_documents,
+    count(*) filter(where a.file_ext='zip') as zip_containers,
     count(*) filter(where a.file_ext<>'zip' and a.text_status='extracted'
       and length(coalesce(a.text_content,''))>0) as extracted_documents,
     count(*) filter(where a.file_ext<>'zip' and a.text_status='pending') as pending_documents,
@@ -396,17 +412,34 @@ with bounds as (
   group by m.program_id
 )
 select b.report_date,b.observed_at,s.scope,count(p.id) as scoped_programs,
+  (count(p.id)>=50) as at_least_fifty_scoped_programs,
   count(p.id) filter(where p.status='excluded') as excluded_test_only_programs,
   count(p.id) filter(where p.status<>'excluded') as nonexcluded_programs,
   case when s.daily_only then (select count(*) from public.openchat_programs all_daily
     where all_daily.created_at>=b.day_start and all_daily.created_at<b.day_end) end as daily_all_collected_programs,
   count(p.id) filter(where d.program_id is null) as discovery_not_attempted_programs,
+  count(p.id) filter(where d.program_id is not null) as discovery_checked_programs,
+  (count(p.id) filter(where d.program_id is not null)>=50) as at_least_fifty_discovery_checked_programs,
   count(p.id) filter(where d.status='found') as discovery_found_programs,
   count(p.id) filter(where d.status='none') as discovery_none_programs,
   count(p.id) filter(where d.status='failed') as discovery_failed_programs,
   count(p.id) filter(where docs.extracted_documents>0) as programs_with_any_extracted_text,
+  count(p.id) filter(where docs.supported_extracted_documents>0) as programs_with_supported_extracted_text,
   count(p.id) filter(where d.status='found' and docs.documents>0
     and docs.documents=docs.extracted_documents and docs.unresolved_zip_containers=0) as fully_extracted_programs,
+  count(p.id) filter(where d.status='found' and docs.supported_documents>0
+    and docs.supported_documents=docs.supported_extracted_documents
+    and docs.unresolved_zip_containers=0) as supported_document_complete_programs,
+  coalesce(sum(docs.supported_documents),0) as supported_documents,
+  coalesce(sum(docs.supported_extracted_documents),0) as supported_extracted_documents,
+  coalesce(sum(docs.supported_pending_documents),0) as supported_pending_documents,
+  coalesce(sum(docs.supported_failed_documents),0) as supported_failed_documents,
+  coalesce(sum(docs.supported_no_text_documents),0) as supported_no_text_documents,
+  coalesce(sum(docs.supported_skipped_documents),0) as supported_skipped_documents,
+  coalesce(sum(docs.unsupported_documents),0) as unsupported_documents,
+  coalesce(sum(docs.unsupported_no_text_documents),0) as unsupported_no_text_documents,
+  coalesce(sum(docs.unsupported_skipped_documents),0) as unsupported_skipped_documents,
+  coalesce(sum(docs.zip_containers),0) as zip_containers,
   coalesce(sum(docs.documents),0) as attachment_documents,
   coalesce(sum(docs.extracted_documents),0) as extracted_documents,
   coalesce(sum(docs.pending_documents),0) as pending_documents,
@@ -415,6 +448,8 @@ select b.report_date,b.observed_at,s.scope,count(p.id) as scoped_programs,
   coalesce(sum(docs.skipped_documents),0) as skipped_documents,
   coalesce(sum(docs.unresolved_zip_containers),0) as unresolved_zip_containers,
   count(p.id) filter(where r.status='extracted') as requirements_extracted_programs,
+  count(p.id) filter(where r.program_id is not null) as requirements_attempted_programs,
+  (count(p.id) filter(where r.program_id is not null)>=50) as at_least_fifty_requirements_attempted,
   (count(p.id) filter(where r.status='extracted')>=50) as at_least_fifty_extracted_requirements,
   count(p.id) filter(where r.status='processing') as requirements_processing_programs,
   count(p.id) filter(where r.status='failed') as requirements_failed_programs,
@@ -437,6 +472,8 @@ order by s.scope;
        numbering as 02; customer identity values are never projected. Each target
        has separate known-future / deadline-unknown rows, including zero matches.
        The common collection/text stages are repeated, not customer attribution.
+       Supported-document metrics exclude images/TXT/unknown formats and ZIP
+       containers. Their completion never treats unsupported files as passed.
    ============================================================================ */
 with bounds as (select date '2026-10-21' as report_date,now() as observed_at),
 scopes(scope) as (values('recent60_explicit_future'),('recent60_deadline_unknown')),
@@ -445,6 +482,18 @@ eligible as (
     else 'recent60_explicit_future' end as scope
   from public.openchat_programs p cross join bounds b
   where p.created_at>=b.observed_at-interval '60 days' and (p.deadline_at is null or p.deadline_at>=b.observed_at)
+), documents as (
+  select a.program_id,count(*) filter(where a.file_ext in ('hwp','hwpx','pdf')) as supported_documents,
+    count(*) filter(where a.file_ext in ('hwp','hwpx','pdf') and a.text_status='extracted'
+      and length(coalesce(a.text_content,''))>0) as supported_extracted_documents,
+    count(*) filter(where a.file_ext not in ('hwp','hwpx','pdf','zip') or a.file_ext is null) as unsupported_documents,
+    count(*) filter(where a.file_ext='zip') as zip_containers,
+    count(*) filter(where a.file_ext='zip' and not (
+      exists(select 1 from public.openchat_program_attachments child where child.parent_id=a.id)
+      or (a.text_status='skipped' and coalesce(a.error,'')='ZIP 내 지원 문서 없음')
+    )) as unresolved_zip_containers
+  from public.openchat_program_attachments a where exists(select 1 from eligible p where p.id=a.program_id)
+  group by a.program_id
 ), customer_ids as (
   select m.target_id from public.openchat_program_matches m cross join bounds b
   where m.review_date=b.report_date and m.target_kind='customer'
@@ -464,8 +513,19 @@ eligible as (
   select s.scope,count(p.id) as eligible_programs,
     count(p.id) filter(where exists(select 1 from public.openchat_program_attachments a
       where a.program_id=p.id and a.text_status='extracted' and length(coalesce(a.text_content,''))>0)) as programs_with_any_extracted_text,
+    coalesce(sum(docs.supported_documents),0) as supported_documents,
+    coalesce(sum(docs.supported_extracted_documents),0) as supported_extracted_documents,
+    count(p.id) filter(where docs.supported_extracted_documents>0) as programs_with_supported_extracted_text,
+    coalesce(sum(docs.unsupported_documents),0) as unsupported_documents,
+    coalesce(sum(docs.zip_containers),0) as zip_containers,
+    coalesce(sum(docs.unresolved_zip_containers),0) as unresolved_zip_containers,
+    count(p.id) filter(where d.status='found' and docs.supported_documents>0
+      and docs.supported_documents=docs.supported_extracted_documents
+      and docs.unresolved_zip_containers=0) as supported_document_complete_programs,
     count(p.id) filter(where r.status='extracted') as requirements_extracted_programs
   from scopes s left join eligible p on p.scope=s.scope
+  left join documents docs on docs.program_id=p.id
+  left join public.openchat_program_attachment_discovery d on d.program_id=p.id
   left join public.openchat_program_requirements r on r.program_id=p.id group by s.scope
 ), today_matches as (
   select p.scope,m.target_kind,m.target_id,m.program_id,m.verdict,m.selected_for_reading
@@ -474,6 +534,9 @@ eligible as (
 )
 select b.report_date,b.observed_at,s.scope,l.target_kind,l.target_label,
   c.eligible_programs,c.programs_with_any_extracted_text,c.requirements_extracted_programs,
+  c.supported_documents,c.supported_extracted_documents,c.unsupported_documents,
+  c.programs_with_supported_extracted_text,
+  c.zip_containers,c.unresolved_zip_containers,c.supported_document_complete_programs,
   count(m.program_id) filter(where m.verdict='candidate') as candidate_programs,
   count(m.program_id) filter(where m.verdict='unknown') as unknown_programs,
   count(m.program_id) filter(where m.verdict='mismatch') as mismatch_programs,
@@ -482,7 +545,10 @@ select b.report_date,b.observed_at,s.scope,l.target_kind,l.target_label,
 from bounds b cross join labels l cross join scopes s join common c on c.scope=s.scope
 left join today_matches m on m.scope=s.scope and m.target_kind=l.target_kind and m.target_id=l.target_id
 group by b.report_date,b.observed_at,s.scope,l.target_kind,l.target_label,l.sort_order,
-  c.eligible_programs,c.programs_with_any_extracted_text,c.requirements_extracted_programs
+  c.eligible_programs,c.programs_with_any_extracted_text,c.requirements_extracted_programs,
+  c.supported_documents,c.supported_extracted_documents,c.unsupported_documents,
+  c.programs_with_supported_extracted_text,
+  c.zip_containers,c.unresolved_zip_containers,c.supported_document_complete_programs
 order by l.sort_order,s.scope;
 
 /* ============================================================================

@@ -2,7 +2,7 @@ import { createAdminClient } from "../supabase/admin";
 import { createClient } from "@supabase/supabase-js";
 import { parseGeminiJson } from "../gemini/json";
 import { GEMINI_AUTOMATION_MODEL, GeminiAutomationBlocked, runBudgetedGeminiAutomation } from "../gemini/automation";
-import { buildRequirementInput, normalizeRequirements, requirementsPrompt, type Requirements } from "./requirements";
+import { buildRequirementInput, normalizeRequirements, requirementsPrompt, REQUIREMENTS_NORMALIZATION_VERSION, type Requirements } from "./requirements";
 import { generateRequirementResponse, RequirementGenerationError, REQUIREMENTS_RESPONSE_MAX_TOKENS } from "./requirements-generation";
 import { loadMatchProfiles, MatchProfilesError } from "./profiles-run";
 import { matchProgram } from "./matching";
@@ -116,7 +116,8 @@ export async function runRequirementsTask(options: Options = {}) {
       if (!options.recoveryProgramId && existing?.input_hash === input.inputHash && existing.status === "extracted") {
         requirements = normalizeRequirements(existing.requirements, input);
         const { data: refreshed, error: refreshError } = await admin.from("openchat_program_requirements").update({
-          ...metadata, updated_at: new Date(clock()).toISOString(),
+          ...metadata, requirements, normalization_version: REQUIREMENTS_NORMALIZATION_VERSION,
+          updated_at: new Date(clock()).toISOString(),
         }).eq("program_id", program.id).eq("input_hash", input.inputHash).eq("status", "extracted")
           .select("program_id").maybeSingle();
         if (refreshError || !refreshed) throw new Error("요건 원문 상태 갱신 실패");
@@ -196,7 +197,8 @@ export async function runRequirementsTask(options: Options = {}) {
             catch { throw new RequirementTaskFailure("REQUIREMENTS_PROOF_INVALID"); }
           });
           const { data: saved, error: saveError } = await admin.from("openchat_program_requirements").update({
-            status: "extracted", requirements, model: GEMINI_AUTOMATION_MODEL, error: null,
+            status: "extracted", requirements, normalization_version: REQUIREMENTS_NORMALIZATION_VERSION,
+            model: GEMINI_AUTOMATION_MODEL, error: null,
             diagnostics: { ...safeDiagnostics, stage: "stored" },
             extracted_at: new Date(clock()).toISOString(), updated_at: new Date(clock()).toISOString(),
           }).eq("program_id", program.id).eq("input_hash", input.inputHash).eq("status", "processing")

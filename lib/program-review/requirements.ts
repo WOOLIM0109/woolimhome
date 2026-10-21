@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 
 export const REQUIREMENTS_INPUT_CHARS = 60_000;
 export const REQUIREMENTS_PROMPT_VERSION = "program-requirements-evidence-v1";
+export const REQUIREMENTS_NORMALIZATION_VERSION = 2;
 
 export type RequirementSource = { id: string; text: string };
 export type RequirementInput = {
@@ -226,7 +227,7 @@ export function normalizeRequirements(raw: unknown, source: RequirementInput | r
     const amounts = kind === "krw" ? krwAmounts(verified.quote)
       : kind === "years" ? yearBounds(verified.quote, path.endsWith("min_years"))
         : numberWithUnit(verified.quote, kind === "employees" ? "명|인" : "점");
-    if (!amounts.includes(normalized) || (kind !== "years" && !Number.isSafeInteger(normalized))) return null;
+    if (!amounts.includes(normalized) || ((kind === "employees" || kind === "krw") && !Number.isSafeInteger(normalized))) return null;
     evidence[outputPath] = verified.canonical;
     return normalized;
   }
@@ -236,6 +237,13 @@ export function normalizeRequirements(raw: unknown, source: RequirementInput | r
     if (!Array.isArray(values)) return null;
     const accepted: string[] = [];
     for (const [index, value] of values.entries()) {
+      if (path === "industries_excluded") {
+        const quoted = proof(`${path}.${index}`)?.quote ?? "";
+        // A contradictory public description cannot prove an exclusion merely
+        // because it lists an industry after the words 'excluded industries'.
+        if (/지원\s*대상\s*업종[^\n.!?]{0,300}해당\s*하지\s*않/.test(quoted)
+          || /제외\s*(?:하지|되지)\s*않/.test(quoted)) continue;
+      }
       const verified = string(value, `${path}.${index}`, `${path}.${accepted.length}`);
       if (verified !== null) accepted.push(verified);
     }
@@ -248,6 +256,60 @@ export function normalizeRequirements(raw: unknown, source: RequirementInput | r
     max_years: number(own(age, "max_years"), "business_age.max_years", "years"),
     basis: string(own(age, "basis"), "business_age.basis"),
   };
+  const initialBounds = [businessAge.min_years, businessAge.max_years].filter((value): value is number => value !== null);
+  let ageNeedsReview = false;
+  const ageExpressions = (text: string) => [...text.matchAll(/(?<![\d.])(\d+(?:\.\d+)?)\s*년\s*(이상|초과|이내|이하|미만)/g)];
+  for (const key of ["min_years", "max_years"] as const) {
+    const verified = proof(`business_age.${key}`);
+    const strict = verified && ageExpressions(verified.quote).some((match) => Number(match[1]) === businessAge[key]
+      && (key === "min_years" ? match[2] === "초과" : match[2] === "미만"));
+    if (!strict) continue;
+    businessAge[key] = null;
+    delete evidence[`business_age.${key}`];
+    // Keep an actual, complete quote containing the operator, never '7 years'
+    // rewritten to mean '<= 7' or a fabricated inclusive boundary.
+    businessAge.basis = verified.quote;
+    evidence["business_age.basis"] = verified.canonical;
+    ageNeedsReview = true;
+  }
+  const conditionalAgeBlocks: Array<{ id: string; locator: string; text: string; alternative: RegExpMatchArray }> = [];
+  for (const [id, entries] of blocks) for (const [locator, text] of entries) {
+    if (text === null) continue;
+    for (const match of ageExpressions(text)) {
+      const local = text.slice(Math.max(0, match.index! - 100), match.index! + match[0].length + 100);
+      if (!/딥테크|신\s*산업|초격차|예외|특례|다만/.test(local)
+        || !/업력|창업|스타트업|신\s*산업|딥테크/.test(local)
+        || initialBounds.includes(Number(match[1]))) continue;
+      conditionalAgeBlocks.push({ id, locator, text, alternative: match });
+    }
+  }
+  if (initialBounds.length && conditionalAgeBlocks.length) {
+    businessAge.min_years = null;
+    businessAge.max_years = null;
+    delete evidence["business_age.min_years"];
+    delete evidence["business_age.max_years"];
+    // Separate source locators may establish an exception, but cannot be joined
+    // into a made-up quote. Retain both rules only when one real block has both.
+    businessAge.basis = null;
+    delete evidence["business_age.basis"];
+    for (const candidate of conditionalAgeBlocks) {
+      const base = ageExpressions(candidate.text).find((match) => initialBounds.includes(Number(match[1])));
+      if (!base || Math.abs(base.index! - candidate.alternative.index!) > 500) continue;
+      const first = Math.min(base.index!, candidate.alternative.index!);
+      const last = Math.max(base.index! + base[0].length, candidate.alternative.index! + candidate.alternative[0].length);
+      const start = candidate.text.lastIndexOf("\n", first) + 1;
+      const nextLine = candidate.text.indexOf("\n", last);
+      const quote = candidate.text.slice(start, nextLine < 0 ? undefined : nextLine).trim();
+      businessAge.basis = quote;
+      evidence["business_age.basis"] = `[source:${candidate.id} ${candidate.locator}] ${quote}`;
+      break;
+    }
+    ageNeedsReview = true;
+  }
+  // An all-null age object deliberately records an explicit but unrepresentable
+  // condition. Matching must ask for review rather than treat it as no age rule.
+  if (!initialBounds.length && own(data, "business_age") !== null && Object.keys(age).length
+    && conditionalAgeBlocks.length) ageNeedsReview = true;
   const asOf = own(age, "as_of");
   const ageDateProof = proof("business_age.as_of");
   if (typeof asOf === "string" && /^\d{4}-\d{2}-\d{2}$/.test(asOf) && ageDateProof
@@ -304,7 +366,7 @@ export function normalizeRequirements(raw: unknown, source: RequirementInput | r
   const normalized: Requirements = {
     regions: list("regions"),
     target_types: list("target_types"),
-    business_age: Object.values(businessAge).some((value) => value !== null) ? businessAge : null,
+    business_age: ageNeedsReview || Object.values(businessAge).some((value) => value !== null) ? businessAge : null,
     size: Object.values(size).some((value) => value !== null) ? size : null,
     industries_included: list("industries_included"),
     industries_excluded: list("industries_excluded"),

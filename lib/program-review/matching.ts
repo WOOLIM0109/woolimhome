@@ -173,14 +173,16 @@ export function matchProgram(requirements: Requirements, profiles: MatchProfile[
     else if (types.every(institutionOnly) && !allInstitutions) unknowns.push("기관과 기업의 참여 범위는 정독 확인 필요");
 
     const age = requirements.business_age;
-    if (age && (age.min_years !== null || age.max_years !== null)) {
+    if (age && age.min_years === null && age.max_years === null) {
+      unknowns.push("업력의 엄격 경계 또는 예외 조건은 정독 확인 필요");
+    } else if (age) {
       const founded = isoDay(profile.foundedOn);
       const asOf = hasEvidence(requirements, "business_age.as_of") ? isoDay(age.as_of) : null;
       const ageEvidence = ["min_years", "max_years", "basis", "as_of"].map((key) => requirements.evidence?.[`business_age.${key}`] || "").join(" ");
       if (founded === null || asOf === null || founded > asOf || !age.basis || !hasEvidence(requirements, "business_age.basis")) {
         unknowns.push("업력 판정 정보 부족: 설립일과 원문 기준일·산정 기준 확인 필요");
       } else if ((age.min_years !== null && age.max_years !== null && age.min_years > age.max_years)
-        || /다만|예외|특례|신산업|간주|면제/.test(ageEvidence)) {
+        || /다만|예외|특례|신\s*산업|딥테크|초격차|간주|면제|\d\s*년\s*(?:미만|초과)/.test(ageEvidence)) {
         unknowns.push("업력 범위 상충 또는 예외 조건은 정독 확인 필요");
       }
       else {
