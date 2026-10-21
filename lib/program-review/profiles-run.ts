@@ -8,6 +8,8 @@ import {
 
 const ORIGIN = "https://hub.woolimcompany.kr";
 const CACHE_TABLE = "openchat_match_profiles_cache";
+const SELF_TABLE = "openchat_program_self_profiles";
+const CONTEXT_TABLE = "openchat_program_match_context";
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const inFlight = new WeakMap<SupabaseClient, Map<string, Promise<MatchProfile[]>>>();
 
@@ -110,7 +112,14 @@ async function readCache(admin: SupabaseClient, day: string, now: Date) {
   return parseCachedProfiles(data.payload);
 }
 
-function matchProfiles(customers: CachedCustomerProfile[]) { return [...selfMatchProfiles(), ...customers.map(customerMatchProfile)]; }
+async function matchProfiles(admin: SupabaseClient, customers: CachedCustomerProfile[]) {
+  const { data, error } = await admin.from(SELF_TABLE).select("id,name,aliases,profile,version");
+  if (error || !Array.isArray(data)) failure("self_profiles_read", "승인된 자사 프로필을 읽지 못했습니다.");
+  let self: MatchProfile[];
+  try { self = selfMatchProfiles(data); }
+  catch { failure("self_profiles_contract", "승인된 자사 프로필 형식이 올바르지 않습니다."); }
+  return [...self, ...customers.map(customerMatchProfile)];
+}
 
 function parseState(value: unknown, day: string): RefreshState | null {
   if (value === null || value === undefined) return null;
@@ -142,7 +151,7 @@ async function refresh(admin: SupabaseClient, day: string, now: Date, options: L
   if (error) failure("cache_claim", "고객 프로필 갱신 잠금을 확보하지 못했습니다.");
   if (claimed !== true) {
     const cached = await readCache(admin, day, now);
-    if (cached) return matchProfiles(cached);
+    if (cached) return matchProfiles(admin, cached);
     failure("refresh_in_progress", "다른 실행에서 고객 프로필을 갱신 중입니다.");
   }
   let finished = false;
@@ -240,7 +249,7 @@ async function refresh(admin: SupabaseClient, day: string, now: Date, options: L
     });
     if (result.error || result.data !== true) failure("cache_publish", "완료된 고객 프로필 캐시를 저장하지 못했습니다.");
     finished = true;
-    return matchProfiles(payload);
+    return matchProfiles(admin, payload);
   } catch (error) {
     if (error instanceof MatchProfilesError) throw error;
     failure("refresh_failed", "고객 프로필 갱신을 완료하지 못했습니다.");
@@ -266,7 +275,7 @@ async function loadProfiles(admin: SupabaseClient, options: LoadMatchProfilesOpt
   if (!Number.isFinite(now.getTime())) failure("invalid_time", "프로필 기준 시각이 올바르지 않습니다.");
   const day = cacheDate(now);
   const cached = await readCache(admin, day, now);
-  if (cached) return matchProfiles(cached);
+  if (cached) return matchProfiles(admin, cached);
   let pending = inFlight.get(admin);
   if (!pending) { pending = new Map(); inFlight.set(admin, pending); }
   const existing = pending.get(day);
@@ -275,4 +284,29 @@ async function loadProfiles(admin: SupabaseClient, options: LoadMatchProfilesOpt
   pending.set(day, task);
   try { return await task; }
   finally { pending.delete(day); }
+}
+
+export type MatchProfilesSnapshot = { profiles: MatchProfile[]; revision: number };
+
+async function contextRevision(admin: SupabaseClient) {
+  const { data, error } = await admin.from(CONTEXT_TABLE).select("revision").eq("id", "current").maybeSingle();
+  const revision = typeof data?.revision === "string" && /^\d+$/.test(data.revision) ? Number(data.revision) : data?.revision;
+  if (error || !Number.isSafeInteger(revision) || revision < 1) failure("profile_context_read", "매칭 프로필 버전을 확인하지 못했습니다.");
+  return revision as number;
+}
+
+/** Read a coherent private snapshot; the save RPC rechecks and locks this revision. */
+export async function loadMatchProfilesSnapshot(admin: SupabaseClient, options: LoadMatchProfilesOptions = {}): Promise<MatchProfilesSnapshot> {
+  try {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const before = await contextRevision(admin);
+      const profiles = await loadMatchProfiles(admin, options);
+      const after = await contextRevision(admin);
+      if (before === after) return { profiles, revision: after };
+    }
+    failure("profile_context_changed", "프로필이 변경되어 매칭을 보류했습니다. 다음 실행에서 다시 확인합니다.");
+  } catch (error) {
+    if (error instanceof MatchProfilesError) throw error;
+    failure("profiles_failed", "매칭 프로필 스냅샷을 확인하지 못했습니다.");
+  }
 }

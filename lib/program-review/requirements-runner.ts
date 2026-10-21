@@ -4,7 +4,7 @@ import { parseGeminiJson } from "../gemini/json";
 import { GEMINI_AUTOMATION_MODEL, GeminiAutomationBlocked, runBudgetedGeminiAutomation } from "../gemini/automation";
 import { buildRequirementInput, normalizeRequirements, requirementsPrompt, REQUIREMENTS_NORMALIZATION_VERSION, type Requirements } from "./requirements";
 import { generateRequirementResponse, RequirementGenerationError, REQUIREMENTS_RESPONSE_MAX_TOKENS } from "./requirements-generation";
-import { loadMatchProfiles, MatchProfilesError } from "./profiles-run";
+import { loadMatchProfilesSnapshot, MatchProfilesError } from "./profiles-run";
 import { matchProgram } from "./matching";
 import { withReviewJob } from "./jobs";
 
@@ -61,8 +61,12 @@ export async function runRequirementsTask(options: Options = {}) {
     }
     await updateQueue();
     if (!options.programIds && !options.recoveryProgramId) summary.scopeProgramCount = summary.eligible;
-    let profiles;
-    try { profiles = await loadMatchProfiles(admin, { now }); }
+    let profiles, profileRevision: number;
+    try {
+      const snapshot = await loadMatchProfilesSnapshot(admin, { now });
+      profiles = snapshot.profiles;
+      profileRevision = snapshot.revision;
+    }
     catch (error) {
       if (error instanceof MatchProfilesError && error.code === "refresh_pending") return { ...summary, refreshPending: true };
       if (error instanceof MatchProfilesError) throw new MatchProfilesError(error.code,
@@ -233,10 +237,14 @@ export async function runRequirementsTask(options: Options = {}) {
         || (current.data.deadline_at && Date.parse(current.data.deadline_at) < clock())) continue;
       const matches = matchProgram(requirements, profiles, { now: new Date(clock()), programDeadlineAt: current.data.deadline_at }).map((m) => {
         const caution = [!complete ? "첨부 일부 미추출: 확인 필요" : "", input.truncated ? "입력 6만 자 절단: 확인 필요" : ""].filter(Boolean);
-        return caution.length ? { ...m, verdict: "unknown" as const, reasons: [...m.reasons, ...caution] } : m;
+        if (!caution.length) return m;
+        return { ...m, reasons: [...m.reasons, ...caution,
+          ...(m.verdict === "candidate" && !m.reasons.some((reason) => reason.startsWith("조건부 후보:"))
+            ? ["조건부 후보: 첨부 원문 전체와 추가 요건은 확인 필요"] : [])] };
       });
       const { error: matchError } = await admin.rpc("save_openchat_program_matches", {
         p_program_id: program.id, p_review_date: date, p_input_hash: input.inputHash, p_matches: matches,
+        p_profile_revision: profileRevision,
       });
       if (matchError) throw new Error("대상별 매칭 저장 실패");
       summary.matched++;
