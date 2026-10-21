@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 
 export const REQUIREMENTS_INPUT_CHARS = 60_000;
 export const REQUIREMENTS_PROMPT_VERSION = "program-requirements-evidence-v1";
-export const REQUIREMENTS_NORMALIZATION_VERSION = 2;
+export const REQUIREMENTS_NORMALIZATION_VERSION = 3;
 
 export type RequirementSource = { id: string; text: string };
 export type RequirementInput = {
@@ -137,6 +137,28 @@ function yearBounds(quote: string, minimum: boolean) {
     if (minimum ? match[1] === "최소" : match[1] === "최대") accepted.push(Number(match[2]));
   }
   return accepted;
+}
+
+/** Detect an eligibility alternative without treating a person's age in years as business age. */
+function hasAlternativeAgeCondition(value: string, bounds: number[] = []) {
+  const text = value.replace(/^\[(?:p|para)\.[1-9]\d*\][ \t]*/gm, "");
+  for (const match of text.matchAll(/(?<![\d.])(\d+(?:\.\d+)?)\s*년\s*(?:이상|초과|이내|이하|미만)/g)) {
+    if (bounds.length && !bounds.includes(Number(match[1]))) continue;
+    const around = text.slice(Math.max(0, match.index! - 400), match.index! + match[0].length + 250);
+    if (!/업력|창업/.test(around) || !/대표|청년|연령|나이/.test(around) || !/\d+\s*세/.test(around)) continue;
+    const header = /(?:요건|조건)[\s\S]{0,80}(?:하나|1개|한\s*가지)[\s\S]{0,40}(?:충족|해당)/.test(around)
+      || /(?:하나|1개|한\s*가지)[\s\S]{0,30}(?:요건|조건)[\s\S]{0,30}(?:충족|해당)/.test(around);
+    const direct = /\d+\s*세[\s\S]{0,100}(?:또는|혹은)[\s\S]{0,100}(?:업력|창업)/.test(around)
+      || /(?:업력|창업)[\s\S]{0,80}\d+\s*년[\s\S]{0,100}(?:또는|혹은)[\s\S]{0,100}\d+\s*세/.test(around);
+    if (header || direct) return true;
+  }
+  return false;
+}
+
+function aggregateBonusCaps(value: string) {
+  const text = value.replace(/^\[(?:p|para)\.[1-9]\d*\][ \t]*/gm, "");
+  return [...text.matchAll(/(?:가점|가산점|우대점수)[\s\S]{0,40}?(?:총|합계|합산|최대|상한|한도)[ \t\n:：+＋(]*(\d+(?:\.\d+)?)[ \t]*(?:점|\))/g)]
+    .map((match) => Number(match[1]));
 }
 
 function krwAmounts(quote: string) {
@@ -277,7 +299,7 @@ export function normalizeRequirements(raw: unknown, source: RequirementInput | r
     if (text === null) continue;
     for (const match of ageExpressions(text)) {
       const local = text.slice(Math.max(0, match.index! - 100), match.index! + match[0].length + 100);
-      if (!/딥테크|신\s*산업|초격차|예외|특례|다만/.test(local)
+      if (!/딥테크|신\s*산업|초격차|예외|특례|다만|(?:^|[\s※*(])단(?=[\s,，:])/.test(local)
         || !/업력|창업|스타트업|신\s*산업|딥테크/.test(local)
         || initialBounds.includes(Number(match[1]))) continue;
       conditionalAgeBlocks.push({ id, locator, text, alternative: match });
@@ -310,6 +332,27 @@ export function normalizeRequirements(raw: unknown, source: RequirementInput | r
   // condition. Matching must ask for review rather than treat it as no age rule.
   if (!initialBounds.length && own(data, "business_age") !== null && Object.keys(age).length
     && conditionalAgeBlocks.length) ageNeedsReview = true;
+  if (Object.keys(age).length && input.sources.some((source) => hasAlternativeAgeCondition(source.text, initialBounds))) {
+    businessAge.min_years = null;
+    businessAge.max_years = null;
+    businessAge.basis = null;
+    delete evidence["business_age.min_years"];
+    delete evidence["business_age.max_years"];
+    delete evidence["business_age.basis"];
+    // A whole real block can retain the alternative. Different paragraphs are
+    // sufficient to require review, but are never joined into a fake citation.
+    for (const [id, entries] of blocks) {
+      for (const [locator, text] of entries) {
+        if (text === null || !hasAlternativeAgeCondition(text, initialBounds)) continue;
+        const quote = text.trim();
+        businessAge.basis = quote;
+        evidence["business_age.basis"] = `[source:${id} ${locator}] ${quote}`;
+        break;
+      }
+      if (businessAge.basis !== null) break;
+    }
+    ageNeedsReview = true;
+  }
   const asOf = own(age, "as_of");
   const ageDateProof = proof("business_age.as_of");
   if (typeof asOf === "string" && /^\d{4}-\d{2}-\d{2}$/.test(asOf) && ageDateProof
@@ -337,6 +380,16 @@ export function normalizeRequirements(raw: unknown, source: RequirementInput | r
     const item = string(own(entry, "item"), `bonus_points.${index}.item`, `${target}.item`);
     if (item === null) continue;
     bonusPoints.push({ item, points: number(own(entry, "points"), `bonus_points.${index}.points`, "points", `${target}.points`) });
+  }
+  const bonusSum = bonusPoints.reduce((sum, item) => sum + (item.points ?? 0), 0);
+  const bonusCaps = input.sources.flatMap((source) => aggregateBonusCaps(source.text));
+  if (bonusCaps.some((cap) => bonusSum > cap)) {
+    // This schema cannot express a shared aggregate cap. Keep the real items
+    // while refusing independent numbers that would exceed the notice's cap.
+    for (const [index, item] of bonusPoints.entries()) {
+      item.points = null;
+      delete evidence[`bonus_points.${index}.points`];
+    }
   }
   const documents: NonNullable<Requirements["submission_documents"]> = [];
   const rawDocuments = own(data, "submission_documents");
