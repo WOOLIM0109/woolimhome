@@ -4,13 +4,14 @@ export type MatchProfile = {
   targetName: string;
   region: string | null;
   foundedOn: string | null;
-  businessType: null;
+  businessType: string | null;
   industries: string[] | null;
   employees: number | null;
   revenueKrw: number | null;
   certifications: string[] | null;
   hasSupportHistory: boolean;
   missingFields: string[];
+  certificationsComplete?: boolean;
 };
 
 export const SELF_PROFILES = [
@@ -87,13 +88,65 @@ export function customerMatchProfile(customer: CachedCustomerProfile): MatchProf
   };
 }
 
-export function selfMatchProfiles(): MatchProfile[] {
-  return SELF_PROFILES.map((profile) => ({
+/** Approved facts are read from the private store; source code contains placeholders only. */
+export function selfMatchProfiles(rows?: readonly unknown[]): MatchProfile[] {
+  if (rows === undefined) return SELF_PROFILES.map((profile) => ({
     targetKind: "self", targetId: profile.id, targetName: profile.name,
     region: null, foundedOn: null, businessType: null, industries: null,
     employees: null, revenueKrw: null, certifications: null, hasSupportHistory: false,
     missingFields: unknownProfileFields(null, null),
   }));
+  const invalid = () => { throw new Error("자사 프로필 형식이 올바르지 않습니다."); };
+  const object = (value: unknown): Record<string, unknown> => value !== null && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown> : invalid();
+  const text = (value: unknown): string | null => {
+    if (value === undefined || value === null || value === "") return null;
+    if (typeof value !== "string") return invalid();
+    const trimmed = value.trim();
+    return !trimmed || /^(?:확인\s*필요|미확인|불명|unknown|pending)$/i.test(trimmed) ? null : trimmed;
+  };
+  const texts = (value: unknown): string[] | null => {
+    if (value === undefined || value === null) return null;
+    if (!Array.isArray(value)) return invalid();
+    return [...new Set(value.map(text).filter((item): item is string => item !== null))];
+  };
+  const numeric = (value: unknown): number | null => {
+    if (value === undefined || value === null || (typeof value === "string" && text(value) === null)) return null;
+    return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : invalid();
+  };
+  if (rows.length !== SELF_PROFILES.length) return invalid();
+  const seen = new Set<string>();
+  const profiles = rows.map((value) => {
+    const row = object(value), profile = object(row.profile);
+    if (typeof row.id !== "string" || !SELF_PROFILES.some((entry) => entry.id === row.id) || seen.has(row.id)) return invalid();
+    seen.add(row.id);
+    const name = text(row.name);
+    if (!name || typeof row.version !== "number" || !Number.isSafeInteger(row.version) || row.version < 1) return invalid();
+    let region = text(profile.region);
+    // Preserve a known city while leaving an explicitly unconfirmed district blank.
+    if (region?.includes("확인 필요")) region = text(region.replace(/\s*[（(][^）)]*확인\s*필요[^）)]*[）)]/g, ""));
+    const founded = text(profile.founded_on);
+    const date = founded && /^\d{4}-\d{2}-\d{2}$/.test(founded) ? Date.parse(`${founded}T00:00:00Z`) : NaN;
+    const foundedOn = Number.isFinite(date) && new Date(date).toISOString().slice(0, 10) === founded ? founded : null;
+    const businessType = text(profile.business_type), industries = texts(profile.industries);
+    const employees = numeric(profile.employees), revenueKrw = numeric(profile.revenue_krw);
+    const rawCertifications = texts(profile.certifications);
+    const certifications = rawCertifications?.filter((item) => !/확인\s*필요|미확인|유효기간.*확인/.test(item)) ?? null;
+    if (profile.certifications_complete !== undefined && typeof profile.certifications_complete !== "boolean") return invalid();
+    if (profile.has_support_history !== undefined && typeof profile.has_support_history !== "boolean") return invalid();
+    const certificationsComplete = profile.certifications_complete === true && certifications !== null
+      && certifications.length === rawCertifications?.length;
+    return {
+      targetKind: "self" as const, targetId: row.id, targetName: name, region, foundedOn, businessType, industries,
+      employees, revenueKrw, certifications, certificationsComplete, hasSupportHistory: profile.has_support_history === true,
+      missingFields: [
+        ...(region ? [] : ["region"]), ...(foundedOn ? [] : ["foundedOn"]), ...(businessType ? [] : ["businessType"]),
+        ...(industries !== null ? [] : ["industries"]), ...(employees !== null ? [] : ["employees"]),
+        ...(revenueKrw !== null ? [] : ["revenueKrw"]), ...(certificationsComplete ? [] : ["certifications"]),
+      ],
+    };
+  });
+  return SELF_PROFILES.map((row) => profiles.find((profile) => profile.targetId === row.id)!);
 }
 
 /** Calendar months in Asia/Seoul, clamping month-end rather than overflowing it. */

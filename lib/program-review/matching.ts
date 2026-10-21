@@ -11,6 +11,14 @@ export type ProgramMatch = {
 };
 export type MatchOptions = { now: Date | string | number; programDeadlineAt?: string | null };
 export type RankedProgramMatch = ProgramMatch & { programId: string };
+export const MATCHING_RULE_VERSION = 2;
+
+/** Database verdicts stay stable; partial positive matches are explicitly conditional. */
+export function matchVerdictLabel(match: Pick<ProgramMatch, "verdict" | "reasons">) {
+  if (match.verdict === "mismatch") return "제외";
+  if (match.verdict === "unknown") return "확인 필요";
+  return match.reasons.some((reason) => reason.startsWith("조건부 후보:")) ? "조건부 후보" : "후보";
+}
 
 const DAY = 86_400_000;
 const REGION_ALIASES: Array<[string, string[]]> = [
@@ -68,7 +76,8 @@ function certification(value: string) {
   return names[text] || text;
 }
 function certificationsComplete(profile: MatchProfile) {
-  return profile.certifications !== null && !profile.missingFields.some((field) => /certificat|인증/i.test(field));
+  return profile.certifications !== null && profile.certificationsComplete !== false
+    && !profile.missingFields.some((field) => /certificat|인증/i.test(field));
 }
 function industry(value: string) {
   const text = normalized(value);
@@ -112,7 +121,9 @@ function scoring(requirements: Requirements, profile: MatchProfile, now: number,
     score += 5; reasons.push("마감 여유 7일 이상 +5");
   }
   if (profile.hasSupportHistory) { score += 5; reasons.push("과거 지원사업 이력 +5"); }
-  const held = new Set((certificationsComplete(profile) ? profile.certifications! : []).map(certification));
+  // A verified held certificate is usable even when the rest of the inventory
+  // is incomplete. An unknown absence can never establish a rejection.
+  const held = new Set((profile.certifications || []).map(certification));
   const awarded = new Set<string>();
   for (const [index, bonus] of (requirements.bonus_points || []).entries()) {
     if (bonus.item && bonus.points !== null && Number.isFinite(bonus.points) && bonus.points > 0
@@ -140,7 +151,8 @@ export function matchProgram(requirements: Requirements, profiles: MatchProfile[
   const geographic = regions?.map(region);
   const regionEvidence = regions?.map((_, index) => requirements.evidence![`regions.${index}`]).join(" ") || "";
   const simpleRegion = geographic?.every((entry) => entry?.broadOnly)
-    && !/이전|전입|지점|예정|제외|일부/.test(regionEvidence);
+    && !/이전|전입|지점|예정|제외|일부|무관|관계없이|상관없이|불문|아니어도|제한\s*없|필수[\s\S]{0,20}아니/.test(regionEvidence);
+  const exclusiveRegion = simpleRegion && /한정|(?:소재|본사|본점|사업장|거주)[\s\S]{0,100}(?:기업만|사업자만|신청|지원\s*대상|신청\s*자격)|(?:신청|지원\s*대상|신청\s*자격)[\s\S]{0,100}(?:소재|본사|본점|사업장|거주)/.test(regionEvidence);
   const allowedRegions = new Set(geographic?.map((entry) => entry?.name));
   const allRegionsMismatch = Boolean(profiles.length && simpleRegion && !allowedRegions.has("부산") && !allowedRegions.has("전국")
     && profiles.every((profile) => {
@@ -154,23 +166,39 @@ export function matchProgram(requirements: Requirements, profiles: MatchProfile[
   return profiles.map((profile) => {
     const mismatches: string[] = [];
     const unknowns: string[] = [];
+    const positives: string[] = [];
     if (Number.isFinite(now) && deadline !== null && deadline < now) mismatches.push("공고 마감이 지남");
     if (allInstitutions) mismatches.push("대상이 연구기관·대학·지자체 전용");
     if (allRegionsMismatch) mismatches.push("부산·전국 공고가 아니며 대상 전원의 확인된 지역과 불일치");
+    if (!allRegionsMismatch && exclusiveRegion && !allowedRegions.has("전국")) {
+      const location = region(profile.region);
+      if (location && location.name !== "전국" && !allowedRegions.has(location.name)) mismatches.push("원문의 명시된 소재지 제한과 확인된 대상 지역 불일치");
+    }
     if (!Number.isFinite(now)) unknowns.push("판정 기준 시각 정보 부족");
     if (deadline === null) unknowns.push("공고 마감 시각 정보 부족");
     const missing = new Set(profile.missingFields);
     if (!profile.region) missing.add("region");
-    if (!profile.foundedOn) missing.add("founded_on");
+    if (isoDay(profile.foundedOn) === null) missing.add("founded_on");
+    if (!profile.businessType) missing.add("businessType");
     if (profile.industries === null) missing.add("industries");
-    if (missing.size) unknowns.push(`프로필 정보 부족: ${[...missing].sort().join(", ")}`);
+    if (profile.employees === null) missing.add("employees");
+    if (profile.revenueKrw === null) missing.add("revenueKrw");
+    if (!certificationsComplete(profile)) missing.add("certifications");
+    if (missing.size) unknowns.push(`프로필 확인 필요(정보 부족): ${[...missing].sort().join(", ")}`);
     if (!regions) unknowns.push("공고 지역 요건의 확정 근거 정보 부족");
+    else if (simpleRegion && allowedRegions.has("전국")) positives.push("확인된 지역 일치: 전국 대상");
     else if (!simpleRegion || !region(profile.region)) unknowns.push("지역 세부 요건 또는 대상 지역 정보 부족");
     else if (!allowedRegions.has("전국") && !allowedRegions.has(region(profile.region)!.name) && !allRegionsMismatch) {
       unknowns.push("지역 요건 추가 확인 필요: 대상 전원의 불일치가 확정되지 않음");
     }
+    else if (simpleRegion && region(profile.region) && (allowedRegions.has("전국") || allowedRegions.has(region(profile.region)!.name))) {
+      positives.push(`확인된 지역 일치: ${allowedRegions.has("전국") ? "전국 대상" : region(profile.region)!.name}`);
+    }
     if (!types) unknowns.push("공고 대상 요건의 확정 근거 정보 부족");
     else if (types.every(institutionOnly) && !allInstitutions) unknowns.push("기관과 기업의 참여 범위는 정독 확인 필요");
+    if (types && profile.businessType && types.some((type) => normalized(type) === normalized(profile.businessType!))) {
+      positives.push(`확인된 사업자 유형 일치: ${profile.businessType}`);
+    }
 
     const age = requirements.business_age;
     if (age && age.min_years === null && age.max_years === null) {
@@ -195,6 +223,9 @@ export function matchProgram(requirements: Requirements, profiles: MatchProfile[
           const boundary = anniversary(founded, years);
           if (key === "min_years" && boundary > asOf) mismatches.push(`원문 기준일 ${age.as_of} 기준 업력 ${years}년 미달`);
           if (key === "max_years" && boundary < asOf) mismatches.push(`원문 기준일 ${age.as_of} 기준 업력 ${years}년 초과`);
+          if ((key === "min_years" && boundary <= asOf) || (key === "max_years" && boundary >= asOf)) {
+            positives.push(`확인된 업력 ${label} 요건 일치: 원문 기준일 ${age.as_of}`);
+          }
         }
       }
     }
@@ -213,19 +244,23 @@ export function matchProgram(requirements: Requirements, profiles: MatchProfile[
     if (requirements.required_certifications?.length && !certifications) unknowns.push("필수 인증의 확정 근거 정보 부족");
     if (certifications?.length) {
       const evidence = certifications.map((_, index) => requirements.evidence![`required_certifications.${index}`]).join(" ");
-      if (!certificationsComplete(profile)) unknowns.push("필수 인증 비교 정보 부족: 현재 인증 보유 현황 확인 필요");
-      else if (/또는|혹은|택\s*1|택일|중\s*(?:하나|1|한)|하나\s*이상|우대|가점|권장|선택|면제|해당\s*시/.test(evidence)) {
+      if (/또는|혹은|택\s*1|택일|중\s*(?:하나|1|한)|하나\s*이상|우대|가점|권장|선택|면제|해당\s*시/.test(evidence)) {
         unknowns.push("필수 인증의 선택·예외 조건은 정독 확인 필요");
       }
       else {
-        const held = new Set(profile.certifications!.map(certification));
+        const held = new Set((profile.certifications || []).map(certification));
         const missingCertifications = certifications.filter((item) => !held.has(certification(item)));
-        if (missingCertifications.length) mismatches.push(`필수 인증 미보유가 확인됨: ${missingCertifications.join(", ")}`);
+        if (!missingCertifications.length) positives.push(`확인된 필수 인증 일치: ${certifications.join(", ")}`);
+        else if (!certificationsComplete(profile)) unknowns.push("필수 인증 비교 정보 부족: 현재 인증 보유 현황 확인 필요");
+        else mismatches.push(`필수 인증 미보유가 확인됨: ${missingCertifications.join(", ")}`);
       }
     }
     // Inclusion and size constraints are left for reading; they are outside automatic rejection rules.
     if (requirements.industries_included?.length && (!included || !profile.industries?.some((held) => included.some((item) => industry(held) === industry(item))))) {
       unknowns.push("포함 업종 요건은 정독 확인 필요");
+    }
+    else if (included && profile.industries?.some((held) => included.some((item) => industry(held) === industry(item)))) {
+      positives.push("확인된 포함 업종 일치");
     }
     for (const [key, field, label] of [["max_employees", "employees", "상시근로자"], ["max_revenue_krw", "revenueKrw", "매출"]] as const) {
       const limit = requirements.size?.[key];
@@ -233,12 +268,15 @@ export function matchProgram(requirements: Requirements, profiles: MatchProfile[
         && (!hasEvidence(requirements, `size.${key}`) || profile[field] === null || profile[field] > limit)) {
         unknowns.push(`${label} 상한 요건은 정독 확인 필요`);
       }
+      else if (limit !== null && limit !== undefined) positives.push(`확인된 ${label} 상한 요건 일치`);
     }
     const scored = scoring(requirements, profile, now, deadline);
-    const verdict = mismatches.length ? "mismatch" : unknowns.length ? "unknown" : "candidate";
+    const conditional = unknowns.length > 0 && positives.length > 0 && Number.isFinite(now);
+    const verdict = mismatches.length ? "mismatch" : unknowns.length && !conditional ? "unknown" : "candidate";
     return {
       targetKind: profile.targetKind, targetId: profile.targetId, targetName: profile.targetName, verdict,
-      reasons: [...new Set([...mismatches, ...unknowns, ...scored.reasons, ...(verdict === "candidate" ? ["명백한 제외 요건에 해당하지 않음"] : [])])],
+      reasons: [...new Set([...mismatches, ...unknowns, ...positives, ...scored.reasons,
+        ...(verdict === "candidate" ? [conditional ? "조건부 후보: 확인된 일치가 있으며 나머지 요건은 확인 필요" : "명백한 제외 요건에 해당하지 않음"] : [])])],
       score: scored.score,
     };
   });
