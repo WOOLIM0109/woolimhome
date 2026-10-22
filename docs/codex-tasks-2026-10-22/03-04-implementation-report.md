@@ -70,17 +70,46 @@
 
 - 순서대로 `npm run typecheck` → `npm run lint` → `npm run verify` 실행.
 - 최초 전체 verify: **1,327개, 통과 1,322, 실패 0, 생략 5**. 기존 환경 조건부 생략은 유지했다. 뒤이어 수정한 검사·지정 제작·화면/이어가기 테스트는 별도로 통과했다.
+- 추가 수정 후 전체 verify: **1,335개, 통과 1,330, 실패 0, 생략 5**. 최종 검토에서는 목표 8개에 승인 폴더 밖 캐시가 포함되어 정상 검사를 막는 경우를 발견해, 목표 개수 계산에만 실제 선정 대상 조건을 추가했다. 중복 판정 결과는 유지한다. 해당 회귀를 포함한 원본 검사 테스트 **20/20**을 통과했다.
 - 지정 제작 PGlite 6개: 실제 기존 SQL 예약·6단계 큐·PC 대기열, 원장 링크, 지문 면제 거부, 재전송, PC 등록 실패 복구, 자동/수동 동시 실행, 부분 검사 후 선정 검증.
 - 화면/prepare/status stub 13개: 검사 이어가기 14회, 4종 문구, 비활성 조건, 확인창, 같은 requestId, 기존 검수 작업 정지, 변환 대기 이어가기, 초기 미승인 설정, 읽기 오류 처리.
 - 지정한 기존 source-inspection/portfolio-selection/project-dedupe/token-refresh 회귀 테스트 통과. 새 크론 상수 관계 테스트는 90초 검사 기한 뒤 기존 `topicPlan` 70초가 240초 예산에 들어가는 관계를 고정한다.
 - 테스트는 외부 Gemini·NAVER WORKS·Supabase 요청 없이 실행한다. 운영 SELECT와 구분한다.
 - 최종 CI·Vercel 결과와 커밋은 PR에서 확인하며 병합/운영 배포는 하지 않는다.
 
+최초 코드 커밋: `831937df9e2692a3abe8ebfb815ec23bdc75bc85` (선정 대상 8개 계산 회귀 수정은 PR의 후속 커밋). [PR 161](https://github.com/WOOLIM0109/woolimhome/pull/161)은 정확한 운영 집계·Range 실측 보완 전까지 Draft다. 최초 코드의 Vercel 미리보기 `dpl_5E5qxNRDNzxtrVBs3uCMQMwGXf8Y`는 **READY**를 확인했다. 미리보기 화면 접속은 별도의 브라우저 승인 게이트에서 거부되어 실행 결과를 확인하지 못했다.
+
 ## 변경 경계
 
 `lib/content-ops/*` **0개**, `lib/gemini/*` **0개**, `WorkQueue.tsx` **0개**, 마이그레이션 **0개**, 컨설팅·노하우형 라우트 **0개** 변경.
 
 공유 파일 전체가 0개라고 보고할 수는 없다. 명시적으로 허용된 **크론 1개**에 포트폴리오 분기 `deadlineAt` 전달과 `localProgress.inspection` 기록만 변경했다(추가 2줄·삭제 1줄). 자동 생성 대상·순서·RUN_BUDGET_MS·GENERATION_BUDGET_MS는 그대로다. prepare 변경은 03의 요청 기한·검사 이어가기와 기존 포트폴리오 선행 단계 상태 구분을 위해 필요하다. status는 정확한 요약, 새 컴포넌트 보조 파일은 두 포트폴리오 버튼의 이어가기 재사용을 위해 추가했다.
+
+코드 diff 확인 명령: `git diff main...831937d --stat -- app components lib` (보고서 자체는 제외).
+
+```text
+ .../naver-works/candidates/[id]/produce/route.ts   |  57 ++++++
+ .../admin/naver-works/candidates/preview/route.ts  |  10 +-
+ app/api/admin/naver-works/prepare/route.ts         |  64 ++++--
+ app/api/admin/naver-works/status/route.ts          |  61 +++++-
+ app/api/cron/content-operations/route.ts           |   3 +-
+ components/admin/NaverWorksDrivePanel.tsx          |  93 +++++++--
+ components/admin/PortfolioGenerateButton.tsx       |  37 +---
+ components/admin/portfolio-candidate-state.ts      |  33 ++++
+ components/admin/portfolio-progress.ts             |  59 ++++++
+ lib/naver-works/portfolio-pipeline.ts              | 214 ++++++++++++++-------
+ lib/naver-works/portfolio-produce.test.mjs          | 168 ++++++++++++++++
+ lib/naver-works/portfolio-selection.ts             |   5 +
+ lib/naver-works/source-inspection.test.mjs          | 107 ++++++++++-
+ lib/naver-works/token-refresh.test.mjs              |   6 +-
+ lib/portfolio/dedupe-inventory.ts                  | 159 ++++++++++-----
+ lib/portfolio/inspection-cron-budget.test.mjs       |  19 ++
+ lib/portfolio/manual-controls.test.mjs             | 175 +++++++++++++++++
+ lib/portfolio/source-inspection.ts                 |  20 +-
+ 18 files changed, 1079 insertions(+), 211 deletions(-)
+```
+
+`git diff main...831937d --numstat -- lib/content-ops lib/gemini components/admin/WorkQueue.tsx supabase/migrations` 출력은 **없음(0개)**이다.
 
 ## 운영 반영과 대표 확인
 

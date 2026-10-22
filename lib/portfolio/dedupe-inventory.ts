@@ -4,7 +4,7 @@ import { normalizePortfolioProjectName } from "./project-name";
 import type { CandidateRow } from "../naver-works/portfolio-selection";
 import { fingerprintPortfolioImage } from "./image-fingerprint";
 import JSZip from "jszip";
-import { driveFile, projectScore, explorationScore } from "../naver-works/portfolio-selection";
+import { driveFile, projectScore, explorationScore, metadataEligible } from "../naver-works/portfolio-selection";
 import { accessToken, downloadSharedDriveFile, DriveFileDownloadError } from "../naver-works/client";
 import { PORTFOLIO_FONT_POLICY_VERSION, portfolioFontExclusion } from "./font-policy";
 import { readPptxSourceFonts } from "./source-fonts";
@@ -202,7 +202,8 @@ export async function readPortfolioDedupeInventory(threshold: number, options: P
       && candidate.metadata?.inspectionState === "pending" && file && /\.pptx$/i.test(file.file_name)
       && file.file_size <= PORTFOLIO_SOURCE_MAX_BYTES;
   }).sort((a, b) => projectScore(b) - projectScore(a) || explorationScore(b) - explorationScore(a) || a.id.localeCompare(b.id));
-  const acceptedCount = () => acceptedRows().filter(row => !options.candidateId || row.id === options.candidateId).length;
+  const acceptedCount = () => acceptedRows().filter(metadataEligible)
+    .filter(row => !options.candidateId || row.id === options.candidateId).length;
   // Reserve the remaining acceptance slots for in-flight work, keeping both the
   // download concurrency and the eight-result target bounded.
   let next = 0, inFlight = 0;
