@@ -22,7 +22,7 @@ import {
   resolveApprovedMockupSlots,
 } from "./approved-16x9-templates.ts";
 import { renderProductionApprovedMockup as renderApprovedMockup } from "./production-approved-renderer.ts";
-import { getApprovedMockupSuite } from "./approved-mockup-suites.ts";
+import { autoApprovedSuite, isNewlyOpenedApprovedCase } from "./mockup-route.ts";
 import { multiPageGridDimensions } from "./grid-layout";
 import {
   findDuplicatePortfolioImage,
@@ -906,7 +906,7 @@ export async function createPortfolioMockups(input: {
     throw new Error(coverSlideBlockedMessage(plan.coverBlockedReason || "redaction_excluded"));
   }
   const aspect = aggregateAspectClass(selectedSlides);
-  const approvedSuite = aspect.primary ? getApprovedMockupSuite(aspect.primary) : null;
+  const approvedSuite = autoApprovedSuite(aspect.primary);
   const approvedBodyCapacity = approvedSuite?.bodyTemplates.reduce(
     (sum, template) => sum + resolveApprovedMockupSlots(template).length,
     0,
@@ -915,7 +915,7 @@ export async function createPortfolioMockups(input: {
     ? shortMockupRankedIndexes(plan.selection, aspect.primary === "4:3" ? 13 : 14)
       .map((index) => slideMap.get(index))
       .filter((slide): slide is LoadedSlide => Boolean(slide))
-    : aspect.primary === "a4_landscape"
+    : approvedSuite !== null
       ? shortMockupRankedIndexes(plan.selection, approvedBodyCapacity)
       .map((index) => slideMap.get(index))
       .filter((slide): slide is LoadedSlide => Boolean(slide))
@@ -925,7 +925,7 @@ export async function createPortfolioMockups(input: {
     : rankedMockupSlides;
   const slidesForUniquenessCheck = plan.mode === "short"
     ? shortSlidesForRenderer
-    : aspect.primary === "a4_landscape"
+    : approvedSuite !== null
       ? rankedMockupSlides
       : selectedSlides;
   assertVisuallyUniqueSlides(slidesForUniquenessCheck);
@@ -937,56 +937,75 @@ export async function createPortfolioMockups(input: {
     "문서 후반부까지 이어지는 디자인 일관성을 확인하는 다중 페이지 목업",
   ];
 
-  const bodyOutputs = plan.mode === "short"
-    ? await (async () => {
-      if (!aspect.primary) {
-        throw new Error("PPT 규격을 16:9, 4:3, A4 가로, A4 세로 중 하나로 판별하지 못했습니다.");
-      }
-      const result = await renderShortDocumentMockups({
-        deckSlideCount: input.slidePaths.length,
-        aspectClass: aspect.primary,
-        slides: shortSlidesForRenderer.map((slide) => ({ index: slide.index, buffer: slide.buffer })),
-      });
-      return result.boards.map((board) => ({
-        ...board,
-        mockupMode: "short_psd" as const,
+  if (plan.mode === "short" && !aspect.primary) {
+    throw new Error("PPT 규격을 16:9, 4:3, A4 가로, A4 세로 중 하나로 판별하지 못했습니다.");
+  }
+  const coverTitle = privacySafeThumbnailTitle(input.review, input.coverTitle);
+  const renderShortBodies = async (forceLegacyLayout = false) => {
+    const result = await renderShortDocumentMockups({
+      deckSlideCount: input.slidePaths.length,
+      aspectClass: aspect.primary!,
+      slides: (forceLegacyLayout ? rankedMockupSlides : shortSlidesForRenderer)
+        .map((slide) => ({ index: slide.index, buffer: slide.buffer })),
+      forceLegacyLayout,
+    });
+    return result.boards.map((board) => ({
+      ...board,
+      mockupMode: "short_psd" as const,
+      aspectClass: aspect.aspectClass,
+    }));
+  };
+  const renderLegacyBodies = async () => {
+    // Recovery must check every source used by the old layouts, including the
+    // long-document pages outside an approved suite's smaller slot capacity.
+    assertVisuallyUniqueSlides(plan.mode === "short" ? rankedMockupSlides : selectedSlides);
+    return plan.mode === "short" ? renderShortBodies(true)
+      : Promise.all(groupSlides.map(async (group, index) => ({
+        kind: "body_image" as const,
+        name: `multi-page-${index + 1}.jpg`,
+        bytes: await multiPageBoard(group, index),
+        caption: captions[index],
+        slideIndexes: group.map((slide) => slide.index),
+        slideAspectRatio: representativeSlideAspectRatio(group),
+        mockupMode: "six_grid" as const,
         aspectClass: aspect.aspectClass,
-      }));
-    })()
-    : aspect.primary === "a4_landscape"
-      ? (await renderApprovedTemplateBodyMockups({
-        aspectClass: "a4_landscape",
+      })));
+  };
+  const renderApprovedOutputs = async (suite: NonNullable<typeof approvedSuite>) => {
+    const bodies = plan.mode === "short" ? await renderShortBodies()
+      : (await renderApprovedTemplateBodyMockups({
+        aspectClass: suite.aspectClass,
         slides: rankedMockupSlides.map((slide) => ({ index: slide.index, buffer: slide.buffer })),
       })).boards.map((board) => ({
         ...board,
         mockupMode: "short_psd" as const,
         aspectClass: aspect.aspectClass,
-      }))
-    : await Promise.all(groupSlides.map(async (group, index) => ({
-      kind: "body_image" as const,
-      name: `multi-page-${index + 1}.jpg`,
-      bytes: await multiPageBoard(group, index),
-      caption: captions[index],
-      slideIndexes: group.map((slide) => slide.index),
-      slideAspectRatio: representativeSlideAspectRatio(group),
-      mockupMode: "six_grid" as const,
-      aspectClass: aspect.aspectClass,
-    })));
-  console.info(`[portfolio-mockup] rendered ${bodyOutputs.length} body board(s)`);
-  const coverTitle = privacySafeThumbnailTitle(input.review, input.coverTitle);
-  const approvedThumbnail = approvedSuite
-    && (plan.mode === "short" || aspect.primary === "a4_landscape")
-    ? await renderApprovedMockup({
-      template: approvedSuite.thumbnail,
+      }));
+    const cover = await renderApprovedMockup({
+      template: suite.thumbnail,
       slides: approvedSlidesWithCover(
-        thumbnailSlide,
-        rankedMockupSlides,
-        resolveApprovedMockupSlots(approvedSuite.thumbnail).length,
-      )
-        .map((slide) => ({ index: slide.index, buffer: slide.buffer })),
+        thumbnailSlide, rankedMockupSlides, resolveApprovedMockupSlots(suite.thumbnail).length,
+      ).map((slide) => ({ index: slide.index, buffer: slide.buffer })),
       title: coverTitle,
-    })
-    : null;
+    });
+    return { bodies, cover };
+  };
+  let approvedOutputs: Awaited<ReturnType<typeof renderApprovedOutputs>> | null = null;
+  if (approvedSuite) {
+    try {
+      // Nothing is uploaded until all four bodies AND the thumbnail succeed.
+      approvedOutputs = await renderApprovedOutputs(approvedSuite);
+    } catch (error) {
+      if (!isNewlyOpenedApprovedCase({ mode: plan.mode, aspectPrimary: aspect.primary })) throw error;
+      const message = error instanceof Error ? error.message : "";
+      const code = message.match(/\bAPPROVED_SERVER_(?:RENDER_[A-Z0-9_]+|NETWORK_FORBIDDEN)\b/)?.[0]
+        || "APPROVED_RENDER_FAILED";
+      console.warn(`[portfolio-mockup] approved long/portrait render failed, legacy used code=${code}`);
+    }
+  }
+  const bodyOutputs = approvedOutputs?.bodies || await renderLegacyBodies();
+  const approvedThumbnail = approvedOutputs?.cover || null;
+  console.info(`[portfolio-mockup] rendered ${bodyOutputs.length} body board(s)`);
   const thumbnailOutput = approvedThumbnail
     ? {
       kind: "thumbnail" as const,
