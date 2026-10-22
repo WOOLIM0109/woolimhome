@@ -8,6 +8,7 @@
  */
 
 import { supportedPortfolioFile } from "./source-file.ts";
+import type { PortfolioInspectionMetrics } from "../portfolio/dedupe-inventory";
 
 export type CandidateRow = {
   id: string;
@@ -224,6 +225,9 @@ export type PortfolioPrepareResult =
     inspected: number;
     eligible: number;
     reason: string;
+    inspection?: PortfolioInspectionMetrics;
+    inspectionPending?: boolean;
+    duplicateMatch?: { title: string; url?: string };
   }
   | {
     prepared: true;
@@ -234,4 +238,5 @@ export type PortfolioPrepareResult =
     projectName: string;
     score: number;
     shortlistCount: number;
+    inspection?: PortfolioInspectionMetrics;
   };

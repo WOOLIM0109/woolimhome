@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { Cloud, FileSearch, Loader2, RefreshCw, ShieldCheck } from "lucide-react";
+import { continuePortfolioPreparation } from "./portfolio-progress";
+import { candidateInspectionLabel, candidateProductionBlockReason } from "./portfolio-candidate-state";
 
 type Candidate = {
   id: string;
@@ -10,9 +12,13 @@ type Candidate = {
   quality_score: number;
   privacy_risk: string;
   font_status: string;
+  fileName: string;
+  fileSize: number;
+  normalizedProjectName: string;
+  fontExclusionReason?: string | null;
   selection_reasons: string[];
   exclusion_reasons?: string[];
-  metadata?: { imageReviewReason?: string; fontReviewReason?: string; duplicateMatch?: { title: string; url?: string; candidateId?: string } };
+  metadata?: { inspectionState?: string; sourceInspectionFailure?: { reason?: string }; imageReviewReason?: string; fontReviewReason?: string; duplicateMatch?: { title: string; url?: string; candidateId?: string } };
 };
 
 type StatusPayload = {
@@ -30,6 +36,9 @@ type StatusPayload = {
   /** 승인 폴더 안에서 지켜보는 전체 건수 (제외·사용 완료 포함). */
   trackedCount?: number;
   statusCounts?: Record<string, number>;
+  inspectionSummary?: { producible: number; pending: number; noPreview: number; tooLarge: number; failed: number };
+  activePortfolioCount?: number;
+  heldPortfolioItems?: { id: string; title: string; status: string }[];
   candidates: Candidate[];
   error?: string;
 };
@@ -49,6 +58,7 @@ export default function NaverWorksDrivePanel() {
   const [syncing, setSyncing] = useState(false);
   const [preparing, setPreparing] = useState(false);
   const [message, setMessage] = useState("");
+  const [duplicateMatch, setDuplicateMatch] = useState<{ title: string; url: string } | null>(null);
   const [publishedCandidate, setPublishedCandidate] = useState<string | null>(null);
   const [publishedUrl, setPublishedUrl] = useState("");
   const [publishedTitle, setPublishedTitle] = useState("");
@@ -98,6 +108,7 @@ export default function NaverWorksDrivePanel() {
   async function syncNow() {
     setSyncing(true);
     setMessage("");
+    setDuplicateMatch(null);
     try {
       const response = await fetch("/api/admin/naver-works/sync", { method: "POST" });
       const payload = await response.json();
@@ -117,18 +128,12 @@ export default function NaverWorksDrivePanel() {
   async function prepareNext() {
     setPreparing(true);
     setMessage("");
+    setDuplicateMatch(null);
     try {
-      let finalMessage = "";
-      for (let attempt = 0; attempt < 12; attempt += 1) {
-        const response = await fetch("/api/admin/naver-works/prepare", { method: "POST" });
-        const payload = await response.json();
-        if (!response.ok) throw new Error(payload.error || "포트폴리오 준비에 실패했습니다.");
-        finalMessage = payload.message;
-        setMessage(`${payload.message}${payload.shouldContinue ? ` · ${attempt + 1}단계 처리 중` : ""}`);
-        if (!payload.shouldContinue || payload.stage === "review") break;
-        await new Promise((resolve) => window.setTimeout(resolve, payload.stage === "converting" ? 5000 : 900));
+      const progress = await continuePortfolioPreparation({ requestId: crypto.randomUUID(), onProgress: payload => setMessage(payload.message) });
+      if (progress.stage && !["inspecting", "empty", "cancelled"].includes(progress.stage)) {
+        window.setTimeout(() => window.location.reload(), 800);
       }
-      setMessage(finalMessage);
       await loadStatus();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "포트폴리오 준비에 실패했습니다.");
@@ -137,7 +142,41 @@ export default function NaverWorksDrivePanel() {
     }
   }
 
+  async function produceCandidate(candidate: Candidate) {
+    const confirmed = window.confirm(`이 후보로 제작할까요?\n\n파일명: ${candidate.fileName}\n정규화 이름: ${candidate.normalizedProjectName || "확인 필요"}\n\n진행하면 회사 PC가 이 파일을 열어 변환하고 AI 본문 비용이 듭니다. 완성된 초안은 발행 전 검수를 거칩니다.`);
+    if (!confirmed) return;
+    const requestId = crypto.randomUUID();
+    setPreparing(true);
+    setMessage(`${candidate.fileName} 원본과 중복 여부를 확인하고 있습니다.`);
+    setDuplicateMatch(null);
+    try {
+      const response = await fetch(`/api/admin/naver-works/candidates/${candidate.id}/produce`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ requestId }),
+      });
+      const payload = await response.json();
+      if (!response.ok) {
+        if (typeof payload.duplicateMatch?.url === "string" && payload.duplicateMatch.url.startsWith("https://blog.naver.com/wl_0109/")) {
+          setDuplicateMatch({ title: payload.duplicateMatch.title || "겹친 기존 글", url: payload.duplicateMatch.url });
+        }
+        throw new Error(payload.error || "지정한 후보로 제작을 시작하지 못했습니다.");
+      }
+      setMessage(payload.message);
+      if (payload.shouldContinue) {
+        await continuePortfolioPreparation({ requestId, onProgress: progress => setMessage(progress.message) });
+      }
+      window.setTimeout(() => window.location.reload(), 800);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "지정한 후보로 제작을 시작하지 못했습니다.");
+    } finally {
+      await loadStatus();
+      setPreparing(false);
+    }
+  }
+
   const connected = data?.connection?.status === "connected";
+  const heldPortfolioItems = data?.heldPortfolioItems || [];
 
   return (
     <section className="card mt-8 overflow-hidden">
@@ -170,7 +209,7 @@ export default function NaverWorksDrivePanel() {
             </button>
             <button
               type="button"
-              disabled={!connected || preparing}
+              disabled={!connected || preparing || Boolean(data?.activePortfolioCount)}
               onClick={prepareNext}
               className="inline-flex items-center gap-2 rounded-xl border border-[var(--primary)] bg-white px-4 py-3 text-sm font-bold text-[var(--primary)] disabled:cursor-not-allowed disabled:opacity-50"
             >
@@ -227,7 +266,8 @@ export default function NaverWorksDrivePanel() {
               </div>
             )}
 
-            {message && <p className="mt-4 rounded-xl bg-[#f7f7f7] p-4 text-sm">{message}</p>}
+            {message && <p role="status" aria-live="polite" className="mt-4 rounded-xl bg-[#f7f7f7] p-4 text-sm">{message}</p>}
+            {duplicateMatch && <a className="mt-2 inline-block text-sm underline" href={duplicateMatch.url}>겹친 기존 글: {duplicateMatch.title}</a>}
             {data?.connection?.last_error && (
               <p className="mt-4 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-900">
                 마지막 오류: {data.connection.last_error}
@@ -238,15 +278,29 @@ export default function NaverWorksDrivePanel() {
               <FileSearch className="text-[var(--primary)]" size={20} />
               <h3 className="font-bold">자동 선별된 최근 후보</h3>
             </div>
+            {data?.inspectionSummary && <p className="mt-2 text-sm text-[var(--muted)]">
+              대기 후보 {data.candidateCount}개 · 제작 가능 {data.inspectionSummary.producible} · 검사 전 {data.inspectionSummary.pending} · 미리보기 없음 {data.inspectionSummary.noPreview} · 큰 파일 {data.inspectionSummary.tooLarge} · 원본 확인 실패 {data.inspectionSummary.failed}
+            </p>}
+            {heldPortfolioItems.length > 0 && <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950">
+              검수 필요·보류 작업 {heldPortfolioItems.length}건: {heldPortfolioItems.map(item => item.title).join(" · ")}. 기존 작업 큐에서 실패 사유를 확인해 주세요. 페이지 구성 판정에서 제외된 작업은 자동으로 다시 처리하지 않습니다.
+            </div>}
             {data?.candidates?.length ? (
               <div className="mt-3 divide-y divide-[var(--line)] rounded-xl border border-[var(--line)]">
-                {data.candidates.map((candidate) => (
+                {data.candidates.map((candidate) => {
+                  const blockedReason = candidateProductionBlockReason(candidate, { connected, activePortfolioCount: data.activePortfolioCount || 0, preparing });
+                  const inspectionLabel = candidateInspectionLabel(candidate);
+                  return (
                   <article id={`candidate-${candidate.id}`} key={candidate.id} className="flex flex-col gap-2 p-4 sm:flex-row sm:items-center sm:justify-between">
                     <div>
                       <h4 className="font-bold">{candidate.project_name}</h4>
-                      {candidate.status === "candidate" && candidate.metadata?.imageReviewReason && <p className="text-sm text-amber-800">검수 필요 · {candidate.metadata.imageReviewReason}</p>}
-                      {candidate.status === "candidate" && candidate.metadata?.fontReviewReason && <p className="text-sm text-amber-800">{candidate.metadata.fontReviewReason}</p>}
-                      {candidate.status === "candidate" && <button type="button" className="mt-2 text-sm underline" onClick={() => setPublishedCandidate(candidate.id)}>이미 블로그에 있음</button>}
+                      {candidate.status === "candidate" && inspectionLabel && <p className="text-sm text-amber-800">{inspectionLabel}</p>}
+                      {candidate.status === "candidate" && <div className="mt-2 flex flex-wrap items-center gap-3">
+                        <button type="button" disabled={Boolean(blockedReason)} title={blockedReason || undefined}
+                          className="rounded-lg border border-[var(--primary)] px-3 py-2 text-sm font-bold text-[var(--primary)] disabled:cursor-not-allowed disabled:opacity-50"
+                          onClick={() => void produceCandidate(candidate)}>이 후보로 제작</button>
+                        <button type="button" className="text-sm underline" onClick={() => setPublishedCandidate(candidate.id)}>이미 블로그에 있음</button>
+                        {blockedReason && <p className="text-xs text-[var(--muted)]">{blockedReason}</p>}
+                      </div>}
                       {candidate.status === "excluded" && <details className="mt-2 text-sm"><summary>중복·제외 사유 보기</summary>
                         {(candidate.exclusion_reasons || []).map(reason => <p key={reason}>{reason}</p>)}
                         {candidate.metadata?.duplicateMatch && <a className="underline" href={candidate.metadata.duplicateMatch.url?.startsWith("https://blog.naver.com/wl_0109/")
@@ -258,14 +312,15 @@ export default function NaverWorksDrivePanel() {
                         <button type="button" disabled={savingPublication || !publishedTitle.trim() || !publishedUrl.trim()} onClick={() => void registerPublished()}>원장 등록 및 후보 제외</button>
                         <button type="button" onClick={() => setPublishedCandidate(null)}>취소</button>
                       </div>}
-                      <p className="mt-1 text-xs text-[var(--muted)]">{candidate.selection_reasons.join(" · ")}</p>
+                      <p className="mt-1 text-xs text-[var(--muted)]">{(candidate.selection_reasons || []).join(" · ")}</p>
                     </div>
                     <div className="flex items-center gap-2 text-xs font-bold">
                       <span className="rounded-full bg-[#fff3e9] px-3 py-1.5">적합도 {Math.round(candidate.quality_score)}점</span>
                       <span className="rounded-full bg-slate-100 px-3 py-1.5">{candidate.status === "excluded" && candidate.exclusion_reasons?.some(reason => reason.startsWith("중복:")) ? "중복 제외" : CANDIDATE_STATUS_LABELS[candidate.status] || candidate.status}</span>
                     </div>
                   </article>
-                ))}
+                  );
+                })}
               </div>
             ) : (
               <div className="mt-3 flex gap-3 rounded-xl border border-dashed border-[var(--line)] p-5 text-sm text-[var(--muted)]">

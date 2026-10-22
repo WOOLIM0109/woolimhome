@@ -18,6 +18,7 @@ export const runtime = "nodejs";
 export const maxDuration = 300;
 
 export async function POST(request: Request) {
+  const requestStartedAt = Date.now();
   const user = await authenticatedAdmin();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   try {
@@ -50,6 +51,32 @@ export async function POST(request: Request) {
       candidateId = typeof active?.metadata?.candidateId === "string"
         ? active.metadata.candidateId
         : undefined;
+    }
+
+    type PipelineJob = { job_type: string; status: string; attempts?: number; next_retry_at?: string | null; error_message?: string | null };
+    let savedPipelineJobs: PipelineJob[] | null = null;
+    async function readPipelineJobs() {
+      if (savedPipelineJobs) return savedPipelineJobs;
+      const { data, error } = await contentAdmin().from("content_jobs")
+        .select("job_type,status,attempts,next_retry_at,error_message")
+        .eq("candidate_id", candidateId)
+        .in("job_type", ["download", "convert", "mockup", "draft"]);
+      if (error) throw new Error(error.message);
+      savedPipelineJobs = data || [];
+      return savedPipelineJobs;
+    }
+    // Keep the existing download retry limit; a failed visual review has no queued download.
+    const hasRetryableDownload = (jobs: PipelineJob[]) => jobs.some(job => job.job_type === "download"
+      && ["queued", "failed"].includes(job.status) && Number(job.attempts || 0) < 5);
+    const resumeEnqueue = activeWorkItem?.status === "on_hold" && candidateId
+      ? hasRetryableDownload(await readPipelineJobs()) : false;
+    if (activeWorkItem?.status === "review_required" || (activeWorkItem?.status === "on_hold" && !resumeEnqueue)) {
+      return NextResponse.json({
+        prepared: null,
+        stage: activeWorkItem.status === "review_required" ? "review" : "on_hold",
+        shouldContinue: false,
+        message: `${activeWorkItem.title || "기존 포트폴리오"} 작업은 검수 필요·보류 상태로 남아 있으며 자동으로 다시 처리하지 않습니다. 작업 큐에서 사유를 확인해 주세요.`,
+      });
     }
 
     const completedMockup = scheduleKey && !candidateId
@@ -109,17 +136,14 @@ export async function POST(request: Request) {
         prepared: null,
         completedDraft: portfolioProgress,
         stage: portfolioProgress.status === "rejected" ? "rejected" : "review",
-        shouldContinue: portfolioProgress.status === "rejected",
+        shouldContinue: false,
         message: portfolioProgress.status === "rejected"
-          ? "실제 페이지를 확인한 결과 포트폴리오 기준에 맞지 않아 자동 제외했습니다. 다음 후보를 이어서 확인합니다."
+          ? "실제 페이지 판정에서 포트폴리오 기준에 맞지 않아 후보를 제외했습니다. 작업은 검수 필요·보류 상태로 남으며 자동으로 다시 처리하지 않습니다. 작업 큐에서 사유를 확인해 주세요."
           : `${completedTitle} 비공개 초안을 완성했습니다. 관리자 화면에서 이미지와 본문을 검수할 수 있습니다.`,
       });
     }
     if (candidateId) {
-      const { data: pipelineJobs } = await contentAdmin().from("content_jobs")
-        .select("job_type,status,next_retry_at,error_message")
-        .eq("candidate_id", candidateId)
-        .in("job_type", ["mockup", "draft"]);
+      const pipelineJobs = await readPipelineJobs();
       const mockupJob = pipelineJobs?.find((job) => job.job_type === "mockup");
       if (mockupJob?.status === "queued" || mockupJob?.status === "running") {
         return NextResponse.json({
@@ -164,12 +188,16 @@ export async function POST(request: Request) {
         });
       }
       if (mockupJob?.status === "on_hold") {
-        return NextResponse.json({
-          prepared: null,
-          stage: "on_hold",
-          shouldContinue: false,
-          message: "기존 후보가 변환 또는 자동 검수 보류 상태입니다. 관리자 화면에서 사유를 확인해 주세요.",
-        });
+        const conversionPending = pipelineJobs.some(job => job.job_type === "convert"
+          && ["queued", "running", "pc_waiting", "pc_running"].includes(job.status));
+        if (!conversionPending && !hasRetryableDownload(pipelineJobs)) {
+          return NextResponse.json({
+            prepared: null,
+            stage: "on_hold",
+            shouldContinue: false,
+            message: "기존 후보가 변환 또는 자동 검수 보류 상태입니다. 자동으로 다시 처리하지 않습니다. 작업 큐에서 사유를 확인해 주세요.",
+          });
+        }
       }
     }
     const resumedDownload = scheduleKey && !candidateId
@@ -192,11 +220,7 @@ export async function POST(request: Request) {
       });
     }
     if (candidateId) {
-      const { data: pcJob } = await contentAdmin().from("content_jobs")
-        .select("status")
-        .eq("candidate_id", candidateId)
-        .eq("job_type", "convert")
-        .maybeSingle();
+      const pcJob = (await readPipelineJobs()).find(job => job.job_type === "convert");
       if (pcJob?.status === "pc_waiting" || pcJob?.status === "pc_running") {
         return NextResponse.json({
           prepared: null,
@@ -210,6 +234,7 @@ export async function POST(request: Request) {
     }
     const prepared = await prepareNextPortfolioCandidate({
       scheduleKey: scheduleKey || undefined,
+      deadlineAt: requestStartedAt + 200_000,
     });
     if (scheduleKey && await generationCancellationRequested(scheduleKey)) {
       await removeCancelledGeneration(scheduleKey);
@@ -223,10 +248,11 @@ export async function POST(request: Request) {
       // 폴더의 PPT 원본이 아니다"는 사람이 해야 할 일이 완전히 다릅니다.
       return NextResponse.json({
         prepared: null,
-        stage: "empty",
-        shouldContinue: false,
+        stage: prepared.inspectionPending ? "inspecting" : "empty",
+        shouldContinue: prepared.inspectionPending === true,
         inspectedCandidates: prepared.inspected,
         eligibleCandidates: prepared.eligible,
+        inspection: prepared.inspection,
         message: prepared.reason,
       });
     }
