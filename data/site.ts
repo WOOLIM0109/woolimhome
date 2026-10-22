@@ -1,7 +1,7 @@
 export const site = {
   name: "울림컴퍼니",
   englishName: "WOOLIM COMPANY",
-  url: process.env.NEXT_PUBLIC_SITE_URL || "https://woolimcompany.kr",
+  url: process.env.NEXT_PUBLIC_SITE_URL || "https://www.woolimcompany.kr",
   description:
     "울림컴퍼니는 기업의 성장 단계에 맞춰 경영컨설팅, 정부지원사업, 기업인증, 사업계획서, IR/PPT, 디자인 제작을 연결하는 비즈니스 성장 파트너입니다.",
   phone: "010-9522-0350",
