@@ -12,7 +12,6 @@ export async function GET(request: Request) {
   const { count, error } = await contentAdmin().from("content_work_items").select("id", { head: true, count: "exact" })
     .eq("channel", "naver_design").eq("status", "on_hold");
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  if (count) return NextResponse.json({ error: "보류 작업 정리 후 미리보기를 실행해 주세요.", onHoldCount: count }, { status: 409 });
   const threshold = Number(new URL(request.url).searchParams.get("threshold") ?? 4);
   if (!Number.isInteger(threshold) || threshold < 0 || threshold > 8) return NextResponse.json({ error: "해시 기준은 0~8 정수입니다." }, { status: 400 });
   try {
@@ -23,11 +22,18 @@ export async function GET(request: Request) {
         reasons: ["프로젝트명·발행 원장·대표 이미지 중복 검사 통과", ...rank.reasons] };
     });
     return NextResponse.json({ readOnly: true, threshold, top10, groups: inventory.groups,
+      onHoldCount: count || 0,
+      inspection: inventory.metrics,
+      pendingCount: inventory.metrics.remaining,
+      message: `저장된 검사 결과를 확인했습니다. 검사 전 ${inventory.metrics.remaining}개는 다음 제작 준비 요청에서 확인합니다.`,
       sourceFailures: inventory.sourceFailures, inspectionMetrics: inventory.metrics,
       excluded: inventory.decisions.filter(row => row.match || row.fontExclusionReason).map(row => ({ id: row.candidate.id, title: row.candidate.project_name,
         duplicateScore: row.duplicateScore, distance: row.distance, reason: row.reason, match: row.match })),
       reviewRequired: inventory.decisions.filter(row => !row.normalizedName).map(row => ({ id: row.candidate.id, title: row.candidate.project_name, reason: row.reason }))
-        .concat(inventory.needsImageReview.map(row => ({ id: row.id, title: row.project_name, reason: "변환 전 대표 이미지 확인 필요" })))
+        .concat(inventory.needsImageReview.map(row => ({ id: row.id, title: row.project_name,
+          reason: row.metadata?.inspectionState === "no_preview"
+            ? "검사 완료 · 파일 안에 미리보기 이미지가 없어 중복 확인 불가"
+            : row.metadata?.inspectionState === "too_large" ? "100MB 초과 · 자동 검사 대상 아님" : "검사 전" })))
         .concat(inventory.needsFontReview.map(row => ({ id: row.id, title: row.project_name, reason: "변환 전 원본 글꼴 확인 필요" }))),
       files: inventory.decisions.map(row => ({ id: row.candidate.id, title: row.candidate.project_name, file: driveFile(row.candidate),
         normalizedName: row.normalizedName })),

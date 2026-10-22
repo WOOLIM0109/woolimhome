@@ -210,7 +210,7 @@ export async function GET(request: Request) {
         }
       }
       try {
-        const prepared = await prepareNextPortfolioCandidate({ scheduleKey, scheduledAt });
+        const prepared = await prepareNextPortfolioCandidate({ scheduleKey, scheduledAt, deadlineAt: runStartedAt + 90_000 });
         if (prepared.prepared) {
           scheduled.push(prepared);
           const downloaded = await processNextPortfolioDownload(prepared.candidateId);
@@ -232,6 +232,7 @@ export async function GET(request: Request) {
             inspectedCandidates: prepared.inspected,
             eligibleCandidates: prepared.eligible,
             reason: prepared.reason,
+            inspection: prepared.inspection,
           });
         }
       } catch (error) {

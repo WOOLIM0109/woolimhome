@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
 import { authenticatedAdmin, contentAdmin } from "@/lib/content-ops/data";
 import { supportedPortfolioFile } from "@/lib/naver-works/client";
+import { readPortfolioDedupeInventory } from "@/lib/portfolio/dedupe-inventory";
+import { sourceInspectionState } from "@/lib/portfolio/source-inspection";
+import { portfolioFontExclusion } from "@/lib/portfolio/font-policy";
+import { normalizePortfolioProjectName } from "@/lib/portfolio/project-name";
+import { driveFile, metadataEligible } from "@/lib/naver-works/portfolio-selection";
 
 export const dynamic = "force-dynamic";
 
@@ -8,18 +13,24 @@ export async function GET() {
   const user = await authenticatedAdmin();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const admin = contentAdmin();
-  const [{ data: connection, error }, { count: fileCount }, { data: allCandidates }] = await Promise.all([
+  try {
+  const [{ data: connection, error }, { count: fileCount, error: fileCountError }, inventory, { data: portfolioItems, error: itemsError }] = await Promise.all([
     admin.from("naver_works_connections")
       .select("status,scopes,connected_by,connected_at,token_expires_at,last_refreshed_at,last_error")
       .eq("id", "primary").single(),
     admin.from("naver_works_drive_files").select("id", { count: "exact", head: true }),
-    admin.from("portfolio_candidates")
-      .select("id,project_name,status,quality_score,privacy_risk,font_status,selection_reasons,exclusion_reasons,metadata,created_at,naver_works_drive_files(file_name,file_path,file_extension,file_size,modified_at)")
-      .order("quality_score", { ascending: false })
-      .limit(5000),
+    (async () => {
+      const { data: control, error: controlError } = await admin.from("portfolio_automation_control")
+        .select("hash_threshold").eq("id", true).single();
+      if (controlError) throw new Error(controlError.message);
+      return readPortfolioDedupeInventory(control.hash_threshold ?? 4, { readOnly: true });
+    })(),
+    admin.from("content_work_items").select("id,title,status")
+      .eq("channel", "naver_design").eq("format", "portfolio")
+      .in("status", ["researching", "creating", "draft_waiting", "on_hold", "review_required"]),
   ]);
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  const usable = (allCandidates || []).filter((candidate) => {
+  if (error || fileCountError || itemsError) return NextResponse.json({ error: error?.message || fileCountError?.message || itemsError?.message }, { status: 500 });
+  const usable = inventory.candidates.filter((candidate) => {
     const driveFile = Array.isArray(candidate.naver_works_drive_files)
       ? candidate.naver_works_drive_files[0]
       : candidate.naver_works_drive_files;
@@ -27,7 +38,7 @@ export async function GET() {
       fileName: driveFile.file_name,
       filePath: driveFile.file_path,
     });
-  });
+  }).sort((left, right) => right.quality_score - left.quality_score);
   /*
    * '후보'는 아직 쓰지 않은 것만 셉니다.
    *
@@ -42,6 +53,13 @@ export async function GET() {
     counts[key] = (counts[key] || 0) + 1;
     return counts;
   }, {});
+  const inspectionCounts = candidates.reduce<Record<string, number>>((counts, candidate) => {
+    const state = sourceInspectionState(candidate);
+    counts[state] = (counts[state] || 0) + 1;
+    return counts;
+  }, {});
+  const activePortfolioItems = (portfolioItems || []).filter(item => ["researching", "creating", "draft_waiting"].includes(item.status));
+  const heldPortfolioItems = (portfolioItems || []).filter(item => ["on_hold", "review_required"].includes(item.status));
   return NextResponse.json({
     configured: Boolean(
       process.env.NAVER_WORKS_CLIENT_ID
@@ -55,6 +73,29 @@ export async function GET() {
     /** 승인 폴더 안의 전체 건수. 상태별 내역과 함께 보여 줘야 오해가 없습니다. */
     trackedCount: usable.length,
     statusCounts,
-    candidates: usable,
-  });
+    inspectionSummary: {
+      producible: inventory.accepted.filter(metadataEligible).length,
+      pending: inspectionCounts.pending || 0,
+      noPreview: inspectionCounts.no_preview || 0,
+      tooLarge: inspectionCounts.too_large || 0,
+      failed: inspectionCounts.failed || 0,
+    },
+    inspectionMetrics: inventory.metrics,
+    activePortfolioCount: activePortfolioItems.length,
+    heldPortfolioItems,
+    candidates: usable.map(candidate => {
+      const file = driveFile(candidate);
+      return {
+        ...candidate,
+        fileName: file?.file_name || candidate.project_name,
+        fileSize: file?.file_size || 0,
+        normalizedProjectName: normalizePortfolioProjectName(file?.file_name || ""),
+        fontExclusionReason: portfolioFontExclusion(candidate),
+        metadata: { ...candidate.metadata, inspectionState: sourceInspectionState(candidate) },
+      };
+    }),
+  }, { headers: { "Cache-Control": "no-store" } });
+  } catch (error) {
+    return NextResponse.json({ error: error instanceof Error ? error.message : "후보 상태를 확인하지 못했습니다." }, { status: 500 });
+  }
 }
