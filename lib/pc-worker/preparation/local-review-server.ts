@@ -1237,11 +1237,36 @@ function publicPreparationReview(view: PreparationReviewView, buildId: string) {
       reviewSlideNumber:positiveInteger(view.customPortrait.reviewSlideNumber),reason:safeString(view.customPortrait.reason,500)},
     slides,holds:view.holds.map(v=>safeString(v,500)).slice(0,30),localOnly:true};
 }
+// Only fixed internal codes may reach the screen or the local bridge stderr log.
+// Adapter messages can contain paths, file names and source-derived diagnostics.
+const PREPARATION_ERROR_CODES = new Set([
+  "INVALID_BODY", "BODY_TOO_LARGE", "PREPARATION_REVIEW_FAILED", "PREPARATION_RESULT_INVALID",
+  "PREPARATION_ENVIRONMENT_CHANGED_NEW_BUILD_REQUIRED", "PREPARATION_EVIDENCE_PATH_TOO_LONG",
+  "PREPARATION_REVIEW_ARTWORK_NOT_ALLOWED", "PREPARATION_REVIEW_EVIDENCE_BLANK", "PREPARATION_REVIEW_EVIDENCE_STALE",
+  "PREPARATION_REVIEW_INSPECTION_STALE", "PREPARATION_REVIEW_INVALID", "PREPARATION_REVIEW_INVALID_SLIDES",
+  "PREPARATION_REVIEW_NO_CHANGES", "PREPARATION_REVIEW_REASON_REQUIRED", "PREPARATION_REVIEW_SELECTION_STALE",
+  "PREPARATION_REVIEW_SLIDE_NOT_ALLOWED", "PREPARATION_REVIEW_SOURCE_CHANGED", "PREPARATION_REVIEW_STALE",
+  "PREPARATION_REVIEW_VISUAL_CONFIRMATION_REQUIRED", "SOURCE_FORMAT_NOT_COMPATIBLE",
+  "POWERPOINT_BUSY", "POWERPOINT_PREPARATION_FAILED", "POWERPOINT_PROCESS_FAILED", "POWERPOINT_TIMEOUT",
+  "POWERPOINT_CANCELLED", "POWERPOINT_CLEANUP_FAILED",
+  "POWERPOINT_NOT_AVAILABLE", "POWERPOINT_START_FAILED", "POWERPOINT_OPEN_FAILED", "POWERPOINT_SHUTDOWN_PENDING",
+  "POWERPOINT_PAGE_SETUP_MISMATCH", "POWERPOINT_SOURCE_HASH_MISMATCH", "MACRO_SECURITY_FAILED", "READ_ONLY_OPEN_FAILED",
+  "SLIDE_EXPORT_FAILED", "SLIDE_EXPORT_TIMEOUT", "SLIDE_NOT_FOUND", "SLIDE_NUMBER_OUT_OF_RANGE",
+  "SOURCE_HASH_FAILED", "SOURCE_HASH_MISMATCH", "SOURCE_COPY_HASH_MISMATCH", "SOURCE_COPY_CHANGED", "SOURCE_CHANGED",
+  "SOURCE_NOT_FOUND", "INVALID_SOURCE_FILE", "PPTX_REQUIRED", "UNSUPPORTED_SOURCE",
+  "INVALID_PROTOCOL_OUTPUT", "MISSING_PROTOCOL_OUTPUT", "MISSING_SLIDE_OUTPUT", "MISSING_COMPLETION",
+  "SLIDE_COUNT_MISMATCH", "SLIDE_ORDER_MISMATCH", "INVALID_PAGE_SETUP", "PAGE_SETUP_MISMATCH", "EXPORT_METADATA_MISMATCH",
+  "INVALID_OUTPUT_ROOT", "INVALID_OUTPUT_DIRECTORY", "OUTPUT_DIRECTORY_NOT_EMPTY", "OUTPUT_COLLISION", "OUTPUT_PATH_ESCAPE",
+  "INVALID_LONG_EDGE", "INVALID_SLIDE_NUMBERS", "INVALID_SOURCE_HASH", "INVALID_SOURCE_PATH",
+  "INCOMPLETE_EXPORT_BATCH", "UNEXPECTED_EXPORTED_SLIDE", "UNSAFE_EXPORT_LINK", "UNSAFE_EXPORT_PATH",
+]);
 function preparationError(error: unknown) {
-  const code = error instanceof Error ? (("code" in error && typeof error.code === "string" ? error.code : error.message).split(":",1)[0]) : "";
-  return { status:code==="BODY_TOO_LARGE"?413:code==="INVALID_BODY"?400:409,
-    error:code==="INVALID_BODY"?"원본 확대 확인·선택·사유와 요청 형식을 확인해 주세요.":code==="BODY_TOO_LARGE"?"검수 요청이 허용된 크기를 넘었습니다.":
-      "원본·준비 상태가 바뀌었거나 증거가 아직 준비되지 않았습니다. 입력 사유는 유지됩니다. 최신 상태에서 원본을 다시 확인해 주세요. 자동 재시도하지 않습니다." };
+  const candidate = error instanceof Error ? (("code" in error && typeof error.code === "string" ? error.code : error.message).split(":",1)[0]) : "";
+  const code = PREPARATION_ERROR_CODES.has(candidate) ? candidate : "PREPARATION_REVIEW_FAILED";
+  const message = code==="INVALID_BODY"?"원본 확대 확인·선택·사유와 요청 형식을 확인해 주세요.":code==="BODY_TOO_LARGE"?"검수 요청이 허용된 크기를 넘었습니다.":
+    "원본·준비 상태가 바뀌었거나 증거가 아직 준비되지 않았습니다. 입력 사유는 유지됩니다. 최신 상태에서 원본을 다시 확인해 주세요. 자동 재시도하지 않습니다.";
+  console.error(`[preparation-review] ${code}`);
+  return { status:code==="BODY_TOO_LARGE"?413:code==="INVALID_BODY"?400:409, error:`[${code}] ${message}` };
 }
 function preparationLaunchUrl(value: unknown) {
   if(typeof value!=="string")return null;
