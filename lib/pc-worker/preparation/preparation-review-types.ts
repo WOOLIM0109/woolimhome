@@ -10,6 +10,13 @@ export type PreparationReviewSlide = {
   artworkReviewed: boolean;
   reasons: string[];
 };
+export type PreparationReviewSelectionSlide = {
+  sourceSlideNumber: number;
+  disposition: "selected" | "reserve" | "candidate" | "excluded";
+  score: number;
+  reasons: string[];
+  previewHash: string | null;
+};
 export type PreparationReviewView = PreparationReviewBuild & {
   version: 1;
   workId: string;
@@ -23,6 +30,9 @@ export type PreparationReviewView = PreparationReviewBuild & {
   /** Includes the format-review source slide and only PHOTO_DENSE candidates.
    * Other exclusion categories never gain an override through this API. */
   slides: PreparationReviewSlide[];
+  /** Read-only selection metadata for every source slide. Selection never
+   * grants the visual classification required by excluded artwork. */
+  slideSelection: { minimum: number; slides: PreparationReviewSelectionSlide[] };
   holds: string[];
   localOnly: true;
 };
@@ -47,6 +57,8 @@ export type PreparationReviewApplyInput = {
   expectedCurrentBuild: PreparationReviewBuild;
   sourceFormatChoice?: PreparationVisualDecision & { kind: "custom_portrait_to_a4" };
   artworkReviews: (PreparationVisualDecision & { classification: "abstract_graphic" })[];
+  /** An empty list requests the unchanged automatic selection path. */
+  selectedSlideNumbers?: number[];
 };
 export type PreparationReviewApplyResult = { applied: true; buildId: string; launchUrl: string };
 /** All callbacks are trusted worker closures. Browser payloads cannot select a

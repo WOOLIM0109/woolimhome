@@ -274,7 +274,8 @@ export async function createProductionMockupBridge(input: { privateRoot: string;
           const workRoot = path.join(directory, generation);
           if (process.platform === "win32" && workRoot.length > 100) fail("WORK_ROOT_TOO_LONG");
           const prepared = await (dependencies.prepare ?? prepareLocalPptx)({ sourcePath: verified.sourcePath, workRoot,
-            sourceFormatChoice: options.sourceFormatChoice, artworkReviews: options.artworkReviews });
+            sourceFormatChoice: options.sourceFormatChoice, artworkReviews: options.artworkReviews,
+            selectedSlideNumbers: options.selectedSlideNumbers });
           if (prepared.inspection.sourceHash !== record.sourceHash) fail("MOCKUP_SOURCE_HASH_CHANGED");
           if (prepared.status !== "held") await (dependencies.redact ?? initializePptxRedactions)({ root: workRoot, buildId: prepared.buildId,
             source: verified.bytes, slideNumbers: [...prepared.selection.selected, ...prepared.selection.reserves] });

@@ -1195,7 +1195,7 @@ export type StartLocalReviewServerInput = Readonly<{
 }>;
 
 function renderPreparationHtml() {
-  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>규격·추상 그래픽 직접 검수</title><link rel="stylesheet" href="/style.css"></head><body class="mockup-page"><header class="mockup-header"><div><p class="privacy">원본 확인은 이 PC 안에서만 · 자동 승인·업로드 안 함</p><h1>규격·추상 그래픽 직접 검수</h1><p>원본을 실제 크기로 확인한 항목만 기록합니다. 블러·개인정보 검수와 공개 승인은 이후 별도입니다.</p></div><a class="back-link" href="/">장표 선정표로 돌아가기</a></header><p id="preparation-status" class="editor-status" role="status" aria-live="polite">준비 상태 확인 중…</p><section class="mockup-controls"><div><strong id="preparation-source"></strong><p>사용자 지정 세로는 A4 세로와 비율 차이 3% 이내일 때만 흰색 여백으로 연결합니다. 원본 비율·내용을 늘이거나 자르지 않습니다.</p></div><button id="preparation-evidence" type="button" disabled>확인에 필요한 원본 전부 준비</button><button id="preparation-refresh" type="button">상태 새로고침</button></section><section id="preparation-source-choice" class="candidate-panel"></section><main id="preparation-artwork" class="candidate-panel"></main><section class="request-panel"><button id="preparation-apply" class="primary-action" type="button" disabled>직접 확인한 항목으로 다시 준비</button><p id="preparation-apply-summary" class="section-help" role="status" aria-live="polite">준비 상태 확인 중…</p><p>입력 중 자동 저장·AI 요청 없음. 다른 보류 사유는 자동 해제하지 않습니다.</p><a id="preparation-next" class="mockup-link" hidden target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer">새로 준비된 장표 검토 열기</a></section><dialog id="preparation-image-dialog" class="mockup-preview-dialog"><div class="dialog-heading"><h2 id="preparation-image-label">원본 실제 크기 확인</h2><button id="preparation-image-close" type="button">닫기</button></div><div id="preparation-image-scroll" class="mockup-preview-scroll"></div></dialog><script type="module" src="/preparation-review-client.mjs"></script></body></html>`;
+  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>규격·추상 그래픽 직접 검수</title><link rel="stylesheet" href="/style.css"></head><body class="mockup-page"><header class="mockup-header"><div><p class="privacy">원본 확인은 이 PC 안에서만 · 자동 승인·업로드 안 함</p><h1>규격·추상 그래픽 직접 검수</h1><p>원본을 실제 크기로 확인한 항목만 기록합니다. 블러·개인정보 검수와 공개 승인은 이후 별도입니다.</p></div><a class="back-link" href="/">장표 선정표로 돌아가기</a></header><p id="preparation-status" class="editor-status" role="status" aria-live="polite">준비 상태 확인 중…</p><section class="mockup-controls"><div><strong id="preparation-source"></strong><p>사용자 지정 세로는 A4 세로와 비율 차이 3% 이내일 때만 흰색 여백으로 연결합니다. 원본 비율·내용을 늘이거나 자르지 않습니다.</p></div><button id="preparation-evidence" type="button" disabled>확인에 필요한 원본 전부 준비</button><button id="preparation-refresh" type="button">상태 새로고침</button></section><section id="preparation-source-choice" class="candidate-panel"></section><main id="preparation-artwork" class="candidate-panel"></main><section id="preparation-slide-selection" class="candidate-panel"></section><section class="request-panel"><button id="preparation-apply" class="primary-action" type="button" disabled>직접 확인한 항목으로 다시 준비</button><p id="preparation-apply-summary" class="section-help" role="status" aria-live="polite">준비 상태 확인 중…</p><p>입력 중 자동 저장·AI 요청 없음. 다른 보류 사유는 자동 해제하지 않습니다.</p><a id="preparation-next" class="mockup-link" hidden target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer">새로 준비된 장표 검토 열기</a></section><dialog id="preparation-image-dialog" class="mockup-preview-dialog"><div class="dialog-heading"><h2 id="preparation-image-label">원본 실제 크기 확인</h2><button id="preparation-image-close" type="button">닫기</button></div><div id="preparation-image-scroll" class="mockup-preview-scroll"></div></dialog><script type="module" src="/preparation-review-client.mjs"></script></body></html>`;
 }
 function preparationBuild(value: unknown, expectedBuildId: string): PreparationReviewBuild {
   if (!isRecord(value)) fail("INVALID_BODY", "준비 기준이 필요합니다.");
@@ -1231,11 +1231,23 @@ function publicPreparationReview(view: PreparationReviewView, buildId: string) {
         url:`/preparation-image/${view.revision}/${view.sourceHash}/${slide.sourceSlideNumber}/${slide.evidence.imageHash}`} : null,
       artworkEligible:slide.artworkEligible===true,artworkReviewed:slide.artworkReviewed===true,reasons:slide.reasons.map(v=>safeString(v,500)).slice(0,20) };
   });
+  const selection = view.slideSelection;
+  if (!selection || !Number.isSafeInteger(selection.minimum) || selection.minimum < 0
+    || !Array.isArray(selection.slides) || selection.slides.length > 500) fail("PREPARATION_REVIEW_INVALID", "장표 선별 상태가 올바르지 않습니다.");
+  const selectionNumbers = new Set<number>();
+  const selectionSlides = selection.slides.map(slide => {
+    if (!positiveInteger(slide.sourceSlideNumber) || selectionNumbers.has(slide.sourceSlideNumber)
+      || !["selected", "reserve", "candidate", "excluded"].includes(slide.disposition) || !Number.isFinite(slide.score)
+      || !Array.isArray(slide.reasons) || (slide.previewHash !== null && !/^[a-f0-9]{64}$/.test(slide.previewHash))) fail("PREPARATION_REVIEW_INVALID", "장표 선별 상태가 올바르지 않습니다.");
+    selectionNumbers.add(slide.sourceSlideNumber);
+    return { sourceSlideNumber:slide.sourceSlideNumber, disposition:slide.disposition, score:slide.score,
+      reasons:slide.reasons.map(reason=>safeString(reason,500)).slice(0,20), previewHash:slide.previewHash };
+  });
   return {version:1,workId:view.workId,buildId:view.buildId,revision:view.revision,sourceHash:view.sourceHash,
     source:{width:view.source.width,height:view.source.height,aspect:safeString(view.source.aspect,60),pageSizeVariant:safeString(view.source.pageSizeVariant,60)},
     customPortrait:{allowed:view.customPortrait.allowed===true,currentChoice:view.customPortrait.currentChoice===true,
       reviewSlideNumber:positiveInteger(view.customPortrait.reviewSlideNumber),reason:safeString(view.customPortrait.reason,500)},
-    slides,holds:view.holds.map(v=>safeString(v,500)).slice(0,30),localOnly:true};
+    slides,slideSelection:{minimum:selection.minimum,slides:selectionSlides},holds:view.holds.map(v=>safeString(v,500)).slice(0,30),localOnly:true};
 }
 // Only fixed internal codes may reach the screen or the local bridge stderr log.
 // Adapter messages can contain paths, file names and source-derived diagnostics.
@@ -1592,13 +1604,18 @@ export async function startLocalReviewServer(
               const view=await serializeMockup(()=>preparation.prepareEvidence({expectedCurrentBuild,slideNumbers:body.slideNumbers as number[]}));
               sendJson(response,200,{review:publicPreparationReview(view,input.buildId)});
             }else{
-              assertOnlyKeys(body,["expectedCurrentBuild","sourceFormatChoice","artworkReviews"]);
+              assertOnlyKeys(body,["expectedCurrentBuild","sourceFormatChoice","artworkReviews","selectedSlideNumbers"]);
               if(!Array.isArray(body.artworkReviews)||body.artworkReviews.length>500)fail("INVALID_BODY","추상 그래픽 확인 기록이 올바르지 않습니다.");
               const artworkReviews=body.artworkReviews.map(row=>({...preparationDecision(row,"classification"),classification:"abstract_graphic" as const}));
               if(new Set(artworkReviews.map(row=>row.sourceSlideNumber)).size!==artworkReviews.length)fail("INVALID_BODY","장표 확인 기록이 중복되었습니다.");
               const sourceFormatChoice=body.sourceFormatChoice===undefined?undefined:{...preparationDecision(body.sourceFormatChoice,"kind"),kind:"custom_portrait_to_a4" as const};
-              if(!sourceFormatChoice&&!artworkReviews.length)fail("INVALID_BODY","직접 확인한 항목을 선택해 주세요.");
-              const applyInput:PreparationReviewApplyInput={expectedCurrentBuild,artworkReviews,...(sourceFormatChoice?{sourceFormatChoice}:{})};
+              const selectedSlideNumbers = body.selectedSlideNumbers;
+              if (selectedSlideNumbers !== undefined && (!Array.isArray(selectedSlideNumbers) || selectedSlideNumbers.length > 500
+                || new Set(selectedSlideNumbers).size !== selectedSlideNumbers.length
+                || selectedSlideNumbers.some(number=>!positiveInteger(number)||Number(number)>500))) fail("INVALID_BODY", "본선 장표 번호가 올바르지 않습니다.");
+              if(!sourceFormatChoice&&!artworkReviews.length&&selectedSlideNumbers===undefined)fail("INVALID_BODY","직접 확인한 항목을 선택해 주세요.");
+              const applyInput:PreparationReviewApplyInput={expectedCurrentBuild,artworkReviews,...(sourceFormatChoice?{sourceFormatChoice}:{}),
+                ...(selectedSlideNumbers!==undefined?{selectedSlideNumbers:selectedSlideNumbers as number[]}:{})};
               const result=await serializeMockup(()=>preparation.apply(applyInput)),launchUrl=preparationLaunchUrl(result.launchUrl);
               if(result.applied!==true||!UUID_PATTERN.test(result.buildId)||!launchUrl)fail("PREPARATION_RESULT_INVALID","새 검수 연결을 확인하지 못했습니다.");
               preparationApplied=true;sendJson(response,200,{applied:true,buildId:result.buildId,launchUrl});

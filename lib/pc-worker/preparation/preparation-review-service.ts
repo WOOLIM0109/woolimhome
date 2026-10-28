@@ -14,6 +14,7 @@ export type PreparationReviewIdentity = { sourcePath: string; workRoot: string; 
 export type PreparationReviewOptions = {
   sourceFormatChoice?: SourceFormatChoice;
   artworkReviews?: SlideArtworkReview[];
+  selectedSlideNumbers?: number[];
   expectedCurrentBuild: PreparationReviewBuild;
 };
 type Context = { identity: PreparationReviewIdentity; store: PreparationWorkStore; build: PreparationBuildRecord;
@@ -137,12 +138,27 @@ async function view(ctx: Context): Promise<PreparationReviewView> {
       reasons: [...new Set([...slide.issues.map((issue) => issue.code), ...(slide.missingFonts.length ? ["MISSING_FONTS"] : []),
         ...(slide.embeddedUnverifiedFonts.length ? ["EMBEDDED_FONT_UNVERIFIED"] : [])])] });
   }
+  const selectedLayouts = new Set(ctx.inspection.slides.filter(slide => ctx.selection.selected.includes(slide.sourceSlideNumber))
+    .map(slide => slide.metrics.layoutSignature));
+  const selectionSlides = [];
+  for (const slide of ctx.inspection.slides) {
+    const row = ctx.selection.slides.find(entry => entry.sourceSlideNumber === slide.sourceSlideNumber);
+    if (!row) fail("PREPARATION_REVIEW_SELECTION_STALE");
+    const preview = await ctx.store.getReusableArtifact(ctx.build.buildId, `preview:${slide.sourceSlideNumber}`);
+    if (ctx.build.artifacts[`preview:${slide.sourceSlideNumber}`] && !preview) fail("PREPARATION_REVIEW_EVIDENCE_STALE");
+    const reasons = [...row.reasons];
+    if ((row.disposition === "candidate" || row.disposition === "reserve") && selectedLayouts.has(slide.metrics.layoutSignature)) {
+      reasons.push("같은 배치의 장표가 이미 본선에 있어 자동 선정의 다양성 점수가 낮습니다.");
+    }
+    selectionSlides.push({ sourceSlideNumber: row.sourceSlideNumber, disposition: row.disposition, score: row.score,
+      reasons, previewHash: preview?.record.sha256 ?? null });
+  }
   return { version: 1, ...buildProof(ctx), workId: ctx.identity.workId,
     source: { width: ctx.inspection.width, height: ctx.inspection.height, aspect: ctx.inspection.aspect, pageSizeVariant: ctx.inspection.pageSizeVariant },
     customPortrait: { allowed: formatAllowed(ctx), reviewSlideNumber: formatSlide, currentChoice: Boolean(ctx.choice),
       reason: formatAllowed(ctx) ? "A4 세로 비율과 차이가 3% 이내입니다. 원본 비율을 유지하고 흰 여백만 추가합니다. 블러 승인은 별도입니다."
         : "사용자 지정 세로 규격 보정 대상이 아닙니다. 다른 규격·폰트·표·사진 제외 규칙은 그대로 유지됩니다." },
-    slides, holds: [...ctx.selection.holds], localOnly: true };
+    slides, slideSelection: { minimum: ctx.selection.minimum, slides: selectionSlides }, holds: [...ctx.selection.holds], localOnly: true };
 }
 export async function getPreparationReview(identity: PreparationReviewIdentity): Promise<PreparationReviewView> {
   return locked(identity, view);
@@ -246,12 +262,17 @@ async function decision(ctx: Context, value: PreparationVisualDecision, extra: s
  * with these options; neither this call nor its evidence is publication approval. */
 export async function applyPreparationReview(identity: PreparationReviewIdentity, input: PreparationReviewApplyInput,
   actor: { reviewedBy: string }): Promise<PreparationReviewOptions> {
-  exact(input, ["expectedCurrentBuild", "artworkReviews"], ["sourceFormatChoice"]);
+  exact(input, ["expectedCurrentBuild", "artworkReviews"], ["sourceFormatChoice", "selectedSlideNumbers"]);
   const reviewedBy = note(actor.reviewedBy, 100);
   if (!Array.isArray(input.artworkReviews) || input.artworkReviews.length > 500) fail("PREPARATION_REVIEW_INVALID");
-  if (input.sourceFormatChoice === undefined && !input.artworkReviews.length) fail("PREPARATION_REVIEW_NO_CHANGES");
+  if (input.selectedSlideNumbers !== undefined && (!Array.isArray(input.selectedSlideNumbers)
+    || input.selectedSlideNumbers.some(number => !Number.isSafeInteger(number) || number < 1)
+    || new Set(input.selectedSlideNumbers).size !== input.selectedSlideNumbers.length)) fail("PREPARATION_REVIEW_INVALID_SLIDES");
+  if (input.sourceFormatChoice === undefined && !input.artworkReviews.length && input.selectedSlideNumbers === undefined) fail("PREPARATION_REVIEW_NO_CHANGES");
   return locked(identity, async (ctx) => {
     assertExpected(ctx, input.expectedCurrentBuild);
+    const knownNumbers = new Set(ctx.inspection.slides.map(slide => slide.sourceSlideNumber));
+    if (input.selectedSlideNumbers?.some(number => !knownNumbers.has(number))) fail("PREPARATION_REVIEW_INVALID_SLIDES");
     let sourceFormatChoice: SourceFormatChoice | undefined = ctx.choice;
     if (input.sourceFormatChoice !== undefined) {
       const value = input.sourceFormatChoice;
@@ -283,6 +304,7 @@ export async function applyPreparationReview(identity: PreparationReviewIdentity
     }
     return { ...(sourceFormatChoice ? { sourceFormatChoice: { kind: sourceFormatChoice.kind, aspectClass: sourceFormatChoice.aspectClass,
       sourceHash: sourceFormatChoice.sourceHash, reviewedBy: sourceFormatChoice.reviewedBy, reason: sourceFormatChoice.reason } } : {}),
-      ...(reviews.size ? { artworkReviews: [...reviews.values()] } : {}), expectedCurrentBuild: buildProof(ctx) };
+      ...(reviews.size ? { artworkReviews: [...reviews.values()] } : {}),
+      ...(input.selectedSlideNumbers?.length ? { selectedSlideNumbers: [...input.selectedSlideNumbers] } : {}), expectedCurrentBuild: buildProof(ctx) };
   });
 }
