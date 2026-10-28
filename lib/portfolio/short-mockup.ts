@@ -8,10 +8,8 @@ import {
   type ApprovedMockupTemplateSpec,
 } from "./approved-16x9-templates.ts";
 import { renderProductionApprovedMockup as renderApprovedMockup } from "./production-approved-renderer.ts";
-import {
-  getApprovedMockupSuite,
-  type ApprovedMockupSuiteAspectClass,
-} from "./approved-mockup-suites.ts";
+import type { ApprovedMockupSuiteAspectClass } from "./approved-mockup-suites.ts";
+import { autoApprovedSuite } from "./mockup-route.ts";
 
 type SharpOverlay = Parameters<ReturnType<typeof sharp>["composite"]>[0][number];
 
@@ -857,8 +855,9 @@ async function renderBoard(
   slides: PreparedSlide[],
   boardIndex: number,
   aspectClass: SupportedShortMockupAspectClass,
+  forceLegacyLayout = false,
 ): Promise<ShortMockupBoard> {
-  const approvedSuite = getApprovedMockupSuite(aspectClass);
+  const approvedSuite = forceLegacyLayout ? null : autoApprovedSuite(aspectClass);
   if (approvedSuite) {
     const template = approvedSuite.bodyTemplates[boardIndex];
     if (!template) {
@@ -961,7 +960,7 @@ export async function renderApprovedTemplateBodyMockups(input: {
   aspectClass: ApprovedMockupSuiteAspectClass;
   slides: ShortMockupSlide[];
 }) {
-  const suite = getApprovedMockupSuite(input.aspectClass);
+  const suite = autoApprovedSuite(input.aspectClass);
   if (!suite) throw new Error(`승인된 ${input.aspectClass} 목업 템플릿을 찾지 못했습니다.`);
   const totalCapacity = suite.bodyTemplates.reduce(
     (sum, template) => sum + resolveApprovedMockupSlots(template).length,
@@ -991,13 +990,15 @@ export async function renderApprovedTemplateBodyMockups(input: {
  * This module intentionally has no Photoshop runtime dependency. The supplied
  * Approved 16:9 and A4-landscape suites lock coordinates, angles, shadows,
  * logo, and layer order while swapping only slide buffers. The existing 4:3
- * and A4-portrait layouts stay unchanged. Every slide is resized with `contain`,
+ * layout remains available, as does an explicit legacy recovery path.
+ * Every slide is resized with `contain`,
  * so its contents are never stretched or cropped.
  */
 export async function renderShortDocumentMockups(input: {
   deckSlideCount: number;
   aspectClass: SupportedShortMockupAspectClass;
   slides: ShortMockupSlide[];
+  forceLegacyLayout?: boolean;
 }): Promise<ShortMockupResult> {
   if (!Number.isInteger(input.deckSlideCount)
     || input.deckSlideCount < SHORT_DOCUMENT_MIN_SLIDES
@@ -1016,13 +1017,13 @@ export async function renderShortDocumentMockups(input: {
     throw new Error("선택한 장표 인덱스가 전체 문서 장수를 벗어났습니다.");
   }
   const prepared = await Promise.all(selected.map(prepareSlide));
-  const approvedSuite = getApprovedMockupSuite(input.aspectClass);
+  const approvedSuite = input.forceLegacyLayout ? null : autoApprovedSuite(input.aspectClass);
   const groups = approvedSuite
     ? approvedSlidesAcrossBoards(prepared, approvedSuite.bodyTemplates)
     : splitSlidesAcrossBoards(prepared, input.aspectClass);
   const boards: ShortMockupBoard[] = [];
   for (const [boardIndex, group] of groups.entries()) {
-    boards.push(await renderBoard(group, boardIndex, input.aspectClass));
+    boards.push(await renderBoard(group, boardIndex, input.aspectClass, input.forceLegacyLayout));
   }
   return {
     mode: "short_psd",

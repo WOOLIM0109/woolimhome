@@ -170,6 +170,21 @@ function sharedMockupTemplateVersion(assets: GeneratedPortfolioAsset[]) {
   return versions.size === 1 ? [...versions][0] : null;
 }
 
+function portfolioMockupCacheCurrent(assets: GeneratedPortfolioAsset[], savedTemplateVersion: unknown) {
+  const templateVersion = sharedMockupTemplateVersion(assets);
+  const approvedSuite = getApprovedMockupSuiteByVersion(templateVersion);
+  return assets.every((asset) => (
+    !(asset.mockupMode === "six_grid" && ["16:9", "a4_portrait", "mixed"].includes(asset.aspectClass || "unknown"))
+    && (asset.mockupMode !== "short_psd"
+      || (approvedSuite !== null
+        && !asset.mockupTemplateId?.startsWith("legacy-a4_portrait-")
+        && (asset.aspectClass !== "a4_portrait" || approvedSuite.aspectClass === "a4_portrait")
+        && templateVersion !== null
+        && savedTemplateVersion === templateVersion
+        && asset.mockupTemplateVersion === templateVersion))
+  ));
+}
+
 function portfolioMockupMetadata(input: {
   review: PortfolioVisualReview;
   assets: GeneratedPortfolioAsset[];
@@ -1035,15 +1050,7 @@ export async function processNextPortfolioMockup(
     const cachedAssets = Array.isArray(result.portfolioAssetsProgress)
       ? result.portfolioAssetsProgress.filter(isGeneratedPortfolioAsset)
       : [];
-    const cachedMockupTemplateVersion = sharedMockupTemplateVersion(cachedAssets);
-    const cachedApprovedSuite = getApprovedMockupSuiteByVersion(cachedMockupTemplateVersion);
-    const cachedShortTemplateCurrent = cachedAssets.every((asset) => (
-      asset.mockupMode !== "short_psd"
-      || (cachedApprovedSuite !== null
-        && cachedMockupTemplateVersion !== null
-        && result.mockupTemplateVersion === cachedMockupTemplateVersion
-        && asset.mockupTemplateVersion === cachedMockupTemplateVersion)
-    ));
+    const cachedShortTemplateCurrent = portfolioMockupCacheCurrent(cachedAssets, result.mockupTemplateVersion);
     const cachedRenderedIndexes = renderedPortfolioSlideIndexes(cachedAssets);
     let redactionProof = cachedRenderedIndexes && isVerifiedPortfolioRedactionProof(
       result.redactionProof,
@@ -1152,6 +1159,11 @@ export async function processNextPortfolioMockup(
       }
     } else {
       workItemMetadata.generated = refreshedGenerated;
+      const validation = workItemMetadata.validation;
+      workItemMetadata.validation = {
+        ...(validation && typeof validation === "object" && !Array.isArray(validation) ? validation : {}),
+        figureCount: (refreshedGenerated!.bodyHtml.match(/<figure\b/gi) || []).length,
+      };
       delete workItemMetadata.preservePortfolioDraftDuringConversion;
       delete workItemMetadata.mockupOnlyRestoreState;
       delete workItemMetadata.portfolioSourceInvalidatedAt;

@@ -1223,6 +1223,26 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
               className={`text-[var(--muted)] transition-transform ${expanded ? "rotate-180" : ""}`}
             />
           </button>
+          {item.format === "portfolio" && (
+            <div className="flex flex-wrap items-center gap-3 border-t border-[var(--line)] px-4 py-3 sm:px-5">
+              <ProductionMockupEditor workItemId={item.id} title={item.title}
+                currentAssets={item.content_review_assets || []} onActivated={load}
+                disabled={rebuildingId === item.id || mockupRebuildingId === item.id || uploadingImagesId === item.id || sourceUploadingId === item.id} />
+              <span className="text-xs text-[var(--muted)]">완성 이미지 확인·교체</span>
+              {reviewMode && item.status === "review_required" && (
+                <button
+                  onClick={() => void rebuildMockupsOnly(item)}
+                  disabled={regeneratingId === item.id || rebuildingId === item.id || mockupRebuildingId === item.id}
+                  className="inline-flex items-center gap-2 rounded-xl border border-sky-200 bg-sky-50 px-3 py-2 text-xs font-bold text-sky-950 hover:bg-sky-100 disabled:cursor-wait disabled:opacity-60"
+                >
+                  <RotateCcw size={15} className={mockupRebuildingId === item.id ? "animate-spin" : ""} />
+                  {mockupRebuildingId === item.id
+                    ? "이미지 다시 만드는 중…"
+                    : "이미지만 다시 만들기 · 글은 그대로"}
+                </button>
+              )}
+            </div>
+          )}
           {expanded && (
           <div id={detailsId} className="border-t border-[var(--line)] p-5">
           <StatusTimeline metadata={item.metadata} />
@@ -1300,9 +1320,6 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
             </section>
           )}
           <PortfolioMockupDetails metadata={item.metadata} />
-          {item.format === "portfolio" && <div className="mt-4"><ProductionMockupEditor workItemId={item.id} title={item.title}
-            currentAssets={item.content_review_assets || []} onActivated={load}
-            disabled={rebuildingId === item.id || mockupRebuildingId === item.id || uploadingImagesId === item.id || sourceUploadingId === item.id} /></div>}
           {item.metadata?.novelty && item.format !== "portfolio" && (
             <section className={`mt-5 rounded-xl border p-4 text-sm ${
               item.metadata.novelty.duplicate
