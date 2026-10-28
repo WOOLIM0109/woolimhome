@@ -226,6 +226,7 @@ export const runPowerPointProcess: PowerPointProcessRunner = async (invocation) 
   const stop = () => {
     if (stopTask) return stopTask;
     stopping = true;
+    clearTimeout(timeout);
     lines.close();
     child.stdout.destroy();
     child.stderr.destroy();
