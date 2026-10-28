@@ -230,6 +230,158 @@ function Remove-ReadOnlyFile {
   try { Remove-Item -LiteralPath $Path -Force -ErrorAction SilentlyContinue } catch {}
 }
 
+function Get-OwnedPowerPointProcess {
+  param($Application, [DateTime]$StartedAfter)
+
+  if (-not ("Woolim.PowerPointWindow" -as [type])) {
+    Add-Type -TypeDefinition @'
+namespace Woolim {
+  public static class PowerPointWindow {
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    public static extern uint GetWindowThreadProcessId(System.IntPtr window, out uint processId);
+  }
+}
+'@
+  }
+  [uint32]$applicationProcessId = 0
+  [Woolim.PowerPointWindow]::GetWindowThreadProcessId([IntPtr]$Application.HWND, [ref]$applicationProcessId) | Out-Null
+  $process = Get-Process -Id $applicationProcessId -ErrorAction Stop
+  try {
+    if ($process.ProcessName -ne "POWERPNT" -or $process.StartTime.ToUniversalTime() -lt $StartedAfter) {
+      Throw-PreparationError -Code "POWERPOINT_BUSY" -Message "The PowerPoint instance is not owned by this export."
+    }
+    return [PSCustomObject]@{ id = $process.Id; started = $process.StartTime.ToUniversalTime().Ticks }
+  } finally { $process.Dispose() }
+}
+
+function Test-OnlyOwnedPowerPointDocument {
+  param($Application, [string]$CopyPath)
+
+  $presentations = $null
+  $remaining = $null
+  try {
+    $presentations = $Application.Presentations
+    if ([object]::ReferenceEquals($null, $presentations)) { return $null }
+    if ([int]$presentations.Count -eq 0) { return $true }
+    if ([int]$presentations.Count -ne 1) { return $false }
+    $remaining = $presentations.Item(1)
+    return [int]$remaining.ReadOnly -ne 0 -and [string]::Equals(
+      [string]$remaining.FullName, $CopyPath, [StringComparison]::OrdinalIgnoreCase)
+  } catch { return $null }
+  finally {
+    if (-not [object]::ReferenceEquals($null, $remaining)) { try { [System.Runtime.InteropServices.Marshal]::FinalReleaseComObject($remaining) | Out-Null } catch {} }
+    if (-not [object]::ReferenceEquals($null, $presentations)) { try { [System.Runtime.InteropServices.Marshal]::FinalReleaseComObject($presentations) | Out-Null } catch {} }
+  }
+}
+
+function Close-OwnedPowerPointProcess {
+  param($Application, $Identity, [string]$CopyPath)
+
+  if ([object]::ReferenceEquals($null, $Application) -or (Test-OnlyOwnedPowerPointDocument -Application $Application -CopyPath $CopyPath) -ne $true) { return }
+  $quitRequested = $false
+  try { $Application.Quit(); $quitRequested = $true } catch {}
+  if ($quitRequested) {
+    # RCWs can otherwise keep POWERPNT alive while WaitForExit is waiting for
+    # this very finalizer. Release them before waiting for an acknowledged Quit.
+    try { [System.Runtime.InteropServices.Marshal]::FinalReleaseComObject($Application) | Out-Null } catch {}
+    [GC]::Collect()
+    [GC]::WaitForPendingFinalizers()
+  }
+  if (-not $Identity) { return }
+  $process = Get-Process -Id $Identity.id -ErrorAction SilentlyContinue
+  if (-not $process) { return }
+  try {
+    if ($process.HasExited) { return }
+    # A PID can be reused. Never terminate a process other than the exact COM
+    # instance created by this attempt, or an instance with another document.
+    if ($process.ProcessName -ne "POWERPNT" -or $process.StartTime.ToUniversalTime().Ticks -ne $Identity.started) { return }
+    $wait = if ($quitRequested) { 20000 } else { 0 }
+    if ($process.WaitForExit($wait)) { return }
+    $stillOwned = Test-OnlyOwnedPowerPointDocument -Application $Application -CopyPath $CopyPath
+    # Quit may disconnect COM before the process exits. Its successful return
+    # preserves the earlier empty/owned-document proof; a new visible document
+    # always vetoes termination, while an unknown state after failed Quit does.
+    if ($stillOwned -eq $false -or (-not $quitRequested -and $stillOwned -ne $true)) { return }
+    $process.Kill()
+    if (-not $process.WaitForExit(5000)) {
+      Throw-PreparationError -Code "POWERPOINT_SHUTDOWN_PENDING" -Message "The owned PowerPoint export process has not exited."
+    }
+  } catch {
+    if (-not $process.HasExited) { throw }
+  } finally { $process.Dispose() }
+}
+
+function Assert-ExportNotCancelled {
+  if (Test-Path -LiteralPath ($RequestPath + ".cancel") -PathType Leaf) {
+    Throw-PreparationError -Code "POWERPOINT_CANCELLED" -Message "The local export was cancelled."
+  }
+}
+
+function Invoke-CleanupOperation {
+  param($Request)
+
+  $application = $null
+  $mutex = New-Object System.Threading.Mutex($false, "Local\WoolimPowerPointPreparation")
+  $ownsMutex = $false
+  try {
+    try { $ownsMutex = $mutex.WaitOne(0) }
+    catch [System.Threading.AbandonedMutexException] { $ownsMutex = $true }
+    if (-not $ownsMutex) { throw "CLEANUP_BUSY" }
+    $exportRequestPath = [System.IO.Path]::GetFullPath([string]$Request.exportRequestPath)
+    $export = [System.IO.File]::ReadAllText($exportRequestPath, [System.Text.Encoding]::UTF8) | ConvertFrom-Json
+    $receipt = [System.IO.File]::ReadAllText(($exportRequestPath + ".powerpoint-owner.json"), [System.Text.Encoding]::UTF8) | ConvertFrom-Json
+    if ($export.operation -ne "export" -or $receipt.version -ne 1 -or [int]$receipt.id -lt 1 -or [string]$receipt.started -notmatch '^[0-9]{1,19}$') { throw "INVALID_RECEIPT" }
+    $copyPath = [System.IO.Path]::GetFullPath([string]$receipt.copyPath)
+    if (-not [string]::Equals([System.IO.Path]::GetDirectoryName($copyPath), [string]$export.outputDirectory, [StringComparison]::OrdinalIgnoreCase) -or
+      [System.IO.Path]::GetFileName($copyPath) -notmatch '^\.source-copy-[a-f0-9]{32}\.(ppt|pptx|pptm)$') { throw "INVALID_RECEIPT" }
+    $process = Get-Process -Id ([int]$receipt.id) -ErrorAction SilentlyContinue
+    if ($process) {
+      try {
+        if ($process.ProcessName -ne "POWERPNT" -or $process.StartTime.ToUniversalTime().Ticks.ToString() -ne [string]$receipt.started) { throw "OWNER_CHANGED" }
+      } finally { $process.Dispose() }
+      $activeObject = [System.Runtime.InteropServices.Marshal]::GetActiveObject("PowerPoint.Application")
+      # The ROT exposes an older default IDispatch on some Office versions;
+      # use the registered coclass wrapper so HWND is available for identity.
+      $application = [System.Runtime.InteropServices.Marshal]::CreateWrapperOfType(
+        $activeObject, [Type]::GetTypeFromProgID("PowerPoint.Application"))
+      $applicationWindow = $null
+      try { $applicationWindow = $application.HWND } catch {}
+      if ($applicationWindow) {
+        $activeOwner = Get-OwnedPowerPointProcess -Application $application -StartedAfter ([DateTime]::MinValue)
+      } else {
+        # A closing Office instance can lose its frame before its process exits.
+        # Only the exact receipt owner may remain, and COM must still positively
+        # confirm no other document. An unknown collection is never empty proof.
+        $instances = @(Get-Process -Name "POWERPNT" -ErrorAction SilentlyContinue)
+        try {
+          if ($instances.Count -ne 1 -or $instances[0].Id -ne [int]$receipt.id -or
+            (Test-OnlyOwnedPowerPointDocument -Application $application -CopyPath $copyPath) -ne $true) { throw "OWNER_CHANGED" }
+        } finally { foreach ($instance in $instances) { $instance.Dispose() } }
+        $activeOwner = [PSCustomObject]@{ id = [int]$receipt.id; started = [long]$receipt.started }
+      }
+      if ($activeOwner.id -ne [int]$receipt.id -or $activeOwner.started.ToString() -ne [string]$receipt.started) { throw "OWNER_CHANGED" }
+      Close-OwnedPowerPointProcess -Application $application -Identity $activeOwner -CopyPath $copyPath
+      $remaining = Get-Process -Id ([int]$receipt.id) -ErrorAction SilentlyContinue
+      if ($remaining) {
+        try { if (-not $remaining.HasExited -and $remaining.StartTime.ToUniversalTime().Ticks.ToString() -eq [string]$receipt.started) { throw "CLEANUP_INCOMPLETE" } }
+        catch { if (-not $remaining.HasExited) { throw } }
+        finally { $remaining.Dispose() }
+      }
+    }
+    Remove-ReadOnlyFile -Path $copyPath
+    Write-ProtocolLine ([PSCustomObject]@{ type = "complete"; operation = "cleanup" })
+  } catch {
+    Throw-PreparationError -Code "POWERPOINT_CLEANUP_FAILED" -Message "The owned PowerPoint export could not be safely closed."
+  } finally {
+    if (-not [object]::ReferenceEquals($null, $application)) { try { [System.Runtime.InteropServices.Marshal]::FinalReleaseComObject($application) | Out-Null } catch {} }
+    if (-not [object]::ReferenceEquals($null, $activeObject)) { try { [System.Runtime.InteropServices.Marshal]::FinalReleaseComObject($activeObject) | Out-Null } catch {} }
+    [GC]::Collect()
+    [GC]::WaitForPendingFinalizers()
+    if ($ownsMutex) { try { $mutex.ReleaseMutex() } catch {} }
+    $mutex.Dispose()
+  }
+}
+
 function Invoke-InventoryOperation {
   $registration = Get-PowerPointRegistration
   $fontInventory = Get-FontInventory
@@ -313,12 +465,8 @@ function Invoke-ExportOperation {
   $copyPath = $null
   $powerPoint = $null
   $presentation = $null
-  $ownedPresentationOpened = $false
-  $presentationClosed = $false
   $previousAutomationSecurity = $null
-  $ownedProcessIds = @()
-  $quitRequested = $false
-  $shutdownIncomplete = $false
+  $ownedProcess = $null
   $exportWidth = 0
   $exportHeight = 0
   $slideWidth = 0.0
@@ -353,9 +501,15 @@ function Invoke-ExportOperation {
       Throw-PreparationError -Code "POWERPOINT_NOT_AVAILABLE" -Message "Microsoft PowerPoint is not registered on this PC."
     }
     try {
+      Assert-ExportNotCancelled
+      $activationStarted = [DateTime]::UtcNow
       $powerPoint = [Activator]::CreateInstance($powerPointType)
-      $ownedProcessIds = @(Get-Process -Name "POWERPNT" -ErrorAction SilentlyContinue | ForEach-Object { $_.Id })
+      $ownedProcess = Get-OwnedPowerPointProcess -Application $powerPoint -StartedAfter $activationStarted
+      [System.IO.File]::WriteAllText(($RequestPath + ".powerpoint-owner.json"), (@{
+        version = 1; id = $ownedProcess.id; started = $ownedProcess.started.ToString(); copyPath = $copyPath
+      } | ConvertTo-Json -Compress), $utf8)
     } catch {
+      if ($_.Exception.Data["WoolimPreparationCode"]) { throw }
       Throw-PreparationError -Code "POWERPOINT_START_FAILED" -Message "Microsoft PowerPoint could not be started for local export."
     }
     try {
@@ -369,7 +523,6 @@ function Invoke-ExportOperation {
     try {
       # ReadOnly=true, Untitled=false, WithWindow=false.
       $presentation = $powerPoint.Presentations.Open($copyPath, -1, 0, 0)
-      $ownedPresentationOpened = $true
     } catch {
       Throw-PreparationError -Code "POWERPOINT_OPEN_FAILED" -Message "PowerPoint could not open the local read-only source copy."
     }
@@ -409,6 +562,7 @@ function Invoke-ExportOperation {
     }
 
     foreach ($slideNumber in $slideNumbers) {
+      Assert-ExportNotCancelled
       $slide = $null
       try {
         $slide = $presentation.Slides.Item($slideNumber)
@@ -431,6 +585,7 @@ function Invoke-ExportOperation {
         } catch {
           Throw-PreparationError -Code "SLIDE_EXPORT_FAILED" -Message "PowerPoint failed to export a requested slide."
         }
+        Assert-ExportNotCancelled
         $ready = $false
         for ($poll = 0; $poll -lt 40; $poll++) {
           if (Test-Path -LiteralPath $temporaryPath -PathType Leaf) {
@@ -461,63 +616,43 @@ function Invoke-ExportOperation {
           height = $dimensions.height
         })
       } finally {
-        if ($slide) {
+        if (-not [object]::ReferenceEquals($null, $slide)) {
           try { [System.Runtime.InteropServices.Marshal]::FinalReleaseComObject($slide) | Out-Null } catch {}
         }
       }
     }
   } finally {
-    if ($presentation) {
-      try {
-        $presentation.Close()
-        $presentationClosed = $true
-      } catch {}
-      try { [System.Runtime.InteropServices.Marshal]::FinalReleaseComObject($presentation) | Out-Null } catch {}
-      $presentation = $null
-    }
-    if ($powerPoint) {
-      if ($null -ne $previousAutomationSecurity) {
-        try { $powerPoint.AutomationSecurity = $previousAutomationSecurity } catch {}
+    try {
+      if (-not [object]::ReferenceEquals($null, $presentation)) {
+        try { $presentation.Close() } catch {}
+        try { [System.Runtime.InteropServices.Marshal]::FinalReleaseComObject($presentation) | Out-Null } catch {}
+        $presentation = $null
       }
-      # Close only the document opened above. Quit the application only when no
-      # other document appeared in that instance while the export was running.
-      $remainingPresentations = -1
-      try { $remainingPresentations = [int]$powerPoint.Presentations.Count } catch {}
-      $ownedDocumentClosed = (-not $ownedPresentationOpened) -or $presentationClosed
-      if ($ownedDocumentClosed -and $remainingPresentations -eq 0) {
-        try { $powerPoint.Quit(); $quitRequested = $true } catch {}
-      }
-      try { [System.Runtime.InteropServices.Marshal]::FinalReleaseComObject($powerPoint) | Out-Null } catch {}
-      $powerPoint = $null
-    }
-    [GC]::Collect()
-    [GC]::WaitForPendingFinalizers()
-    if ($copyPath -and (Test-Path -LiteralPath $copyPath -PathType Leaf)) {
-      $copyHash = Get-Sha256FileHash -Path $copyPath
-      if ($copyHash -ne $expectedSourceHash) {
-        Remove-ReadOnlyFile -Path $copyPath
-        Throw-PreparationError -Code "SOURCE_COPY_CHANGED" -Message "PowerPoint changed the local read-only source copy."
-      }
-    }
-    Remove-ReadOnlyFile -Path $copyPath
-    if ($quitRequested) {
-      # Quit can return before POWERPNT exits. Wait only for this attempt's
-      # process, without killing it or restarting another conversion.
-      foreach ($ownedProcessId in $ownedProcessIds) {
-        $closingProcess = Get-Process -Id $ownedProcessId -ErrorAction SilentlyContinue
-        if ($closingProcess) {
-          try { if (-not $closingProcess.WaitForExit(20000)) { $shutdownIncomplete = $true } } catch {}
-          finally { $closingProcess.Dispose() }
+      if (-not [object]::ReferenceEquals($null, $powerPoint)) {
+        if ($null -ne $previousAutomationSecurity) {
+          try { $powerPoint.AutomationSecurity = $previousAutomationSecurity } catch {}
         }
+        Close-OwnedPowerPointProcess -Application $powerPoint -Identity $ownedProcess -CopyPath $copyPath
+      }
+    } finally {
+      if (-not [object]::ReferenceEquals($null, $powerPoint)) {
+        try { [System.Runtime.InteropServices.Marshal]::FinalReleaseComObject($powerPoint) | Out-Null } catch {}
+        $powerPoint = $null
+      }
+      [GC]::Collect()
+      [GC]::WaitForPendingFinalizers()
+      try {
+        if ($copyPath -and (Test-Path -LiteralPath $copyPath -PathType Leaf) -and (Get-Sha256FileHash -Path $copyPath) -ne $expectedSourceHash) {
+          Throw-PreparationError -Code "SOURCE_COPY_CHANGED" -Message "PowerPoint changed the local read-only source copy."
+        }
+      } finally {
+        Remove-ReadOnlyFile -Path $copyPath
+        if ($ownsMutex) {
+          try { $mutex.ReleaseMutex() } catch {}
+        }
+        if ($mutex) { $mutex.Dispose() }
       }
     }
-    if ($ownsMutex) {
-      try { $mutex.ReleaseMutex() } catch {}
-    }
-    if ($mutex) { $mutex.Dispose() }
-  }
-  if ($shutdownIncomplete) {
-    Throw-PreparationError -Code "POWERPOINT_SHUTDOWN_PENDING" -Message "PowerPoint is still closing. Completed pages are saved; no conversion was restarted."
   }
   $afterHash = Get-Sha256FileHash -Path $sourcePath
   if ($afterHash -ne $expectedSourceHash) {
@@ -554,6 +689,7 @@ try {
   switch ($operation) {
     "inventory" { Invoke-InventoryOperation; break }
     "export" { Invoke-ExportOperation -Request $request; break }
+    "cleanup" { Invoke-CleanupOperation -Request $request; break }
     default {
       Throw-PreparationError -Code "INVALID_OPERATION" -Message "The preparation operation must be inventory or export."
     }

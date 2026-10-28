@@ -23,6 +23,14 @@ type Evidence = { bytes: Buffer; checked: PreviewCheck };
 const hashPattern = /^[a-f0-9]{64}$/;
 const json = (value: unknown): JsonValue => JSON.parse(JSON.stringify(value));
 function fail(code: string): never { throw new Error(code); }
+function assertEvidenceOutputPath(outputRoot: string, numbers: number[]) {
+  // PowerPoint COM still uses MAX_PATH, including its terminating NUL. Account
+  // for the adapter's unique directory and both converter temporary filenames.
+  const attempt = path.join(outputRoot, `attempt-${'0'.repeat(36)}`);
+  const filenames = [`.source-copy-${'0'.repeat(32)}.pptx`,
+    ...numbers.map(number => `slide-${String(number).padStart(4, '0')}.${'0'.repeat(32)}.tmp.png`)];
+  if (filenames.some(filename => path.join(attempt, filename).length >= 260)) fail("PREPARATION_EVIDENCE_PATH_TOO_LONG");
+}
 function exact(value: unknown, keys: string[], optional: string[] = []): asserts value is Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)
     || keys.some((key) => !Object.hasOwn(value, key))
@@ -170,7 +178,10 @@ export async function preparePreparationReviewEvidence(identity: PreparationRevi
       if (!pending.length) continue;
       if (!environmentChecked) { await assertEnvironment(ctx, dependencies); environmentChecked = true; }
       await ctx.assertSource();
-      const attemptRoot = path.dirname(await ctx.store.prepareArtifactPath(ctx.build.buildId, `attempts/preparation-review-${randomUUID()}/marker`));
+      // The adapter already creates an empty attempt-<uuid> for every call.
+      // Match pipeline.ts instead of adding another UUID directory above it.
+      const attemptRoot = path.dirname(await ctx.store.prepareArtifactPath(ctx.build.buildId, "attempts/marker"));
+      assertEvidenceOutputPath(attemptRoot, pending);
       const requested = new Set(pending), received = new Map<number, { file: string; checked: PreviewCheck }>();
       const output = await (dependencies.exportSlides ?? exportLocalPowerPointSlides)({ sourcePath: ctx.identity.sourcePath,
         sourceHash: ctx.sourceHash, outputDirectory: attemptRoot, slideNumbers: pending, longEdge,

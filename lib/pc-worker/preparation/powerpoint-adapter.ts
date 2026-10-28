@@ -63,6 +63,11 @@ export type PowerPointProcessInvocation = {
   onStdoutLine: (line: string) => Promise<void>;
   /** Tests can exercise the same shutdown path without waiting three minutes. */
   timeoutMs?: number;
+  /** Private export cancellation and verified COM cleanup; never an API input. */
+  requestStop?: () => Promise<void>;
+  cleanup?: () => Promise<void>;
+  /** The private cleanup helper also must not wait on inherited Office pipes. */
+  closePipesOnExit?: boolean;
 };
 
 export type PowerPointProcessResult = {
@@ -177,6 +182,7 @@ export const runPowerPointProcess: PowerPointProcessRunner = async (invocation) 
     windowsHide: true,
     stdio: ["ignore", "pipe", "pipe"],
   });
+  const lines = createInterface({ input: child.stdout, crlfDelay: Infinity });
   let stderr = "";
   child.stderr.setEncoding("utf8");
   child.stderr.on("data", (chunk: string) => {
@@ -189,35 +195,68 @@ export const runPowerPointProcess: PowerPointProcessRunner = async (invocation) 
     child.once("error", reject);
     child.once("close", (exitCode, signal) => resolve({ exitCode, signal, stderr }));
   });
+  const exited = new Promise<PowerPointProcessResult>((resolve, reject) => {
+    child.once("error", reject);
+    child.once("exit", (exitCode, signal) => resolve({ exitCode, signal, stderr }));
+  });
+  // COM servers can inherit a pipe handle from PowerShell. Waiting for close
+  // before closing the owned COM process would then deadlock on that pipe.
+  const exitCleanup = exited.then(async () => {
+    try { await invocation.cleanup?.(); }
+    finally {
+      // Office helper processes can retain inherited handles even after the
+      // verified PowerPoint instance is gone. The host has exited; drain the
+      // already queued records/checkpoint, without waiting on other processes.
+      if (invocation.cleanup || invocation.closePipesOnExit) {
+        lines.close();
+        child.stdout.destroy();
+        child.stderr.destroy();
+      }
+    }
+  });
   let stopping = false;
+  let stopTask: Promise<void> | null = null;
   let timeoutError: LocalPowerPointAdapterError | null = null;
   const consumeLines = async () => {
-    const lines = createInterface({ input: child.stdout, crlfDelay: Infinity });
     for await (const line of lines) {
       if (stopping) break;
       await invocation.onStdoutLine(line);
     }
   };
   const stop = () => {
+    if (stopTask) return stopTask;
     stopping = true;
-    if (!child.killed) child.kill();
+    lines.close();
     child.stdout.destroy();
+    child.stderr.destroy();
+    stopTask = (async () => {
+      if (invocation.requestStop) {
+        await invocation.requestStop().catch(() => {});
+        // Let the converter reach its finalizer before terminating its host.
+        await Promise.race([exited.catch(() => {}), new Promise(resolve => setTimeout(resolve, 1_000))]);
+      }
+      if (child.exitCode === null && !child.killed) child.kill();
+      await exited.catch(() => {});
+      await invocation.cleanup?.();
+    })();
+    return stopTask;
   };
   const timeout = setTimeout(() => {
     timeoutError = new LocalPowerPointAdapterError("POWERPOINT_TIMEOUT", "Local conversion timed out. Completed pages are saved. If PowerPoint remains open, close that session before resuming; no retry was started.");
-    stop();
+    void stop().catch(() => {});
   }, invocation.timeoutMs ?? 180_000);
   const consuming = consumeLines();
   try {
-    const [, result] = await Promise.all([consuming, closed]);
+    const [, result] = await Promise.all([consuming, closed, exitCleanup]);
     if (timeoutError) throw timeoutError;
     return result;
   } catch (error) {
-    stop();
+    let shutdownError: unknown = null;
+    try { await stop(); } catch (failure) { shutdownError = failure; }
     // Keep the caller's work lock until the process is closed AND an in-flight
     // checkpoint has settled. No callback may outlive this rejected promise.
-    await Promise.allSettled([consuming, closed]);
-    throw timeoutError ?? error;
+    await Promise.allSettled([consuming, closed, exitCleanup]);
+    throw shutdownError ?? timeoutError ?? error;
   } finally {
     clearTimeout(timeout);
   }
@@ -240,6 +279,30 @@ async function invokePowerPointProtocol(
   const runner = options.runProcess || runPowerPointProcess;
   const command = options.powershellPath || "powershell.exe";
   const scriptPath = path.resolve(options.scriptPath || defaultScriptPath());
+  const ownershipPath = `${requestPath}.powerpoint-owner.json`;
+  let cleanupTask: Promise<void> | null = null;
+  const cleanup = request.operation === "export" ? () => cleanupTask ??= cleanupOwnedPowerPoint() : undefined;
+  async function cleanupOwnedPowerPoint() {
+    if (!await stat(ownershipPath).catch(() => null)) return;
+    const cleanupPath = path.join(requestDirectory, "cleanup.json");
+    await writeFile(cleanupPath, JSON.stringify({ operation: "cleanup", exportRequestPath: requestPath }), { encoding: "utf8", mode: 0o600 });
+    try {
+      let completed = false;
+      const result = await runPowerPointProcess({
+        command, args: ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", scriptPath, "-RequestPath", cleanupPath],
+        timeoutMs: 30_000,
+        closePipesOnExit: true,
+        onStdoutLine: async line => {
+          const record = parseProtocolLine(line);
+          if (record?.type === "complete" && record.operation === "cleanup") completed = true;
+          else if (record) protocolError("INVALID_PROTOCOL_OUTPUT", "PowerPoint cleanup returned an invalid record.");
+        },
+      });
+      if (result.exitCode !== 0 || !completed) throw new Error("CLEANUP_FAILED");
+    } catch {
+      protocolError("POWERPOINT_CLEANUP_FAILED", "The owned PowerPoint export could not be safely closed. No unrelated application was terminated.");
+    }
+  }
   let sawRecord = false;
   try {
     const result = await runner({
@@ -254,6 +317,7 @@ async function invokePowerPointProtocol(
         "-RequestPath",
         requestPath,
       ],
+      ...(cleanup ? { requestStop: () => writeFile(`${requestPath}.cancel`, "cancel", { encoding: "utf8", mode: 0o600 }), cleanup } : {}),
       onStdoutLine: async (line) => {
         const record = parseProtocolLine(line);
         if (!record) return;
@@ -272,6 +336,7 @@ async function invokePowerPointProtocol(
       protocolError("MISSING_PROTOCOL_OUTPUT", "PowerPoint preparation returned no protocol records.");
     }
   } catch (error) {
+    await cleanup?.();
     if (error instanceof LocalPowerPointAdapterError) throw error;
     protocolError("POWERPOINT_PROCESS_FAILED", shortDiagnostic(error) || "PowerPoint preparation could not run.");
   } finally {
