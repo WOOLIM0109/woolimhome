@@ -285,13 +285,13 @@ async function invokePowerPointProtocol(
   const cleanup = request.operation === "export" ? () => cleanupTask ??= cleanupOwnedPowerPoint() : undefined;
   async function cleanupOwnedPowerPoint() {
     if (!await stat(ownershipPath).catch(() => null)) return;
-    const cleanupPath = path.join(requestDirectory, "cleanup.json");
-    await writeFile(cleanupPath, JSON.stringify({ operation: "cleanup", exportRequestPath: requestPath }), { encoding: "utf8", mode: 0o600 });
-    try {
+    const checkCleanup = async (verifyOnly: boolean) => {
+      const cleanupPath = path.join(requestDirectory, verifyOnly ? "verify-cleanup.json" : "cleanup.json");
+      await writeFile(cleanupPath, JSON.stringify({ operation: "cleanup", exportRequestPath: requestPath, ...(verifyOnly ? { verifyOnly: true } : {}) }), { encoding: "utf8", mode: 0o600 });
       let completed = false;
       const result = await runPowerPointProcess({
         command, args: ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", scriptPath, "-RequestPath", cleanupPath],
-        timeoutMs: 30_000,
+        timeoutMs: verifyOnly ? 15_000 : 30_000,
         closePipesOnExit: true,
         onStdoutLine: async line => {
           const record = parseProtocolLine(line);
@@ -300,8 +300,14 @@ async function invokePowerPointProtocol(
         },
       });
       if (result.exitCode !== 0 || !completed) throw new Error("CLEANUP_FAILED");
+    };
+    try {
+      await checkCleanup(false);
     } catch {
-      protocolError("POWERPOINT_CLEANUP_FAILED", "The owned PowerPoint export could not be safely closed. No unrelated application was terminated.");
+      // The exact owner may exit between the helper's identity check and COM
+      // attachment. Accept only a fresh, read-only proof that it is now gone.
+      try { await checkCleanup(true); }
+      catch { protocolError("POWERPOINT_CLEANUP_FAILED", "The owned PowerPoint export could not be safely closed. No unrelated application was terminated."); }
     }
   }
   let sawRecord = false;

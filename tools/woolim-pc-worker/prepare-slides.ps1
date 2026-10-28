@@ -317,16 +317,40 @@ function Assert-ExportNotCancelled {
   }
 }
 
+function Test-OwnedPowerPointProcessExited {
+  param($Identity)
+
+  $process = $null
+  try { $process = Get-Process -Id ([int]$Identity.id) -ErrorAction Stop }
+  catch {
+    if ($_.FullyQualifiedErrorId -like "NoProcessFoundForGivenId*") { return $true }
+    throw
+  }
+  if ($null -eq $process) { return $true }
+  try {
+    if ($process.HasExited) { return $true }
+    return $process.ProcessName -ne "POWERPNT" -or
+      $process.StartTime.ToUniversalTime().Ticks.ToString() -ne [string]$Identity.started
+  } catch {
+    if ($process.HasExited) { return $true }
+    throw
+  } finally { $process.Dispose() }
+}
+
 function Invoke-CleanupOperation {
   param($Request)
 
   $application = $null
-  $mutex = New-Object System.Threading.Mutex($false, "Local\WoolimPowerPointPreparation")
+  $activeObject = $null
+  $verificationOnly = $Request.verifyOnly -eq $true
+  $mutex = if (-not $verificationOnly) { New-Object System.Threading.Mutex($false, "Local\WoolimPowerPointPreparation") } else { $null }
   $ownsMutex = $false
   try {
-    try { $ownsMutex = $mutex.WaitOne(0) }
-    catch [System.Threading.AbandonedMutexException] { $ownsMutex = $true }
-    if (-not $ownsMutex) { throw "CLEANUP_BUSY" }
+    if (-not $verificationOnly) {
+      try { $ownsMutex = $mutex.WaitOne(0) }
+      catch [System.Threading.AbandonedMutexException] { $ownsMutex = $true }
+      if (-not $ownsMutex) { throw "CLEANUP_BUSY" }
+    }
     $exportRequestPath = [System.IO.Path]::GetFullPath([string]$Request.exportRequestPath)
     $export = [System.IO.File]::ReadAllText($exportRequestPath, [System.Text.Encoding]::UTF8) | ConvertFrom-Json
     $receipt = [System.IO.File]::ReadAllText(($exportRequestPath + ".powerpoint-owner.json"), [System.Text.Encoding]::UTF8) | ConvertFrom-Json
@@ -334,6 +358,13 @@ function Invoke-CleanupOperation {
     $copyPath = [System.IO.Path]::GetFullPath([string]$receipt.copyPath)
     if (-not [string]::Equals([System.IO.Path]::GetDirectoryName($copyPath), [string]$export.outputDirectory, [StringComparison]::OrdinalIgnoreCase) -or
       [System.IO.Path]::GetFileName($copyPath) -notmatch '^\.source-copy-[a-f0-9]{32}\.(ppt|pptx|pptm)$') { throw "INVALID_RECEIPT" }
+    $ownerExited = Test-OwnedPowerPointProcessExited -Identity $receipt
+    if ($verificationOnly -or $ownerExited) {
+      if (-not $ownerExited) { throw "CLEANUP_INCOMPLETE" }
+      if (-not $verificationOnly) { Remove-ReadOnlyFile -Path $copyPath }
+      Write-ProtocolLine ([PSCustomObject]@{ type = "complete"; operation = "cleanup" })
+      return
+    }
     $process = Get-Process -Id ([int]$receipt.id) -ErrorAction SilentlyContinue
     if ($process) {
       try {
@@ -368,17 +399,20 @@ function Invoke-CleanupOperation {
         finally { $remaining.Dispose() }
       }
     }
+    if (-not (Test-OwnedPowerPointProcessExited -Identity $receipt)) { throw "CLEANUP_INCOMPLETE" }
     Remove-ReadOnlyFile -Path $copyPath
     Write-ProtocolLine ([PSCustomObject]@{ type = "complete"; operation = "cleanup" })
   } catch {
     Throw-PreparationError -Code "POWERPOINT_CLEANUP_FAILED" -Message "The owned PowerPoint export could not be safely closed."
   } finally {
-    if (-not [object]::ReferenceEquals($null, $application)) { try { [System.Runtime.InteropServices.Marshal]::FinalReleaseComObject($application) | Out-Null } catch {} }
-    if (-not [object]::ReferenceEquals($null, $activeObject)) { try { [System.Runtime.InteropServices.Marshal]::FinalReleaseComObject($activeObject) | Out-Null } catch {} }
-    [GC]::Collect()
-    [GC]::WaitForPendingFinalizers()
+    if (-not $verificationOnly) {
+      if (-not [object]::ReferenceEquals($null, $application)) { try { [System.Runtime.InteropServices.Marshal]::FinalReleaseComObject($application) | Out-Null } catch {} }
+      if (-not [object]::ReferenceEquals($null, $activeObject)) { try { [System.Runtime.InteropServices.Marshal]::FinalReleaseComObject($activeObject) | Out-Null } catch {} }
+      [GC]::Collect()
+      [GC]::WaitForPendingFinalizers()
+    }
     if ($ownsMutex) { try { $mutex.ReleaseMutex() } catch {} }
-    $mutex.Dispose()
+    if ($mutex) { $mutex.Dispose() }
   }
 }
 
