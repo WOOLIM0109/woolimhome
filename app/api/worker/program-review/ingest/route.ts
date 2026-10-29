@@ -37,6 +37,10 @@ export async function POST(request: Request) {
         { status: error.status, headers: { "Cache-Control": "private, no-store" } },
       );
     }
+    // 흔적을 남깁니다. 로그가 없으면 운영에서 원인을 알 수 없습니다.
+    // 응답에는 내보내지 않습니다 (안쪽 사정이 밖으로 나가면 안 됩니다).
+    console.error("[program-ingest] 실패:",
+      error instanceof Error ? error.message.slice(0, 300) : "알 수 없는 오류");
     return NextResponse.json({ error: "INGEST_FAILED" }, { status: 500 });
   }
 }
