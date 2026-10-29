@@ -202,7 +202,7 @@ export default function NewColumnPage() {
 
 function Shell({ children }: { children: React.ReactNode }) {
   return (
-    <section className="admin-site min-h-[70vh] bg-[#fff]">
+    <section className="back-office min-h-[70vh] bg-[#fff]">
       <div className="mx-auto max-w-4xl px-5 py-16 lg:px-8">{children}</div>
     </section>
   );

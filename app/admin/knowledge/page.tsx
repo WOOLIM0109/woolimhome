@@ -553,5 +553,5 @@ function ApprovalDialog({ item, updating, onClose, onApprove }: { item: ExpertKn
 }
 
 function Shell({ children }: { children: React.ReactNode }) {
-  return <section className="admin-site min-h-[70vh] bg-[#fff]"><div className="mx-auto max-w-5xl px-5 py-16 lg:px-8">{children}</div></section>;
+  return <section className="back-office min-h-[70vh] bg-[#fff]"><div className="mx-auto max-w-5xl px-5 py-16 lg:px-8">{children}</div></section>;
 }

@@ -62,7 +62,7 @@ export default function AdminPortal({
 
   if (loading) {
     return (
-      <section className="admin-site min-h-[70vh] px-5 py-20 text-center text-[var(--muted)]">
+      <section className="back-office min-h-[70vh] px-5 py-20 text-center text-[var(--muted)]">
         로그인 상태를 확인하고 있습니다.
       </section>
     );
@@ -70,7 +70,7 @@ export default function AdminPortal({
 
   if (!user) {
     return (
-      <section className="admin-site min-h-[70vh] px-5 py-20">
+      <section className="back-office min-h-[70vh] px-5 py-20">
         <div className="mx-auto max-w-md border border-[var(--line)] bg-white p-10 text-center">
           <p className="eyebrow justify-center text-xs">Woolim Admin</p>
           <h1 className="mt-5 text-3xl font-bold">울림 콘텐츠 관리자</h1>
@@ -88,7 +88,7 @@ export default function AdminPortal({
 
   if (!access.admin) {
     return (
-      <section className="admin-site min-h-[70vh] px-5 py-20 text-center">
+      <section className="back-office min-h-[70vh] px-5 py-20 text-center">
         <h1 className="text-2xl font-bold text-[#b91c1c]">
           {access.error ? "권한을 확인하지 못했습니다." : "접근 권한이 없습니다."}
         </h1>
@@ -110,7 +110,7 @@ export default function AdminPortal({
   }
 
   return (
-    <section className="admin-site min-h-screen">
+    <section className="back-office min-h-screen">
       <div className="mx-auto grid max-w-[1504px] gap-0 lg:grid-cols-[260px_minmax(0,1fr)]">
         {/*
           옆 차림표는 공개 사이트의 머리글과 같은 결로 둡니다. 흰 바탕에 1px

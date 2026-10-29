@@ -426,10 +426,10 @@
 }
 
 /* ---------------------------------------------------------------- */
-/* 관리자 화면 — 공개 사이트와 같은 결                                 */
+/* 백오피스 화면(관리자·외주 작업실) — 공개 사이트와 같은 결              */
 /*                                                                   */
 /* 공개 사이트(woolimcompany.kr)는 흰 바탕에 1px 선으로만 면을 나누고,  */
-/* 모서리를 각지게 두고, 주황은 강조에만 씁니다. 관리자 화면은 따뜻한   */
+/* 모서리를 각지게 두고, 주황은 강조에만 씁니다. 백오피스 화면은 따뜻한 */
 /* 크림색 바탕에 둥근 모서리와 그림자, 그라데이션 버튼을 쓰고 있어서    */
 /* 같은 회사의 화면으로 보이지 않았습니다.                             */
 /*                                                                   */
@@ -438,7 +438,7 @@
 /* 변수를 이 구역 안에서 다시 정하면 230곳 넘는 호출부를 건드리지 않고   */
 /* 한 번에 결이 맞습니다.                                             */
 /* ---------------------------------------------------------------- */
-.admin-site {
+.back-office {
   /* 공개 사이트와 같은 색 (.public-site 와 같은 값) */
   --background: #fff;
   --foreground: #171717;
@@ -539,19 +539,19 @@
   overflow-wrap: anywhere;
 }
 
-.admin-site h1,
-.admin-site h2,
-.admin-site h3,
-.admin-site h4 {
+.back-office h1,
+.back-office h2,
+.back-office h3,
+.back-office h4 {
   letter-spacing: -0.03em;
 }
 
 /* 면을 1px 선으로만 나눕니다. 떠 있는 카드가 아니라 구획된 표에 가깝게. */
-.admin-site .card {
+.back-office .card {
   border-color: var(--line);
   box-shadow: none;
 }
-.admin-site .card-hover:hover {
+.back-office .card-hover:hover {
   transform: none;
   border-color: #d4d4d4;
   background: #fafafa;
@@ -559,55 +559,55 @@
 }
 
 /* 버튼은 납작한 주황 면. 들어 올리거나 번지게 하지 않습니다. */
-.admin-site .btn-gradient {
+.back-office .btn-gradient {
   background: #eb6826;
   box-shadow: none;
 }
-.admin-site .btn-gradient:hover {
+.back-office .btn-gradient:hover {
   transform: none;
   background: #d85c1e;
   box-shadow: none;
   filter: none;
 }
 
-.admin-site .floating-card {
+.back-office .floating-card {
   box-shadow: none;
 }
-.admin-site .floating-card:hover {
+.back-office .floating-card:hover {
   transform: none;
   box-shadow: none;
 }
 
 /* 구역 라벨 — 공개 사이트의 작은 주황 사각형과 같은 모양. */
-.admin-site .eyebrow {
+.back-office .eyebrow {
   gap: 9px;
   letter-spacing: 0.15em;
   color: var(--foreground);
 }
-.admin-site .eyebrow::before {
+.back-office .eyebrow::before {
   width: 5px;
   height: 5px;
   border-radius: 0;
   background: #eb6826;
 }
 
-.admin-site .form-input,
-.admin-site .input {
+.back-office .form-input,
+.back-office .input {
   border-radius: 0;
 }
-.admin-site .form-input:focus,
-.admin-site .input:focus {
+.back-office .form-input:focus,
+.back-office .input:focus {
   border-color: #eb6826;
   box-shadow: none;
 }
 
-.admin-site .prose-muted {
+.back-office .prose-muted {
   color: var(--muted);
   line-height: 1.9;
 }
 
 /* 공개 사이트의 밑줄 링크 — 글자와 화살표 사이를 띄우고 아래에 선 한 줄. */
-.admin-site .text-link {
+.back-office .text-link {
   display: inline-flex;
   align-items: center;
   justify-content: space-between;
@@ -620,7 +620,7 @@
     color 200ms ease,
     border-color 200ms ease;
 }
-.admin-site .text-link:hover {
+.back-office .text-link:hover {
   border-color: #eb6826;
   color: #eb6826;
 }

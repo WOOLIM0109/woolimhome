@@ -583,7 +583,7 @@ export default function PartnerQueue({ onUnauthorized }: { onUnauthorized: () =>
                 {expanded && (
                 <div id={detailsId} className="border-t border-[var(--line)] p-6 sm:p-8">
 
-                  <section className="rounded-2xl bg-[#fff8f3] p-4 sm:p-5">
+                  <section className="rounded-2xl bg-[#f7f7f7] p-4 sm:p-5">
                     <h4 className="text-sm font-bold">1. 원고 옮기기</h4>
                     <div className="mt-3 flex flex-wrap gap-2">
                       <CopyButton
@@ -626,7 +626,7 @@ export default function PartnerQueue({ onUnauthorized }: { onUnauthorized: () =>
                         </div>
                         <button
                           onClick={() => void downloadAll(item)}
-                          className="inline-flex items-center gap-2 rounded-xl bg-[#241a15] px-4 py-2.5 text-sm font-bold text-white"
+                          className="inline-flex items-center gap-2 rounded-xl bg-[#262626] px-4 py-2.5 text-sm font-bold text-white"
                         >
                           <Download size={15} /> 이미지 전체 다운로드
                         </button>
@@ -798,7 +798,7 @@ export default function PartnerQueue({ onUnauthorized }: { onUnauthorized: () =>
                     {/* 본문이 비어 보이는 이유를 알려 줍니다. 글이 없어진 것이
                         아니라 발행 뒤에 정리한 것입니다. */}
                     {item.bodyPurgedAt && (
-                      <p className="mt-3 rounded-xl border border-[var(--line)] bg-[#f7efe9] p-3 text-xs leading-5 text-[#5d4c43]">
+                      <p className="mt-3 rounded-xl border border-[var(--line)] bg-[#f7f7f7] p-3 text-xs leading-5 text-[#666]">
                         발행이 끝나 원고 본문은 정리했습니다({formatDate(item.bodyPurgedAt)}).
                         {item.forceApprovalMemo
                           ? " 등록 당시 내용은 위 강제승인 메모에서 확인하실 수 있습니다."
