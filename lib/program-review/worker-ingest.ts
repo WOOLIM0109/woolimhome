@@ -512,10 +512,12 @@ export async function ingestPrograms(
     external_id: program.external_id,
     fingerprint: program.fingerprint,
     title: program.title,
-    applicant_summary: program.applicant_summary,
-    support_summary: program.support_summary,
-    application_method: program.application_method,
-    application_period_text: program.application_period_text,
+    // ★ 이 네 칸은 비어 있으면 안 됩니다 (NOT NULL).
+    // 없으면 빈 글자로 넣습니다 — 없다고 저장 자체가 실패하면 안 됩니다.
+    applicant_summary: program.applicant_summary ?? "",
+    support_summary: program.support_summary ?? "",
+    application_method: program.application_method ?? "",
+    application_period_text: program.application_period_text ?? "",
     source_url: program.source_url,
     starts_at: program.starts_at,
     deadline_at: program.deadline_at,
