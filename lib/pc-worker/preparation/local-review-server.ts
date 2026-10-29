@@ -1249,7 +1249,7 @@ function publicPreparationReview(view: PreparationReviewView, buildId: string) {
       reviewSlideNumber:positiveInteger(view.customPortrait.reviewSlideNumber),reason:safeString(view.customPortrait.reason,500)},
     slides,slideSelection:{minimum:selection.minimum,manual:selection.manual===true,slides:selectionSlides},holds:view.holds.map(v=>safeString(v,500)).slice(0,30),localOnly:true};
 }
-// Only fixed internal codes may reach the screen or the local bridge stderr log.
+// Only fixed internal codes and explanations reach the screen or bridge stderr.
 // Adapter messages can contain paths, file names and source-derived diagnostics.
 const PREPARATION_ERROR_CODES = new Set([
   "INVALID_BODY", "BODY_TOO_LARGE", "PREPARATION_REVIEW_FAILED", "PREPARATION_RESULT_INVALID",
@@ -1275,10 +1275,17 @@ const PREPARATION_ERROR_CODES = new Set([
 function preparationError(error: unknown) {
   const candidate = error instanceof Error ? (("code" in error && typeof error.code === "string" ? error.code : error.message).split(":",1)[0]) : "";
   const code = PREPARATION_ERROR_CODES.has(candidate) ? candidate : "PREPARATION_REVIEW_FAILED";
+  const cleanupError = error instanceof Error && "cleanupError" in error ? error.cleanupError : null;
+  const cleanupCode = isRecord(cleanupError) && cleanupError.code === "POWERPOINT_CLEANUP_FAILED"
+    && PREPARATION_ERROR_CODES.has(cleanupError.code) ? cleanupError.code : null;
+  const cleanupMessage = code === "POWERPOINT_CLEANUP_FAILED" || cleanupCode
+    ? " PowerPoint 종료를 안전하게 확인하지 못했습니다. 남아 있는 PowerPoint 세션을 확인해 주세요." : "";
   const message = code==="INVALID_BODY"?"원본 확대 확인·선택·사유와 요청 형식을 확인해 주세요.":code==="BODY_TOO_LARGE"?"검수 요청이 허용된 크기를 넘었습니다.":
     "원본·준비 상태가 바뀌었거나 증거가 아직 준비되지 않았습니다. 입력 사유는 유지됩니다. 최신 상태에서 원본을 다시 확인해 주세요. 자동 재시도하지 않습니다.";
-  console.error(`[preparation-review] ${code}`);
-  return { status:code==="BODY_TOO_LARGE"?413:code==="INVALID_BODY"?400:409, error:`[${code}] ${message}` };
+  const additionalCode = cleanupCode && cleanupCode !== code ? cleanupCode : null;
+  console.error(`[preparation-review] ${code}${additionalCode ? ` ${additionalCode}` : ""}${cleanupMessage}`);
+  return { status:code==="BODY_TOO_LARGE"?413:code==="INVALID_BODY"?400:409,
+    error:`[${code}] ${message}${additionalCode ? ` [${additionalCode}]` : ""}${cleanupMessage}` };
 }
 function preparationLaunchUrl(value: unknown) {
   if(typeof value!=="string")return null;

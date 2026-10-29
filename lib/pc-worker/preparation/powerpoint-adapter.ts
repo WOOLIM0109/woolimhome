@@ -93,6 +93,7 @@ export type LocalPowerPointExportOptions = LocalPowerPointAdapterOptions & {
 
 export class LocalPowerPointAdapterError extends Error {
   readonly code: string;
+  cleanupError?: LocalPowerPointAdapterError;
 
   constructor(code: string, message: string) {
     super(message);
@@ -105,6 +106,9 @@ type JsonRecord = Record<string, unknown>;
 
 const SHA256_PATTERN = /^[0-9a-f]{64}$/i;
 const MAX_STDERR_LENGTH = 8_192;
+// One second lets the small JSON-line tail and stderr drain after host exit,
+// while bounding the wait when an Office helper retains an inherited handle.
+export const POWERPOINT_PIPE_DRAIN_TIMEOUT_MS = 1_000;
 
 function isRecord(value: unknown): value is JsonRecord {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -119,6 +123,20 @@ function shortDiagnostic(value: unknown) {
     .replace(/[\r\n]+/g, " ")
     .trim()
     .slice(0, MAX_STDERR_LENGTH);
+}
+
+function withCleanupError(error: unknown, cleanupError: unknown) {
+  if (error === cleanupError || !cleanupError) return error;
+  const primary = (error instanceof Error ? error : new Error(shortDiagnostic(error))) as Error & {
+    cleanupError?: LocalPowerPointAdapterError;
+  };
+  if (!primary.cleanupError) {
+    const failure = cleanupError instanceof LocalPowerPointAdapterError ? cleanupError
+      : new LocalPowerPointAdapterError("POWERPOINT_CLEANUP_FAILED", shortDiagnostic(cleanupError));
+    primary.cleanupError = failure;
+    primary.message += ` [${failure.code}] ${failure.message}`;
+  }
+  return primary;
 }
 
 function stringOrNull(value: unknown) {
@@ -199,20 +217,40 @@ export const runPowerPointProcess: PowerPointProcessRunner = async (invocation) 
     child.once("error", reject);
     child.once("exit", (exitCode, signal) => resolve({ exitCode, signal, stderr }));
   });
+  let cleanupTask: Promise<void> | null = null;
+  let cleanupFailure: unknown = null;
+  const cleanup = () => cleanupTask ??= Promise.resolve().then(() => invocation.cleanup?.());
+  const drainExitedPipes = () => new Promise<void>((resolve) => {
+    if (!invocation.cleanup && !invocation.closePipesOnExit) { resolve(); return; }
+    const streams = [child.stdout, child.stderr];
+    const finish = () => {
+      clearTimeout(timer);
+      for (const stream of streams) {
+        stream.off("end", check);
+        stream.off("close", check);
+      }
+      lines.close();
+      child.stdout.destroy();
+      child.stderr.destroy();
+      resolve();
+    };
+    const check = () => {
+      if (streams.every(stream => stream.readableEnded || stream.destroyed)) finish();
+    };
+    const timer = setTimeout(finish, POWERPOINT_PIPE_DRAIN_TIMEOUT_MS);
+    for (const stream of streams) {
+      stream.once("end", check);
+      stream.once("close", check);
+    }
+    check();
+  });
   // COM servers can inherit a pipe handle from PowerShell. Waiting for close
   // before closing the owned COM process would then deadlock on that pipe.
   const exitCleanup = exited.then(async () => {
-    try { await invocation.cleanup?.(); }
-    finally {
-      // Office helper processes can retain inherited handles even after the
-      // verified PowerPoint instance is gone. The host has exited; drain the
-      // already queued records/checkpoint, without waiting on other processes.
-      if (invocation.cleanup || invocation.closePipesOnExit) {
-        lines.close();
-        child.stdout.destroy();
-        child.stderr.destroy();
-      }
-    }
+    const draining = drainExitedPipes();
+    // Do not reject before stdout has delivered a possible original error.
+    try { await cleanup(); } catch (error) { cleanupFailure = error; }
+    finally { await draining; }
   });
   let stopping = false;
   let stopTask: Promise<void> | null = null;
@@ -238,7 +276,7 @@ export const runPowerPointProcess: PowerPointProcessRunner = async (invocation) 
       }
       if (child.exitCode === null && !child.killed) child.kill();
       await exited.catch(() => {});
-      await invocation.cleanup?.();
+      await cleanup();
     })();
     return stopTask;
   };
@@ -246,10 +284,18 @@ export const runPowerPointProcess: PowerPointProcessRunner = async (invocation) 
     timeoutError = new LocalPowerPointAdapterError("POWERPOINT_TIMEOUT", "Local conversion timed out. Completed pages are saved. If PowerPoint remains open, close that session before resuming; no retry was started.");
     void stop().catch(() => {});
   }, invocation.timeoutMs ?? 180_000);
-  const consuming = consumeLines();
+  let recordError: unknown = null;
+  const consuming = consumeLines().catch(error => { recordError = error; throw error; });
   try {
     const [, result] = await Promise.all([consuming, closed, exitCleanup]);
     if (timeoutError) throw timeoutError;
+    if (cleanupFailure) {
+      if (result.exitCode !== 0) {
+        throw new LocalPowerPointAdapterError("POWERPOINT_PROCESS_FAILED",
+          shortDiagnostic(result.stderr) || `PowerPoint preparation exited with code ${String(result.exitCode)}.`);
+      }
+      throw cleanupFailure;
+    }
     return result;
   } catch (error) {
     let shutdownError: unknown = null;
@@ -257,7 +303,7 @@ export const runPowerPointProcess: PowerPointProcessRunner = async (invocation) 
     // Keep the caller's work lock until the process is closed AND an in-flight
     // checkpoint has settled. No callback may outlive this rejected promise.
     await Promise.allSettled([consuming, closed, exitCleanup]);
-    throw shutdownError ?? timeoutError ?? error;
+    throw withCleanupError(timeoutError ?? recordError ?? error, cleanupFailure ?? shutdownError);
   } finally {
     clearTimeout(timeout);
   }
@@ -303,11 +349,13 @@ async function invokePowerPointProtocol(
     };
     try {
       await checkCleanup(false);
-    } catch {
+    } catch (cleanupError) {
       // The exact owner may exit between the helper's identity check and COM
       // attachment. Accept only a fresh, read-only proof that it is now gone.
       try { await checkCleanup(true); }
-      catch { protocolError("POWERPOINT_CLEANUP_FAILED", "The owned PowerPoint export could not be safely closed. No unrelated application was terminated."); }
+      catch (verificationError) {
+        protocolError("POWERPOINT_CLEANUP_FAILED", `The owned PowerPoint export could not be safely closed. No unrelated application was terminated. Cleanup: ${shortDiagnostic(cleanupError)} Verification: ${shortDiagnostic(verificationError)}`);
+      }
     }
   }
   let sawRecord = false;
@@ -342,10 +390,16 @@ async function invokePowerPointProtocol(
     if (!sawRecord) {
       protocolError("MISSING_PROTOCOL_OUTPUT", "PowerPoint preparation returned no protocol records.");
     }
-  } catch (error) {
     await cleanup?.();
-    if (error instanceof LocalPowerPointAdapterError) throw error;
-    protocolError("POWERPOINT_PROCESS_FAILED", shortDiagnostic(error) || "PowerPoint preparation could not run.");
+  } catch (error) {
+    const primary = error instanceof LocalPowerPointAdapterError ? error
+      : new LocalPowerPointAdapterError("POWERPOINT_PROCESS_FAILED", shortDiagnostic(error) || "PowerPoint preparation could not run.");
+    if (error instanceof Error && "cleanupError" in error && error.cleanupError instanceof LocalPowerPointAdapterError) {
+      primary.cleanupError = error.cleanupError;
+    }
+    try { await cleanup?.(); }
+    catch (cleanupError) { withCleanupError(primary, cleanupError); }
+    throw primary;
   } finally {
     await rm(requestDirectory, { recursive: true, force: true });
   }
