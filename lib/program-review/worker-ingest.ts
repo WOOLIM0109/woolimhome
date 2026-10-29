@@ -351,7 +351,50 @@ export function parseIngestBody(value: unknown): IngestPayload {
  * 첨부 id 는 서버가 저장할 때 만드는 값이라 수집기가 알 수 없습니다. 그래서 수집기는
  * **원문 문장만** 보내고, 어느 출처의 어느 쪽인지는 여기서 찾아 붙입니다.
  * 못 찾은 근거는 **버립니다** — 없는 곳을 가리키는 근거를 만들어 내지 않습니다.
+ *
+ * ★ 공백·줄바꿈 차이는 넘어갑니다. 공고문은 문장 중간에 줄이 바뀌는데 올라온 인용은
+ * 그걸 한 줄로 합쳐 옵니다. 실측으로 근거 55개 중 28개가 그 차이 때문에 버려졌습니다.
+ * 그래서 공백을 눌러 맞춰 보고, 맞으면 **원문에 있는 글자 그대로** 를 인용으로 씁니다
+ * (모델이 쓴 글자가 아니라 원문 조각이라, `proof` 의 글자 그대로 검사를 통과합니다).
  */
+const WHITESPACE = /\s+/g;
+// 값이 인용 안에 그대로 있어야 받아들여지는 글자 칸들.
+const TEXT_PATHS = new Set(["support_amount_text", "self_pay_text", "contact"]);
+
+function squeeze(value: string) {
+  return value.replace(WHITESPACE, " ").trim();
+}
+
+/**
+ * 공백을 눌렀을 때 `quote` 와 같아지는 **원문 조각**을 돌려줍니다. 없으면 빈 문자열.
+ *
+ * 눌린 글자에서 자리를 찾고, 원문을 한 글자씩 세어 그 자리를 되짚습니다.
+ */
+function exactSpan(block: string, quote: string) {
+  const needle = squeeze(quote);
+  if (!needle) return "";
+  if (block.includes(quote)) return quote;        // 흔한 경우를 먼저
+  const squeezed = squeeze(block);
+  const at = squeezed.indexOf(needle);
+  if (at < 0) return "";
+
+  // 눌린 자리 → 원문 자리
+  let seen = 0;
+  let start = -1;
+  let previousWasSpace = true;
+  for (let index = 0; index < block.length; index += 1) {
+    const isSpace = /\s/.test(block[index]);
+    if (isSpace && previousWasSpace) continue;    // 눌리면 사라지는 공백
+    if (seen === at && start < 0) start = index;
+    if (seen === at + needle.length) {
+      return block.slice(start, index).trim();
+    }
+    seen += 1;
+    previousWasSpace = isSpace;
+  }
+  return start >= 0 ? block.slice(start).trim() : "";
+}
+
 function attachEvidence(
   requirements: Row,
   sources: readonly RequirementSource[],
@@ -360,6 +403,7 @@ function attachEvidence(
   if (raw === null || typeof raw !== "object" || Array.isArray(raw)) return requirements;
   const blocks = sourceBlocks(sources);
   const located: Record<string, string> = {};
+  const adjusted: Row = {};
 
   for (const [path, value] of Object.entries(raw as Row)) {
     if (typeof value !== "string") continue;
@@ -371,17 +415,34 @@ function attachEvidence(
       continue;
     }
     let found = "";
+    let span = "";
     for (const [id, entries] of blocks) {
       for (const [locator, text] of entries) {
-        if (!text || !text.includes(quote)) continue;
-        found = `[source:${id} ${locator}] ${quote}`;
+        if (!text) continue;
+        span = exactSpan(text, quote);
+        if (!span) continue;
+        found = `[source:${id} ${locator}] ${span}`;
         break;
       }
       if (found) break;
     }
-    if (found) located[path] = found;
+    if (!found) continue;
+    located[path] = found;
+
+    // 글자 칸은 값이 인용 안에 그대로 있어야 받아들여집니다. 올라온 값은 모델이
+    // 쓴 글자라 공백이 다를 수 있으니 **원문 조각으로 맞춥니다.**
+    // (실측: '원문 표현대로' 적는 칸이 이 차이 하나로 전부 버려졌습니다.)
+    if (TEXT_PATHS.has(path)) {
+      const current = requirements[path];
+      if (typeof current === "string" && !span.includes(current)) {
+        adjusted[path] = span;
+      }
+    }
   }
-  return { ...requirements, evidence: Object.keys(located).length ? located : null };
+  return {
+    ...requirements, ...adjusted,
+    evidence: Object.keys(located).length ? located : null,
+  };
 }
 
 /** 요건 입력은 서버가 만듭니다 — 해시가 서버 계산과 같아야 재추출을 피합니다. */
