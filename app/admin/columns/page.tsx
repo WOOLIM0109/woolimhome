@@ -200,7 +200,7 @@ export default function AdminColumnsPage() {
 
 function AdminShell({ children }: { children: React.ReactNode }) {
   return (
-    <section className="admin-site min-h-[70vh] bg-[#fff]">
+    <section className="back-office min-h-[70vh] bg-[#fff]">
       <div className="mx-auto max-w-6xl px-5 py-10 lg:px-8">
         <Link
           href="/admin"
