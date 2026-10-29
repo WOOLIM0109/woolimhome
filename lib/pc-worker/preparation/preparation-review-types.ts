@@ -32,7 +32,7 @@ export type PreparationReviewView = PreparationReviewBuild & {
   slides: PreparationReviewSlide[];
   /** Read-only selection metadata for every source slide. Selection never
    * grants the visual classification required by excluded artwork. */
-  slideSelection: { minimum: number; slides: PreparationReviewSelectionSlide[] };
+  slideSelection: { minimum: number; manual: boolean; slides: PreparationReviewSelectionSlide[] };
   holds: string[];
   localOnly: true;
 };

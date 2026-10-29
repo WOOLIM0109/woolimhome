@@ -9,7 +9,7 @@ export type SlideArtworkReview = { sourceHash: string; slideContentHash: string;
   sourceSlideNumber: number; classification: "abstract_graphic"; reviewedBy: string; reason: string;
   inspectedAtFullResolution: true };
 export type PreparationSelection = { version: 1; status: "ready_for_local_review" | "held";
-  minimum: number; cover: number | null; selected: number[]; reserves: number[];
+  minimum: number; manual: boolean; cover: number | null; selected: number[]; reserves: number[];
   holds: string[]; manualReviewRequired: true;
   artworkReviews?: SlideArtworkReview[];
   slides: { sourceSlideNumber: number; disposition: "selected" | "reserve" | "excluded" | "candidate";
@@ -72,7 +72,7 @@ export function selectPreparedSlides(inspection: PptxInspection, previews: reado
   artworkReviews?: readonly SlideArtworkReview[];
 }={}): PreparationSelection {
   const contract=getApprovedMockupSuiteContract(inspection.aspect), minimum=contract?.minimumUniqueSlideCount || 0;
-  const result:PreparationSelection={version:1,status:"held",minimum,cover:null,selected:[],reserves:[],holds:[],manualReviewRequired:true,slides:[]};
+  const result:PreparationSelection={version:1,status:"held",minimum,manual:Boolean(options.selectedSlideNumbers),cover:null,selected:[],reserves:[],holds:[],manualReviewRequired:true,slides:[]};
   if (!contract) result.holds.push("승인된 규격 템플릿이 없습니다.");
   const previewNumbers = new Set<number>();
   const duplicatePreviewNumbers = new Set<number>();

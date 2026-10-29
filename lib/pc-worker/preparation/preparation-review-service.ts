@@ -72,7 +72,8 @@ async function locked<T>(identity: PreparationReviewIdentity, operation: (ctx: C
       || JSON.stringify(inspection) !== JSON.stringify(stage.data)) fail("PREPARATION_REVIEW_INSPECTION_STALE");
     const selectionStage = await store.getReusableStage(identity.buildId, "slide_selection");
     const selection = selectionStage?.data as unknown as PreparationSelection;
-    if (!selection || selection.version !== 1 || !Array.isArray(selection.slides) || !Array.isArray(selection.holds)) fail("PREPARATION_REVIEW_SELECTION_STALE");
+    if (!selection || selection.version !== 1 || typeof selection.manual !== "boolean"
+      || !Array.isArray(selection.slides) || !Array.isArray(selection.holds)) fail("PREPARATION_REVIEW_SELECTION_STALE");
     const choice = await readSourceFormatChoice(store, identity.buildId, inspection);
     const assertSource = async () => { if (sha256(await readFile(locations.sourcePath)) !== sourceHash) fail("PREPARATION_REVIEW_SOURCE_CHANGED"); };
     const result = await operation({ identity: { ...identity, ...locations }, store, build, inspection, choice, selection, sourceHash, assertSource });
@@ -158,7 +159,7 @@ async function view(ctx: Context): Promise<PreparationReviewView> {
     customPortrait: { allowed: formatAllowed(ctx), reviewSlideNumber: formatSlide, currentChoice: Boolean(ctx.choice),
       reason: formatAllowed(ctx) ? "A4 세로 비율과 차이가 3% 이내입니다. 원본 비율을 유지하고 흰 여백만 추가합니다. 블러 승인은 별도입니다."
         : "사용자 지정 세로 규격 보정 대상이 아닙니다. 다른 규격·폰트·표·사진 제외 규칙은 그대로 유지됩니다." },
-    slides, slideSelection: { minimum: ctx.selection.minimum, slides: selectionSlides }, holds: [...ctx.selection.holds], localOnly: true };
+    slides, slideSelection: { minimum: ctx.selection.minimum, manual: ctx.selection.manual, slides: selectionSlides }, holds: [...ctx.selection.holds], localOnly: true };
 }
 export async function getPreparationReview(identity: PreparationReviewIdentity): Promise<PreparationReviewView> {
   return locked(identity, view);
