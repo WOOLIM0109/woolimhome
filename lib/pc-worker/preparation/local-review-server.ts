@@ -100,6 +100,7 @@ type LedgerSnapshot = {
   inspection: unknown;
   selection: unknown;
   artifacts: Map<string, LedgerArtifact>;
+  redactionStatuses: Map<number, RedactionState["status"]>;
 };
 
 type SafeIssue = { code: string; detail: string };
@@ -113,6 +114,7 @@ type ReviewSlide = {
   missingFonts: string[];
   previewUrl: string | null;
   highresUrl: string | null;
+  redactionStatus?: RedactionState["status"];
 };
 
 type ReviewModel = {
@@ -213,7 +215,7 @@ async function assertNoLinks(root: string, relativePath: string, leafMustBeFile:
   return current;
 }
 
-async function readJsonInside(root: string, relativePath: string) {
+async function readJsonInside(root: string, relativePath: string, artifact?: { bytes: number; sha256: string }) {
   const filePath = await assertNoLinks(root, relativePath, true);
   const handle = await open(filePath, fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0));
   try {
@@ -222,7 +224,11 @@ async function readJsonInside(root: string, relativePath: string) {
       fail("INVALID_LEDGER", "검토 기록 파일 크기 또는 형식이 올바르지 않습니다.");
     }
     try {
-      return JSON.parse(await handle.readFile("utf8")) as unknown;
+      const bytes = await handle.readFile();
+      if (artifact && (bytes.length !== artifact.bytes || createHash("sha256").update(bytes).digest("hex") !== artifact.sha256)) {
+        fail("STALE_ARTIFACT", "가림 기록의 지문이 완료 기록과 다릅니다.");
+      }
+      return JSON.parse(bytes.toString("utf8")) as unknown;
     } catch (error) {
       if (error instanceof SyntaxError) fail("INVALID_LEDGER", "검토 기록 JSON을 읽을 수 없습니다.");
       throw error;
@@ -277,10 +283,29 @@ async function readLedger(root: string, buildId: string): Promise<LedgerSnapshot
   }
   const sourceStage = isRecord(build.stages.source_inspection) ? build.stages.source_inspection : null;
   const selectionStage = isRecord(build.stages.slide_selection) ? build.stages.slide_selection : null;
+  const redactionStatuses: LedgerSnapshot["redactionStatuses"] = new Map();
+  for (const [key, raw] of Object.entries(build.artifacts)) {
+    const match = /^redaction-state:([1-9]\d*)$/.exec(key);
+    if (!match) continue;
+    if (!isRecord(raw) || raw.key !== key || typeof raw.relativePath !== "string"
+      || typeof raw.sha256 !== "string" || !SHA256_PATTERN.test(raw.sha256)
+      || !Number.isSafeInteger(raw.bytes) || Number(raw.bytes) < 1 || Number(raw.bytes) > MAX_STATE_BYTES) {
+      fail("INVALID_LEDGER", "가림 기록의 완료 정보가 올바르지 않습니다.");
+    }
+    const relativePath = normalizeRelativePath(raw.relativePath);
+    const state = await readJsonInside(root, `builds/${buildId}/artifacts/${relativePath}`, { bytes: Number(raw.bytes), sha256: raw.sha256.toLowerCase() });
+    if (!isRecord(state) || state.workId !== work.workId || state.buildId !== buildId
+      || state.sourceSlideNumber !== Number(match[1])
+      || !["editing", "needs_review", "rendered", "verified", "replacement_required"].includes(String(state.status))) {
+      fail("INVALID_LEDGER", "가림 기록의 장표 또는 상태가 올바르지 않습니다.");
+    }
+    redactionStatuses.set(Number(match[1]), state.status as RedactionState["status"]);
+  }
   return {
     inspection: sourceStage?.data ?? null,
     selection: selectionStage?.data ?? null,
     artifacts,
+    redactionStatuses,
   };
 }
 
@@ -429,6 +454,11 @@ function buildReviewModel(snapshot: LedgerSnapshot): ReviewModel {
     }
   }
   const ordered = [...slides.values()].sort((left, right) => left.sourceSlideNumber - right.sourceSlideNumber);
+  for (const slide of ordered) {
+    if (slide.highresUrl && (slide.status === "selected" || slide.status === "reserve")) {
+      slide.redactionStatus = snapshot.redactionStatuses.get(slide.sourceSlideNumber);
+    }
+  }
   const counts: ReviewModel["counts"] = { selected: 0, reserve: 0, excluded: 0, pending: 0 };
   for (const slide of ordered) counts[slide.status] += 1;
   const globalSelectionIssues = isRecord(snapshot.selection)
@@ -453,6 +483,8 @@ const STATUS_LABEL: Record<ReviewStatus, string> = {
 };
 
 function renderHtml(model: ReviewModel, preparationReview = false) {
+  const editableSlides = model.slides.filter((slide) => slide.highresUrl && (slide.status === "selected" || slide.status === "reserve"));
+  const approvedCount = editableSlides.filter((slide) => slide.redactionStatus === "verified").length;
   const issueList = model.issues.length
     ? `<ul class="notices">${model.issues.map((issue) => `<li><b>${escapeHtml(issue.code)}</b> ${escapeHtml(issue.detail)}</li>`).join("")}</ul>`
     : "";
@@ -467,14 +499,18 @@ function renderHtml(model: ReviewModel, preparationReview = false) {
     const editor = slide.highresUrl && (slide.status === "selected" || slide.status === "reserve")
       ? `<a class="edit-link" href="/editor/${slide.sourceSlideNumber}">가림 편집</a>`
       : "";
-    return `<article class="card status-${slide.status}">
+    const redactionLabel = slide.redactionStatus === "verified" ? "승인됨"
+      : slide.redactionStatus === "rendered" ? "블러본 만듦 · 승인 전"
+        : slide.redactionStatus ? "편집 중" : "가림 시작 안 함";
+    const redaction = editor ? `<p class="redaction-state${slide.redactionStatus === "verified" ? " redaction-approved-label" : ""}">${redactionLabel}</p>` : "";
+    return `<article class="card status-${slide.status}${editor && slide.redactionStatus === "verified" ? " redaction-approved" : ""}">
       <div class="card-head"><strong>${slide.sourceSlideNumber}번</strong><span>${STATUS_LABEL[slide.status]}</span></div>
       ${imageUrl ? `<a href="${escapeHtml(slide.highresUrl ?? imageUrl)}" aria-label="${slide.sourceSlideNumber}번 장표 크게 보기"><img src="${escapeHtml(imageUrl)}" alt="${slide.sourceSlideNumber}번 장표 로컬 미리보기"></a>` : "<div class=\"image-missing\">미리보기 없음</div>"}
       <h2>${escapeHtml(slide.title || `${slide.sourceSlideNumber}번 장표`)}</h2>
       ${slide.hidden ? "<p class=\"font-warning\">숨김 장표</p>" : ""}
       ${fonts}${reasons}
       <p class="asset-state">${slide.previewUrl ? "저해상도 있음" : "저해상도 없음"} · ${slide.highresUrl ? "고해상도 있음" : "고해상도 없음"}</p>
-      ${editor}
+      ${redaction}${editor}
     </article>`;
   }).join("");
   return `<!doctype html>
@@ -483,7 +519,7 @@ function renderHtml(model: ReviewModel, preparationReview = false) {
 <body><header class="top"><div><p class="privacy">로컬 확인 전용 · 업로드 안 함</p><h1>장표 선정 검토</h1>
 <p>${escapeHtml(model.aspect)} · 원본 ${model.totalSlides}장${model.width && model.height ? ` · ${escapeHtml(model.width)} × ${escapeHtml(model.height)} pt` : ""}</p></div>
 <div class="top-actions"><p class="step-note">선정·예비 장표의 고해상도 원본만 가림 편집할 수 있습니다.</p>${preparationReview ? '<a class="mockup-link" href="/preparation">규격·추상 그래픽 직접 검수</a>' : ''}<a class="mockup-link" href="/mockups">목업 배정·미리보기</a></div></header>
-<section class="summary" aria-label="선정 현황"><b>선정 ${model.counts.selected}</b><b>예비 ${model.counts.reserve}</b><b>제외·보류 ${model.counts.excluded}</b><b>미선정 ${model.counts.pending}</b></section>
+<section class="summary" aria-label="선정 현황"><b>선정 ${model.counts.selected}</b><b>예비 ${model.counts.reserve}</b><b>제외·보류 ${model.counts.excluded}</b><b>미선정 ${model.counts.pending}</b><b>가림 승인 ${approvedCount} / ${editableSlides.length}</b></section>
 ${issueList}<main class="gallery">${cards || "<p class=\"empty\">아직 표시할 장표가 없습니다.</p>"}</main>
 <footer>원본과 편집 기록은 이 PC의 작업 폴더 안에만 남습니다. 가림 편집은 버튼을 누른 뒤 저장할 때만 기록됩니다.</footer></body></html>`;
 }
@@ -504,7 +540,7 @@ function renderEditorHtml(sourceSlideNumber: number) {
     <p class="viewer-warning">장표 번호와 확대율을 확인하며 작은 글씨·QR·사진 속 정보까지 직접 살펴보세요. 목업의 기울어진 좌표가 아닌 원본 좌표에 가림을 지정합니다.</p>
   </section>
   <aside class="editor-sidebar">
-    <section class="editor-section"><h2>1. 가림 영역</h2><div class="button-row"><label for="mask-mode">새 영역 방식</label><select id="mask-mode"><option value="opaque">불투명 가림</option><option value="blur">강한 흐림</option></select><button id="add-region" type="button" aria-pressed="false">사각형 영역 추가</button></div><div class="button-row"><button id="undo" type="button" disabled>실행 취소</button><button id="redo" type="button" disabled>다시 실행</button></div><ol id="region-list" class="editor-list"></ol></section>
+    <section class="editor-section"><h2>1. 가림 영역</h2><div class="button-row"><label for="mask-mode">새 영역 방식</label><select id="mask-mode"><option value="opaque">불투명 가림</option><option value="blur" selected>강한 흐림</option></select><button id="add-region" type="button" aria-pressed="false">사각형 영역 추가</button></div><div class="button-row"><button id="undo" type="button" disabled>실행 취소</button><button id="redo" type="button" disabled>다시 실행</button></div><ol id="region-list" class="editor-list"></ol></section>
     <section class="editor-section"><h2>2. 자동 확인 후보</h2><p class="section-help">후보마다 가림을 적용하거나, 공개를 허용한 사람·대상·사유를 남겨야 합니다. 필수 후보는 불투명 가림만 허용됩니다.</p><ul id="redaction-warnings" class="redaction-warnings" hidden></ul><ol id="candidate-list" class="editor-list"></ol></section>
     <section class="editor-section"><h2>3. 원본 수동 확인</h2><label class="field"><span>검토자</span><input id="reviewer" type="text" maxlength="100" autocomplete="name"></label><label class="check"><input id="original-inspected" type="checkbox"> 자동 탐지되지 않은 이름·숫자·QR·사진 속 정보까지 고해상도 원본에서 확대 확인함</label><label class="check"><input type="checkbox" data-manual-check> 작은 이름·숫자·QR·사진 속 글자를 확인함</label><label class="check"><input type="checkbox" data-manual-check> 제목·도형까지 불필요하게 가리지 않았는지 확인함</label><label class="check"><input type="checkbox" data-manual-check> 넓은 가림 뒤에도 디자인을 보여 줄 수 있는지 확인함</label><fieldset class="layout-choice"><legend>이 장표를 계속 사용합니까?</legend><label><input type="radio" name="layout-decision" value="keep"> 가림 후에도 사용 가능</label><label><input type="radio" name="layout-decision" value="replace"> 디자인 훼손·부적합으로 교체 필요</label></fieldset><p id="replacement-notice" class="replacement-notice" hidden>교체 필요로 저장하면 이 장표는 블러본 승인 대신 후보표의 예비 장표로 교체해야 합니다.</p><button id="save-redaction" class="primary-action" type="button">가림·검토 기록 저장</button></section>
     <section class="editor-section"><h2>4. 블러본 확인·승인</h2><p class="section-help">저장 후 블러본 만들기를 직접 누르세요. 자동 생성·자동 승인은 하지 않습니다.</p><button id="render-redaction" type="button" disabled>저장 내용으로 블러본 만들기</button><label class="check"><input id="output-inspected" type="checkbox"> 적용 후 화면을 확대해 다시 확인함</label><button id="approve-redaction" class="primary-action" type="button" disabled>확인한 블러본 승인</button></section>
@@ -562,6 +598,8 @@ ${productionBridge ? `<section id="production-bridge" class="thumbnail-title-edi
 }
 
 const STYLES = `
+.field[hidden]{display:none}
+.redaction-approved{outline:3px solid #7c3aed;outline-offset:1px}.redaction-state{font-size:13px;font-weight:700;margin:8px 12px;color:#59636e}.redaction-approved-label{color:#6d28d9;background:#f3e8ff;border-radius:6px;padding:7px 9px}
 :root{font-family:Arial,"Malgun Gothic",sans-serif;color:#202124;background:#f5f6f8}*{box-sizing:border-box}body{margin:0;padding:24px}button,input,select,textarea{font:inherit}.top,.editor-header{display:flex;gap:20px;align-items:flex-start;justify-content:space-between;max-width:1400px;margin:auto}.top h1,.editor-header h1{margin:4px 0;font-size:28px}.top p,.editor-header p{margin:4px 0;color:#59636e}.privacy{font-weight:800;color:#e85d24!important}.step-note{max-width:360px!important;padding:10px 13px;border-radius:10px;background:#fff;border:1px solid #dfe3e8}.summary{max-width:1400px;margin:18px auto;display:flex;gap:8px;flex-wrap:wrap}.summary b{background:#fff;border:1px solid #dfe3e8;border-radius:999px;padding:8px 12px}.notices{max-width:1400px;margin:0 auto 16px;padding:12px 28px;background:#fff7e8;border:1px solid #f1cf90;border-radius:12px}.gallery{max-width:1400px;margin:auto;display:grid;grid-template-columns:repeat(auto-fill,minmax(245px,1fr));gap:14px}.card{background:#fff;border:1px solid #dfe3e8;border-top:5px solid #9aa0a6;border-radius:12px;overflow:hidden;box-shadow:0 4px 14px #28334212}.status-selected{border-top-color:#11a36a}.status-reserve{border-top-color:#4274e8}.status-excluded{border-top-color:#d65555}.card-head{display:flex;justify-content:space-between;padding:10px 12px}.card-head span{font-weight:800}.card img,.image-missing{display:block;width:100%;aspect-ratio:16/10;object-fit:contain;background:#edf0f3}.image-missing{display:grid;place-items:center;color:#7a838d}.card h2{font-size:15px;line-height:1.4;margin:12px}.reasons{font-size:13px;line-height:1.45;margin:0 12px 12px;padding-left:18px}.muted,.font-warning,.asset-state{font-size:12px;margin:8px 12px}.muted,.asset-state{color:#727b84}.font-warning{color:#b4462c;font-weight:700}.edit-link,.back-link{display:inline-block;margin:0 12px 14px;padding:9px 12px;border-radius:8px;background:#202124;color:#fff;text-decoration:none;font-weight:800}.back-link{margin:0}.empty,footer{max-width:1400px;margin:24px auto;color:#68717a}footer{font-size:12px}
 .editor-page{padding:18px}.editor-status{position:sticky;top:0;z-index:20;max-width:1600px;margin:14px auto;padding:10px 14px;border:1px solid #cfd5dc;border-radius:10px;background:#fff}.editor-status[data-kind="error"]{background:#fff0ef;border-color:#df8a82;color:#a3291e}.editor-status[data-kind="success"]{background:#ebf8f1;border-color:#82cda5;color:#12663d}.editor-status[data-kind="pending"]{background:#fff7e8;border-color:#e9c87f}.editor-layout{max-width:1600px;min-width:0;margin:auto;display:grid;grid-template-columns:minmax(0,1fr) 390px;gap:16px;align-items:start}.viewer-panel,.editor-section{min-width:0;background:#fff;border:1px solid #dfe3e8;border-radius:12px;box-shadow:0 3px 12px #2833420d}.viewer-panel{overflow:hidden}.viewer-toolbar{position:relative;z-index:12;display:flex;align-items:center;gap:10px;padding:10px 14px;background:#fff;border-bottom:1px solid #dfe3e8;flex-wrap:wrap}.viewer-toolbar strong{margin-right:auto}.viewer-toolbar button{border:1px solid #cbd1d8;border-radius:7px;padding:6px 9px;background:#fff;color:#202124;font-weight:700}.viewer-toolbar output{min-width:160px;font-weight:800}.image-scroller{overflow:auto;max-height:calc(100vh - 190px);padding:20px;background:#cfd4da}.image-stage{position:relative;width:100%;min-width:0;margin:auto;background:#fff;box-shadow:0 12px 32px #20212445}.image-stage img{display:block;width:100%;height:auto}.redaction-overlay{position:absolute;inset:0;touch-action:none;cursor:crosshair}.redaction-overlay[hidden]{display:none}.candidate-box,.region-box{position:absolute}.candidate-box{border:2px dashed #e34040;background:#e340401a;pointer-events:none}.region-box{border:2px solid #1c63d5;background:#1c63d526;cursor:move}.region-box.mode-opaque{border-color:#202124;background:#20212442}.region-box-label{position:absolute;left:0;top:0;transform:translateY(-100%);padding:2px 5px;background:#202124;color:#fff;font-size:11px}.resize-handle{position:absolute;right:-7px;bottom:-7px;width:15px;height:15px;border:2px solid #fff;background:#1c63d5;cursor:nwse-resize}.compare-controls{display:flex;gap:14px;align-items:center;padding:12px 16px;border-top:1px solid #dfe3e8;flex-wrap:wrap}.viewer-warning{margin:0;padding:0 16px 16px;color:#67511a;font-size:13px;line-height:1.5}.editor-sidebar{min-width:0;display:grid;gap:12px}.editor-section{padding:14px;overflow-wrap:anywhere}.editor-section h2{margin:0 0 10px;font-size:17px}.section-help,.empty-list{color:#66717d;font-size:13px;line-height:1.45}.redaction-warnings{margin:8px 0;padding:9px 9px 9px 28px;border-radius:8px;background:#fff0ef;color:#a3291e;font-size:13px;line-height:1.45;overflow-wrap:anywhere}.button-row,.row-actions{display:flex;gap:7px;align-items:center;flex-wrap:wrap;margin:8px 0}.button-row button,.button-row select,.editor-section>button,.small-button{max-width:100%;border:1px solid #cbd1d8;border-radius:8px;padding:8px 10px;background:#fff;color:#202124;font-weight:700;white-space:normal}.button-row button:disabled,.editor-section>button:disabled{color:#949ba3;background:#eef0f2}.primary-action,.small-button.primary{background:#202124!important;color:#fff!important;border-color:#202124!important}.small-button.danger{color:#a3291e;border-color:#d79a95}.editor-list{min-width:0;display:grid;gap:8px;margin:10px 0 0;padding:0;list-style:none}.candidate-row,.region-row{min-width:0;padding:10px;border:1px solid #e0e4e8;border-radius:8px}.candidate-heading{display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap}.candidate-heading .required,.candidate-heading .optional{font-size:11px;padding:2px 5px;border-radius:5px}.candidate-heading .required{background:#ffe2df;color:#a3291e}.candidate-heading .optional{background:#e8effc;color:#2754a2}.candidate-reason{margin:6px 0;font-size:12px;line-height:1.4;overflow-wrap:anywhere}.resolved-label{color:#11643b;font-size:12px;font-weight:800}.unresolved-label{color:#a3291e;font-size:12px;font-weight:800}.region-row{display:flex;gap:7px;align-items:center;flex-wrap:wrap}.region-name{flex:1;min-width:100px;font-size:13px;font-weight:700}.region-mode{max-width:100%;padding:6px}.field{display:grid;min-width:0;gap:5px;margin:9px 0;font-size:13px;font-weight:700}.field input,.field textarea{min-width:0;width:100%;padding:8px;border:1px solid #bdc5ce;border-radius:7px}.check,.layout-choice label{display:block;margin:9px 0;font-size:13px;line-height:1.4}.layout-choice{min-width:0;margin:12px 0;border:1px solid #d8dde3;border-radius:8px}.layout-choice legend{max-width:100%;font-size:13px;font-weight:800}.replacement-notice{padding:9px;border-radius:8px;background:#fff0ef;color:#a3291e;font-size:13px;line-height:1.4}.exception-dialog{width:min(520px,calc(100vw - 32px));border:0;border-radius:12px;box-shadow:0 20px 60px #0006}.exception-dialog::backdrop{background:#0007}.exception-dialog h2{margin-top:0}
 .top-actions{display:grid;justify-items:end;gap:8px}.mockup-link{display:inline-block;padding:9px 12px;border-radius:8px;background:#e85d24;color:#fff;text-decoration:none;font-weight:800}.mockup-page{padding:18px}.mockup-header{max-width:1600px;margin:auto;display:flex;gap:20px;align-items:flex-start;justify-content:space-between}.mockup-header h1{margin:4px 0;font-size:28px}.mockup-header p{margin:4px 0;color:#59636e}.mockup-controls,.candidate-panel,.board-panel,.request-panel{max-width:1600px;min-width:0;margin:14px auto;padding:16px;background:#fff;border:1px solid #dfe3e8;border-radius:12px;box-shadow:0 3px 12px #2833420d}.mockup-controls{display:grid;grid-template-columns:minmax(240px,1fr) minmax(260px,1fr);gap:8px 18px;align-items:end}.title-field{margin:0}.title-confirm{margin:0}.minimum-note,.local-only-note{margin:2px 0;color:#66717d;font-size:13px}.mockup-actions{grid-column:1/-1;display:flex;gap:8px;align-items:center;flex-wrap:wrap}.mockup-actions button{border:1px solid #cbd1d8;border-radius:8px;padding:9px 12px;background:#fff;font-weight:800}.mockup-actions button:disabled{color:#949ba3;background:#eef0f2}.debug-toggle{margin-left:auto;font-size:13px}.local-only-note{grid-column:1/-1}.mockup-workspace{max-width:1600px;margin:auto}.candidate-panel h2,.board-panel h2,.request-panel h2{margin:0 0 6px;font-size:20px}.mockup-candidates{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:10px}.mockup-candidate{min-width:0;display:grid;gap:7px;padding:10px;border:1px solid #dfe3e8;border-radius:9px;overflow-wrap:anywhere}.mockup-candidate img,.candidate-placeholder{display:block;width:100%;aspect-ratio:16/10;object-fit:contain;background:#edf0f3;border-radius:6px}.candidate-placeholder{display:grid;place-items:center;padding:10px;text-align:center;color:#727b84;font-size:12px}.candidate-title{font-size:13px}.candidate-status{font-size:12px;font-weight:800;color:#11643b}.candidate-needs_redaction .candidate-status,.candidate-needs_preparation .candidate-status{color:#a3291e}.candidate-note{margin:0;color:#66717d;font-size:12px}.panel-heading,.mockup-board-head,.dialog-heading{display:flex;gap:12px;align-items:center;justify-content:space-between}.template-lock{padding:4px 7px;border-radius:6px;background:#eef0f2;color:#59636e;font-size:11px;font-weight:800}.mockup-boards{display:grid;grid-template-columns:repeat(auto-fit,minmax(290px,1fr));gap:14px}.mockup-board{min-width:0;padding:12px;border:1px solid #dfe3e8;border-radius:10px;background:#fafbfc}.mockup-board.board-blocked{border-color:#d65555;background:#fff8f7}.mockup-board-head h2{margin:0;font-size:16px}.mockup-board-image{position:relative;margin:10px 0;background:#e9edf1;border-radius:8px;overflow:hidden}.mockup-board-image img,.mockup-placeholder{display:block;width:100%;aspect-ratio:16/10;object-fit:contain}.mockup-placeholder{display:grid;place-items:center;color:#727b84}.image-enlarge{position:absolute;right:8px;bottom:8px;border:0;border-radius:7px;padding:7px 9px;background:#202124;color:#fff;font-weight:800}.board-image-actions{display:flex;gap:8px;align-items:center;justify-content:space-between;margin:7px 0;font-size:12px}.image-kind{color:#66717d;font-weight:800}.download-link{color:#1c5fc4;font-weight:800}.mockup-slots{display:grid;gap:7px}.mockup-slot{min-width:0;display:grid;grid-template-columns:minmax(105px,.7fr) minmax(0,1.3fr);gap:7px;align-items:center}.mockup-slot select{min-width:0;width:100%;padding:7px;border:1px solid #bdc5ce;border-radius:7px}.slot-label{font-size:12px;font-weight:800;overflow-wrap:anywhere}.duplicate-slot select{border-color:#d65555;background:#fff0ef}.duplicate-label{grid-column:1/-1;color:#a3291e;font-size:11px}.board-hold{margin:8px 0 0;padding:7px;border-radius:6px;background:#fff0ef;color:#a3291e;font-size:12px;overflow-wrap:anywhere}.request-list{display:grid;gap:7px;margin:0;padding-left:20px}.request-list li{padding:6px}.request-list span{display:block;margin-top:3px;color:#66717d;font-size:12px}.mockup-preview-dialog{width:min(1500px,calc(100vw - 24px));height:min(94vh,1000px);padding:14px;border:0;border-radius:12px;box-shadow:0 20px 70px #0007}.mockup-preview-dialog::backdrop{background:#0009}.dialog-heading h2{margin:0;font-size:18px}.dialog-heading button{border:1px solid #cbd1d8;border-radius:7px;padding:7px 10px;background:#fff}.mockup-preview-scroll{height:calc(100% - 45px);margin-top:10px;overflow:auto;background:#cfd4da}.mockup-preview-scroll img{display:block;max-width:none;margin:auto}
