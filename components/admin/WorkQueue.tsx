@@ -1259,7 +1259,7 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
               <div className="mt-3 flex flex-wrap gap-2">
                 <button
                   onClick={() => void update(item.id, { status: "approved", overrideEditorial: true })}
-                  className="rounded-xl bg-amber-950 px-4 py-2 text-xs font-bold text-white hover:bg-amber-900"
+                  className="bg-[#262626] px-4 py-2 text-xs font-bold text-white hover:bg-[#404040]"
                 >
                   규칙 넘기고 이대로 승인
                 </button>
@@ -1412,7 +1412,7 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
               </p>
               <button
                 onClick={() => void update(item.id, { action: "release_to_partner" })}
-                className="mt-3 rounded-xl bg-amber-950 px-4 py-2 text-xs font-bold text-white hover:bg-amber-900"
+                className="mt-3 bg-[#262626] px-4 py-2 text-xs font-bold text-white hover:bg-[#404040]"
               >
                 이 상태 그대로 외주 작업실에 전달
               </button>

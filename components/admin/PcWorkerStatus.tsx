@@ -84,7 +84,7 @@ export default function PcWorkerStatus() {
 
   return (
     <section className="card mt-8 overflow-hidden" aria-labelledby="pc-worker-title" aria-busy={loading}>
-      <div className="flex flex-col gap-4 border-b border-[var(--line)] bg-[#fff8f2] p-6 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex flex-col gap-4 border-b border-[var(--line)] bg-[#f7f7f7] p-6 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-start gap-3">
           <Computer className="mt-1 shrink-0 text-[var(--primary)]" aria-hidden="true" />
           <div>

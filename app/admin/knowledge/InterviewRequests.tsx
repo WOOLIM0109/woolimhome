@@ -104,7 +104,7 @@ export default function InterviewRequests() {
           </p>
         )}
         {pending.map((item) => (
-          <details key={item.id} className="interview-request group rounded-sm border border-orange-200 bg-[#fffaf7]">
+          <details key={item.id} className="interview-request group rounded-sm border border-orange-200 bg-[#fff]">
             <summary className="flex cursor-pointer list-none items-center justify-between gap-4 p-5 [&::-webkit-details-marker]:hidden">
               <div>
                 <p className="text-xs font-bold text-[var(--primary)]">

@@ -119,7 +119,7 @@ export default function EditColumnPage() {
 }
 
 function Shell({ children }: { children: React.ReactNode }) {
-  return <section className="min-h-[70vh] bg-[#fffaf7]"><div className="mx-auto max-w-4xl px-5 py-16 lg:px-8">{children}</div></section>;
+  return <section className="admin-site min-h-[70vh] bg-[#fff]"><div className="mx-auto max-w-4xl px-5 py-16 lg:px-8">{children}</div></section>;
 }
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return <div className="block"><span className="mb-2 block font-bold">{label}</span>{children}</div>;

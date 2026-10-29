@@ -125,7 +125,7 @@ export default function AdminColumnsPage() {
             <AlertTriangle className="mt-0.5 shrink-0 text-amber-700" />
             <div>
               <p className="font-bold">특정 전문 분야의 원천자료가 부족합니다</p>
-              <p className="mt-1 text-sm text-[#5f5750]">
+              <p className="mt-1 text-sm text-[#666]">
                 {areaShortages.map((area) => `${area.label} ${area.remaining}회`).join(" · ")}
                 {" · "}자료실에서 맞춤 인터뷰 요청서를 확인해 주세요.
               </p>
@@ -152,7 +152,7 @@ export default function AdminColumnsPage() {
                 : knowledgeLevel === "low" ? "노하우 원천자료가 곧 부족해집니다"
                   : "노하우 원천자료가 충분합니다"}
             </p>
-            <p className="mt-1 text-sm text-[#5f5750]">
+            <p className="mt-1 text-sm text-[#666]">
               승인 자료 {approvedKnowledge.length}개 · 예상 활용 여유 {remainingKnowledgeUses}회
               {knowledgeLevel !== "enough" && " · 새 인터뷰나 사례를 추가해 주세요."}
             </p>
@@ -200,7 +200,7 @@ export default function AdminColumnsPage() {
 
 function AdminShell({ children }: { children: React.ReactNode }) {
   return (
-    <section className="min-h-[70vh] bg-[#fffaf7]">
+    <section className="admin-site min-h-[70vh] bg-[#fff]">
       <div className="mx-auto max-w-6xl px-5 py-10 lg:px-8">
         <Link
           href="/admin"

@@ -33,7 +33,7 @@ export default function VisualHtmlEditor({ value, onChange }: { value: string; o
 
   return (
     <div className="overflow-hidden rounded-sm border border-[var(--line)] bg-white">
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--line)] bg-[#fffaf7] px-3 py-2">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--line)] bg-[#fff] px-3 py-2">
         <div className="flex flex-wrap gap-1" aria-label="본문 서식 도구">
           {mode === "visual" && (
             <>
@@ -47,10 +47,10 @@ export default function VisualHtmlEditor({ value, onChange }: { value: string; o
           )}
         </div>
         <div className="flex rounded-sm border border-[var(--line)] bg-white p-1 text-sm">
-          <button type="button" onClick={() => setMode("visual")} className={`rounded-sm px-3 py-1.5 ${mode === "visual" ? "bg-[#14100c] text-white" : "text-[var(--muted)]"}`}>
+          <button type="button" onClick={() => setMode("visual")} className={`rounded-sm px-3 py-1.5 ${mode === "visual" ? "bg-[#171717] text-white" : "text-[var(--muted)]"}`}>
             일반 편집
           </button>
-          <button type="button" onClick={() => setMode("html")} className={`rounded-sm px-3 py-1.5 ${mode === "html" ? "bg-[#14100c] text-white" : "text-[var(--muted)]"}`}>
+          <button type="button" onClick={() => setMode("html")} className={`rounded-sm px-3 py-1.5 ${mode === "html" ? "bg-[#171717] text-white" : "text-[var(--muted)]"}`}>
             HTML 원문
           </button>
         </div>
@@ -58,7 +58,7 @@ export default function VisualHtmlEditor({ value, onChange }: { value: string; o
 
       {mode === "visual" ? (
         <>
-          <p className="border-b border-[var(--line)] bg-[#fffdfb] px-5 py-3 text-sm text-[var(--muted)]">
+          <p className="border-b border-[var(--line)] bg-[#fff] px-5 py-3 text-sm text-[var(--muted)]">
             실제 게시 화면과 비슷하게 보면서 글자를 직접 고칠 수 있습니다. 문장을 선택한 뒤 위 버튼으로 제목·굵기·목록을 바꿔보세요.
           </p>
           <div
@@ -94,7 +94,7 @@ function EditorButton({ label, onClick, children }: { label: string; onClick: ()
       aria-label={label}
       onMouseDown={(event) => event.preventDefault()}
       onClick={onClick}
-      className="inline-flex h-9 min-w-9 items-center justify-center gap-1 rounded-sm px-2 text-sm text-[#302b27] hover:bg-white"
+      className="inline-flex h-9 min-w-9 items-center justify-center gap-1 rounded-sm px-2 text-sm text-[#404040] hover:bg-white"
     >
       {children}<span className="sr-only">{label}</span>
     </button>

@@ -125,7 +125,7 @@ export default function ManualDraftButton({
             type="button"
             onClick={() => setFormat(option.value)}
             className={`rounded-xl px-4 py-2 text-sm font-bold ${
-              format === option.value ? "bg-[#ef762f] text-white" : "border border-[var(--line)] bg-white"
+              format === option.value ? "bg-[#eb6826] text-white" : "border border-[var(--line)] bg-white"
             }`}
           >
             {option.label}

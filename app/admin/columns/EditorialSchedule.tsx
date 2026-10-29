@@ -96,14 +96,14 @@ export default function EditorialSchedule({ hasKnowledge }: { hasKnowledge: bool
             <p className="mt-1 text-sm text-[var(--muted)]">날짜가 지나면 다음 일정이 자동으로 채워집니다.</p>
           </div>
         </div>
-        <p className="inline-flex items-center gap-2 text-sm font-bold text-[#5f5750]">
+        <p className="inline-flex items-center gap-2 text-sm font-bold text-[#666]">
           <Clock3 size={16} /> 모두 오전 10시 · 비공개 초안 저장
         </p>
       </div>
       <div className="overflow-x-auto">
         <table className="w-full min-w-[760px] text-left text-sm">
           <thead>
-            <tr className="bg-[#fffaf7]">
+            <tr className="bg-[#fff]">
               <th className="px-5 py-3">일정</th><th className="px-5 py-3">글 유형</th>
               <th className="px-5 py-3">상태</th><th className="px-5 py-3">생성 방식</th>
             </tr>

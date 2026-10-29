@@ -223,7 +223,7 @@ export default function GeminiReviewPanel() {
   );
 
   return (
-    <section className="mt-8 rounded-2xl border border-emerald-200 bg-white p-6 shadow-sm">
+    <section className="mt-8 border border-[var(--line)] bg-white p-6">
       <div className="flex items-start gap-3">
         <ShieldCheck className="mt-0.5 shrink-0 text-emerald-700" />
         <div>
@@ -238,7 +238,7 @@ export default function GeminiReviewPanel() {
 
       <div className="mt-6 space-y-5">
         {items.map((item, index) => (
-          <article key={item.id} className="rounded-xl border border-[var(--line)] bg-[#fffaf7] p-5">
+          <article key={item.id} className="rounded-xl border border-[var(--line)] bg-[#fff] p-5">
             <div className="flex items-center justify-between gap-3">
               <h3 className="font-bold">검수 항목 {index + 1}</h3>
               <button
@@ -395,7 +395,7 @@ export default function GeminiReviewPanel() {
           </div>
           <div className="mt-4 space-y-4">
             {runResult.results.map((result) => (
-              <article key={result.id} className="rounded-lg bg-[#fffaf7] p-4">
+              <article key={result.id} className="rounded-lg bg-[#fff] p-4">
                 <p className="font-bold">{items.find((item) => item.id === result.id)?.title || result.id} · {result.status}</p>
                 {result.issues && result.issues.length > 0 && (
                   <ul className="mt-2 list-disc space-y-1 pl-5 text-sm leading-6 text-stone-700">

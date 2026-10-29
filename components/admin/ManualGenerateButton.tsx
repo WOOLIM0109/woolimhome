@@ -151,7 +151,7 @@ export default function ManualGenerateButton({
           type="button"
           onClick={() => setBriefOpen((current) => !current)}
           className={`inline-flex items-center gap-2 rounded-xl border px-4 py-3 font-bold ${
-            hasBrief ? "border-[#ef762f] bg-[#fff3ea] text-[#a5430b]" : "border-[var(--line)] bg-white"
+            hasBrief ? "border-[#eb6826] bg-[#f7f7f7] text-[#9a4414]" : "border-[var(--line)] bg-white"
           }`}
         >
           {briefOpen ? <ChevronUp size={17} /> : <ChevronDown size={17} />}

@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname } from "next/navigation";
 import {
   Bell,
@@ -60,16 +61,24 @@ export default function AdminPortal({
   const loading = authLoading || (Boolean(user) && access.loading);
 
   if (loading) {
-    return <section className="min-h-[70vh] bg-[#fffaf7] px-5 py-20 text-center">로그인 상태를 확인하고 있습니다.</section>;
+    return (
+      <section className="admin-site min-h-[70vh] px-5 py-20 text-center text-[var(--muted)]">
+        로그인 상태를 확인하고 있습니다.
+      </section>
+    );
   }
 
   if (!user) {
     return (
-      <section className="min-h-[70vh] bg-[#fffaf7] px-5 py-20">
-        <div className="mx-auto max-w-md rounded-2xl border border-[var(--line)] bg-white p-8 text-center shadow-[var(--shadow-card)]">
-          <h1 className="text-3xl font-bold">울림 콘텐츠 관리자</h1>
+      <section className="admin-site min-h-[70vh] px-5 py-20">
+        <div className="mx-auto max-w-md border border-[var(--line)] bg-white p-10 text-center">
+          <p className="eyebrow justify-center text-xs">Woolim Admin</p>
+          <h1 className="mt-5 text-3xl font-bold">울림 콘텐츠 관리자</h1>
           <p className="prose-muted mt-4">승인된 Google 계정으로 로그인해 주세요.</p>
-          <button onClick={() => void signInWithGoogle()} className="btn-gradient mt-8 rounded-xl px-6 py-3 font-bold text-white">
+          <button
+            onClick={() => void signInWithGoogle()}
+            className="btn-gradient mt-8 inline-flex h-12 items-center justify-center px-6 font-bold text-white"
+          >
             Google로 로그인
           </button>
         </div>
@@ -79,36 +88,51 @@ export default function AdminPortal({
 
   if (!access.admin) {
     return (
-      <section className="min-h-[70vh] bg-[#fffaf7] px-5 py-20 text-center">
-        <h1 className="text-2xl font-bold text-red-700">
+      <section className="admin-site min-h-[70vh] px-5 py-20 text-center">
+        <h1 className="text-2xl font-bold text-[#b91c1c]">
           {access.error ? "권한을 확인하지 못했습니다." : "접근 권한이 없습니다."}
         </h1>
-        <p className="mt-3">{access.error || `${user.email} 계정에는 관리자 권한이 없습니다.`}</p>
-        <div className="mt-6 flex items-center justify-center gap-5">
+        <p className="prose-muted mt-3">{access.error || `${user.email} 계정에는 관리자 권한이 없습니다.`}</p>
+        <div className="mt-8 flex items-center justify-center gap-5">
           {/*
             확인 자체가 실패한 경우에는 다시 시도할 길을 줍니다. 예전에는 잠깐의
             네트워크 오류 하나로 이 화면에 굳어서, 새로고침 말고는 방법이 없었습니다.
           */}
           {access.error && (
-            <button onClick={access.retry} className="btn-gradient rounded-xl px-5 py-2.5 font-bold text-white">
+            <button onClick={access.retry} className="btn-gradient inline-flex h-11 items-center px-5 font-bold text-white">
               다시 확인
             </button>
           )}
-          <button onClick={() => void signOut()} className="underline">로그아웃</button>
+          <button onClick={() => void signOut()} className="underline underline-offset-4">로그아웃</button>
         </div>
       </section>
     );
   }
 
   return (
-    <section className="min-h-screen bg-[#fffaf7]">
-      <div className="mx-auto grid max-w-[1500px] gap-0 lg:grid-cols-[250px_minmax(0,1fr)]">
-        <aside className="border-b border-[var(--line)] bg-[#241a15] text-white lg:min-h-screen lg:border-b-0 lg:border-r">
-          <div className="px-5 py-6">
-            <Link href="/admin" className="text-xl font-bold">울림 콘텐츠 관리자</Link>
-            <p className="mt-1 text-xs text-white/60">{user.email}</p>
+    <section className="admin-site min-h-screen">
+      <div className="mx-auto grid max-w-[1504px] gap-0 lg:grid-cols-[260px_minmax(0,1fr)]">
+        {/*
+          옆 차림표는 공개 사이트의 머리글과 같은 결로 둡니다. 흰 바탕에 1px
+          선, 지금 보는 곳만 주황 글씨와 왼쪽 주황 막대로 표시합니다.
+        */}
+        <aside className="border-b border-[var(--line)] bg-white lg:min-h-screen lg:border-b-0 lg:border-r">
+          <div className="flex items-center gap-3 px-5 py-6">
+            <Image
+              src="/images/woolim-logo-cropped.png"
+              alt=""
+              width={80}
+              height={55}
+              className="h-9 w-[44px] shrink-0 object-contain"
+            />
+            <span className="min-w-0 leading-tight">
+              <Link href="/admin" className="block truncate text-[17px] font-bold tracking-[-0.035em] text-[#161616]">
+                울림 콘텐츠 관리자
+              </Link>
+              <span className="mt-1 block truncate text-[11px] text-[var(--muted)]">{user.email}</span>
+            </span>
           </div>
-          <nav className="flex gap-2 overflow-x-auto px-3 pb-4 lg:block lg:space-y-1 lg:overflow-visible">
+          <nav className="flex gap-0 overflow-x-auto border-t border-[var(--line)] px-0 lg:block lg:overflow-visible">
             {NAV_ITEMS.map((item) => {
               const Icon = item.icon;
               const active = isActive(pathname, item.href);
@@ -116,27 +140,32 @@ export default function AdminPortal({
                 <Link
                   key={item.href}
                   href={item.href}
-                  className={`flex shrink-0 items-center gap-3 rounded-xl px-4 py-3 text-sm font-bold transition ${
-                    active ? "bg-[#ef762f] text-white" : "text-white/70 hover:bg-white/10 hover:text-white"
+                  className={`flex shrink-0 items-center gap-3 border-l-[3px] px-4 py-3 text-sm font-semibold transition-colors lg:border-b lg:border-b-[#f0f0f0] ${
+                    active
+                      ? "border-l-[#eb6826] bg-[#fdf3ec] text-[#eb6826]"
+                      : "border-l-transparent text-[#404040] hover:bg-[#fafafa] hover:text-[#eb6826]"
                   }`}
                 >
-                  <Icon size={18} /> {item.label}
+                  <Icon size={17} strokeWidth={1.8} /> {item.label}
                 </Link>
               );
             })}
           </nav>
           <div className="hidden px-4 pt-4 lg:block">
-            <button onClick={() => void signOut()} className="flex w-full items-center gap-2 rounded-xl px-4 py-3 text-sm text-white/60 hover:bg-white/10 hover:text-white">
-              <LogOut size={17} /> 로그아웃
+            <button
+              onClick={() => void signOut()}
+              className="flex w-full items-center gap-2 px-1 py-3 text-sm text-[var(--muted)] transition-colors hover:text-[#eb6826]"
+            >
+              <LogOut size={16} strokeWidth={1.8} /> 로그아웃
             </button>
           </div>
         </aside>
 
-        <div className="min-w-0 px-5 py-8 sm:px-8 lg:px-10 lg:py-10">
-          <header className="flex flex-col gap-5 border-b border-[var(--line)] pb-7 sm:flex-row sm:items-end sm:justify-between">
+        <div className="min-w-0 bg-white px-5 py-9 sm:px-8 lg:px-12 lg:py-12">
+          <header className="flex flex-col gap-5 border-b border-[#262626] pb-7 sm:flex-row sm:items-end sm:justify-between">
             <div>
-              <h1 className="text-3xl font-bold">{title}</h1>
-              {description && <p className="prose-muted mt-2 max-w-3xl">{description}</p>}
+              <h1 className="text-[clamp(28px,2.6vw,38px)] font-bold leading-[1.3]">{title}</h1>
+              {description && <p className="prose-muted mt-3 max-w-3xl text-[17px]">{description}</p>}
             </div>
             {actions && <div className="flex flex-wrap gap-3">{actions}</div>}
           </header>

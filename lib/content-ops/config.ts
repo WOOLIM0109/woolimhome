@@ -75,16 +75,16 @@ export const STATUS_LABELS: Record<WorkflowStatus, string> = {
 };
 
 export const STATUS_STYLES: Record<WorkflowStatus, string> = {
-  topic_candidate: "bg-stone-100 text-stone-700",
-  researching: "bg-blue-50 text-blue-800",
-  creating: "bg-violet-50 text-violet-800",
-  draft_waiting: "bg-blue-50 text-blue-800",
-  review_required: "bg-amber-50 text-amber-900",
-  approved: "bg-emerald-50 text-emerald-800",
-  naver_ready: "bg-cyan-50 text-cyan-800",
-  scheduled: "bg-indigo-50 text-indigo-800",
-  published: "bg-green-50 text-green-800",
-  on_hold: "bg-red-50 text-red-800",
+  topic_candidate: "border-[#d4d4d4] bg-white text-[#525252]",
+  researching: "border-[#c5dbf7] bg-white text-[#1d4ed8]",
+  creating: "border-[#d7cdf5] bg-white text-[#6d28d9]",
+  draft_waiting: "border-[#c5dbf7] bg-white text-[#1d4ed8]",
+  review_required: "border-[#f3d3bd] bg-[#fdf3ec] text-[#9a4414]",
+  approved: "border-[#bfe6cc] bg-white text-[#15803d]",
+  naver_ready: "border-[#b4e2e8] bg-white text-[#0e7490]",
+  scheduled: "border-[#ccd1f3] bg-white text-[#4338ca]",
+  published: "border-[#bfe6cc] bg-[#f5faf6] text-[#15803d]",
+  on_hold: "border-[#f2c6c6] bg-white text-[#b91c1c]",
 };
 
 /**
