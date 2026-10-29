@@ -75,6 +75,19 @@ export class IngestError extends Error {
 
 type Row = Record<string, unknown>;
 
+/**
+ * 데이터베이스가 돌려준 사유를 짧게 담습니다.
+ *
+ * 사유 없이 `PROGRAM_WRITE_FAILED` 만 돌려주면 **운영에서 아무도 못 고칩니다.**
+ * 값은 담지 않고 사유 글자만 자릅니다.
+ */
+function reason(error: { message?: string; code?: string; details?: string } | null) {
+  if (!error) return undefined;
+  const parts = [error.code, error.message, error.details].filter(Boolean);
+  const text = parts.join(" · ").slice(0, 200);
+  return text || undefined;
+}
+
 export type IngestAttachment = {
   file_name: string;
   file_ext: string;
@@ -490,7 +503,7 @@ export async function ingestPrograms(
   const sourceKeys = [...new Set(payload.programs.map((program) => program.source_key))];
   const { data: sourceRows, error: sourceError } = await admin.from("openchat_sources")
     .select("id,source_key").in("source_key", sourceKeys);
-  if (sourceError) throw new IngestError(500, "SOURCE_LOOKUP_FAILED");
+  if (sourceError) throw new IngestError(500, "SOURCE_LOOKUP_FAILED", reason(sourceError));
   const sourceIds = new Map((sourceRows ?? []).map((row: Row) =>
     [String(row.source_key), String(row.id)]));
 
@@ -527,7 +540,7 @@ export async function ingestPrograms(
   const { data: inserted, error: insertError } = await admin.from("openchat_programs")
     .upsert(rows, { onConflict: "fingerprint", ignoreDuplicates: true })
     .select("id,fingerprint");
-  if (insertError) throw new IngestError(500, "PROGRAM_WRITE_FAILED");
+  if (insertError) throw new IngestError(500, "PROGRAM_WRITE_FAILED", reason(insertError));
 
   const idByFingerprint = new Map((inserted ?? []).map((row: Row) =>
     [String(row.fingerprint), String(row.id)]));
@@ -558,7 +571,9 @@ export async function ingestPrograms(
           extracted_at: attachment.text_status === "extracted" ? stamp : null,
         })), { onConflict: "program_id,sha256" })
         .select("id,sha256");
-      if (attachmentError) throw new IngestError(500, "ATTACHMENT_WRITE_FAILED");
+      if (attachmentError) {
+        throw new IngestError(500, "ATTACHMENT_WRITE_FAILED", reason(attachmentError));
+      }
       for (const row of savedAttachments ?? []) {
         attachmentIds.set(String((row as Row).sha256), String((row as Row).id));
       }
@@ -584,7 +599,9 @@ export async function ingestPrograms(
         source_checked_at: stamp,
         updated_at: stamp,
       }, { onConflict: "program_id" });
-    if (requirementError) throw new IngestError(500, "REQUIREMENT_WRITE_FAILED");
+    if (requirementError) {
+      throw new IngestError(500, "REQUIREMENT_WRITE_FAILED", reason(requirementError));
+    }
     result.requirements += 1;
   }
 
