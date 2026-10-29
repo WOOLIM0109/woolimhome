@@ -479,6 +479,8 @@ export type IngestDependencies = {
 export type IngestResult = {
   received: number;
   inserted: number;
+  /** 우리가 전에 넣었는데 첨부·요건이 빠져 있던 것을 이어서 채운 수 */
+  resumed: number;
   skipped_existing: number;
   attachments: number;
   requirements: number;
@@ -496,8 +498,8 @@ export async function ingestPrograms(
 ): Promise<IngestResult> {
   const stamp = now().toISOString();
   const result: IngestResult = {
-    received: payload.programs.length, inserted: 0, skipped_existing: 0,
-    attachments: 0, requirements: 0,
+    received: payload.programs.length, inserted: 0, resumed: 0,
+    skipped_existing: 0, attachments: 0, requirements: 0,
   };
 
   const sourceKeys = [...new Set(payload.programs.map((program) => program.source_key))];
@@ -547,7 +549,28 @@ export async function ingestPrograms(
   const idByFingerprint = new Map((inserted ?? []).map((row: Row) =>
     [String(row.fingerprint), String(row.id)]));
   result.inserted = idByFingerprint.size;
-  result.skipped_existing = result.received - result.inserted;
+
+  // ★ 반쪽 저장을 되살립니다.
+  // 공고만 들어가고 첨부에서 실패하면, 다시 보낼 때 '이미 있음' 으로 건너뛰어
+  // 첨부가 영영 안 붙습니다. 그래서 **우리가 넣은 행**이면 이어서 채웁니다.
+  // 서버가 모은 행(collector 표시가 없는 행)은 건드리지 않습니다.
+  const missing = payload.programs
+    .map((program) => program.fingerprint)
+    .filter((fingerprint) => !idByFingerprint.has(fingerprint));
+  if (missing.length) {
+    const { data: existing, error: lookupError } = await admin.from("openchat_programs")
+      .select("id,fingerprint,raw_payload").in("fingerprint", missing);
+    if (lookupError) throw new IngestError(500, "PROGRAM_LOOKUP_FAILED", reason(lookupError));
+    for (const row of existing ?? []) {
+      const payloadRow = (row as Row).raw_payload;
+      const owner = payloadRow && typeof payloadRow === "object"
+        ? (payloadRow as Row).collector : null;
+      if (owner !== COLLECTOR_TAG) continue;      // 우리 것이 아니면 건드리지 않습니다
+      idByFingerprint.set(String((row as Row).fingerprint), String((row as Row).id));
+      result.resumed += 1;
+    }
+  }
+  result.skipped_existing = result.received - result.inserted - result.resumed;
 
   for (const program of payload.programs) {
     const programId = idByFingerprint.get(program.fingerprint);
@@ -571,7 +594,7 @@ export async function ingestPrograms(
           text_chars: attachment.text.length,
           error: attachment.error,
           extracted_at: attachment.text_status === "extracted" ? stamp : null,
-        })), { onConflict: "program_id,sha256" })
+        })), { onConflict: "program_id,source_url" })
         .select("id,sha256");
       if (attachmentError) {
         throw new IngestError(500, "ATTACHMENT_WRITE_FAILED", reason(attachmentError));
