@@ -96,7 +96,13 @@ function parseRaw(raw: unknown) {
   }
 }
 
-function sourceBlocks(sources: readonly RequirementSource[]) {
+/**
+ * 원문을 쪽·문단 표시(`[p.3]`, `[para.12]`)로 쪼갭니다.
+ *
+ * 인용은 **그 표시 안에 실제로 있어야** 인정됩니다. 밖에서도 쓰려고 내보냅니다
+ * (`worker-ingest.ts` 가 올라온 근거 문장이 어느 표시 안에 있는지 찾는 데 씁니다).
+ */
+export function sourceBlocks(sources: readonly RequirementSource[]) {
   const blocks = new Map<string, Map<string, string | null>>();
   for (const source of sources) {
     const locators = [...source.text.matchAll(/^\[((?:p|para)\.[1-9]\d*)\][ \t]*/gm)];
