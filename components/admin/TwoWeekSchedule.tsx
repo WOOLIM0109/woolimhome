@@ -81,7 +81,7 @@ export default function TwoWeekSchedule({
     <div className="space-y-4">
       <div className="overflow-x-auto rounded-2xl border border-[var(--line)] bg-white">
         <table className="w-full min-w-[760px] text-left text-sm">
-          <thead className="bg-[#fff3e9]">
+          <thead className="bg-[#f7f7f7]">
             <tr>
               <th className="px-5 py-4">예정일</th>
               {!channel && <th className="px-5 py-4">채널</th>}

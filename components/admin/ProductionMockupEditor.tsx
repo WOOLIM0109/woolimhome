@@ -244,7 +244,7 @@ export default function ProductionMockupEditor({ workItemId, title: workTitle, c
   return <>
     <button type="button" className={primaryClass} disabled={disabled} onClick={openEditor}>목업·썸네일 편집</button>
     <dialog ref={dialogRef} aria-label={`${workTitle} 목업·썸네일 편집`} onCancel={event => {event.preventDefault();closeEditor();}}
-      className="fixed inset-0 m-auto max-h-[92vh] w-[min(1180px,calc(100vw-24px))] overflow-auto rounded-2xl border border-[var(--line)] bg-[#f7f7f6] p-5 shadow-2xl backdrop:bg-black/60">
+      className="fixed inset-0 m-auto max-h-[92vh] w-[min(1180px,calc(100vw-24px))] overflow-auto rounded-2xl border border-[var(--line)] bg-[#f7f7f7] p-5 shadow-2xl backdrop:bg-black/60">
       {open && <>
         <header className="flex items-start justify-between gap-4"><div><h2 className="text-xl font-bold">목업·썸네일 편집</h2><p className="mt-1 text-sm text-[var(--muted)]">{workTitle}</p></div><button type="button" className={buttonClass} disabled={busy} onClick={closeEditor}>닫기</button></header>
         <p className="mt-4 rounded-xl border border-orange-200 bg-orange-50 p-3 text-sm">원고·발행 정보는 유지하고 확인한 이미지만 교체합니다. 새 후보를 만드는 동안 기존 완성본은 유지됩니다.</p>

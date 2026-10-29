@@ -313,7 +313,7 @@ export default function OpenchatOperations() {
       <section className="grid gap-4 lg:grid-cols-[1fr_auto] lg:items-end">
         <div className="flex flex-wrap gap-2">
           {(["morning", "afternoon", "sources"] as Tab[]).map((value) => (
-            <button key={value} onClick={() => setTab(value)} className={`rounded-xl px-4 py-3 text-sm font-bold ${tab === value ? "bg-[#241a15] text-white" : "border border-[var(--line)] bg-white"}`}>
+            <button key={value} onClick={() => setTab(value)} className={`rounded-xl px-4 py-3 text-sm font-bold ${tab === value ? "bg-[#262626] text-white" : "border border-[var(--line)] bg-white"}`}>
               {value === "morning" ? "오전 지원사업" : value === "afternoon" ? "오후 콘텐츠" : "수집 현황"}
             </button>
           ))}
@@ -372,7 +372,7 @@ export default function OpenchatOperations() {
               <p className="mt-4 rounded-xl bg-stone-50 p-5 text-sm text-stone-600">현재 이월된 오전 배포글이 없습니다.</p>
             ) : (
               <>
-                <pre className="mt-5 max-h-[720px] overflow-auto whitespace-pre-wrap rounded-xl bg-[#fff7f1] p-5 text-sm leading-7">{formatMorningPost(deferredPostPrograms, deferredPostDate)}</pre>
+                <pre className="mt-5 max-h-[720px] overflow-auto whitespace-pre-wrap rounded-xl bg-[#f7f7f7] p-5 text-sm leading-7">{formatMorningPost(deferredPostPrograms, deferredPostDate)}</pre>
                 <div className="mt-4 flex flex-wrap justify-end gap-2">
                   <button onClick={() => void copy(formatMorningPost(deferredPostPrograms, deferredPostDate))} disabled={Boolean(busy)} className="inline-flex items-center gap-2 rounded-xl bg-stone-800 px-4 py-2 text-sm font-bold text-white disabled:opacity-50"><Clipboard size={16} /> 이월 배포글 복사</button>
                   <button onClick={() => void publishDeferredPost()} disabled={Boolean(busy)} className="inline-flex items-center gap-2 rounded-xl bg-emerald-700 px-4 py-2 text-sm font-bold text-white disabled:opacity-50">
@@ -386,7 +386,7 @@ export default function OpenchatOperations() {
           {reviewPrograms.length > 0 && (
             <details className="mt-5 rounded-2xl border border-[var(--line)] bg-white p-5">
               <summary className="cursor-pointer font-bold">검토용 게시문 통합 미리보기 · {reviewPrograms.length}건 · 상담 문구 포함</summary>
-              <pre className="mt-5 max-h-[720px] overflow-auto whitespace-pre-wrap rounded-xl bg-[#fff7f1] p-5 text-sm leading-7">{formatMorningPost(reviewPrograms, date)}</pre>
+              <pre className="mt-5 max-h-[720px] overflow-auto whitespace-pre-wrap rounded-xl bg-[#f7f7f7] p-5 text-sm leading-7">{formatMorningPost(reviewPrograms, date)}</pre>
               <div className="mt-5 border-t border-[var(--line)] pt-5">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <h3 className="font-bold">원문 링크</h3>
@@ -397,7 +397,7 @@ export default function OpenchatOperations() {
                 </div>
                 <div className="mt-3 space-y-3">
                   {reviewPrograms.map((program, index) => (
-                    <div key={program.id} className="rounded-xl bg-[#fff7f1] px-4 py-3">
+                    <div key={program.id} className="rounded-xl bg-[#f7f7f7] px-4 py-3">
                       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                         <a href={program.source_url} target="_blank" rel="noreferrer" className="flex min-w-0 items-start gap-2 text-sm font-bold text-[var(--primary)]">
                           <span className="shrink-0">{index + 1}.</span>
@@ -439,7 +439,7 @@ export default function OpenchatOperations() {
               </div>
               <details open className="mt-5 rounded-2xl border border-[var(--line)] bg-white p-5">
                 <summary className="cursor-pointer font-bold">카카오톡 최종 게시문 미리보기 · 상담 문구 포함</summary>
-                <pre className="mt-5 max-h-[720px] overflow-auto whitespace-pre-wrap rounded-xl bg-[#f7f3ff] p-5 text-sm leading-7">{formatAfternoonPost(draft)}</pre>
+                <pre className="mt-5 max-h-[720px] overflow-auto whitespace-pre-wrap rounded-xl bg-[#f7f7f7] p-5 text-sm leading-7">{formatAfternoonPost(draft)}</pre>
               </details>
               <div className="mt-4 flex justify-end">
                 {editingAfternoon ? (
@@ -466,7 +466,7 @@ export default function OpenchatOperations() {
                   {["approved", "ready", "published"].includes(draft.status) ? "승인 완료" : busy === draft.id ? "승인 처리 중" : "승인"}
                 </button>
                 <button onClick={() => void saveDraft("deferred")} disabled={Boolean(busy)} className="rounded-xl bg-stone-100 px-4 py-2 text-sm font-bold disabled:cursor-not-allowed disabled:opacity-50">오늘 게시 제외</button>
-                {draft.status === "ready" && <button onClick={() => void saveDraft("published")} disabled={Boolean(busy)} className="rounded-xl bg-[#241a15] px-4 py-2 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-50">게시 완료</button>}
+                {draft.status === "ready" && <button onClick={() => void saveDraft("published")} disabled={Boolean(busy)} className="rounded-xl bg-[#262626] px-4 py-2 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-50">게시 완료</button>}
               </div>
             </article>
           )}
@@ -476,7 +476,7 @@ export default function OpenchatOperations() {
       {!loading && tab === "sources" && (
         <section className="mt-6 grid gap-5 xl:grid-cols-[1.2fr_0.8fr]">
           <div className="card p-6">
-            <div className="flex items-center justify-between gap-4"><div><h2 className="text-xl font-bold">21개 수집처</h2><p className="mt-1 text-sm text-[var(--muted)]">매일 한 번 확인하며 사이트별 실패가 다른 수집을 중단시키지 않습니다. 핵심정보가 빠진 기존 공고도 다시 확인합니다.</p></div><button onClick={() => void run("morning-collect")} className="rounded-xl bg-[#241a15] px-4 py-3 text-sm font-bold text-white">전체 수집·복구</button></div>
+            <div className="flex items-center justify-between gap-4"><div><h2 className="text-xl font-bold">21개 수집처</h2><p className="mt-1 text-sm text-[var(--muted)]">매일 한 번 확인하며 사이트별 실패가 다른 수집을 중단시키지 않습니다. 핵심정보가 빠진 기존 공고도 다시 확인합니다.</p></div><button onClick={() => void run("morning-collect")} className="rounded-xl bg-[#262626] px-4 py-3 text-sm font-bold text-white">전체 수집·복구</button></div>
             <div className="mt-5 divide-y divide-[var(--line)]">
               {sources.sources.map((source) => (
                 <div key={source.id} className="flex flex-col gap-3 py-4 sm:flex-row sm:items-center sm:justify-between">
@@ -486,7 +486,7 @@ export default function OpenchatOperations() {
               ))}
             </div>
           </div>
-          <div className="card p-6"><h2 className="text-xl font-bold">최근 자동화 기록</h2><div className="mt-5 space-y-3">{sources.runs.map((run) => <div key={run.id} className="rounded-xl bg-[#fff7f1] p-4"><p className="font-bold">{run.task}</p><p className="mt-1 text-xs text-[var(--muted)]">{new Date(run.started_at).toLocaleString("ko-KR")} · {run.status}{run.error ? ` · ${run.error}` : ""}</p>{run.summary && Object.keys(run.summary).length > 0 && <details className="mt-3"><summary className="cursor-pointer text-xs font-bold text-[#755847]">실행 결과 상세</summary><pre className="mt-2 overflow-x-auto whitespace-pre-wrap rounded-lg bg-white/80 p-3 text-xs leading-5 text-[#5f5750]">{JSON.stringify(run.summary, null, 2)}</pre></details>}</div>)}</div></div>
+          <div className="card p-6"><h2 className="text-xl font-bold">최근 자동화 기록</h2><div className="mt-5 space-y-3">{sources.runs.map((run) => <div key={run.id} className="rounded-xl bg-[#f7f7f7] p-4"><p className="font-bold">{run.task}</p><p className="mt-1 text-xs text-[var(--muted)]">{new Date(run.started_at).toLocaleString("ko-KR")} · {run.status}{run.error ? ` · ${run.error}` : ""}</p>{run.summary && Object.keys(run.summary).length > 0 && <details className="mt-3"><summary className="cursor-pointer text-xs font-bold text-[#666]">실행 결과 상세</summary><pre className="mt-2 overflow-x-auto whitespace-pre-wrap rounded-lg bg-white/80 p-3 text-xs leading-5 text-[#666]">{JSON.stringify(run.summary, null, 2)}</pre></details>}</div>)}</div></div>
         </section>
       )}
     </div>

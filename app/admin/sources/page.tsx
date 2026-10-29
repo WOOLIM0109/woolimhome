@@ -40,7 +40,7 @@ export default function SourcesPage() {
             <div className="flex items-center gap-3"><Radar className="text-[var(--primary)]" /><h2 className="text-xl font-bold">수집 범위</h2></div>
             <div className="mt-5 flex flex-wrap gap-2">
               {CONSULTING_TOPIC_FAMILIES.map((topic) => (
-                <span key={topic} className="rounded-full bg-[#fff3e9] px-3 py-2 text-sm font-bold">{topic}</span>
+                <span key={topic} className="rounded-full bg-[#f7f7f7] px-3 py-2 text-sm font-bold">{topic}</span>
               ))}
             </div>
           </article>

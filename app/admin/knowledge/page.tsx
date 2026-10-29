@@ -209,7 +209,7 @@ export default function KnowledgePage() {
       <p className="prose-muted mt-3">인터뷰 녹취, 실제 사례, 대표님의 판단 기준을 저장합니다. 승인된 자료만 하이브리드·권위형 칼럼에 사용됩니다.</p>
       <div className={`mt-6 rounded-sm border p-5 ${remainingUses <= 3 ? "border-amber-200 bg-amber-50" : "border-emerald-200 bg-emerald-50"}`}>
         <p className="font-bold">원천자료 사용 현황</p>
-        <p className="mt-1 text-sm text-[#5f5750]">
+        <p className="mt-1 text-sm text-[#666]">
           승인 자료 {approvedItems.length}개 · 예상 활용 여유 {remainingUses}회
           {remainingUses <= 3 && " · 새로운 인터뷰나 사례를 추가할 시점입니다."}
         </p>
@@ -263,7 +263,7 @@ export default function KnowledgePage() {
                 type="button"
                 aria-pressed={filter === option.value}
                 onClick={() => setFilter(option.value)}
-                className={`rounded-sm border px-3 py-2 text-sm font-bold ${filter === option.value ? "border-[#201d1a] bg-[#201d1a] text-white" : "border-[var(--line)] bg-white text-[#5f5750]"}`}
+                className={`rounded-sm border px-3 py-2 text-sm font-bold ${filter === option.value ? "border-[#262626] bg-[#262626] text-white" : "border-[var(--line)] bg-white text-[#666]"}`}
               >
                 {option.label} {filterCount(option.value)}
               </button>
@@ -285,7 +285,7 @@ export default function KnowledgePage() {
                     <div className="flex flex-wrap items-center gap-2 text-xs font-bold">
                       <span className="text-[var(--primary)]">{EXPERTISE_AREAS.find((area) => area.value === (item.expertise_area || "general"))?.label}</span>
                       <span className="text-[var(--muted)]">· {SOURCE_LABELS[item.source_type]} · 사용 {Number(item.use_count || 0)}회</span>
-                      <span className={`rounded-sm px-2 py-1 ${item.approved ? "bg-emerald-50 text-emerald-800" : "bg-[#f2efec] text-[#5f5750]"}`}>{item.approved ? "승인" : "미승인"}</span>
+                      <span className={`rounded-sm px-2 py-1 ${item.approved ? "bg-emerald-50 text-emerald-800" : "bg-[#f7f7f7] text-[#666]"}`}>{item.approved ? "승인" : "미승인"}</span>
                       {flagged && <span className="inline-flex items-center gap-1 rounded-sm bg-amber-100 px-2 py-1 text-amber-900"><AlertTriangle size={13} /> 확인 필요 {verification.items.length}건</span>}
                       {automaticResearch && <span className="inline-flex items-center gap-1 rounded-sm bg-sky-50 px-2 py-1 text-sky-800"><Search size={13} /> 자동 조사 {verification.automaticItems.length}건</span>}
                       {!flagged && verification.completed && <span className="inline-flex items-center gap-1 rounded-sm bg-sky-50 px-2 py-1 text-sky-800"><BadgeCheck size={13} /> 확인 완료{verification.completedAt ? ` · ${verification.completedAt}` : ""}</span>}
@@ -376,7 +376,7 @@ export default function KnowledgePage() {
                       {editing ? (
                         <>
                           <button type="button" onClick={() => { setEditingId(null); setEditForm(null); }} className="rounded-sm border border-[var(--line)] px-4 py-2 text-sm font-bold">취소</button>
-                          <button type="button" disabled={updatingId === item.id} onClick={() => void saveEdit(item)} className="inline-flex items-center gap-2 rounded-sm bg-[#201d1a] px-4 py-2 text-sm font-bold text-white disabled:opacity-50">
+                          <button type="button" disabled={updatingId === item.id} onClick={() => void saveEdit(item)} className="inline-flex items-center gap-2 rounded-sm bg-[#262626] px-4 py-2 text-sm font-bold text-white disabled:opacity-50">
                             <Save size={16} /> {updatingId === item.id ? "저장 중…" : "수정 저장"}
                           </button>
                         </>
@@ -440,8 +440,8 @@ function VerificationPanel({
             {items.map((entry, index) => (
               <li key={`${entry.kind}-${entry.label}-${index}`} className="rounded-sm bg-white/70 p-3">
                 <p className="font-bold">{index + 1}. {entry.label}</p>
-                {entry.excerpt && <p className="mt-1 break-words text-[#5f5750]">확인 대상: “{entry.excerpt}”</p>}
-                <p className="mt-1 text-[#5f5750]">{entry.instruction}</p>
+                {entry.excerpt && <p className="mt-1 break-words text-[#666]">확인 대상: “{entry.excerpt}”</p>}
+                <p className="mt-1 text-[#666]">{entry.instruction}</p>
               </li>
             ))}
           </ul>
@@ -469,12 +469,12 @@ function AutomaticResearchPanel({
       <div className="flex items-center gap-2 text-sm font-bold text-sky-950">
         <Search size={17} /> 대표님 확인이 아닌 자동 조사 항목
       </div>
-      <p className="mt-2 text-sm leading-6 text-[#5f5750]">글을 만들 때 아래 주장을 하나씩 검색해 최신 공식 원문과 대조합니다. 공식자료로 확인되지 않은 사실은 초안에 넣지 않으며, 개인정보·내부 성과처럼 외부 조사로 해결할 수 없는 내용만 별도로 확인 요청합니다.</p>
+      <p className="mt-2 text-sm leading-6 text-[#666]">글을 만들 때 아래 주장을 하나씩 검색해 최신 공식 원문과 대조합니다. 공식자료로 확인되지 않은 사실은 초안에 넣지 않으며, 개인정보·내부 성과처럼 외부 조사로 해결할 수 없는 내용만 별도로 확인 요청합니다.</p>
       <ul className="mt-3 space-y-2 text-sm text-sky-950">
         {items.map((entry, index) => (
           <li key={`${entry.label}-${index}`} className="rounded-sm bg-white/80 p-3">
             <p className="font-bold">{index + 1}. {entry.label}</p>
-            {entry.excerpt && <p className="mt-1 break-words text-[#5f5750]">조사 대상: “{entry.excerpt}”</p>}
+            {entry.excerpt && <p className="mt-1 break-words text-[#666]">조사 대상: “{entry.excerpt}”</p>}
           </li>
         ))}
       </ul>
@@ -486,7 +486,7 @@ function Detail({ label, value }: { label: string; value?: string | null }) {
   return (
     <div>
       <h4 className="text-sm font-bold">{label}</h4>
-      <p className="mt-2 whitespace-pre-wrap text-sm leading-7 text-[#5f5750]">{value || "입력된 내용이 없습니다."}</p>
+      <p className="mt-2 whitespace-pre-wrap text-sm leading-7 text-[#666]">{value || "입력된 내용이 없습니다."}</p>
     </div>
   );
 }
@@ -533,12 +533,12 @@ function ApprovalDialog({ item, updating, onClose, onApprove }: { item: ExpertKn
           {automaticResearch && (
             <div className="mb-6 border border-sky-200 bg-sky-50 p-4 text-sm text-sky-950">
               <div className="flex gap-2 font-bold"><Search className="mt-0.5 shrink-0" size={19} /> 공개 사실 {verification.automaticItems.length}건은 시스템이 자동 조사합니다.</div>
-              <p className="mt-2 leading-6 text-[#5f5750]">대표님이 확인 완료 처리할 항목이 아닙니다. 글 작성 시 각 주장을 공식 원문과 대조하고, 확인되지 않으면 본문에서 제외합니다.</p>
+              <p className="mt-2 leading-6 text-[#666]">대표님이 확인 완료 처리할 항목이 아닙니다. 글 작성 시 각 주장을 공식 원문과 대조하고, 확인되지 않으면 본문에서 제외합니다.</p>
             </div>
           )}
           <KnowledgeDetails item={item} />
           <div className="mt-7 border-t border-[var(--line)] pt-5">
-            <p className="text-sm leading-6 text-[#5f5750]">승인하면 이 자료가 AI 칼럼 생성에 사용될 수 있습니다. 공개 사실은 시스템이 조사하므로, 대표님은 원천 내용과 개인정보·내부 사례의 공개 가능 범위만 확인해 주세요.</p>
+            <p className="text-sm leading-6 text-[#666]">승인하면 이 자료가 AI 칼럼 생성에 사용될 수 있습니다. 공개 사실은 시스템이 조사하므로, 대표님은 원천 내용과 개인정보·내부 사례의 공개 가능 범위만 확인해 주세요.</p>
             <div className="mt-4 flex flex-wrap justify-end gap-2">
               <button type="button" onClick={onClose} className="rounded-sm border border-[var(--line)] px-4 py-2.5 text-sm font-bold">돌아가서 수정</button>
               <button type="button" disabled={updating} onClick={onApprove} className="inline-flex items-center gap-2 rounded-sm bg-emerald-700 px-4 py-2.5 text-sm font-bold text-white disabled:opacity-50">
@@ -553,5 +553,5 @@ function ApprovalDialog({ item, updating, onClose, onApprove }: { item: ExpertKn
 }
 
 function Shell({ children }: { children: React.ReactNode }) {
-  return <section className="min-h-[70vh] bg-[#fffaf7]"><div className="mx-auto max-w-5xl px-5 py-16 lg:px-8">{children}</div></section>;
+  return <section className="admin-site min-h-[70vh] bg-[#fff]"><div className="mx-auto max-w-5xl px-5 py-16 lg:px-8">{children}</div></section>;
 }

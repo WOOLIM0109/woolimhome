@@ -1,9 +1,17 @@
 import Link from "next/link";
-import { Bell, Bot, CalendarDays, FileCheck2, MessageSquareText } from "lucide-react";
+import { ArrowUpRight, Bell, Bot, CalendarDays, FileCheck2, MessageSquareText } from "lucide-react";
 import AdminPortal from "@/components/admin/AdminPortal";
 import ChannelCard from "@/components/admin/ChannelCard";
 import TwoWeekSchedule from "@/components/admin/TwoWeekSchedule";
 import CollapsibleSection from "@/components/admin/CollapsibleSection";
+
+const QUICK_LINKS = [
+  { href: "/admin/openchat", icon: MessageSquareText, title: "오픈채팅 자동배포", description: "공고·콘텐츠 검토와 게시문 복사" },
+  { href: "/admin/reviews", icon: FileCheck2, title: "검토 요청", description: "완성된 글과 이미지만 확인" },
+  { href: "/admin/sources", icon: Bell, title: "주제·자료 수집", description: "새 주제와 변경사항 확인" },
+  { href: "/admin/bot-traffic", icon: Bot, title: "봇 트래픽", description: "AI·검색엔진 방문 확인" },
+  { href: "/admin/schedule", icon: CalendarDays, title: "향후 2주 일정", description: "세 채널 발행 계획 통합" },
+];
 
 export default function AdminDashboardPage() {
   return (
@@ -12,10 +20,10 @@ export default function AdminDashboardPage() {
       description="홈페이지와 두 네이버 블로그의 초안, 검토 요청, 향후 발행 일정을 한곳에서 확인합니다."
       actions={(
         <>
-          <Link href="/admin/reviews" className="inline-flex items-center gap-2 rounded-xl border border-[var(--line)] bg-white px-4 py-3 font-bold">
+          <Link href="/admin/reviews" className="inline-flex h-12 items-center gap-2 border border-[var(--line)] bg-white px-5 font-bold transition-colors hover:border-[#eb6826] hover:text-[#eb6826]">
             <FileCheck2 size={18} /> 검토 요청
           </Link>
-          <Link href="/admin/schedule" className="btn-gradient inline-flex items-center gap-2 rounded-xl px-4 py-3 font-bold text-white">
+          <Link href="/admin/schedule" className="btn-gradient inline-flex h-12 items-center gap-2 px-5 font-bold text-white">
             <CalendarDays size={18} /> 전체 일정
           </Link>
         </>
@@ -52,28 +60,34 @@ export default function AdminDashboardPage() {
         />
       </section>
 
-      <section className="mt-8 grid gap-5 md:grid-cols-2 xl:grid-cols-5">
-        <Link href="/admin/openchat" className="card card-hover flex-row items-center gap-4 p-5">
-          <span className="rounded-xl bg-orange-50 p-3 text-orange-800"><MessageSquareText /></span>
-          <span><strong className="block">오픈채팅 자동배포</strong><small className="text-[var(--muted)]">공고·콘텐츠 검토와 게시문 복사</small></span>
-        </Link>
-        <Link href="/admin/reviews" className="card card-hover flex-row items-center gap-4 p-5">
-          <span className="rounded-xl bg-amber-50 p-3 text-amber-800"><FileCheck2 /></span>
-          <span><strong className="block">검토 요청</strong><small className="text-[var(--muted)]">완성된 글과 이미지만 확인</small></span>
-        </Link>
-        <Link href="/admin/sources" className="card card-hover flex-row items-center gap-4 p-5">
-          <span className="rounded-xl bg-blue-50 p-3 text-blue-800"><Bell /></span>
-          <span><strong className="block">주제·자료 수집</strong><small className="text-[var(--muted)]">새 주제와 변경사항 확인</small></span>
-        </Link>
-        <Link href="/admin/bot-traffic" className="card card-hover flex-row items-center gap-4 p-5">
-          <span className="rounded-xl bg-violet-50 p-3 text-violet-800"><Bot /></span>
-          <span><strong className="block">봇 트래픽</strong><small className="text-[var(--muted)]">AI·검색엔진 방문 확인</small></span>
-        </Link>
-        <Link href="/admin/schedule" className="card card-hover flex-row items-center gap-4 p-5">
-          <span className="rounded-xl bg-emerald-50 p-3 text-emerald-800"><CalendarDays /></span>
-          <span><strong className="block">향후 2주 일정</strong><small className="text-[var(--muted)]">세 채널 발행 계획 통합</small></span>
-        </Link>
-      </section>
+      {/*
+        바로가기 다섯 개.
+
+        카드 다섯 장을 한 줄에 늘어놓으니 제목과 설명이 제각각 접혀서
+        지저분했습니다. 공개 사이트의 사업영역 목록처럼 1px 선으로 나눈
+        가로 줄로 바꿉니다. 글이 접히지 않고, 제목이 세로로 줄을 맞춥니다.
+      */}
+      <nav className="mt-10 border-t border-[#262626]" aria-label="바로가기">
+        {QUICK_LINKS.map((item) => {
+          const Icon = item.icon;
+          return (
+            <Link
+              key={item.href}
+              href={item.href}
+              className="group flex items-center gap-4 border-b border-[var(--line)] px-1 py-5 transition-colors hover:bg-[#fafafa]"
+            >
+              <Icon size={19} strokeWidth={1.6} aria-hidden className="shrink-0 text-[#eb6826]" />
+              <span className="min-w-0 flex-1 sm:flex sm:items-baseline sm:gap-7">
+                <strong className="block text-[17px] font-bold sm:w-[190px] sm:shrink-0">{item.title}</strong>
+                <small className="mt-1 block text-[15px] leading-6 text-[var(--muted)] sm:mt-0">{item.description}</small>
+              </span>
+              <span className="grid h-[38px] w-[38px] shrink-0 place-items-center rounded-full border border-[#d4d4d4] transition-colors group-hover:border-[#eb6826] group-hover:bg-[#eb6826] group-hover:text-white">
+                <ArrowUpRight size={16} aria-hidden />
+              </span>
+            </Link>
+          );
+        })}
+      </nav>
 
       <CollapsibleSection
         storageKey="home-schedule"

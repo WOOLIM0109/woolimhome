@@ -122,7 +122,7 @@ function Ranking({ title, rows, label }: { title: string; rows: KeyCount[]; labe
               <span className="truncate">{label ? label(row.key) : row.key}</span>
               <strong>{row.count.toLocaleString()}</strong>
             </div>
-            <div className="h-2 bg-[#eee8e3]"><div className="h-2 bg-[#ef762f]" style={{ width: `${Math.max(2, row.count / max * 100)}%` }} /></div>
+            <div className="h-2 bg-[#e5e5e5]"><div className="h-2 bg-[#eb6826]" style={{ width: `${Math.max(2, row.count / max * 100)}%` }} /></div>
           </div>
         ))}
         {!rows.length && <p className="text-sm text-[var(--muted)]">아직 기록이 없습니다.</p>}
@@ -234,7 +234,7 @@ export default function BotTrafficPage() {
         <>
           <div className="flex border border-[var(--line)] bg-white p-1">
             {(["day", "week", "month", "all"] as RangeMode[]).map((value) => (
-              <button key={value} type="button" onClick={() => setMode(value)} className={`px-3 py-2 text-sm font-bold ${mode === value ? "bg-[#241a15] text-white" : "text-[var(--muted)]"}`}>
+              <button key={value} type="button" onClick={() => setMode(value)} className={`px-3 py-2 text-sm font-bold ${mode === value ? "bg-[#262626] text-white" : "text-[var(--muted)]"}`}>
                 {{ day: "24시간", week: "7일", month: "30일", all: "전체" }[value]}
               </button>
             ))}
@@ -262,7 +262,7 @@ export default function BotTrafficPage() {
             {recentDays.map((row) => (
               <div key={row.day} className="group flex min-w-5 flex-1 flex-col items-center justify-end" title={`${row.day} · ${row.total}회`}>
                 <span className="mb-1 hidden text-[10px] font-bold group-hover:block">{row.total}</span>
-                <div className="w-full bg-[#ef762f]" style={{ height: `${Math.max(3, row.total / maxDay * 170)}px` }} />
+                <div className="w-full bg-[#eb6826]" style={{ height: `${Math.max(3, row.total / maxDay * 170)}px` }} />
               </div>
             ))}
             {!recentDays.length && <p className="m-auto text-sm text-[var(--muted)]">아직 기록이 없습니다.</p>}
@@ -289,7 +289,7 @@ export default function BotTrafficPage() {
         <div className="border-b border-[var(--line)] p-5"><h2 className="font-bold">최근 봇 방문 기록</h2><p className="mt-1 text-sm text-[var(--muted)]">IP는 개인정보 보호를 위해 일부가 가려져 저장됩니다.</p></div>
         <div className="max-h-[680px] overflow-auto">
           <table className="w-full min-w-[900px] text-left text-xs">
-            <thead className="sticky top-0 bg-[#f7f4f1]"><tr><th className="p-3">시각</th><th className="p-3">봇</th><th className="p-3">운영사</th><th className="p-3">페이지</th><th className="p-3">경로</th><th className="p-3">국가</th><th className="p-3">IP</th></tr></thead>
+            <thead className="sticky top-0 bg-[#f7f7f7]"><tr><th className="p-3">시각</th><th className="p-3">봇</th><th className="p-3">운영사</th><th className="p-3">페이지</th><th className="p-3">경로</th><th className="p-3">국가</th><th className="p-3">IP</th></tr></thead>
             <tbody>
               {(data?.recent || []).map((row, index) => (
                 <tr key={`${row.accessed_at}-${index}`} className="border-t border-[var(--line)]">

@@ -180,7 +180,7 @@ export default function NaverWorksDrivePanel() {
 
   return (
     <section className="card mt-8 overflow-hidden">
-      <div className="border-b border-[var(--line)] bg-[#fff8f2] p-6">
+      <div className="border-b border-[var(--line)] bg-[#f7f7f7] p-6">
         <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex gap-3">
             <Cloud className="mt-1 shrink-0 text-[var(--primary)]" />
@@ -315,7 +315,7 @@ export default function NaverWorksDrivePanel() {
                       <p className="mt-1 text-xs text-[var(--muted)]">{(candidate.selection_reasons || []).join(" · ")}</p>
                     </div>
                     <div className="flex items-center gap-2 text-xs font-bold">
-                      <span className="rounded-full bg-[#fff3e9] px-3 py-1.5">적합도 {Math.round(candidate.quality_score)}점</span>
+                      <span className="rounded-full bg-[#f7f7f7] px-3 py-1.5">적합도 {Math.round(candidate.quality_score)}점</span>
                       <span className="rounded-full bg-slate-100 px-3 py-1.5">{candidate.status === "excluded" && candidate.exclusion_reasons?.some(reason => reason.startsWith("중복:")) ? "중복 제외" : CANDIDATE_STATUS_LABELS[candidate.status] || candidate.status}</span>
                     </div>
                   </article>
