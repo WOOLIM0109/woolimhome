@@ -675,6 +675,15 @@ function Invoke-ExportOperation {
       }
       [GC]::Collect()
       [GC]::WaitForPendingFinalizers()
+      if ($ownedProcess) {
+        try {
+          # Keep the receipt unless this exact PID/start-time owner is gone.
+          # The adapter still needs it when closure cannot be verified here.
+          if (Test-OwnedPowerPointProcessExited -Identity $ownedProcess) {
+            Remove-Item -LiteralPath ($RequestPath + ".powerpoint-owner.json") -Force -ErrorAction Stop
+          }
+        } catch {}
+      }
       try {
         if ($copyPath -and (Test-Path -LiteralPath $copyPath -PathType Leaf) -and (Get-Sha256FileHash -Path $copyPath) -ne $expectedSourceHash) {
           Throw-PreparationError -Code "SOURCE_COPY_CHANGED" -Message "PowerPoint changed the local read-only source copy."
