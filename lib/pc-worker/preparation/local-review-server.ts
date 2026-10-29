@@ -1247,7 +1247,7 @@ function publicPreparationReview(view: PreparationReviewView, buildId: string) {
     source:{width:view.source.width,height:view.source.height,aspect:safeString(view.source.aspect,60),pageSizeVariant:safeString(view.source.pageSizeVariant,60)},
     customPortrait:{allowed:view.customPortrait.allowed===true,currentChoice:view.customPortrait.currentChoice===true,
       reviewSlideNumber:positiveInteger(view.customPortrait.reviewSlideNumber),reason:safeString(view.customPortrait.reason,500)},
-    slides,slideSelection:{minimum:selection.minimum,slides:selectionSlides},holds:view.holds.map(v=>safeString(v,500)).slice(0,30),localOnly:true};
+    slides,slideSelection:{minimum:selection.minimum,manual:selection.manual===true,slides:selectionSlides},holds:view.holds.map(v=>safeString(v,500)).slice(0,30),localOnly:true};
 }
 // Only fixed internal codes may reach the screen or the local bridge stderr log.
 // Adapter messages can contain paths, file names and source-derived diagnostics.
