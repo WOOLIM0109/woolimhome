@@ -2,6 +2,8 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { ProgramAgentService, requireUuid } from "./agent-api.ts";
 import { hasCredentialLikeValue, ProgramApiError } from "./agent-auth.ts";
 import { applySelfProfileProposal, readApprovedSelfProfiles, strictKeys } from "./profiles-store.ts";
+import { fetchWoolimworksCustomers, isConsultingCustomer, listCustomerProfiles,
+  missingFields, parseSave, saveCustomerProfile } from "./customer-profiles.ts";
 
 type Row = Record<string, unknown>;
 export type AttachmentSummary = { total: number; supported: number; extracted: number; pending: number; failed: number;
@@ -176,7 +178,51 @@ export class ProgramAdminService {
       proposals: proposals.map(row => ({ id: row.id, profile_id: row.profile_id, base_version: row.base_version, patch: row.patch,
         reason: row.reason, status: row.status, submitted_by: row.submitted_by, created_at: row.created_at })), institutions };
   }
+
+  /**
+   * 고객사 요건 화면이 쓰는 목록.
+   *
+   * 고객 원본은 울림웍스입니다. 거기서 한 번 읽고(상세는 묻지 않습니다),
+   * 우리가 덧붙여 둔 요건을 붙여서 돌려줍니다. 무엇을 더 적어야 하는지도
+   * 같이 알려 줘서 화면이 빈칸을 바로 보여 줄 수 있게 합니다.
+   */
+  async customerProfiles() {
+    const [customers, saved] = await Promise.all([
+      fetchWoolimworksCustomers(), listCustomerProfiles(this.admin),
+    ]);
+    const byCustomer = new Map<string, typeof saved>();
+    for (const row of saved) {
+      const rows = byCustomer.get(row.customer_id) ?? [];
+      rows.push(row); byCustomer.set(row.customer_id, rows);
+    }
+    const entity = (row: (typeof saved)[number]) => ({
+      id: row.id, entity_key: row.entity_key, entity_name: row.entity_name,
+      business_number: row.business_number, profile: row.profile, active: row.active,
+      version: row.version, updated_by: row.updated_by, updated_at: row.updated_at,
+      missing: missingFields(row.profile ?? {}),
+    });
+    const rows = customers.map(customer => ({
+      ...customer, consulting: isConsultingCustomer(customer),
+      entities: (byCustomer.get(customer.id) ?? []).map(entity),
+    }));
+    // 우리가 적어 둔 요건인데 울림웍스 목록에 없는 고객. 연결이 끊긴 것이라
+    // 조용히 감추면 적어 둔 것이 사라진 것처럼 보입니다.
+    const known = new Set(customers.map(row => row.id));
+    const orphans = saved.filter(row => !known.has(row.customer_id))
+      .map(row => ({ customer_id: row.customer_id, ...entity(row) }));
+    return {
+      as_of: this.now.toISOString(),
+      consulting_count: rows.filter(row => row.consulting).length,
+      customers: rows, orphans,
+    };
+  }
+
+  async saveCustomerProfile(body: Record<string, unknown> | undefined, actor: string) {
+    const saved = await saveCustomerProfile(this.admin, parseSave(body), actor);
+    return { ...saved, missing: missingFields(saved.profile ?? {}) };
+  }
 }
 
 export type ProgramAdminOverview = Awaited<ReturnType<ProgramAdminService["overview"]>>;
+export type ProgramAdminCustomers = Awaited<ReturnType<ProgramAdminService["customerProfiles"]>>;
 export type ProgramAdminDetail = Awaited<ReturnType<ProgramAdminService["detail"]>>;

@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { ArrowDownToLine, ArrowUpRight, Check, ChevronDown, ClipboardCheck, FileText, RefreshCw, Search, X } from "lucide-react";
+import CustomerProfilesPanel from "./CustomerProfilesPanel";
 
 type Match = { target_kind: "self" | "customer"; target_id: string; target_name: string; verdict: string;
   verdict_label: string; reasons?: string[]; score: number };
@@ -30,8 +31,8 @@ type Detail = { program: Program; requirements: Record<string, unknown> | null; 
 type TextData = { detail_text: string | null; attachments: { id: string; file_name: string; text_content: string | null }[] };
 type Resource<T> = { data: T | null; loading: boolean; error: string };
 const API = "/api/admin/program-review";
-const button = "inline-flex min-h-10 items-center justify-center gap-2 rounded-xl border border-stone-200 px-4 py-2 text-sm font-semibold transition hover:border-orange-300 hover:bg-orange-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-orange-500 disabled:cursor-not-allowed disabled:opacity-50";
-const panel = "rounded-2xl border border-[var(--line)] bg-white shadow-[var(--shadow-card)]";
+export const button = "inline-flex min-h-10 items-center justify-center gap-2 rounded-xl border border-stone-200 px-4 py-2 text-sm font-semibold transition hover:border-orange-300 hover:bg-orange-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-orange-500 disabled:cursor-not-allowed disabled:opacity-50";
+export const panel = "rounded-2xl border border-[var(--line)] bg-white shadow-[var(--shadow-card)]";
 const fieldNames: Record<string, string> = {
   regions: "지역", target_types: "지원 대상", business_age: "업력", min_years: "최소 연수", max_years: "최대 연수",
   basis: "기준 원문", as_of: "업력 기준일", size: "기업 규모", max_employees: "근로자 상한", max_revenue_krw: "매출 상한(원)",
@@ -46,8 +47,8 @@ const statusNames: Record<string, string> = { extracted: "추출 완료", pendin
   no_text: "텍스트 없음 · 스캔 확인 필요", skipped: "제한으로 건너뜀", unsupported: "미지원 형식", completed: "완료", success: "성공", ok: "성공", error: "실패", idle: "대기" };
 const dateFormatter = new Intl.DateTimeFormat("ko-KR", { timeZone: "Asia/Seoul", year: "numeric", month: "2-digit", day: "2-digit",
   hour: "2-digit", minute: "2-digit", hour12: false });
-function date(value?: string | null) { return value && Number.isFinite(Date.parse(value)) ? dateFormatter.format(new Date(value)) : "미확인"; }
-function display(value: unknown): string {
+export function date(value?: string | null) { return value && Number.isFinite(Date.parse(value)) ? dateFormatter.format(new Date(value)) : "미확인"; }
+export function display(value: unknown): string {
   if (value === null || value === undefined || value === "") return "미확인";
   if (Array.isArray(value)) return value.length ? value.map(display).join(", ") : "등록된 항목 없음";
   if (typeof value === "boolean") return value ? "예" : "아니요";
@@ -63,7 +64,7 @@ function errorMessage(status: number) {
   return "자료를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.";
 }
 class ReviewRequestError extends Error {}
-async function readJson<T>(path: string, init: RequestInit = {}): Promise<T> {
+export async function readJson<T>(path: string, init: RequestInit = {}): Promise<T> {
   try {
     const response = await fetch(path, { cache: "no-store", credentials: "same-origin", ...init });
     if (!response.ok) throw new ReviewRequestError(errorMessage(response.status));
@@ -73,7 +74,7 @@ async function readJson<T>(path: string, init: RequestInit = {}): Promise<T> {
     throw new ReviewRequestError("자료를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.");
   }
 }
-function useResource<T>(path: string | null, revision: number): Resource<T> {
+export function useResource<T>(path: string | null, revision: number): Resource<T> {
   const [state, setState] = useState<Resource<T> & { key: string | null }>({ key: null, data: null, loading: true, error: "" });
   useEffect(() => {
     if (!path) return;
@@ -92,7 +93,7 @@ function useResource<T>(path: string | null, revision: number): Resource<T> {
   }, [path, revision]);
   return !path ? { data: null, loading: false, error: "" } : state.key !== path ? { data: null, loading: true, error: "" } : state;
 }
-function Badge({ children, tone = "neutral" }: { children: React.ReactNode; tone?: "neutral" | "green" | "amber" | "red" }) {
+export function Badge({ children, tone = "neutral" }: { children: React.ReactNode; tone?: "neutral" | "green" | "amber" | "red" }) {
   const colors = { neutral: "bg-stone-100 text-stone-600", green: "bg-emerald-50 text-emerald-800", amber: "bg-amber-50 text-amber-900", red: "bg-red-50 text-red-800" };
   return <span className={`inline-flex rounded-md px-2 py-1 text-xs font-semibold ${colors[tone]}`}>{children}</span>;
 }
@@ -103,7 +104,7 @@ function Verdict({ match }: { match: Match }) {
 function Stale({ stale }: { stale: boolean }) {
   return stale ? <Badge tone="amber">재매칭 필요 · 이전 결과</Badge> : null;
 }
-function Notice({ children, error = false }: { children: React.ReactNode; error?: boolean }) {
+export function Notice({ children, error = false }: { children: React.ReactNode; error?: boolean }) {
   return <p role={error ? "alert" : "status"} className={`rounded-xl border p-4 text-sm ${error ? "border-red-200 bg-red-50 text-red-800" : "border-stone-200 bg-stone-50 text-stone-600"}`}>{children}</p>;
 }
 function ProgramCard({ program, index, onOpen, selected }: { program: Program; index: number; onOpen: (id: string) => void; selected: boolean }) {
@@ -192,7 +193,7 @@ function DetailPanel({ id, revision, onClose, chosenTarget, chosenKind }: { id: 
 }
 
 export default function ProgramReviewOperations() {
-  const [section, setSection] = useState<"programs" | "profiles" | "institutions">("programs");
+  const [section, setSection] = useState<"programs" | "customers" | "profiles" | "institutions">("programs");
   const [mode, setMode] = useState<"today" | "target">("today");
   const [targetKind, setTargetKind] = useState<"self" | "customer">("self");
   const [selfId, setSelfId] = useState("woolim-company");
@@ -235,7 +236,7 @@ export default function ProgramReviewOperations() {
   }
   return <div className="space-y-6 pt-6">
     <div className="flex flex-wrap items-center justify-between gap-3"><div className="flex flex-wrap gap-2" aria-label="공고 검토 화면 선택">{[
-      ["programs", "공고 목록"], ["profiles", "자사 프로필·제안"], ["institutions", "기관별 수집"],
+      ["programs", "공고 목록"], ["customers", "고객사 요건"], ["profiles", "자사 프로필·제안"], ["institutions", "기관별 수집"],
     ].map(([key, text]) => <button type="button" key={key} className={`${button} ${section === key ? "border-orange-300 bg-orange-50 text-orange-900" : ""}`} aria-pressed={section === key} onClick={() => setSection(key as typeof section)}>{text}{key === "profiles" && pending.length ? <span className="rounded-full bg-orange-600 px-1.5 text-xs text-white">{pending.length}</span> : null}</button>)}</div><button type="button" className={button} onClick={() => setRevision(value => value + 1)} disabled={overview.loading}><RefreshCw size={15} className={overview.loading ? "animate-spin" : ""} aria-hidden="true" />새로고침</button></div>
     {data ? <p className="text-xs text-stone-500">{date(data.as_of)} 기준 · 한국시간</p> : null}
     {overview.error ? <Notice error>{overview.error}</Notice> : null}
@@ -250,7 +251,7 @@ export default function ProgramReviewOperations() {
       <div className="flex flex-wrap items-center justify-between gap-2"><h2 className="text-lg font-bold">{mode === "today" ? `${data?.today.review_date ?? "오늘"} 정독 목록` : `${(data?.targets ?? []).find(target => target.kind === targetKind && target.id === chosenId)?.name ?? "대상별"} 상위 목록`} <span className="ml-1 text-sm font-normal text-stone-500">{programs.length}개</span></h2><p className="text-xs text-stone-500">조건부 후보는 추가 요건 확인 필요 · 점수는 검토 우선순위</p></div>
       {listLoading || overview.loading ? <Notice>공고와 대상별 매칭 현황을 불러오고 있습니다.</Notice> : listError ? <Notice error>{listError}</Notice> : mode === "target" && !chosenId ? <Notice>고객사를 선택하면 대상별 상위 공고를 표시합니다.</Notice> : !programs.length ? <Notice>현재 범위에 표시할 공고가 없습니다. 다른 대상이나 오늘 정독 목록을 확인해 주세요.</Notice> : <div className="grid gap-4 xl:grid-cols-2">{programs.map((program, index) => <ProgramCard key={program.id} program={program} index={index} onOpen={openProgram} selected={selectedId === program.id} />)}</div>}
       {selectedId ? <DetailPanel key={`${selectedId}:${targetKind}:${chosenId}`} id={selectedId} revision={revision} chosenTarget={chosenId} chosenKind={targetKind} onClose={() => setSelectedId("")} /> : null}
-    </> : section === "profiles" ? overview.loading ? <Notice>자사 프로필을 불러오고 있습니다.</Notice> : <div className="space-y-7">
+    </> : section === "customers" ? <CustomerProfilesPanel /> : section === "profiles" ? overview.loading ? <Notice>자사 프로필을 불러오고 있습니다.</Notice> : <div className="space-y-7">
       <p className="text-sm leading-7 text-stone-600">승인된 사실만 표시합니다. 미확인 항목을 임의로 채우지 않으며, 제안은 승인 후에만 반영됩니다.</p>
       <div className="grid gap-4 xl:grid-cols-2">{(data?.profiles ?? []).map(profile => <article key={profile.id} className={`${panel} p-5`}><div className="flex flex-wrap items-center justify-between gap-2"><h2 className="text-lg font-bold">{profile.name}</h2><Badge>버전 {profile.version}</Badge></div>{profile.aliases.length ? <p className="mt-1 text-xs text-stone-500">다른 이름: {profile.aliases.join(", ")}</p> : null}<dl className="mt-4 divide-y divide-stone-100">{Object.entries(profile.profile).map(([key, value]) => <div key={key} className="grid grid-cols-[9rem_minmax(0,1fr)] gap-3 py-2.5 text-sm"><dt className="text-stone-500">{fieldNames[key] ?? key}</dt><dd className="whitespace-pre-wrap break-words font-medium">{display(value)}</dd></div>)}</dl><p className="mt-4 text-xs text-stone-500">반영 시각 {date(profile.updated_at)}</p></article>)}</div>
       <section><h2 className="mb-3 text-lg font-bold">승인 대기 제안 <span className="text-sm font-normal text-stone-500">{pending.length}개</span></h2>{!pending.length ? <Notice>승인 대기 중인 제안이 없습니다.</Notice> : <div className="space-y-4">{pending.map(proposal => { const profile = data?.profiles.find(item => item.id === proposal.profile_id); return <article key={proposal.id} className={`${panel} p-5`}><div className="flex flex-wrap items-center gap-2"><h3 className="font-bold">{profile?.name ?? "자사 프로필"} 수정 제안</h3><Badge tone="amber">승인 대기</Badge><span className="text-xs text-stone-500">기준 버전 {proposal.base_version} · {date(proposal.created_at)}</span></div><p className="mt-3 whitespace-pre-wrap text-sm leading-7 text-stone-600">{proposal.reason}</p><div className="mt-4 overflow-x-auto rounded-xl border border-stone-200"><table className="w-full min-w-[400px] text-left text-sm"><thead className="bg-stone-50 text-xs text-stone-500"><tr><th scope="col" className="p-3">항목</th><th scope="col" className="p-3">현재 승인 값</th><th scope="col" className="p-3">제안 값</th></tr></thead><tbody className="divide-y divide-stone-100">{Object.entries(proposal.patch).map(([key, value]) => <tr key={key}><th scope="row" className="p-3 font-medium">{fieldNames[key] ?? key}</th><td className="whitespace-pre-wrap break-words p-3 text-stone-500">{display(profile?.profile[key])}</td><td className="whitespace-pre-wrap break-words p-3 font-semibold">{display(value)}</td></tr>)}</tbody></table></div><div className="mt-4 flex flex-wrap gap-2"><button type="button" className={`${button} border-emerald-200 text-emerald-800 hover:bg-emerald-50`} disabled={Boolean(actionBusy)} onClick={() => void decide(proposal, true)}><Check size={16} aria-hidden="true" />{actionBusy === proposal.id ? "처리 중" : "제안 승인"}</button><button type="button" className={`${button} text-stone-600`} disabled={Boolean(actionBusy)} onClick={() => void decide(proposal, false)}><X size={16} aria-hidden="true" />제안 반려</button></div></article>; })}</div>}</section>
