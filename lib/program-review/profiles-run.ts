@@ -7,7 +7,7 @@ import {
 } from "./profiles.ts";
 import {
   entityTargetId, groupByCustomer, isConsultingCustomer, listActiveCustomerProfiles,
-  type CustomerProfileRow,
+  listCustomerProfilesForMatching, type CustomerProfileRow,
 } from "./customer-profiles.ts";
 
 const ORIGIN = "https://hub.woolimcompany.kr";
@@ -127,8 +127,8 @@ async function matchProfiles(admin: SupabaseClient, customers: CachedCustomerPro
   catch { failure("self_profiles_contract", "승인된 자사 프로필 형식이 올바르지 않습니다."); }
   // 적어 둔 고객사 요건을 씁니다. 울림웍스에는 업종·매출·직원수·인증 칸이 없어서
   // 이게 없으면 판정 축 7개 중 5개가 비어 있습니다.
-  let saved: Awaited<ReturnType<typeof listActiveCustomerProfiles>>;
-  try { saved = await listActiveCustomerProfiles(admin); }
+  let saved: Awaited<ReturnType<typeof listCustomerProfilesForMatching>>;
+  try { saved = await listCustomerProfilesForMatching(admin); }
   catch { failure("customer_profiles_read", "고객사 요건을 읽지 못했습니다."); }
   return [...self, ...expandCustomers(customers, saved)];
 }
@@ -144,8 +144,12 @@ export function expandCustomers(
 ): MatchProfile[] {
   const byCustomer = groupByCustomer(saved);
   return customers.flatMap((customer) => {
-    const entities = byCustomer.get(customer.id) ?? [];
-    if (!entities.length) return [customerMatchProfile(customer)];
+    const all = byCustomer.get(customer.id) ?? [];
+    const entities = all.filter((row) => row.active);
+    // 적어 둔 사업자가 아예 없으면 예전처럼 한 줄로 둔다 (적기 전과 후에 끊기면 안 된다).
+    if (!all.length) return [customerMatchProfile(customer)];
+    // 적어 두었는데 **다 꺼 두었다면** 대상이 아니라고 정하신 것이다. 뺀다.
+    if (!entities.length) return [];
     return entities.map((entity) => customerEntityMatchProfile(customer, {
       entityKey: entity.entity_key, entityName: entity.entity_name,
       profile: (entity.profile ?? {}) as Record<string, unknown>,
