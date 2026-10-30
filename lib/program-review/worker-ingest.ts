@@ -48,6 +48,23 @@ export const MIN_COLLECTOR_VERSION = "1.0.0";
 /** 이 값으로 올라온 행임을 남깁니다. 되돌릴 때 이것으로 고릅니다. */
 export const COLLECTOR_TAG = "gonggo-monitor";
 
+/** 우리가 중복이라 접은 행에 남기는 사유. 되살릴 때 이것으로 고릅니다. */
+export const RETIRED_REASON = "같은 공고를 새 지문으로 다시 올렸습니다 (수집기 중복 정리)";
+
+/**
+ * 공고 검토 화면이 보여 주는 기간. `agent-api.ts` 의 `since` 와 같습니다.
+ * 이보다 오래 전에 만들어진 행은 화면에 아예 안 나옵니다.
+ */
+const SHOWN_FOR_DAYS = 60;
+
+/** 이 행이 공고 검토 화면에 보이는가. 안 보이는 행은 다른 행을 대신하지 못합니다. */
+function onScreen(row: Row, now: Date) {
+  if (row.status === "excluded") return false;
+  const made = Date.parse(String(row.created_at ?? ""));
+  if (!Number.isFinite(made)) return false;
+  return made >= now.getTime() - SHOWN_FOR_DAYS * 24 * 60 * 60 * 1000;
+}
+
 /** 이 행을 PC 수집기가 넣었는가. 아니면 서버가 모은 행이므로 건드리지 않습니다. */
 function ours(row: Row) {
   const payload = row.raw_payload;
@@ -503,6 +520,8 @@ export type IngestResult = {
   skipped_existing: number;
   /** 같은 공고로 전에 우리가 넣어 둔 옛 행을 '제외' 로 접은 수 */
   retired: number;
+  /** 접을 자리가 아닌데 접어 두었던 우리 행을 되살린 수 */
+  restored: number;
   attachments: number;
   requirements: number;
 };
@@ -520,7 +539,7 @@ export async function ingestPrograms(
   const stamp = now().toISOString();
   const result: IngestResult = {
     received: payload.programs.length, inserted: 0, resumed: 0,
-    skipped_existing: 0, retired: 0, attachments: 0, requirements: 0,
+    skipped_existing: 0, retired: 0, restored: 0, attachments: 0, requirements: 0,
   };
 
   const sourceKeys = [...new Set(payload.programs.map((program) => program.source_key))];
@@ -534,18 +553,22 @@ export async function ingestPrograms(
   // 지문 만드는 규칙이 바뀌면 같은 공고가 새 지문으로 들어가고, 옛 행은
   // 화면에 남아 두 줄로 보입니다. 아래에서 그 옛 행을 접습니다.
   // 찾는 열쇠는 (기관, 공고번호) 입니다 — 지문과 달리 규칙이 바뀌어도 그대로입니다.
-  const previousByKey = new Map<string, { id: string; fingerprint: string }[]>();
+  const previousByKey = new Map<string,
+    { id: string; fingerprint: string; retiredByUs: boolean }[]>();
   const externalIds = [...new Set(payload.programs
     .map((program) => program.external_id).filter((value): value is string => Boolean(value)))];
   if (externalIds.length) {
     const { data: previous, error: previousError } = await admin.from("openchat_programs")
-      .select("id,fingerprint,source_id,external_id,raw_payload").in("external_id", externalIds);
+      .select("id,fingerprint,source_id,external_id,raw_payload,status,exclusion_reason")
+      .in("external_id", externalIds);
     if (previousError) throw new IngestError(500, "PROGRAM_LOOKUP_FAILED", reason(previousError));
     for (const row of previous ?? []) {
       if (!ours(row as Row)) continue;          // 서버가 모은 행은 접지 않습니다
       const key = `${(row as Row).source_id}|${(row as Row).external_id}`;
       const found = previousByKey.get(key) ?? [];
-      found.push({ id: String((row as Row).id), fingerprint: String((row as Row).fingerprint) });
+      found.push({ id: String((row as Row).id), fingerprint: String((row as Row).fingerprint),
+        retiredByUs: (row as Row).status === "excluded"
+          && (row as Row).exclusion_reason === RETIRED_REASON });
       previousByKey.set(key, found);     // 둘 이상 남아 있으면 모두 접습니다
     }
   }
@@ -596,17 +619,24 @@ export async function ingestPrograms(
   // 첨부가 영영 안 붙습니다. 그래서 **우리가 넣은 행**이면 이어서 채웁니다.
   // 서버가 모은 행(collector 표시가 없는 행)은 건드리지 않습니다.
   const resumedIds = new Map<string, string>();
+  // 이 지문 자리에 **화면에 보이는 행**이 실제로 있는가. 아래에서 옛 행을 접을지 가릅니다.
+  const shows = new Map<string, boolean>();
+  for (const fingerprint of idByFingerprint.keys()) shows.set(fingerprint, true);
   const missing = payload.programs
     .map((program) => program.fingerprint)
     .filter((fingerprint) => !idByFingerprint.has(fingerprint));
   if (missing.length) {
     const { data: existing, error: lookupError } = await admin.from("openchat_programs")
-      .select("id,fingerprint,raw_payload").in("fingerprint", missing);
+      .select("id,fingerprint,raw_payload,created_at,status").in("fingerprint", missing);
     if (lookupError) throw new IngestError(500, "PROGRAM_LOOKUP_FAILED", reason(lookupError));
     for (const row of existing ?? []) {
-      if (!ours(row as Row)) continue;            // 우리 것이 아니면 건드리지 않습니다
+      if (!ours(row as Row)) {
+        shows.set(String((row as Row).fingerprint), onScreen(row as Row, now()));
+        continue;                                 // 우리 것이 아니면 건드리지 않습니다
+      }
       idByFingerprint.set(String((row as Row).fingerprint), String((row as Row).id));
       resumedIds.set(String((row as Row).fingerprint), String((row as Row).id));
+      shows.set(String((row as Row).fingerprint), true);
       result.resumed += 1;
     }
   }
@@ -619,9 +649,54 @@ export async function ingestPrograms(
   // `status`·`priority`·`draft_for`·`exclusion_reason` 은 손대지 않습니다 —
   // 사람이 화면에서 내린 판단을 기계가 되돌리면 안 됩니다.
   const rowByFingerprint = new Map(rows.map((row) => [row.fingerprint, row]));
+  const refresh = new Map<string, (typeof rows)[number]>();   // 행 id → 다시 맞출 값
   for (const [fingerprint, id] of resumedIds) {
     const row = rowByFingerprint.get(fingerprint);
-    if (!row) continue;
+    if (row) refresh.set(id, row);
+  }
+
+  // ★ 같은 공고로 전에 **우리가** 넣어 둔 옛 행을 접습니다.
+  // 지문 규칙이 바뀌면 같은 공고가 새 지문으로 들어가고, 옛 행이 그대로 남아
+  // 화면에 두 줄로 보입니다. 접지 않으면 사람이 같은 공고를 두 번 읽습니다.
+  // 지우지 않고 '제외' 로만 돌립니다 — 되돌릴 수 있어야 합니다.
+  // 우리가 넣은 행만 접습니다. 서버가 모은 행은 위에서 이미 걸러 냈습니다.
+  //
+  // ★★ 그 자리를 대신할 행이 **화면에 보일 때만** 접습니다.
+  // 실측: 지문 주인이 60일보다 오래된 행이면 화면 범위 밖이라, 우리 행을 접는
+  // 순간 그 공고가 **아무 데도 안 보이게** 됐습니다 (TIPS·통합공고 등 7건).
+  // 공고를 사라지게 하느니 두 줄로 두는 편이 낫습니다.
+  for (const [index, program] of payload.programs.entries()) {
+    const found = previousByKey.get(`${rows[index].source_id}|${program.external_id}`) ?? [];
+    for (const previous of found) {
+      if (previous.fingerprint === program.fingerprint) continue;
+      if (!shows.get(program.fingerprint)) {
+        // 대신할 행이 안 보인다 — 우리 행을 남기고 값만 다시 맞춥니다.
+        // 전에 우리가 잘못 접어 둔 행이면 되살립니다 (우리가 쓴 사유일 때만).
+        refresh.set(previous.id, rows[index]);
+        if (previous.retiredByUs) {
+          const { error: restoreError } = await admin.from("openchat_programs").update({
+            status: "review_required", exclusion_reason: null, updated_at: stamp,
+          }).eq("id", previous.id);
+          if (restoreError) throw new IngestError(500, "PROGRAM_RESTORE_FAILED", reason(restoreError));
+          result.restored += 1;
+        }
+        continue;
+      }
+      const { error: retireError } = await admin.from("openchat_programs").update({
+        status: "excluded", exclusion_reason: RETIRED_REASON, updated_at: stamp,
+      }).eq("id", previous.id);
+      if (retireError) throw new IngestError(500, "PROGRAM_RETIRE_FAILED", reason(retireError));
+      result.retired += 1;
+    }
+  }
+
+  // ★ 값을 다시 맞춥니다.
+  // 안 그러면 보내는 쪽을 고쳐도 이미 들어간 행은 틀린 채로 남습니다
+  // (실측: 마감이 9시간 밀린 28건이 다시 보내도 그대로였습니다).
+  // 우리가 넣은 행만, 그중에서도 **수집한 값만** 바꿉니다.
+  // `status`·`priority`·`draft_for`·`exclusion_reason` 은 손대지 않습니다 —
+  // 사람이 화면에서 내린 판단을 기계가 되돌리면 안 됩니다.
+  for (const [id, row] of refresh) {
     const { error: refreshError } = await admin.from("openchat_programs").update({
       source_id: row.source_id, external_id: row.external_id, title: row.title,
       applicant_summary: row.applicant_summary, support_summary: row.support_summary,
@@ -631,25 +706,6 @@ export async function ingestPrograms(
       regions: row.regions, raw_payload: row.raw_payload, updated_at: row.updated_at,
     }).eq("id", id);
     if (refreshError) throw new IngestError(500, "PROGRAM_REFRESH_FAILED", reason(refreshError));
-  }
-
-  // ★ 같은 공고로 전에 **우리가** 넣어 둔 옛 행을 접습니다.
-  // 지문 규칙이 바뀌면 같은 공고가 새 지문으로 들어가고, 옛 행이 그대로 남아
-  // 화면에 두 줄로 보입니다. 접지 않으면 사람이 같은 공고를 두 번 읽습니다.
-  // 지우지 않고 '제외' 로만 돌립니다 — 되돌릴 수 있어야 합니다.
-  // 우리가 넣은 행만 접습니다. 서버가 모은 행은 위에서 이미 걸러 냈습니다.
-  for (const [index, program] of payload.programs.entries()) {
-    const found = previousByKey.get(`${rows[index].source_id}|${program.external_id}`) ?? [];
-    for (const previous of found) {
-      if (previous.fingerprint === program.fingerprint) continue;
-      const { error: retireError } = await admin.from("openchat_programs").update({
-        status: "excluded",
-        exclusion_reason: "같은 공고를 새 지문으로 다시 올렸습니다 (수집기 중복 정리)",
-        updated_at: stamp,
-      }).eq("id", previous.id);
-      if (retireError) throw new IngestError(500, "PROGRAM_RETIRE_FAILED", reason(retireError));
-      result.retired += 1;
-    }
   }
 
   for (const program of payload.programs) {
