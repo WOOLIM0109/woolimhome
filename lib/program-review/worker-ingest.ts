@@ -693,6 +693,9 @@ export async function ingestPrograms(
         }
         continue;
       }
+      // 이미 접어 둔 행은 또 접지 않습니다. 그냥 두면 보낼 때마다 같은 행에
+      // 쓸데없이 다시 쓰고, 숫자도 부풀어 정리가 됐는지 알 수 없게 됩니다.
+      if (previous.retiredByUs) continue;
       const { error: retireError } = await admin.from("openchat_programs").update({
         status: "excluded", exclusion_reason: RETIRED_REASON, updated_at: stamp,
       }).eq("id", previous.id);

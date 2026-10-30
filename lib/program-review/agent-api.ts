@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { ProgramApiError } from "./agent-auth.ts";
+import { entityTargetName } from "./customer-profiles.ts";
 import { boundedText, profileKey, readApprovedSelfProfiles, strictKeys, stringList, validateProfilePatch } from "./profiles-store.ts";
 import { matchVerdictLabel } from "./matching.ts";
 
@@ -180,9 +181,19 @@ export class ProgramAgentService {
     }
     const row = checked(await this.admin.from("openchat_match_profiles_cache").select("payload").not("fetched_at", "is", null)
       .gt("expires_at", this.now.toISOString()).order("fetched_at", { ascending: false }).limit(1).maybeSingle()) as Row | null;
-    const target = Array.isArray(row?.payload) ? (row.payload as Row[]).find(item => item.id === id) : null;
+    // 판정 단위가 사업자라 대상 이름은 `고객id:사업자` 모양일 수 있습니다.
+    const divider = id.indexOf(":");
+    const customerId = divider < 0 ? id : id.slice(0, divider);
+    const entityKey = divider < 0 ? "" : id.slice(divider + 1);
+    const target = Array.isArray(row?.payload) ? (row.payload as Row[]).find(item => item.id === customerId) : null;
     if (!target || typeof target.name !== "string") throw new ProgramApiError(404, "TARGET_NOT_FOUND");
-    return { kind, id, name: target.name as string };
+    if (!entityKey) return { kind, id, name: target.name as string };
+    const entities = checked(await this.admin.from("openchat_program_customer_profiles")
+      .select("entity_key,entity_name").eq("customer_id", customerId).eq("active", true)) as Row[] | null ?? [];
+    const entity = entities.find(item => item.entity_key === entityKey);
+    if (!entity) throw new ProgramApiError(404, "TARGET_NOT_FOUND");
+    return { kind, id,
+      name: entityTargetName(String(target.name), String(entity.entity_name), entities.length > 1) };
   }
   async searchPrograms(params: URLSearchParams) {
     const allowed = ["status", "since", "q", "limit", "offset", "target_kind", "target_id", "eligible"];
