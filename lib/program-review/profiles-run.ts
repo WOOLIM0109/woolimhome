@@ -1,10 +1,14 @@
 import { randomUUID } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
-  customerMatchProfile, hasCustomerSupportProject, hasRecentRegisteredProject, selfMatchProfiles,
-  WOOLIMWORKS_API_FIELD_NAMES,
+  customerEntityMatchProfile, customerMatchProfile, hasCustomerSupportProject,
+  hasRecentRegisteredProject, selfMatchProfiles, WOOLIMWORKS_API_FIELD_NAMES,
   type AgentCustomer, type AgentProject, type CachedCustomerProfile, type MatchProfile,
 } from "./profiles.ts";
+import {
+  entityTargetId, groupByCustomer, isConsultingCustomer, listActiveCustomerProfiles,
+  type CustomerProfileRow,
+} from "./customer-profiles.ts";
 
 const ORIGIN = "https://hub.woolimcompany.kr";
 const CACHE_TABLE = "openchat_match_profiles_cache";
@@ -59,8 +63,11 @@ function customersFromResponse(body: unknown): AgentCustomer[] {
     const id = requiredText(row.id);
     if (seen.has(id)) failure("api_contract", "고객 읽기 API에 중복 식별자가 있습니다.");
     seen.add(id);
+    const supportProjects = Number(row.supportProjectCount);
     return [{ id, name: optionalText(row.companyName) || requiredText(row.name),
-      region: optionalText(row.region), foundedOn: optionalText(row.foundedOn) }];
+      region: optionalText(row.region), foundedOn: optionalText(row.foundedOn),
+      displayStatus: optionalText(row.displayStatus), contractStatus: optionalText(row.contractStatus),
+      supportProjects: Number.isFinite(supportProjects) && supportProjects > 0 ? supportProjects : 0 }];
   });
 }
 
@@ -118,7 +125,32 @@ async function matchProfiles(admin: SupabaseClient, customers: CachedCustomerPro
   let self: MatchProfile[];
   try { self = selfMatchProfiles(data); }
   catch { failure("self_profiles_contract", "승인된 자사 프로필 형식이 올바르지 않습니다."); }
-  return [...self, ...customers.map(customerMatchProfile)];
+  // 적어 둔 고객사 요건을 씁니다. 울림웍스에는 업종·매출·직원수·인증 칸이 없어서
+  // 이게 없으면 판정 축 7개 중 5개가 비어 있습니다.
+  let saved: Awaited<ReturnType<typeof listActiveCustomerProfiles>>;
+  try { saved = await listActiveCustomerProfiles(admin); }
+  catch { failure("customer_profiles_read", "고객사 요건을 읽지 못했습니다."); }
+  return [...self, ...expandCustomers(customers, saved)];
+}
+
+/**
+ * 고객사 하나를 **사업자마다 한 줄**로 펼칩니다. 판정 단위가 사업자여서입니다.
+ * 요건을 적어 두지 않은 고객사는 예전과 똑같이 한 줄로 둡니다 —
+ * 적기 전과 후에 판정이 끊기지 않게 하려는 것입니다.
+ */
+export function expandCustomers(
+  customers: readonly CachedCustomerProfile[],
+  saved: readonly CustomerProfileRow[],
+): MatchProfile[] {
+  const byCustomer = groupByCustomer(saved);
+  return customers.flatMap((customer) => {
+    const entities = byCustomer.get(customer.id) ?? [];
+    if (!entities.length) return [customerMatchProfile(customer)];
+    return entities.map((entity) => customerEntityMatchProfile(customer, {
+      entityKey: entity.entity_key, entityName: entity.entity_name,
+      profile: (entity.profile ?? {}) as Record<string, unknown>,
+    }, { targetId: entityTargetId(customer.id, entity.entity_key), several: entities.length > 1 }));
+  });
 }
 
 function parseState(value: unknown, day: string): RefreshState | null {
@@ -203,7 +235,22 @@ async function refresh(admin: SupabaseClient, day: string, now: Date, options: L
     if (stored.error) failure("cache_read", "고객 프로필 갱신 진행 정보를 읽지 못했습니다.");
     let state = parseState(stored.data?.refresh_state, day);
     if (!state) {
-      const customers = customersFromResponse(await request("/api/agent/customers"));
+      const everyone = customersFromResponse(await request("/api/agent/customers"));
+      // ★ 지원사업 매칭 대상만 남깁니다.
+      // 전에는 '최근 프로젝트가 있거나 지원사업 이력이 있으면' 이라 468곳 중
+      // 467곳이 통과했습니다. 그 468곳의 **상세를 한 곳씩** 물어보느라
+      // 1.1초 간격 × 40곳씩 12번에 나눠 돌았고, 그동안 매칭은 멈춰 있었습니다.
+      // 컨설팅 고객사(실측 12곳)만 보면 한 번에 끝납니다.
+      // 요건을 적어 둔 고객사는 대표님이 대상이라고 정한 것이므로 함께 남깁니다.
+      let written: Set<string>;
+      try { written = new Set((await listActiveCustomerProfiles(admin)).map((row) => row.customer_id)); }
+      catch { failure("customer_profiles_read", "고객사 요건을 읽지 못했습니다."); }
+      const customers = everyone.filter((customer) =>
+        isConsultingCustomer({
+          id: customer.id, name: customer.name, region: customer.region, founded_on: customer.foundedOn,
+          display_status: customer.displayStatus, contract_status: customer.contractStatus,
+          support_projects: customer.supportProjects,
+        }) || written.has(customer.id));
       const projects = projectsFromResponse(await request("/api/agent/projects?customerId="));
       const grouped = new Map<string, AgentProject[]>();
       for (const project of projects) {
@@ -213,7 +260,10 @@ async function refresh(admin: SupabaseClient, day: string, now: Date, options: L
       state = { version: 1, basisNow: now.toISOString(), cursor: 0,
         customers: customers.map((customer) => {
           const rows = grouped.get(customer.id) || [];
-          return { ...customer, hasSupportHistory: hasCustomerSupportProject(rows),
+          // 대상 고르기에만 쓰는 칸(displayStatus 등)은 여기 담지 않습니다.
+          // 이어서 하기로 저장하는 모양이라, 칸이 늘면 다음 실행이 읽지 못합니다.
+          const { id, name, region, foundedOn } = customer;
+          return { id, name, region, foundedOn, hasSupportHistory: hasCustomerSupportProject(rows),
             hasRecentProject: hasRecentRegisteredProject(rows, now) };
         }) };
     }
@@ -239,8 +289,9 @@ async function refresh(admin: SupabaseClient, day: string, now: Date, options: L
       finished = true; // Checkpoint atomically saves staging and releases its lease.
       failure("refresh_pending", "고객 프로필 확인이 진행 중입니다. 다음 실행에서 이어서 확인합니다.");
     }
+    // 대상은 위에서 이미 골랐습니다. 여기서 또 거르면 계약한 고객사가
+    // 최근 프로젝트가 없다는 이유로 빠집니다.
     const payload: CachedCustomerProfile[] = state.customers
-      .filter((customer) => customer.hasRecentProject || customer.hasSupportHistory)
       .map(({ id, name, region, foundedOn, hasSupportHistory }) => ({ id, name, region, foundedOn, hasSupportHistory }));
     const result = await admin.rpc("finish_openchat_match_profiles_refresh", {
       p_cache_date: day, p_owner: owner, p_payload: payload,

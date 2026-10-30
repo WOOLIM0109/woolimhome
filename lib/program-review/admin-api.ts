@@ -2,7 +2,8 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { ProgramAgentService, requireUuid } from "./agent-api.ts";
 import { hasCredentialLikeValue, ProgramApiError } from "./agent-auth.ts";
 import { applySelfProfileProposal, readApprovedSelfProfiles, strictKeys } from "./profiles-store.ts";
-import { fetchWoolimworksCustomers, isConsultingCustomer, listCustomerProfiles,
+import { entityTargetId, entityTargetName, fetchWoolimworksCustomers, groupByCustomer,
+  isConsultingCustomer, listActiveCustomerProfiles, listCustomerProfiles,
   missingFields, parseSave, saveCustomerProfile } from "./customer-profiles.ts";
 
 type Row = Record<string, unknown>;
@@ -169,8 +170,22 @@ export class ProgramAdminService {
         .gt("expires_at", this.now.toISOString()).order("fetched_at", { ascending: false }).limit(1).maybeSingle(),
     ]);
     const cacheRow = checked(cache) as Row | null;
-    const customerTargets = Array.isArray(cacheRow?.payload) ? (cacheRow.payload as Row[]).filter(row => typeof row.id === "string" && typeof row.name === "string")
-      .map(row => ({ kind: "customer" as const, id: String(row.id), name: String(row.name) })) : [];
+    // 판정 단위는 사업자입니다. 요건을 적어 둔 고객사는 사업자마다 한 줄로 펼쳐
+    // 보여야 매칭 결과와 고르는 칸이 어긋나지 않습니다.
+    const saved = await listActiveCustomerProfiles(this.admin);
+    const byCustomer = groupByCustomer(saved);
+    const customerTargets = Array.isArray(cacheRow?.payload)
+      ? (cacheRow.payload as Row[])
+        .filter(row => typeof row.id === "string" && typeof row.name === "string")
+        .flatMap(row => {
+          const id = String(row.id), name = String(row.name);
+          const entities = byCustomer.get(id) ?? [];
+          if (!entities.length) return [{ kind: "customer" as const, id, name }];
+          return entities.map(entity => ({ kind: "customer" as const,
+            id: entityTargetId(id, entity.entity_key),
+            name: entityTargetName(name, entity.entity_name, entities.length > 1) }));
+        })
+      : [];
     return { as_of: this.now.toISOString(), scope: { lookback_days: 60, attachment_scope: "confirmed_future", deadline_unknown_separate: true },
       today: { ...today, programs: await this.enrichPrograms(today.programs) }, profiles,
       targets: [...profiles.map(row => ({ kind: "self" as const, id: row.id, name: row.name })), ...customerTargets],

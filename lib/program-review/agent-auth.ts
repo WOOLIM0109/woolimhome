@@ -13,7 +13,15 @@ export const AGENT_RESPONSE_HEADERS = {
 };
 
 export class ProgramApiError extends Error {
-  constructor(readonly status: number, readonly code: string) { super(code); }
+  // 생성자 인자에 바로 적지 않습니다. Node 가 타입만 떼어 내는 방식으로 읽을 때
+  // 그 모양을 못 읽어서, 이 파일을 거쳐 가는 검사가 통째로 멈춥니다.
+  readonly status: number;
+  readonly code: string;
+  constructor(status: number, code: string) {
+    super(code);
+    this.status = status;
+    this.code = code;
+  }
 }
 
 export function hasCredentialLikeValue(value: string) {

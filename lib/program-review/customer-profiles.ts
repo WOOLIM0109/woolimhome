@@ -207,3 +207,42 @@ export function isConsultingCustomer(customer: WoolimworksCustomer) {
     || customer.contract_status === "contracted"
     || customer.support_projects > 0;
 }
+
+/** 매칭이 쓸 수 있게 켜져 있는 요건만 읽습니다. */
+export async function listActiveCustomerProfiles(admin: SupabaseClient): Promise<CustomerProfileRow[]> {
+  const { data, error } = await admin.from(TABLE)
+    .select("id,customer_id,entity_key,entity_name,business_number,profile,active,version,updated_by,updated_at")
+    .eq("active", true).order("customer_id").order("entity_key");
+  if (error) throw new ProgramApiError(500, "CUSTOMER_PROFILES_READ_FAILED");
+  return (data ?? []) as CustomerProfileRow[];
+}
+
+/**
+ * 판정 대상을 가리키는 이름.
+ *
+ * 한 고객사에 사업자가 여럿이라 고객 id 만으로는 가릴 수 없습니다.
+ * 요건을 적어 두지 않은 고객사는 예전처럼 고객 id 그대로 씁니다 —
+ * 적어 두기 전과 후에 판정이 끊기지 않게 하려는 것입니다.
+ */
+export function entityTargetId(customerId: string, entityKey: string) {
+  return `${customerId}:${entityKey}`;
+}
+
+/**
+ * 화면에 보일 판정 대상 이름.
+ * 사업자가 여럿이면 어느 사업자인지 보여야 합니다.
+ */
+export function entityTargetName(customerName: string, entityName: string, several: boolean) {
+  return several ? `${customerName} · ${entityName}` : entityName;
+}
+
+/** 적어 둔 요건을 고객 id 로 묶습니다. */
+export function groupByCustomer(rows: readonly CustomerProfileRow[]) {
+  const out = new Map<string, CustomerProfileRow[]>();
+  for (const row of rows) {
+    const found = out.get(row.customer_id) ?? [];
+    found.push(row);
+    out.set(row.customer_id, found);
+  }
+  return out;
+}
