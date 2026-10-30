@@ -131,6 +131,8 @@ export type IngestProgram = {
   source_url: string;
   starts_at: string | null;
   deadline_at: string | null;
+  /** 교육·행사로 보이는가. 화면에서 뒤로 밀 때만 씁니다 — 버리지 않습니다. */
+  event_like: boolean;
   regions: string[];
   application_period_text: string | null;
   applicant_summary: string | null;
@@ -286,7 +288,7 @@ function parseAttachment(value: unknown, where: string): IngestAttachment {
 const PROGRAM_KEYS = ["source_key", "external_id", "fingerprint", "title", "source_url",
   "starts_at", "deadline_at", "regions", "application_period_text", "applicant_summary",
   "support_summary", "application_method", "detail_text", "attachments", "requirements",
-  "collector_conditions"] as const;
+  "collector_conditions", "event_like"] as const;
 
 function parseProgram(value: unknown, index: number): IngestProgram {
   const where = `programs.${index}`;
@@ -298,6 +300,12 @@ function parseProgram(value: unknown, index: number): IngestProgram {
   const sourceUrl = httpUrl(row, "source_url", where, true) as string;
   const externalId = text(row, "external_id", where, 200);
   const sourceKey = text(row, "source_key", where, 60, true) as string;
+  // 교육·행사로 보인다는 표시. 버리지 않고 화면에서 뒤로 밀기 위한 것입니다.
+  if (row.event_like !== undefined && row.event_like !== null
+    && typeof row.event_like !== "boolean") {
+    throw new IngestError(400, "INVALID_FIELD", `${where}.event_like`);
+  }
+  const eventLike = row.event_like === true;
   const supplied = text(row, "fingerprint", where, 64);
   if (supplied !== null && !SHA256.test(supplied.toLowerCase())) {
     throw new IngestError(400, "INVALID_FIELD", `${where}.fingerprint`);
@@ -342,6 +350,7 @@ function parseProgram(value: unknown, index: number): IngestProgram {
       externalId ? `${sourceKey}:${externalId}` : null)).toLowerCase(),
     title,
     source_url: sourceUrl,
+    event_like: eventLike,
     starts_at: instant(row, "starts_at", where),
     deadline_at: instant(row, "deadline_at", where),
     regions: stringList(row, "regions", where, 40),
@@ -599,6 +608,8 @@ export async function ingestPrograms(
       collector_version: payload.collectorVersion,
       source_key: program.source_key,
       collected_at: stamp,
+      // 교육·행사로 보임. 화면에서 뒤로 밉니다 (거르지는 않습니다).
+      event_like: program.event_like,
       // 이 저장소 요건 모양에 자리가 없는 축을 잃지 않고 담아 둡니다.
       collector_conditions: program.collector_conditions,
     },
