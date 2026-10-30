@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { readFile, writeFile, rename } from "node:fs/promises";
 import { openPreparationWorkStore, type PreparationWorkStore } from "./work-store.ts";
 import type { PptxInspection } from "./pptx-inspection.ts";
-import type { RedactionDetection, RedactionException, RedactionManualResolution, RedactionRegion, RedactionReview, RedactionState } from "./redaction-types.ts";
+import type { RedactionDetection, RedactionException, RedactionManualResolution, RedactionRegion, RedactionReview, RedactionReviewInput, RedactionState } from "./redaction-types.ts";
 import { REDACTION_RULE_VERSION } from "./redaction-types.ts";
 import { decodeRedactionPng, redactionHash, redactionHolds, redactionInputFingerprint, renderRedactedPng, validRedactionRect, assertFlatRedactionPng, assertRedactionComplexity, validManualRedactionResolution, containsRedactionRect } from "./redaction-renderer.ts";
 import { detectPptxRedactionCandidates } from "./redaction-detection.ts";
@@ -170,32 +170,65 @@ export async function initializePptxRedactions(input: { root: string; buildId: s
 export async function getLocalRedactionSlide(input: RedactionIdentity) {
   return locked(input.root, async (store) => structuredClone((await load(store, input)).state));
 }
-export async function saveLocalRedactionSlide(input: RedactionIdentity & { expectedRevision: number; regions: RedactionRegion[]; exceptions: RedactionException[]; review: RedactionReview; manualResolutions?: RedactionManualResolution[] }) {
+export async function getPreviousSavedRedactionSlide(input: RedactionIdentity) {
+  return locked(input.root, async (store) => {
+    const prepared = await preparationContext(store, input);
+    await context(store, input, prepared);
+    const saved: { state: RedactionState; savedAt: string }[] = [];
+    for (const sourceSlideNumber of [...prepared.group.selected, ...prepared.group.reserves]) {
+      if (sourceSlideNumber === input.sourceSlideNumber) continue;
+      const record = prepared.build.artifacts[`redaction-state:${sourceSlideNumber}`];
+      if (!record) continue;
+      try {
+        const { state } = await load(store, { ...input, sourceSlideNumber }, prepared);
+        const savedAt = state.savedAt ?? (state.revision > 0 && state.review.reviewer.trim() ? record.recordedAt : "");
+        if (savedAt && Number.isFinite(Date.parse(savedAt))) saved.push({ state, savedAt });
+      } catch {
+        // A stale prior slide cannot supply reusable edits to the current slide.
+      }
+    }
+    saved.sort((a, b) => b.savedAt.localeCompare(a.savedAt));
+    const previous = saved[0]?.state;
+    return previous ? { sourceSlideNumber: previous.sourceSlideNumber,
+      regions: previous.regions.filter((region) => !region.candidateId).map((region) => ({ id: region.id, mode: region.mode,
+        rect: { x: region.rect.x, y: region.rect.y, width: region.rect.width, height: region.rect.height } })),
+      reviewer: previous.review.reviewer } : null;
+  });
+}
+export async function saveLocalRedactionSlide(input: RedactionIdentity & { expectedRevision: number; regions: RedactionRegion[]; exceptions: RedactionException[]; review: RedactionReviewInput; manualResolutions?: RedactionManualResolution[] }) {
   return locked(input.root, async (store) => {
     const { state } = await load(store, input);
     checkRevision(state, input.expectedRevision);
-    validateEdits(state, input.regions, input.exceptions, input.review);
+    const requestedReview = { ...input.review, originalInspected: input.review?.originalInspected ?? state.review.originalInspected };
+    validateEdits(state, input.regions, input.exceptions, requestedReview);
+    if (!requestedReview.reviewer.trim()) fail("REVIEWER_REQUIRED");
+    for (const candidate of state.candidates.filter((entry) => entry.required)) {
+      if (!input.regions.some((region) => region.candidateId === candidate.id && region.mode === "opaque"
+        && containsRedactionRect(region.rect, candidate.rect))) fail("REQUIRED_REGION_MUST_BE_OPAQUE");
+    }
     // Explicit field projection prevents source text, arbitrary client metadata or old output receipts being persisted.
     const regions = input.regions.map((r) => ({ id: r.id, ...(r.candidateId ? { candidateId: r.candidateId } : {}),
       rect: { x: r.rect.x, y: r.rect.y, width: r.rect.width, height: r.rect.height }, mode: r.mode }));
     const exceptions = input.exceptions.map((e) => ({ candidateId: e.candidateId, actor: e.actor.trim(), reason: e.reason.trim() }));
-    const review = { reviewer: input.review.reviewer.trim(), originalInspected: input.review.originalInspected, layoutAcceptable: input.review.layoutAcceptable };
+    const review = { reviewer: requestedReview.reviewer.trim(), originalInspected: requestedReview.originalInspected, layoutAcceptable: requestedReview.layoutAcceptable };
     const editsUnchanged = JSON.stringify([regions, exceptions, review]) === JSON.stringify([state.regions, state.exceptions, state.review]);
     // Legacy clients may still edit, but cannot silently retain an inspection of a different draft.
     const requested = input.manualResolutions ?? (editsUnchanged ? state.manualResolutions ?? [] : []);
-    const projectedState = { ...state, regions, exceptions, review };
-    validateManualResolutions(projectedState, requested);
+    if (!Array.isArray(requested) || requested.length > 500) fail("INVALID_MANUAL_REDACTION_REVIEWS");
     for (const item of requested) {
       const retained = (state.manualResolutions ?? []).some((old) => JSON.stringify(old) === JSON.stringify(item));
-      if (!retained && item.reviewedRevision !== state.revision) fail("MANUAL_REDACTION_REVIEW_REVISION_CONFLICT");
+      if (!retained) fail("MANUAL_REDACTION_REVIEW_NO_LONGER_ACCEPTED");
     }
+    const projectedState = { ...state, regions, exceptions, review };
+    validateManualResolutions(projectedState, requested);
     const manualResolutions = requested.map((item) => ({ uncertaintyId: item.uncertaintyId, decision: item.decision,
       actor: item.actor.trim(), reason: item.reason.trim(), inspectedAtActualSize: true as const, reviewedRevision: item.reviewedRevision,
       sourceHash: item.sourceHash, slideContentHash: item.slideContentHash, imageHash: item.imageHash,
       uncertaintyHash: item.uncertaintyHash, editHash: item.editHash, ...(item.regionId ? { regionId: item.regionId } : {}) }));
-    if (editsUnchanged && JSON.stringify(manualResolutions) === JSON.stringify(state.manualResolutions ?? [])) return state;
-    const next: RedactionState = { ...state, revision: state.revision + 1, regions, exceptions, review, manualResolutions, output: null, status: "editing" };
-    next.status = review.originalInspected && !review.layoutAcceptable ? "replacement_required" : redactionHolds(next).length ? "needs_review" : "editing";
+    const savedAt = new Date().toISOString();
+    if (editsUnchanged && JSON.stringify(manualResolutions) === JSON.stringify(state.manualResolutions ?? [])) return persist(store, input, { ...state, savedAt });
+    const next: RedactionState = { ...state, revision: state.revision + 1, savedAt, regions, exceptions, review, manualResolutions, output: null, status: "editing" };
+    next.status = !review.layoutAcceptable ? "replacement_required" : redactionHolds(next).length ? "needs_review" : "editing";
     return persist(store, input, next);
   });
 }

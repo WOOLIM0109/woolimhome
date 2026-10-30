@@ -54,27 +54,27 @@ export function validManualRedactionResolution(state: RedactionState, resolution
 }
 export function hasFatalRedactionWarning(state: Pick<RedactionState, "warnings">): boolean {
   // Never infer that a located item accounts for every unknown item of the same warning code.
-  return state.warnings.some((warning) => /TRUNCATED|INCOMPLETE|UNSUPPORTED|UNRESOLVED/.test(warning));
+  return state.warnings.some((warning) => warning !== "REVIEW_CANDIDATE_GEOMETRY_UNRESOLVED_MANUAL_RECT_REQUIRED"
+    && /TRUNCATED|INCOMPLETE|UNSUPPORTED|UNRESOLVED/.test(warning));
 }
 export function redactionHolds(state: RedactionState): string[] {
   const holds: string[] = [];
   if (state.ruleVersion !== REDACTION_RULE_VERSION) holds.push("REDACTION_RULE_CHANGED");
-  if (!state.review.originalInspected || !state.review.reviewer.trim()) holds.push("ORIGINAL_REVIEW_REQUIRED");
+  if (!state.review.reviewer.trim()) holds.push("ORIGINAL_REVIEW_REQUIRED");
   if (!state.review.layoutAcceptable) holds.push("REPLACEMENT_OR_LAYOUT_REVIEW_REQUIRED");
   // An arbitrary manual rectangle cannot prove that every unlocated item was covered.
   if (hasFatalRedactionWarning(state))
     holds.push("INCOMPLETE_DETECTION_REPLACE_OR_RECONVERT_REQUIRED");
-  const validResolutions = (state.manualResolutions ?? []).filter((resolution) => validManualRedactionResolution(state, resolution));
-  for (const uncertainty of state.uncertainties ?? []) {
-    if (!validResolutions.some((entry) => entry.uncertaintyId === uncertainty.id)) holds.push(`MANUAL_GEOMETRY_REVIEW_REQUIRED:${uncertainty.id}`);
-  }
-  for (const candidate of state.candidates) {
+  const legacyApproval = state.status === "verified" && state.output?.approvedAt && state.output.approvedBy
+    && state.output.inputFingerprint === redactionInputFingerprint(state);
+  for (const candidate of state.candidates.filter((entry) => entry.required)) {
     const uncertainties = (state.uncertainties ?? []).filter((entry) => entry.candidateId === candidate.id);
-    if (uncertainties.length && uncertainties.every((uncertainty) => validResolutions.some((entry) =>
-      entry.uncertaintyId === uncertainty.id && entry.decision === "non_sensitive_confirmed"))) continue;
-    if (state.exceptions.some((e) => e.candidateId === candidate.id && e.actor.trim() && e.reason.trim())) continue;
+    if (legacyApproval && (state.exceptions.some((entry) => entry.candidateId === candidate.id && entry.actor.trim() && entry.reason.trim())
+      || uncertainties.length > 0 && uncertainties.every((uncertainty) =>
+        (state.manualResolutions ?? []).some((entry) => entry.uncertaintyId === uncertainty.id
+          && entry.decision === "non_sensitive_confirmed" && validManualRedactionResolution(state, entry))))) continue;
     const covered = state.regions.some((r) => r.candidateId === candidate.id
-      && containsRedactionRect(r.rect, candidate.rect) && (!candidate.required || r.mode === "opaque"));
+      && containsRedactionRect(r.rect, candidate.rect) && r.mode === "opaque");
     if (!covered) holds.push(`CANDIDATE_UNRESOLVED:${candidate.id}`);
   }
   return holds;

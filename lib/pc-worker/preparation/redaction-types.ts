@@ -21,6 +21,9 @@ export type RedactionException = { candidateId: string; actor: string; reason: s
 export type RedactionReview = {
   reviewer: string; originalInspected: boolean; layoutAcceptable: boolean;
 };
+export type RedactionReviewInput = Pick<RedactionReview, "reviewer" | "layoutAcceptable"> & {
+  originalInspected?: boolean;
+};
 /** One explicit local inspection, bound to the actual source and exact edit draft. */
 export type RedactionManualResolution = {
   uncertaintyId: string; decision: "opaque_confirmed" | "non_sensitive_confirmed";
@@ -38,6 +41,7 @@ export type RedactionState = {
   version: 1; ruleVersion: string; workId: string; buildId: string;
   sourceSlideNumber: number; sourceHash: string; slideContentHash: string;
   imageHash: string; width: number; height: number; revision: number;
+  savedAt?: string;
   candidates: RedactionCandidate[]; warnings: string[];
   uncertainties?: RedactionUncertainty[]; manualResolutions?: RedactionManualResolution[];
   regions: RedactionRegion[]; exceptions: RedactionException[]; review: RedactionReview;
