@@ -174,10 +174,12 @@ export function customerEntityMatchProfile(
     const trimmed = value.trim();
     return trimmed && !/^(?:확인\s*필요|미확인|불명|unknown|pending)$/i.test(trimmed) ? trimmed : null;
   };
-  const many = (value: unknown): string[] | null => {
+  // 빈 목록을 null 로 접지 않는다. 인증은 '확인했고 없음' 을 적을 수 있어야 하고,
+  // null 로 접으면 '모른다' 가 돼서 '필수 인증' 공고가 영영 '확인 필요' 로 남는다.
+  const many = (value: unknown, keepEmpty = false): string[] | null => {
     if (!Array.isArray(value)) return null;
     const items = [...new Set(value.map(one).filter((item): item is string => item !== null))];
-    return items.length ? items : null;
+    return items.length || keepEmpty ? items : null;
   };
   const count = (value: unknown): number | null =>
     typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : null;
@@ -189,7 +191,7 @@ export function customerEntityMatchProfile(
   const industries = many(stored.industries);
   const employees = count(stored.employees);
   const revenueKrw = count(stored.revenue_krw);
-  const certifications = many(stored.certifications);
+  const certifications = many(stored.certifications, true);
   // 인증은 '적어 둔 것이 전부' 라고 확인해야 '없음' 으로 판정할 수 있습니다.
   const certificationsComplete = stored.certifications_complete === true;
   return {
