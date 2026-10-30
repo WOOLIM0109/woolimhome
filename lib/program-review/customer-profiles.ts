@@ -214,13 +214,24 @@ export function isConsultingCustomer(customer: WoolimworksCustomer) {
     || customer.support_projects > 0;
 }
 
-/** 매칭이 쓸 수 있게 켜져 있는 요건만 읽습니다. */
-export async function listActiveCustomerProfiles(admin: SupabaseClient): Promise<CustomerProfileRow[]> {
+/**
+ * 매칭이 쓸 요건. **꺼 둔 것까지** 읽습니다.
+ *
+ * 꺼 둔 것을 빼고 읽으면 '아직 안 적은 고객사' 와 '사업자를 다 꺼서 대상이
+ * 아닌 고객사' 를 구분할 수 없습니다. 둘은 다르게 다뤄야 합니다 —
+ * 앞은 울림웍스 값으로라도 판정하고, 뒤는 대상에서 뺍니다.
+ */
+export async function listCustomerProfilesForMatching(admin: SupabaseClient): Promise<CustomerProfileRow[]> {
   const { data, error } = await admin.from(TABLE)
     .select("id,customer_id,entity_key,entity_name,business_number,profile,active,version,updated_by,updated_at")
-    .eq("active", true).order("customer_id").order("entity_key");
+    .order("customer_id").order("entity_key");
   if (error) throw new ProgramApiError(500, "CUSTOMER_PROFILES_READ_FAILED");
   return (data ?? []) as CustomerProfileRow[];
+}
+
+/** 매칭이 쓸 수 있게 켜져 있는 요건만 읽습니다. */
+export async function listActiveCustomerProfiles(admin: SupabaseClient): Promise<CustomerProfileRow[]> {
+  return (await listCustomerProfilesForMatching(admin)).filter((row) => row.active);
 }
 
 /**

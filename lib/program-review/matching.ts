@@ -64,6 +64,29 @@ function region(value: string | null) {
   }
   return null;
 }
+/**
+ * 적어 둔 사업자 유형이 **뜻하는 유형들**.
+ *
+ * 「중소기업기본법」 상 중소기업은 소기업과 중기업을 합친 것이고, 소상공인은
+ * 소기업 중 상시근로자 기준을 채운 곳이다. 그래서 **소상공인은 소기업이자
+ * 중소기업**이다. 중소기업확인서와 소상공인확인서를 둘 다 받을 수 있다.
+ *
+ * 글자가 똑같을 때만 맞다고 보면, '소상공인' 이라고 적어 둔 고객사가
+ * '중소기업' 을 받는 공고에서 가점을 못 받는다 — 실제로는 받을 수 있는데도.
+ *
+ * ★ '중소기업' 이라는 글자 안에 '소기업' 이 들어 있다. 짧은 이름부터 찾으면
+ * 중기업이 소기업으로 둔갑하므로, 긴 이름을 먼저 가린다.
+ */
+function businessTypes(value: string) {
+  const text = normalized(value);
+  const out = new Set([text]);
+  if (text.includes("소상공인")) { out.add("소상공인"); out.add("소기업"); out.add("중소기업"); }
+  if (text.includes("중소기업")) out.add("중소기업");
+  else if (text.includes("소기업")) { out.add("소기업"); out.add("중소기업"); }
+  if (text.includes("중기업")) { out.add("중기업"); out.add("중소기업"); }
+  return out;
+}
+
 function institutionOnly(value: string) {
   return /^(?:연구기관|연구소|국공립연구기관|정부출연연구기관|공공연구기관|대학|대학교|대학산학협력단|대학교산학협력단|산학협력단|지자체|지방자치단체|광역자치단체|기초자치단체)(?:만|전용)?$/.test(normalized(value));
 }
@@ -196,7 +219,8 @@ export function matchProgram(requirements: Requirements, profiles: MatchProfile[
     }
     if (!types) unknowns.push("공고 대상 요건의 확정 근거 정보 부족");
     else if (types.every(institutionOnly) && !allInstitutions) unknowns.push("기관과 기업의 참여 범위는 정독 확인 필요");
-    if (types && profile.businessType && types.some((type) => normalized(type) === normalized(profile.businessType!))) {
+    const heldTypes = profile.businessType ? businessTypes(profile.businessType) : null;
+    if (types && heldTypes && types.some((type) => heldTypes.has(normalized(type)))) {
       positives.push(`확인된 사업자 유형 일치: ${profile.businessType}`);
     }
 
