@@ -6,7 +6,9 @@ import { matchVerdictLabel } from "./matching.ts";
 type Row = Record<string, unknown>;
 const UUID = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i;
 const PROGRAM_KEYS = "id,title,source_id,source_url,applicant_summary,support_summary,application_method,application_period_text,starts_at,deadline_at,regions,categories,status,created_at,updated_at".split(",");
-const PROGRAM_COLUMNS: string = `${PROGRAM_KEYS.join(",")},source:openchat_sources(name,source_key,category)`;
+// `raw_payload` 는 **읽기만** 합니다. 그대로 내보내지 않고 아래에서 표시 하나만 뽑습니다
+// (수집기가 담아 둔 원자료가 통째로 밖으로 나가면 안 됩니다).
+const PROGRAM_COLUMNS: string = `${PROGRAM_KEYS.join(",")},raw_payload,source:openchat_sources(name,source_key,category)`;
 const MATCH_COLUMNS = "program_id,target_kind,target_id,target_name,verdict,reasons,score,review_date,selected_for_reading";
 const REQUIREMENT_COLUMNS = "status,requirements,source_complete,input_truncated,extracted_at,normalization_version,source_checked_at,updated_at,matched_normalization_version,matched_review_date,matched_source_checked_at,matched_profile_revision,matched_rule_version";
 const ATTACHMENT_COLUMNS = "id,file_name,file_ext,text_status,text_chars,extracted_at";
@@ -37,7 +39,10 @@ function publicSource(value: unknown) {
 }
 function programDto(row: Row) {
   const source = object(row.source);
+  const collected = object(row.raw_payload);
   return { ...pick(row, PROGRAM_KEYS), source_url: publicSource(row.source_url),
+    // 교육·행사로 보인다는 표시. 화면에서 뒤로 밀 때 씁니다 — 거르지 않습니다.
+    event_like: collected?.event_like === true,
     source: source ? pick(source, ["name", "source_key", "category"]) : null };
 }
 function attachmentDto(row: Row) { return pick(row, ATTACHMENT_COLUMNS.split(",")); }
@@ -130,8 +135,13 @@ export class ProgramAgentService {
       .gte("created_at", this.since).neq("status", "excluded").or(`deadline_at.is.null,deadline_at.gte.${this.now.toISOString()}`)
       .overrideTypes<Row[], { merge: false }>()) ?? [];
     const matches = await this.matches(programs.map(row => String(row.id))), revision = await this.contextRevision();
-    const ranked = programs.map(row => ({ row, score: Math.max(...matches.filter(m => m.program_id === row.id && m.verdict !== "mismatch").map(m => Number(m.score))) }))
-      .sort((a, b) => b.score - a.score || String(a.row.id).localeCompare(String(b.row.id))).slice(0, 8);
+    // 교육·행사로 보이는 공고는 **뒤로 민다.** 거르지는 않는다 — 돈을 주는 공고가
+    // 잘못 걸릴 수 있어서, 하루 8칸 안에서 순서만 양보시킨다.
+    const ranked = programs.map(row => ({ row,
+      event: object(row.raw_payload)?.event_like === true,
+      score: Math.max(...matches.filter(m => m.program_id === row.id && m.verdict !== "mismatch").map(m => Number(m.score))) }))
+      .sort((a, b) => Number(a.event) - Number(b.event) || b.score - a.score
+        || String(a.row.id).localeCompare(String(b.row.id))).slice(0, 8);
     return { review_date: this.date, programs: await Promise.all(ranked.map(async ({ row }) => ({
       ...programDto(row), matches_stale: await this.matchesStale(String(row.id), await this.requirement(String(row.id)), revision),
       matching_summary: Object.fromEntries(["candidate", "unknown", "mismatch"].map(verdict =>

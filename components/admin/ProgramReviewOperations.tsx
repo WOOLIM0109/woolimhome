@@ -12,7 +12,7 @@ type AttachmentSummary = { total: number; supported: number; extracted: number; 
 type Program = { id: string; title: string; deadline_at: string | null; source_url: string | null;
   source?: { name: string; source_key: string; category: string } | null; matches_stale: boolean;
   match?: Match; matches?: Match[]; matching_summary?: { candidate: number; unknown: number; mismatch: number };
-  attachments_summary?: AttachmentSummary; latest_reviews?: Review[] };
+  attachments_summary?: AttachmentSummary; latest_reviews?: Review[]; event_like?: boolean };
 type Profile = { id: string; name: string; aliases: string[]; profile: Record<string, unknown>; version: number; updated_at: string };
 type Proposal = { id: string; profile_id: string; base_version: number; patch: Record<string, unknown>; reason: string;
   status: string; submitted_by: string; created_at: string };
@@ -117,7 +117,7 @@ function ProgramCard({ program, index, onOpen, selected }: { program: Program; i
       <FileText size={22} className="mt-1 shrink-0 text-orange-400" aria-hidden="true" />
     </div>
     <p className="mt-3 text-sm text-stone-600">마감 <span className="font-semibold text-stone-800">{date(program.deadline_at)}</span></p>
-    <div className="mt-3 flex flex-wrap items-center gap-2"><Stale stale={program.matches_stale} />{!matches.length ? <Badge tone="amber">매칭 정보 확인 필요</Badge> : null}</div>
+    <div className="mt-3 flex flex-wrap items-center gap-2"><Stale stale={program.matches_stale} />{program.event_like ? <Badge tone="neutral">교육·행사로 보임</Badge> : null}{!matches.length ? <Badge tone="amber">매칭 정보 확인 필요</Badge> : null}</div>
     <ul className="mt-3 space-y-2 text-sm">{visible.map(match => <li key={`${match.target_kind}:${match.target_id}`} className="flex flex-wrap items-center gap-2"><span className="font-medium">{match.target_name}</span><Verdict match={match} /><span className="text-xs text-stone-500">{match.score}점</span></li>)}</ul>
     {matches.length > visible.length ? <p className="mt-2 text-xs text-stone-500">외 {matches.length - visible.length}개 대상 · 상세에서 전체 확인</p> : null}
     <div className="mt-4 border-t border-stone-100 pt-3 text-xs leading-6 text-stone-600">
