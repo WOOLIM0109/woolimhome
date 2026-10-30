@@ -48,6 +48,13 @@ export const MIN_COLLECTOR_VERSION = "1.0.0";
 /** 이 값으로 올라온 행임을 남깁니다. 되돌릴 때 이것으로 고릅니다. */
 export const COLLECTOR_TAG = "gonggo-monitor";
 
+/** 이 행을 PC 수집기가 넣었는가. 아니면 서버가 모은 행이므로 건드리지 않습니다. */
+function ours(row: Row) {
+  const payload = row.raw_payload;
+  return Boolean(payload) && typeof payload === "object"
+    && (payload as Row).collector === COLLECTOR_TAG;
+}
+
 const TEXT_STATUSES = new Set(["extracted", "no_text", "failed", "skipped"]);
 const FILE_EXTS = new Set(["hwp", "hwpx", "pdf", "zip", "docx", "doc", "xlsx", "xls",
   "pptx", "ppt", "txt", "csv", "jpg", "jpeg", "png", "gif", "rtf", "odt"]);
@@ -165,7 +172,9 @@ function httpUrl(row: Row, key: string, where: string, required = false) {
   return parsed.toString();
 }
 
-/** 날짜는 'YYYY-MM-DD' 또는 완전한 ISO 시각만 받습니다. */
+/** 시간대가 붙은 ISO 시각. 날짜만 적은 'YYYY-MM-DD' 는 한국시간 그날 처음으로 봅니다. */
+const HAS_ZONE = /(?:Z|[+-]\d{2}:?\d{2})$/;
+
 function instant(row: Row, key: string, where: string) {
   const value = text(row, key, where, 40);
   if (value === null) return null;
@@ -178,6 +187,11 @@ function instant(row: Row, key: string, where: string) {
   if (!Number.isFinite(parsed) || !/^\d{4}-\d{2}-\d{2}T/.test(value)) {
     throw new IngestError(400, "INVALID_DATE", `${where}.${key}`);
   }
+  // ★ 시각을 적었으면 시간대도 적어야 합니다.
+  // 없으면 저장소가 UTC 로 읽어 한국시간이 **9시간 밀립니다**. 실측으로
+  // 들어온 30건 중 28건이 그렇게 밀렸고, 화면의 마감이 하루 뒤로 보였습니다.
+  // 조용히 틀리느니 거절합니다.
+  if (!HAS_ZONE.test(value)) throw new IngestError(400, "NAIVE_TIMESTAMP", `${where}.${key}`);
   return new Date(parsed).toISOString();
 }
 
@@ -266,6 +280,7 @@ function parseProgram(value: unknown, index: number): IngestProgram {
   const title = text(row, "title", where, 300, true) as string;
   const sourceUrl = httpUrl(row, "source_url", where, true) as string;
   const externalId = text(row, "external_id", where, 200);
+  const sourceKey = text(row, "source_key", where, 60, true) as string;
   const supplied = text(row, "fingerprint", where, 64);
   if (supplied !== null && !SHA256.test(supplied.toLowerCase())) {
     throw new IngestError(400, "INVALID_FIELD", `${where}.fingerprint`);
@@ -301,9 +316,13 @@ function parseProgram(value: unknown, index: number): IngestProgram {
   }
 
   return {
-    source_key: text(row, "source_key", where, 60, true) as string,
+    source_key: sourceKey,
     external_id: externalId,
-    fingerprint: (supplied ?? programFingerprint(title, sourceUrl, externalId)).toLowerCase(),
+    // ★ 홈페이지 자체 수집기와 **같은 열쇠**로 지문을 만듭니다 (`operations.ts`).
+    // 거기서는 `source_key:external_id` 를 씁니다. 접두어를 빼면 같은 공고가
+    // 다른 지문이 되어 **화면에 두 줄로 보입니다** — 실측 30건 중 8건이 그랬습니다.
+    fingerprint: (supplied ?? programFingerprint(title, sourceUrl,
+      externalId ? `${sourceKey}:${externalId}` : null)).toLowerCase(),
     title,
     source_url: sourceUrl,
     starts_at: instant(row, "starts_at", where),
@@ -482,6 +501,8 @@ export type IngestResult = {
   /** 우리가 전에 넣었는데 첨부·요건이 빠져 있던 것을 이어서 채운 수 */
   resumed: number;
   skipped_existing: number;
+  /** 같은 공고로 전에 우리가 넣어 둔 옛 행을 '제외' 로 접은 수 */
+  retired: number;
   attachments: number;
   requirements: number;
 };
@@ -499,7 +520,7 @@ export async function ingestPrograms(
   const stamp = now().toISOString();
   const result: IngestResult = {
     received: payload.programs.length, inserted: 0, resumed: 0,
-    skipped_existing: 0, attachments: 0, requirements: 0,
+    skipped_existing: 0, retired: 0, attachments: 0, requirements: 0,
   };
 
   const sourceKeys = [...new Set(payload.programs.map((program) => program.source_key))];
@@ -508,6 +529,26 @@ export async function ingestPrograms(
   if (sourceError) throw new IngestError(500, "SOURCE_LOOKUP_FAILED", reason(sourceError));
   const sourceIds = new Map((sourceRows ?? []).map((row: Row) =>
     [String(row.source_key), String(row.id)]));
+
+  // ★ 전에 **우리가** 같은 공고로 넣어 둔 행을 미리 찾아 둡니다.
+  // 지문 만드는 규칙이 바뀌면 같은 공고가 새 지문으로 들어가고, 옛 행은
+  // 화면에 남아 두 줄로 보입니다. 아래에서 그 옛 행을 접습니다.
+  // 찾는 열쇠는 (기관, 공고번호) 입니다 — 지문과 달리 규칙이 바뀌어도 그대로입니다.
+  const previousByKey = new Map<string, { id: string; fingerprint: string }[]>();
+  const externalIds = [...new Set(payload.programs
+    .map((program) => program.external_id).filter((value): value is string => Boolean(value)))];
+  if (externalIds.length) {
+    const { data: previous, error: previousError } = await admin.from("openchat_programs")
+      .select("id,fingerprint,source_id,external_id,raw_payload").in("external_id", externalIds);
+    if (previousError) throw new IngestError(500, "PROGRAM_LOOKUP_FAILED", reason(previousError));
+    for (const row of previous ?? []) {
+      if (!ours(row as Row)) continue;          // 서버가 모은 행은 접지 않습니다
+      const key = `${(row as Row).source_id}|${(row as Row).external_id}`;
+      const found = previousByKey.get(key) ?? [];
+      found.push({ id: String((row as Row).id), fingerprint: String((row as Row).fingerprint) });
+      previousByKey.set(key, found);     // 둘 이상 남아 있으면 모두 접습니다
+    }
+  }
 
   const rows = payload.programs.map((program) => ({
     source_id: sourceIds.get(program.source_key) ?? null,
@@ -554,6 +595,7 @@ export async function ingestPrograms(
   // 공고만 들어가고 첨부에서 실패하면, 다시 보낼 때 '이미 있음' 으로 건너뛰어
   // 첨부가 영영 안 붙습니다. 그래서 **우리가 넣은 행**이면 이어서 채웁니다.
   // 서버가 모은 행(collector 표시가 없는 행)은 건드리지 않습니다.
+  const resumedIds = new Map<string, string>();
   const missing = payload.programs
     .map((program) => program.fingerprint)
     .filter((fingerprint) => !idByFingerprint.has(fingerprint));
@@ -562,15 +604,53 @@ export async function ingestPrograms(
       .select("id,fingerprint,raw_payload").in("fingerprint", missing);
     if (lookupError) throw new IngestError(500, "PROGRAM_LOOKUP_FAILED", reason(lookupError));
     for (const row of existing ?? []) {
-      const payloadRow = (row as Row).raw_payload;
-      const owner = payloadRow && typeof payloadRow === "object"
-        ? (payloadRow as Row).collector : null;
-      if (owner !== COLLECTOR_TAG) continue;      // 우리 것이 아니면 건드리지 않습니다
+      if (!ours(row as Row)) continue;            // 우리 것이 아니면 건드리지 않습니다
       idByFingerprint.set(String((row as Row).fingerprint), String((row as Row).id));
+      resumedIds.set(String((row as Row).fingerprint), String((row as Row).id));
       result.resumed += 1;
     }
   }
   result.skipped_existing = result.received - result.inserted - result.resumed;
+
+  // ★ 이어서 채울 때 **값도 다시 맞춥니다.**
+  // 안 그러면 보내는 쪽을 고쳐도 이미 들어간 행은 틀린 채로 남습니다
+  // (실측: 마감이 9시간 밀린 28건이 다시 보내도 그대로였습니다).
+  // 우리가 넣은 행만, 그중에서도 **수집한 값만** 바꿉니다.
+  // `status`·`priority`·`draft_for`·`exclusion_reason` 은 손대지 않습니다 —
+  // 사람이 화면에서 내린 판단을 기계가 되돌리면 안 됩니다.
+  const rowByFingerprint = new Map(rows.map((row) => [row.fingerprint, row]));
+  for (const [fingerprint, id] of resumedIds) {
+    const row = rowByFingerprint.get(fingerprint);
+    if (!row) continue;
+    const { error: refreshError } = await admin.from("openchat_programs").update({
+      source_id: row.source_id, external_id: row.external_id, title: row.title,
+      applicant_summary: row.applicant_summary, support_summary: row.support_summary,
+      application_method: row.application_method,
+      application_period_text: row.application_period_text,
+      source_url: row.source_url, starts_at: row.starts_at, deadline_at: row.deadline_at,
+      regions: row.regions, raw_payload: row.raw_payload, updated_at: row.updated_at,
+    }).eq("id", id);
+    if (refreshError) throw new IngestError(500, "PROGRAM_REFRESH_FAILED", reason(refreshError));
+  }
+
+  // ★ 같은 공고로 전에 **우리가** 넣어 둔 옛 행을 접습니다.
+  // 지문 규칙이 바뀌면 같은 공고가 새 지문으로 들어가고, 옛 행이 그대로 남아
+  // 화면에 두 줄로 보입니다. 접지 않으면 사람이 같은 공고를 두 번 읽습니다.
+  // 지우지 않고 '제외' 로만 돌립니다 — 되돌릴 수 있어야 합니다.
+  // 우리가 넣은 행만 접습니다. 서버가 모은 행은 위에서 이미 걸러 냈습니다.
+  for (const [index, program] of payload.programs.entries()) {
+    const found = previousByKey.get(`${rows[index].source_id}|${program.external_id}`) ?? [];
+    for (const previous of found) {
+      if (previous.fingerprint === program.fingerprint) continue;
+      const { error: retireError } = await admin.from("openchat_programs").update({
+        status: "excluded",
+        exclusion_reason: "같은 공고를 새 지문으로 다시 올렸습니다 (수집기 중복 정리)",
+        updated_at: stamp,
+      }).eq("id", previous.id);
+      if (retireError) throw new IngestError(500, "PROGRAM_RETIRE_FAILED", reason(retireError));
+      result.retired += 1;
+    }
+  }
 
   for (const program of payload.programs) {
     const programId = idByFingerprint.get(program.fingerprint);
