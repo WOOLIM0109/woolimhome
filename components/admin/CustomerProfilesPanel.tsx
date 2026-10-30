@@ -82,6 +82,9 @@ export default function CustomerProfilesPanel() {
   const [editing, setEditing] = useState<{ customer: string; key: string } | null>(null);
   const [form, setForm] = useState<Record<string, string>>({});
   const [active, setActive] = useState(true);
+  // 인증은 '적어 둔 것이 전부' 라고 확인해야 판정에 쓰입니다.
+  // 확인 없이 '인증 없음' 으로 판정하면 받을 수 있는 공고를 놓칩니다.
+  const [certificationsComplete, setCertificationsComplete] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
@@ -91,6 +94,7 @@ export default function CustomerProfilesPanel() {
     setMessage(""); setError("");
     setEditing({ customer: customer.id, key: entity?.entity_key ?? "" });
     setActive(entity?.active ?? true);
+    setCertificationsComplete(entity?.profile.certifications_complete === true);
     setForm({
       entity_key: entity?.entity_key ?? "",
       entity_name: entity?.entity_name ?? customer.name,
@@ -135,7 +139,10 @@ export default function CustomerProfilesPanel() {
             industries: 목록으로(form.industries ?? ""),
             employees,
             revenue_krw: revenue,
-            certifications: 목록으로(form.certifications ?? ""),
+            // 확인에 체크했으면 비워도 '없음을 확인했다' 는 뜻이라 빈 목록으로 보냅니다.
+            certifications: 목록으로(form.certifications ?? "")
+              ?? (certificationsComplete ? [] : null),
+            certifications_complete: certificationsComplete,
             notes: (form.notes ?? "").trim() || null,
           },
         }),
@@ -241,6 +248,14 @@ export default function CustomerProfilesPanel() {
                 onChange={(event) => setForm((previous) => ({ ...previous, [key]: event.target.value }))} />
             </label>)}
           </div>
+          <label className="flex flex-wrap items-center gap-2 text-sm">
+            <input type="checkbox" checked={certificationsComplete}
+              onChange={(event) => setCertificationsComplete(event.target.checked)} />
+            위 인증이 <strong>전부</strong>입니다
+            <span className="text-xs text-stone-500">
+              (체크해야 &lsquo;필수 인증&rsquo; 공고를 판정합니다. 안 하면 계속 &lsquo;확인 필요&rsquo;로 남습니다)
+            </span>
+          </label>
           <label className="block text-xs font-semibold text-stone-600">메모
             <textarea className="mt-1 w-full rounded-xl border border-stone-200 bg-white p-3 text-sm" rows={2}
               value={form.notes ?? ""}

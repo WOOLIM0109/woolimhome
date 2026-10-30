@@ -74,8 +74,9 @@ export function parseProfile(value: unknown): Record<string, unknown> {
     if (item === null || item === undefined || item === "") { out[key] = null; continue; }
     if (LIST_KEYS.has(key)) {
       if (!Array.isArray(item) || item.length > 100) bad(`profile.${key}`);
-      const list = item.map((entry) => text(entry, `profile.${key}`, 200, true) as string);
-      out[key] = list.length ? list : null;
+      // 빈 목록을 null 로 바꾸지 않습니다. 인증은 '확인했고 없음' 을 적을 수
+      // 있어야 하고, 그래야 '필수 인증' 공고를 판정할 수 있습니다.
+      out[key] = item.map((entry) => text(entry, `profile.${key}`, 200, true) as string);
       continue;
     }
     if (NUMBER_KEYS.has(key)) {
@@ -138,6 +139,11 @@ export const JUDGING_FIELDS = ["region", "founded_on", "business_type",
 
 export function missingFields(profile: Record<string, unknown>) {
   return JUDGING_FIELDS.filter((key) => {
+    // 인증은 '적어 둔 것이 전부' 라고 확인해야 판정에 쓰입니다 (`matching.ts`).
+    // 여기 기준이 거기와 다르면 화면은 '다 찼다' 는데 판정은 '확인 필요' 로 남습니다.
+    if (key === "certifications") {
+      return !Array.isArray(profile?.certifications) || profile?.certifications_complete !== true;
+    }
     const value = profile?.[key];
     if (value === null || value === undefined || value === "") return true;
     return Array.isArray(value) && value.length === 0;
