@@ -8,6 +8,10 @@ import {
   restorePcEligibleOversizedCandidates,
 } from "@/lib/naver-works/job-runner";
 import { processNextPortfolioMockup, processNextPortfolioDraft } from "@/lib/portfolio/job-runner";
+import {
+  PORTFOLIO_DRAFT_ATTEMPT_BUDGET_MS,
+  PORTFOLIO_DRAFT_FINALIZE_RESERVE_MS,
+} from "@/lib/portfolio/draft-budget";
 import { generateContentWorkItem } from "@/lib/content-ops/generate";
 import { GeminiAutomationBlocked, runBudgetedGeminiAutomation } from "@/lib/gemini/automation";
 import type { EditorialSlot } from "@/lib/content-ops/types";
@@ -422,26 +426,34 @@ export async function GET(request: Request) {
   }
 
   /**
-   * 목업과 내려받기는 원고를 만들고 남은 시간으로 합니다.
-   *
-   * 예전에는 이 블록이 맨 앞에 있었고 최대 240초까지 썼습니다. 그러면 원고
-   * 생성은 시작하자마자 함수 상한에 걸려 죽었습니다. 요금은 나가고 글은
-   * 안 나왔습니다. 목업은 다음 시간에 이어서 해도 되지만, 원고는 그날
-   * 발행이 걸려 있어 미루면 그대로 빕니다. 그래서 순서를 바꿨습니다.
+   * 이미 준비된 본문은 목업보다 먼저 처리합니다.
+   * 준비된 본문이 없다면 목업 뒤에 새로 준비될 본문 한 번과 목업 체크포인트
+   * 저장 시간을 남깁니다. 본문에는 전체 마감을 넘겨 다음 실행에서도 이어 씁니다.
    */
   try {
+    let draftProcessed = false;
+    if (Date.now() < runDeadlineAt - PORTFOLIO_DRAFT_ATTEMPT_BUDGET_MS) {
+      const draft = await processNextPortfolioDraft(undefined, { deadlineAt: runDeadlineAt });
+      if (draft) {
+        localProgress.push(draft);
+        draftProcessed = true;
+      }
+    }
     const restoredCandidates = await restorePcEligibleOversizedCandidates();
     if (restoredCandidates) localProgress.push({ stage: "pc_direct_restore", restoredCandidates });
+    const mockupDeadlineAt = draftProcessed ? runDeadlineAt : runDeadlineAt
+      - PORTFOLIO_DRAFT_ATTEMPT_BUDGET_MS
+      - PORTFOLIO_DRAFT_FINALIZE_RESERVE_MS;
     let processedMockups = 0;
     let lastMockup: unknown = null;
-    while (processedMockups < MOCKUPS_PER_RUN && Date.now() < runDeadlineAt) {
-      const mockup = await processNextPortfolioMockup(undefined, { deadlineAt: runDeadlineAt });
+    while (processedMockups < MOCKUPS_PER_RUN && Date.now() < mockupDeadlineAt) {
+      const mockup = await processNextPortfolioMockup(undefined, { deadlineAt: mockupDeadlineAt });
       if (!mockup) break;
       localProgress.push(mockup);
       lastMockup = mockup;
       processedMockups += 1;
     }
-    if (Date.now() < runDeadlineAt - 65_000) {
+    if (!draftProcessed && Date.now() < runDeadlineAt - PORTFOLIO_DRAFT_ATTEMPT_BUDGET_MS) {
       const draft = await processNextPortfolioDraft(undefined, { deadlineAt: runDeadlineAt });
       if (draft) localProgress.push(draft);
     }
