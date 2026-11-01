@@ -1,3 +1,6 @@
+// 시간 부족으로 양보한 회차는 오류 횟수와 따로 셉니다.
+export const PORTFOLIO_DRAFT_MAX_CONTINUATIONS = 12;
+
 /** Waiting is terminal for automatic retries; only an explicit admin retry requeues it. */
 export function portfolioDraftQueueState(runtime: { enabled: boolean; reason: string | null }) {
   return {

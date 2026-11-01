@@ -3,7 +3,12 @@ import { assertPortfolioRestartApproved } from "./restart-control";
 import { portfolioFontExclusion } from "./font-policy";
 import { runBudgetedGeminiAutomation } from "@/lib/gemini/automation";
 import { geminiRuntimeStatus } from "@/lib/gemini/protection";
-import { portfolioDraftQueueState, portfolioDraftFailure } from "./draft-state";
+import {
+  portfolioDraftQueueState,
+  portfolioDraftFailure,
+  PORTFOLIO_DRAFT_MAX_CONTINUATIONS,
+} from "./draft-state";
+import { PORTFOLIO_DRAFT_ATTEMPT_BUDGET_MS } from "./draft-budget";
 import {
   createPortfolioSourceFingerprint,
   PORTFOLIO_RULE_VERSION,
@@ -1691,8 +1696,8 @@ export async function processNextPortfolioDraft(candidateId?: string, options: {
   await assertPortfolioRestartApproved();
   const admin = contentAdmin();
   const executionDeadlineAt = Math.min(Date.now() + 225_000, options.deadlineAt ?? Infinity);
-  if (Date.now() >= executionDeadlineAt - 65_000) return null;
-  const shouldYield = () => Date.now() >= executionDeadlineAt - 65_000;
+  const shouldYield = () => Date.now() >= executionDeadlineAt - PORTFOLIO_DRAFT_ATTEMPT_BUDGET_MS;
+  if (shouldYield()) return null;
   const staleBefore = new Date(Date.now() - 8 * 60 * 1000).toISOString();
   const staleAt = new Date().toISOString();
   let staleQuery = admin.from("content_jobs").update({
@@ -1775,14 +1780,15 @@ export async function processNextPortfolioDraft(candidateId?: string, options: {
   if (!selected) return null;
 
   const { job, mockup } = selected;
-  let attempts = Number(job.attempts || 0);
+  const attempts = Number(job.attempts || 0);
   let result = (job.result || {}) as Record<string, unknown>;
   const now = new Date().toISOString();
   const { data: claimedJob, error: claimJobError } = await admin.from("content_jobs").update({
     status: "running",
-    attempts: attempts + 1,
+    attempts,
     started_at: now,
     completed_at: null,
+    last_error_code: null,
     error_message: null,
     next_retry_at: null,
     updated_at: now,
@@ -1794,7 +1800,6 @@ export async function processNextPortfolioDraft(candidateId?: string, options: {
   if (claimJobError) throw new Error(claimJobError.message);
   if (!claimedJob) return null;
   const claimStartedAt = now;
-  attempts += 1;
   let committedJobAt: string | null = null;
 
   const checkpoint = async (values: Record<string, unknown>) => {
@@ -1836,6 +1841,7 @@ export async function processNextPortfolioDraft(candidateId?: string, options: {
       designCompleted: true,
       draftStartedAt: claimStartedAt,
     });
+    yieldPortfolioCheckpointIfNeeded(shouldYield);
     const { draft, validation } = await runBudgetedGeminiAutomation({
       operation: "portfolio-draft", actor: "portfolio-worker", plannedCalls: 3,
       estimatedInputTokens: 60_000, estimatedOutputTokens: 60_000,
@@ -2011,12 +2017,22 @@ export async function processNextPortfolioDraft(candidateId?: string, options: {
     }
     if (error instanceof PortfolioCheckpointYield) {
       const checkpointedAt = new Date().toISOString();
+      const previousContinuations = Number(result.portfolioDraftContinuations || 0);
+      const continuations = (Number.isFinite(previousContinuations)
+        ? Math.max(0, Math.floor(previousContinuations)) : 0) + 1;
+      const continuationLimitReached = continuations >= PORTFOLIO_DRAFT_MAX_CONTINUATIONS;
+      const code = continuationLimitReached ? "PORTFOLIO_DRAFT_CONTINUATION_LIMIT" : null;
+      const message = continuationLimitReached
+        ? `본문 작성을 ${continuations}회 이어서 진행했지만 시간 안에 마치지 못했습니다. 관리자 확인 후 다시 시도해 주세요.`
+        : null;
+      result = { ...result, portfolioDraftContinuations: continuations };
       const { data: yieldedJob, error: yieldError } = await admin.from("content_jobs").update({
-        status: attempts >= Number(job.max_attempts || 3) ? "draft_waiting" : "queued",
+        status: continuationLimitReached ? "draft_waiting" : "queued",
         attempts,
         started_at: null,
-        completed_at: null,
-        error_message: null,
+        completed_at: continuationLimitReached ? checkpointedAt : null,
+        last_error_code: code,
+        error_message: message,
         next_retry_at: null,
         result,
         updated_at: checkpointedAt,
@@ -2042,9 +2058,15 @@ export async function processNextPortfolioDraft(candidateId?: string, options: {
         },
         values: (metadata) => ({
           status: "draft_waiting",
-          summary: "포트폴리오 디자인은 완료되었습니다. 저장된 단계부터 본문 작성을 이어서 진행합니다.",
-          review_note: null,
-          metadata: { ...metadata, portfolioStage: "design_completed" },
+          summary: continuationLimitReached
+            ? "포트폴리오 디자인은 완료되었지만 본문 이어 쓰기 횟수가 상한에 닿았습니다."
+            : "포트폴리오 디자인은 완료되었습니다. 저장된 단계부터 본문 작성을 이어서 진행합니다.",
+          review_note: message,
+          metadata: {
+            ...metadata,
+            portfolioStage: continuationLimitReached ? "draft_waiting" : "design_completed",
+            draftLastErrorCode: code,
+          },
           updated_at: checkpointedAt,
         }),
       });
@@ -2052,14 +2074,16 @@ export async function processNextPortfolioDraft(candidateId?: string, options: {
         candidateId: job.candidate_id,
         workItemId: job.work_item_id,
         status: "draft_waiting",
-        stage: "design_completed",
+        stage: continuationLimitReached ? "draft_waiting" : "design_completed",
         checkpointed: true,
+        reason: message,
       };
     }
     const message = error instanceof Error ? error.message : "포트폴리오 본문 생성 실패";
     const failedAt = new Date().toISOString();
     const { data: failedJob, error: failedJobError } = await admin.from("content_jobs").update({
       ...portfolioDraftFailure(error),
+      attempts: attempts + 1,
       completed_at: failedAt,
       updated_at: failedAt,
     }).eq("id", job.id)

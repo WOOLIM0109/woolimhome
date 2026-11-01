@@ -9,6 +9,10 @@ import type { PortfolioVisualReview } from "./visual-review";
 import { fetchExistingDesignBlogTitles } from "./naver-blog";
 import { sanitizeGeneratedHtml, sanitizeInlineHtml } from "@/lib/security/html";
 import { yieldPortfolioCheckpointIfNeeded } from "./checkpoint";
+import {
+  PORTFOLIO_DRAFT_TEXT_TIMEOUT_MS,
+  PORTFOLIO_DRAFT_VISION_TIMEOUT_MS,
+} from "./draft-budget";
 import sharp from "sharp";
 import type { GeminiPart } from "@/lib/gemini/client";
 
@@ -237,6 +241,7 @@ export async function createPortfolioDraft(input: {
   onProgress?: (progress: PortfolioDraftProgress) => Promise<void> | void;
   shouldYield?: () => boolean;
 }) {
+  yieldPortfolioCheckpointIfNeeded(input.shouldYield);
   const admin = contentAdmin();
   const { data: existing } = await admin.from("content_work_items")
     .select("title")
@@ -277,7 +282,9 @@ export async function createPortfolioDraft(input: {
       maxOutputTokens: attempt ? 20000 : 18000,
       // 이미지를 함께 보내면 답이 느려집니다.
       // 55초로는 다 쓰기 전에 끊겨 "Gemini request timed out" 으로 보류가 났습니다.
-      timeoutMs: visionParts.length ? 130_000 : 55_000,
+      timeoutMs: visionParts.length
+        ? PORTFOLIO_DRAFT_VISION_TIMEOUT_MS
+        : PORTFOLIO_DRAFT_TEXT_TIMEOUT_MS,
       attempts: 1,
       jsonAttempts: 1,
     });
