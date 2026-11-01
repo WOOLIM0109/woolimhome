@@ -11,7 +11,7 @@ export type ProgramMatch = {
 };
 export type MatchOptions = { now: Date | string | number; programDeadlineAt?: string | null };
 export type RankedProgramMatch = ProgramMatch & { programId: string };
-export const MATCHING_RULE_VERSION = 2;
+export const MATCHING_RULE_VERSION = 3;
 
 /** Database verdicts stay stable; partial positive matches are explicitly conditional. */
 export function matchVerdictLabel(match: Pick<ProgramMatch, "verdict" | "reasons">) {
@@ -20,7 +20,6 @@ export function matchVerdictLabel(match: Pick<ProgramMatch, "verdict" | "reasons
   return match.reasons.some((reason) => reason.startsWith("조건부 후보:")) ? "조건부 후보" : "후보";
 }
 
-const DAY = 86_400_000;
 const REGION_ALIASES: Array<[string, string[]]> = [
   ["부산", ["부산", "부산시", "부산광역시"]], ["서울", ["서울", "서울시", "서울특별시"]],
   ["대구", ["대구", "대구시", "대구광역시"]], ["인천", ["인천", "인천시", "인천광역시"]],
@@ -136,14 +135,25 @@ function supportScore(requirements: Requirements) {
   return amount >= 1e8 ? 30 : amount >= 5e7 ? 20 : amount >= 1e7 ? 10 : 5;
 }
 
-function scoring(requirements: Requirements, profile: MatchProfile, now: number, deadline: number | null) {
+/** Each requirement the document actually confirms for this target. */
+const REQUIREMENT_MATCH_POINTS = 10;
+
+/**
+ * 검토 우선순위 점수.
+ *
+ * **공고 요건이 이 고객사에 맞는지**만 센다. 마감이 며칠 남았는지와 전에
+ * 지원사업을 해봤는지는 공고와 고객사가 맞는지와 아무 상관이 없으므로 세지
+ * 않는다 — 그 둘만으로 10점이 되던 탓에, 요건이 확인된 공고가 요건이 하나도
+ * 확인되지 않은 공고에 밀려 하루 정독 8칸에서 빠졌다.
+ */
+function scoring(requirements: Requirements, profile: MatchProfile, positives: string[]) {
   const reasons: string[] = [];
   let score = supportScore(requirements);
   if (score) reasons.push(`명시된 지원금 규모 +${score}`);
-  if (Number.isFinite(now) && deadline !== null && deadline - now >= 7 * DAY) {
-    score += 5; reasons.push("마감 여유 7일 이상 +5");
+  if (positives.length) {
+    const points = positives.length * REQUIREMENT_MATCH_POINTS;
+    score += points; reasons.push(`확인된 요건 일치 ${positives.length}건 +${points}`);
   }
-  if (profile.hasSupportHistory) { score += 5; reasons.push("과거 지원사업 이력 +5"); }
   // A verified held certificate is usable even when the rest of the inventory
   // is incomplete. An unknown absence can never establish a rejection.
   const held = new Set((profile.certifications || []).map(certification));
@@ -294,7 +304,7 @@ export function matchProgram(requirements: Requirements, profiles: MatchProfile[
       }
       else if (limit !== null && limit !== undefined) positives.push(`확인된 ${label} 상한 요건 일치`);
     }
-    const scored = scoring(requirements, profile, now, deadline);
+    const scored = scoring(requirements, profile, positives);
     const conditional = unknowns.length > 0 && positives.length > 0 && Number.isFinite(now);
     const verdict = mismatches.length ? "mismatch" : unknowns.length && !conditional ? "unknown" : "candidate";
     return {
@@ -306,15 +316,24 @@ export function matchProgram(requirements: Requirements, profiles: MatchProfile[
   });
 }
 
-/** A program occupies one reading slot even if several targets match; unknowns stay eligible. */
+/**
+ * A program occupies one reading slot even if several targets match; unknowns stay eligible.
+ *
+ * **확정 후보가 있는 공고를 먼저 채운다.** 점수만 보고 고르면 요건이 하나도
+ * 확인되지 않은 공고가 여러 고객사의 요건이 확정된 공고를 밀어낸다.
+ */
 export function rankDailyCandidates(matches: RankedProgramMatch[], limit = 8): string[] {
   const maximum = Number.isFinite(limit) ? Math.max(0, Math.min(8, Math.floor(limit))) : 8;
-  const scores = new Map<string, number>();
+  const ranks = new Map<string, { confirmed: number; score: number }>();
   for (const match of matches) {
     if (match.verdict === "mismatch" || !match.programId.trim()) continue;
     const score = Number.isFinite(match.score) ? Math.max(0, match.score) : 0;
-    scores.set(match.programId, Math.max(scores.get(match.programId) ?? 0, score));
+    const rank = ranks.get(match.programId) ?? { confirmed: 0, score: 0 };
+    if (matchVerdictLabel(match) === "후보") rank.confirmed += 1;
+    rank.score = Math.max(rank.score, score);
+    ranks.set(match.programId, rank);
   }
-  return [...scores].sort(([a, scoreA], [b, scoreB]) => scoreB - scoreA || (a < b ? -1 : a > b ? 1 : 0))
+  return [...ranks].sort(([a, left], [b, right]) => right.confirmed - left.confirmed
+    || right.score - left.score || (a < b ? -1 : a > b ? 1 : 0))
     .slice(0, maximum).map(([programId]) => programId);
 }

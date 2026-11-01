@@ -2,7 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { ProgramApiError } from "./agent-auth.ts";
 import { entityTargetName } from "./customer-profiles.ts";
 import { boundedText, profileKey, readApprovedSelfProfiles, strictKeys, stringList, validateProfilePatch } from "./profiles-store.ts";
-import { matchVerdictLabel } from "./matching.ts";
+import { MATCHING_RULE_VERSION, matchVerdictLabel } from "./matching.ts";
 
 type Row = Record<string, unknown>;
 const UUID = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i;
@@ -112,7 +112,7 @@ export class ProgramAgentService {
   private isStale(row: Row | null, revision: string) {
     return !row || row.status !== "extracted" || row.matched_normalization_version !== row.normalization_version
       || row.matched_review_date !== this.date || row.matched_source_checked_at !== row.source_checked_at
-      || String(row.matched_profile_revision) !== revision || Number(row.matched_rule_version) < 2;
+      || String(row.matched_profile_revision) !== revision || Number(row.matched_rule_version) < MATCHING_RULE_VERSION;
   }
   private async matchesStale(id: string, row: Row | null, revision: string) {
     if (this.isStale(row, revision)) return true;
@@ -138,11 +138,14 @@ export class ProgramAgentService {
     const matches = await this.matches(programs.map(row => String(row.id))), revision = await this.contextRevision();
     // 교육·행사로 보이는 공고는 **뒤로 민다.** 거르지는 않는다 — 돈을 주는 공고가
     // 잘못 걸릴 수 있어서, 하루 8칸 안에서 순서만 양보시킨다.
-    const ranked = programs.map(row => ({ row,
-      event: object(row.raw_payload)?.event_like === true,
-      score: Math.max(...matches.filter(m => m.program_id === row.id && m.verdict !== "mismatch").map(m => Number(m.score))) }))
-      .sort((a, b) => Number(a.event) - Number(b.event) || b.score - a.score
-        || String(a.row.id).localeCompare(String(b.row.id))).slice(0, 8);
+    // 그 다음은 **확정 후보가 몇 곳인가** — 요건이 확인된 공고를 점수보다 앞에 둔다.
+    const ranked = programs.map(row => {
+      const live = matches.filter(m => m.program_id === row.id && m.verdict !== "mismatch").map(matchDto);
+      return { row, event: object(row.raw_payload)?.event_like === true,
+        confirmed: live.filter(m => m.verdict_label === "후보").length,
+        score: Math.max(...live.map(m => m.score)) };
+    }).sort((a, b) => Number(a.event) - Number(b.event) || b.confirmed - a.confirmed || b.score - a.score
+      || String(a.row.id).localeCompare(String(b.row.id))).slice(0, 8);
     return { review_date: this.date, programs: await Promise.all(ranked.map(async ({ row }) => ({
       ...programDto(row), matches_stale: await this.matchesStale(String(row.id), await this.requirement(String(row.id)), revision),
       matching_summary: Object.fromEntries(["candidate", "unknown", "mismatch"].map(verdict =>
