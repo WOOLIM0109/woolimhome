@@ -34,25 +34,35 @@ function configure() {
  * 알림은 곁다리라, 실패해도 부르는 쪽 일을 막지 않습니다.
  * 끊어진 구독은 그때그때 지웁니다.
  */
-export async function sendAdminPush(message: PushMessage) {
+export async function sendAdminPush(message: PushMessage, options: { deadlineAt?: number } = {}) {
   if (!configure()) return { sent: 0, skipped: "VAPID 키 미설정" as const };
   const admin = createAdminClient();
-  const { data, error } = await admin.from("openchat_push_subscriptions")
+  const query = admin.from("openchat_push_subscriptions")
     .select("id,endpoint,p256dh,auth");
+  if (options.deadlineAt !== undefined) {
+    query.abortSignal(AbortSignal.timeout(Math.max(1, options.deadlineAt - Date.now())));
+  }
+  const { data, error } = await query;
   if (error) return { sent: 0, skipped: error.message };
   let sent = 0;
   for (const subscription of data || []) {
+    const remainingMs = options.deadlineAt === undefined ? undefined : options.deadlineAt - Date.now();
+    if (remainingMs !== undefined && remainingMs <= 0) return { sent, skipped: "알림 전송 시간 부족" };
     try {
       await webpush.sendNotification({
         endpoint: subscription.endpoint,
         keys: { p256dh: subscription.p256dh, auth: subscription.auth },
-      }, JSON.stringify(message));
+      }, JSON.stringify(message), remainingMs === undefined ? undefined : { timeout: remainingMs });
       sent += 1;
     } catch (pushError) {
       const statusCode = (pushError as { statusCode?: number }).statusCode;
       // 기기가 사라졌거나 구독이 만료된 경우입니다. 지워야 다음에 안 걸립니다.
       if (statusCode === 404 || statusCode === 410) {
-        await admin.from("openchat_push_subscriptions").delete().eq("id", subscription.id);
+        const cleanup = admin.from("openchat_push_subscriptions").delete().eq("id", subscription.id);
+        if (options.deadlineAt !== undefined) {
+          cleanup.abortSignal(AbortSignal.timeout(Math.max(1, options.deadlineAt - Date.now())));
+        }
+        await cleanup;
       }
     }
   }

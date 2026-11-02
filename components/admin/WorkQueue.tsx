@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { ChevronDown, RotateCcw, Search, Sparkles, Trash2, Upload } from "lucide-react";
 import StatusBadge from "./StatusBadge";
 import { portfolioDisplayState } from "@/lib/portfolio/display-state";
+import { portfolioStallState } from "@/lib/portfolio/stall-state";
 import ProductionMockupEditor from "./ProductionMockupEditor";
 import type { ContentChannel, WorkflowStatus } from "@/lib/content-ops/types";
 import { faqAnswerHtml, faqQuestionHtml } from "@/lib/content-ops/editorial-style";
@@ -69,6 +70,7 @@ type WorkItem = {
   source_label: string | null;
   source_reference?: string | null;
   scheduled_at: string | null;
+  updated_at: string;
   review_note: string | null;
   metadata?: {
     candidateId?: string;
@@ -587,6 +589,30 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
     const timer = window.setTimeout(() => void load(), 0);
     return () => window.clearTimeout(timer);
   }, [load]);
+
+  useEffect(() => {
+    if (loading) return;
+    let frame: number | undefined;
+    const revealLinkedItem = () => {
+      const linkedId = window.location.hash.match(/^#work-item-(.+)$/)?.[1];
+      if (!linkedId || !items.some((item) => item.id === linkedId)) return;
+      setExpandedIds((current) => new Set(current).add(linkedId));
+      setSearchQuery("");
+      setStatusFilter("all");
+      setFormatFilter("all");
+      setChannelFilter("all");
+      frame = window.requestAnimationFrame(() => {
+        document.getElementById(`work-item-${linkedId}`)?.scrollIntoView({ block: "start" });
+      });
+    };
+    const timer = window.setTimeout(revealLinkedItem, 0);
+    window.addEventListener("hashchange", revealLinkedItem);
+    return () => {
+      window.clearTimeout(timer);
+      if (frame !== undefined) window.cancelAnimationFrame(frame);
+      window.removeEventListener("hashchange", revealLinkedItem);
+    };
+  }, [items, loading]);
 
   async function update(
     id: string,
@@ -1190,22 +1216,29 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
         </div>
       {filteredItems.map((item) => {
         const expanded = expandedIds.has(item.id);
-        const detailsId = `work-item-${item.id}`;
+        const detailsId = `work-item-details-${item.id}`;
+        const displayState = item.channel === "naver_design" ? portfolioDisplayState(item) : null;
+        const stall = item.channel === "naver_design" && item.format === "portfolio" ? portfolioStallState(item) : null;
         return (
-        <article key={item.id} className="card overflow-hidden p-0">
+        <article key={item.id} id={`work-item-${item.id}`} className={`card scroll-mt-24 overflow-hidden p-0 ${stall ? "ring-2 ring-amber-400" : ""}`}>
           <button
             type="button"
             aria-expanded={expanded}
             aria-controls={detailsId}
             onClick={() => toggleExpanded(item.id)}
-            className="grid w-full items-center gap-3 px-4 py-4 text-left hover:bg-stone-50 sm:grid-cols-[minmax(105px,0.6fr)_minmax(0,3fr)_minmax(150px,1.2fr)_auto_auto] sm:px-5"
+            className={`grid w-full items-center gap-3 px-4 py-4 text-left sm:grid-cols-[minmax(105px,0.6fr)_minmax(0,3fr)_minmax(150px,1.2fr)_auto_auto] sm:px-5 ${stall ? "bg-amber-50 hover:bg-amber-100" : "hover:bg-stone-50"}`}
           >
             <span className="text-xs font-bold text-[var(--primary)]">{formatLabels[item.format] || item.format}</span>
             <span className="min-w-0">
               <span className="block truncate font-bold">{item.title}</span>
+              {stall && (
+                <span className="mt-1 block text-sm font-bold text-amber-950">
+                  멈춤 · {stall.reason} · {stall.days}일째
+                </span>
+              )}
               {item.summary && <span className="mt-1 block truncate text-xs text-[var(--muted)]">{item.summary}</span>}
-              {item.channel === "naver_design" && portfolioDisplayState(item)?.detail && (
-                <span className="mt-1 block whitespace-normal text-xs text-amber-900">{portfolioDisplayState(item)?.detail}</span>
+              {displayState?.detail && (
+                <span className="mt-1 block whitespace-normal text-xs text-amber-900">{displayState.detail}</span>
               )}
             </span>
             <span className="text-xs text-[var(--muted)] sm:text-right">
@@ -1216,7 +1249,7 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
                 </span>
               )}
             </span>
-            <StatusBadge status={item.status} label={item.channel === "naver_design" ? portfolioDisplayState(item)?.label : undefined} />
+            <StatusBadge status={item.status} label={displayState?.label} />
             <ChevronDown
               aria-hidden="true"
               size={20}

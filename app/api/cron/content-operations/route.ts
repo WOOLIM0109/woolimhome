@@ -18,6 +18,7 @@ import type { EditorialSlot } from "@/lib/content-ops/types";
 import { authorizeCron } from "@/lib/cron-auth";
 import { GENERATION_BUDGET_MS, isDeadlineError } from "@/lib/content-ops/deadline";
 import { sweepStuckWorkItems } from "@/lib/content-ops/stuck-items";
+import { notifyStalledPortfolios } from "@/lib/content-ops/portfolio-stall-notice";
 import { appendStatusChange } from "@/lib/content-ops/status-history";
 
 /**
@@ -131,6 +132,16 @@ export async function GET(request: Request) {
       stage: "stuck_sweep",
       status: "failed",
       error: error instanceof Error ? error.message : "멈춘 항목 정리 실패",
+    });
+  }
+
+  try {
+    localProgress.push(await notifyStalledPortfolios(now, { deadlineAt: runDeadlineAt }));
+  } catch (error) {
+    localProgress.push({
+      stage: "portfolio_stall_notice",
+      status: "failed",
+      error: error instanceof Error ? error.message : "포트폴리오 멈춤 알림 실패",
     });
   }
 
