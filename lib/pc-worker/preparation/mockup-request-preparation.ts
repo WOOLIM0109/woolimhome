@@ -187,6 +187,7 @@ export async function preparePendingLocalMockupRequests(input: {
   sourcePath: string;
   workRoot: string;
   buildId: string;
+  carryStoreRoot?: string;
   requestIds?: readonly string[];
   onProgress?: (event: ProgressEvent) => void;
 }, dependencies: MockupRequestPreparationDependencies = {}): Promise<MockupRequestPreparationResult> {
@@ -410,6 +411,7 @@ export async function preparePendingLocalMockupRequests(input: {
     ? await (dependencies.initializeRedactions ?? initializePptxRedactions)({
       root: workRoot,
       buildId: input.buildId,
+      carryStoreRoot: input.carryStoreRoot,
       source,
       slideNumbers: accepted.map((request) => request.sourceSlideNumber),
     })

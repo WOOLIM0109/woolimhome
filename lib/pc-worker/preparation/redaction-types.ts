@@ -42,6 +42,7 @@ export type RedactionState = {
   sourceSlideNumber: number; sourceHash: string; slideContentHash: string;
   imageHash: string; width: number; height: number; revision: number;
   savedAt?: string;
+  carryOver?: { savedAt: string; approvedAt: string | null; approvedBy: string | null };
   candidates: RedactionCandidate[]; warnings: string[];
   uncertainties?: RedactionUncertainty[]; manualResolutions?: RedactionManualResolution[];
   regions: RedactionRegion[]; exceptions: RedactionException[]; review: RedactionReview;

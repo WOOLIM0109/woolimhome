@@ -21,6 +21,7 @@ export const PREPARATION_RUNTIME_SOURCE_FILES = Object.freeze([
   "lib/pc-worker/preparation/slide-preparation.ts",
   "lib/pc-worker/preparation/redaction-types.ts",
   "lib/pc-worker/preparation/redaction-service.ts",
+  "lib/pc-worker/preparation/redaction-carry-store.ts",
   "lib/pc-worker/preparation/redaction-renderer.ts",
   "lib/pc-worker/preparation/redaction-editor-client.mjs",
   "lib/pc-worker/preparation/redaction-detection.ts",

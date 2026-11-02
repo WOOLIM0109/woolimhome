@@ -1,0 +1,27 @@
+> woolim-company-site@0.1.0 verify
+> npm run typecheck && npm run lint && npm test
+> woolim-company-site@0.1.0 typecheck
+> tsc --noEmit
+> woolim-company-site@0.1.0 lint
+> eslint
+> woolim-company-site@0.1.0 test
+> node scripts/run-tests.mjs
+[tests] Parallel: 185 files
+ℹ tests 1618
+ℹ suites 0
+ℹ pass 1613
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 5
+ℹ todo 0
+ℹ duration_ms 251492.5885
+[tests] PowerPoint (serial): 3 files
+✔ injected export, Quit, timeout and checkpoint failures leave no converter-owned POWERPNT process (117797.9028ms)
+ℹ tests 57
+ℹ suites 0
+ℹ pass 57
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 188323.1392

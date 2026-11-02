@@ -203,6 +203,7 @@ export async function createProductionMockupBridge(input: { privateRoot: string;
   if (!path.isAbsolute(input.privateRoot) || path.basename(input.privateRoot) !== "p"
     || path.basename(path.dirname(input.privateRoot)) !== "WoolimWorker") fail("MOCKUP_BRIDGE_PRIVATE_ROOT_INVALID");
   const root = await safeDirectory(input.privateRoot);
+  const carryStoreRoot = path.join(path.dirname(root), "redaction-carry");
   const active = new Map<string, { server: LocalReviewServerHandle; record: SessionRecord }>();
   const retired = new Set<LocalReviewServerHandle>();
   let processing = false;
@@ -254,7 +255,7 @@ export async function createProductionMockupBridge(input: { privateRoot: string;
   async function openReview(directory: string, record: SessionRecord, replacement?: SessionRecord) {
     const identity = { root: path.join(directory, workDirectory(record)), buildId: record.buildId };
     const reviewIdentity = { sourcePath: path.join(directory, "s", "source.pptx"), workRoot: identity.root, workId: record.workId, buildId: record.buildId };
-    const server = await (dependencies.serve ?? startLocalReviewServer)({ ...identity,
+    const server = await (dependencies.serve ?? startLocalReviewServer)({ ...identity, carryStoreRoot,
       preparationReview: {
         get: async () => { requireActiveReview(record); return (dependencies.review?.get ?? getPreparationReview)(reviewIdentity); },
         readEvidence: async (request) => { requireActiveReview(record); return (dependencies.review?.readEvidence ?? readPreparationReviewEvidence)(reviewIdentity, request); },
@@ -277,7 +278,7 @@ export async function createProductionMockupBridge(input: { privateRoot: string;
             sourceFormatChoice: options.sourceFormatChoice, artworkReviews: options.artworkReviews,
             selectedSlideNumbers: options.selectedSlideNumbers });
           if (prepared.inspection.sourceHash !== record.sourceHash) fail("MOCKUP_SOURCE_HASH_CHANGED");
-          if (prepared.status !== "held") await (dependencies.redact ?? initializePptxRedactions)({ root: workRoot, buildId: prepared.buildId,
+          if (prepared.status !== "held") await (dependencies.redact ?? initializePptxRedactions)({ root: workRoot, buildId: prepared.buildId, carryStoreRoot,
             source: verified.bytes, slideNumbers: [...prepared.selection.selected, ...prepared.selection.reserves] });
           await verifiedLocalSource(directory, record);
           await validate(); // Re-check the same old revision/source/evidence; do not regenerate approval timestamps.
@@ -366,7 +367,7 @@ export async function createProductionMockupBridge(input: { privateRoot: string;
         await input.transport.post(session.id, { action: "progress", status: "preparing", sourceHash });
         const prepared = await (dependencies.prepare ?? prepareLocalPptx)({ sourcePath, workRoot });
         if (prepared.inspection.sourceHash !== sourceHash) fail("MOCKUP_SOURCE_HASH_CHANGED");
-        if (prepared.status !== "held") await (dependencies.redact ?? initializePptxRedactions)({ root: workRoot, buildId: prepared.buildId,
+        if (prepared.status !== "held") await (dependencies.redact ?? initializePptxRedactions)({ root: workRoot, buildId: prepared.buildId, carryStoreRoot,
           source: bytes, slideNumbers: [...prepared.selection.selected, ...prepared.selection.reserves] });
         const record: SessionRecord = { version: 1, sessionId: session.id, workItemId: session.workItemId, sourceHash,
           sourceBindingHash: session.sourceBindingHash, buildId: prepared.buildId, workId: prepared.workId, state: "review" };
