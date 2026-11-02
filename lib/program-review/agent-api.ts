@@ -42,8 +42,10 @@ function programDto(row: Row) {
   const source = object(row.source);
   const collected = object(row.raw_payload);
   return { ...pick(row, PROGRAM_KEYS), source_url: publicSource(row.source_url),
-    // 교육·행사로 보인다는 표시. 화면에서 뒤로 밀 때 씁니다 — 거르지 않습니다.
+    // 지원사업이 아닌 것으로 보인다는 표시. 화면에서 뒤로 밀 때 씁니다 — 거르지 않습니다.
     event_like: collected?.event_like === true,
+    // 무엇으로 보이는가 — '교육·행사' 또는 '채용'. 없으면 화면이 알아서 둘러 말합니다.
+    event_label: typeof collected?.event_label === "string" ? collected.event_label : null,
     source: source ? pick(source, ["name", "source_key", "category"]) : null };
 }
 function attachmentDto(row: Row) { return pick(row, ATTACHMENT_COLUMNS.split(",")); }
@@ -136,8 +138,9 @@ export class ProgramAgentService {
       .gte("created_at", this.since).neq("status", "excluded").or(`deadline_at.is.null,deadline_at.gte.${this.now.toISOString()}`)
       .overrideTypes<Row[], { merge: false }>()) ?? [];
     const matches = await this.matches(programs.map(row => String(row.id))), revision = await this.contextRevision();
-    // 교육·행사로 보이는 공고는 **뒤로 민다.** 거르지는 않는다 — 돈을 주는 공고가
-    // 잘못 걸릴 수 있어서, 하루 8칸 안에서 순서만 양보시킨다.
+    // 지원사업이 아닌 것으로 보이는 공고(교육·행사·채용)는 **뒤로 민다.**
+    // 거르지는 않는다 — 돈을 주는 공고가 잘못 걸릴 수 있어서, 하루 8칸 안에서
+    // 순서만 양보시킨다.
     // 그 다음은 **확정 후보가 몇 곳인가** — 요건이 확인된 공고를 점수보다 앞에 둔다.
     const ranked = programs.map(row => {
       const live = matches.filter(m => m.program_id === row.id && m.verdict !== "mismatch").map(matchDto);
