@@ -45,7 +45,7 @@ export async function runRequirementsTask(options: Options = {}) {
       ? Math.max(1, Math.min(Math.floor(options.limit), 100)) : 100;
     const summary = { date, profiles: 0, queued: 0, scopeProgramCount: options.recoveryProgramId ? 1 : options.programIds?.length ?? 0,
       considered: 0, extracted: 0, reused: 0, matched: 0,
-      failed: 0, alreadyAttempted: 0, budgetSkipped: 0, refreshPending: false, stoppedForTime: false,
+      failed: 0, alreadyAttempted: 0, recoveryRefused: 0, budgetSkipped: 0, refreshPending: false, stoppedForTime: false,
       ready: 0, remaining: 0, eligible: 0, withText: 0, waitingAttachments: 0,
       requirementsExtracted: 0, requirementsFailed: 0, pendingInputChars: 0 };
     async function updateQueue() {
@@ -131,12 +131,14 @@ export async function runRequirementsTask(options: Options = {}) {
         if (end - clock() < 60_000) { summary.stoppedForTime = true; break; }
         let recoveryId: string | null = null;
         if (options.recoveryProgramId) {
-          if (existing?.input_hash !== input.inputHash || existing.status !== "failed") { summary.alreadyAttempted++; continue; }
+          // 복구는 지금 읽은 원문으로 다시 뽑는 것이다 — 저장된 해시가 같은지는 따지지 않는다.
+          if (existing?.status !== "failed") { summary.alreadyAttempted++; continue; }
           const { data, error } = await admin.rpc("claim_openchat_requirement_recovery", {
             p_program_id: program.id, p_input_hash: input.inputHash,
           });
           if (error) throw new Error("요건 복구 호출 잠금 실패");
-          if (typeof data !== "string" || !data) { summary.alreadyAttempted++; continue; }
+          // 횟수 상한·기간에 걸려 거절된 것은 '이번엔 할 일이 없었다' 와 달리 따로 센다.
+          if (typeof data !== "string" || !data) { summary.recoveryRefused++; continue; }
           recoveryId = data;
         } else {
           if (existing?.input_hash === input.inputHash && existing.status === "failed") { summary.alreadyAttempted++; continue; }
