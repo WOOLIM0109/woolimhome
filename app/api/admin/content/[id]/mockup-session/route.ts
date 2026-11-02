@@ -1,6 +1,6 @@
 import {NextResponse} from 'next/server';
 import {authenticatedAdmin,contentAdmin} from '@/lib/content-ops/data';
-import {canonicalHash,isUuid,plainObject,requireKeys} from '@/lib/portfolio/production-session';
+import {assertMockupImageInputs,expectedMockupActiveSetId,isUuid,plainObject,requireKeys} from '@/lib/portfolio/production-session';
 import {requestProductionMockup,readMockupSource,sameOriginMutation,publicMockupError} from '@/lib/portfolio/production-session-server';
 import {productionSetManifest,validateProductionDescriptor} from '@/lib/portfolio/production-descriptor';
 import {verifyProductionObjects} from '@/lib/portfolio/production-storage';
@@ -51,15 +51,16 @@ export async function POST(request:Request,context:{params:Promise<{id:string}>}
   const descriptor=validateProductionDescriptor(session.descriptor,body.snapshotHash);
   await verifyProductionObjects(id,session.id,descriptor);
   const {data:item,error:itemError}=await db.from('content_work_items').select('*').eq('id',id).maybeSingle();if(itemError||!item)throw new Error('MOCKUP_WORK_ITEM_NOT_FOUND');
+  if(item.status==='published')throw new Error('MOCKUP_PUBLISHED_LOCKED');
   if(session.status==='activated'){
    if(activePortfolioImageSetId(item.metadata)!==session.id)throw new Error('MOCKUP_SESSION_NO_LONGER_ACTIVE');
    return NextResponse.json({workItemId:id,activeSetId:session.id,updatedAt:item.updated_at},{headers});
   }
-  if(canonicalHash(item.metadata)!==session.binding.expectedMetadataHash)throw new Error('MOCKUP_SOURCE_OR_MANUSCRIPT_CHANGED');
   const {binding:currentSource}=await readMockupSource(id);
   if(currentSource.candidateId!==session.candidate_id||currentSource.sourceBindingHash!==session.binding.sourceBindingHash)throw new Error('MOCKUP_SOURCE_OR_MANUSCRIPT_CHANGED');
+  assertMockupImageInputs(item.metadata,session.binding);
   const at=new Date().toISOString(),set=productionSetManifest(descriptor,id,session.id,actor.id,at);
-  const commit=preparePortfolioImageSetCommit(item,{set,expectedUpdatedAt:session.binding.expectedUpdatedAt,expectedActiveSetId:activePortfolioImageSetId(item.metadata),actor:actor.id,activatedAt:at});
+  const commit=preparePortfolioImageSetCommit(item,{set,expectedUpdatedAt:session.binding.expectedUpdatedAt,expectedActiveSetId:expectedMockupActiveSetId(session.binding),imageInputsVerified:true,actor:actor.id,activatedAt:at});
   const {data:receipt,error:commitError}=await db.rpc('activate_portfolio_mockup_session',{p_session_id:session.id,p_descriptor_hash:body.snapshotHash,p_work_item_id:id,p_expected_updated_at:commit.expectedUpdatedAt,p_expected_active_set_id:commit.expectedActiveSetId,p_expected_metadata:commit.expectedMetadata,p_next_metadata:commit.nextMetadata,p_manifest:set,p_actor:actor.id,p_activated_at:at});
   if(commitError)throw new Error(commitError.message.match(/(?:MOCKUP|IMAGE_SET)_[A-Z_]+/)?.[0]||'MOCKUP_ACTIVATION_FAILED');
   if(receipt?.workItemId!==id||receipt?.activeSetId!==session.id||typeof receipt.updatedAt!=='string')throw new Error('MOCKUP_ACTIVATION_RECEIPT_INVALID');

@@ -136,13 +136,16 @@ function currentBodyUrls(metadata: Record<string, unknown>) {
 }
 export function preparePortfolioImageSetCommit(snapshot: PortfolioImageSetSnapshot, input: {
   set: VerifiedPortfolioImageSet; expectedUpdatedAt: string; expectedActiveSetId: string | null;
-  actor: string; activatedAt: string; operation?: "activate" | "restore";
+  actor: string; activatedAt: string; operation?: "activate" | "restore"; imageInputsVerified?: true;
 }): PortfolioImageSetCommit {
   const set = validatePortfolioImageSet(input.set);
   if (snapshot.id !== set.workItemId || snapshot.format !== "portfolio") fail("IMAGE_SET_WRONG_WORK_ITEM");
   if (!text(input.actor, 100) || !date(input.activatedAt)) fail("IMAGE_SET_ACTOR_REQUIRED");
   const metadata = object(snapshot.metadata), previousSetId = activePortfolioImageSetId(metadata);
-  if (snapshot.updated_at !== input.expectedUpdatedAt || previousSetId !== input.expectedActiveSetId) fail("IMAGE_SET_REVISION_CONFLICT");
+  // Only the server path that rechecks source, selection and redaction may
+  // rebind an older manuscript. Other import callers keep their revision gate.
+  if ((snapshot.updated_at !== input.expectedUpdatedAt && input.imageInputsVerified !== true)
+    || previousSetId !== input.expectedActiveSetId) fail("IMAGE_SET_REVISION_CONFLICT");
   const generated = object(metadata.generated);
   if (typeof generated.bodyHtml !== "string") fail("IMAGE_SET_BODY_REQUIRED");
   const bodyHtml = swapImageSetBodySources(generated.bodyHtml, currentBodyUrls(metadata), set.assets.slice(1).map(a => a.url));
@@ -167,11 +170,13 @@ export function preparePortfolioImageSetCommit(snapshot: PortfolioImageSetSnapsh
   // A title edit is bound to one immutable base set. A new complete set starts
   // its own title history; never carry an old-base thumbnail pointer forward.
   delete nextMetadata.portfolioThumbnailVersion;
-  return { workItemId: snapshot.id, expectedUpdatedAt: input.expectedUpdatedAt, expectedActiveSetId: input.expectedActiveSetId,
+  // Bind the write to the manuscript just mapped above. The generation-time
+  // timestamp may be old; a change after this read must still fail the CAS.
+  return { workItemId: snapshot.id, expectedUpdatedAt: snapshot.updated_at, expectedActiveSetId: input.expectedActiveSetId,
     expectedMetadata: structuredClone(metadata), nextMetadata, set, operation: input.operation ?? "activate", activatedBy: input.actor, activatedAt: input.activatedAt };
 }
 export async function activatePortfolioImageSet(input: {
-  workItemId: string; set: VerifiedPortfolioImageSet; expectedUpdatedAt: string; expectedActiveSetId: string | null; actor: string;
+  workItemId: string; set: VerifiedPortfolioImageSet; expectedUpdatedAt: string; expectedActiveSetId: string | null; actor: string; imageInputsVerified?: true;
 }, dependencies: { store: PortfolioImageSetStore; now?: () => Date }) {
   if (input.workItemId !== input.set.workItemId) fail("IMAGE_SET_WRONG_WORK_ITEM");
   const snapshot = await dependencies.store.readWorkItem(input.workItemId);
@@ -184,6 +189,7 @@ export async function activatePortfolioImageSet(input: {
     // Do not overwrite text edited after the first successful activation.
     return { workItemId: snapshot.id, activeSetId: input.set.setId, updatedAt: snapshot.updated_at };
   }
+  if (snapshot.status === "published") fail("IMAGE_SET_PUBLISHED_LOCKED");
   const commit = preparePortfolioImageSetCommit(snapshot, { ...input, activatedAt: (dependencies.now?.() ?? new Date()).toISOString() });
   return dependencies.store.commit(commit);
 }
@@ -196,6 +202,7 @@ export async function restorePortfolioImageSet(input: {
     validatePortfolioImageSet(set);
     return { workItemId: snapshot.id, activeSetId: set.setId, updatedAt: snapshot.updated_at };
   }
+  if (snapshot.status === "published") fail("IMAGE_SET_PUBLISHED_LOCKED");
   // Rebase image URLs onto the CURRENT manuscript. Never restore an old copy
   // of its text, FAQ, publication URL/status or unrelated metadata.
   return dependencies.store.commit(preparePortfolioImageSetCommit(snapshot, { ...input, set, operation: "restore",
