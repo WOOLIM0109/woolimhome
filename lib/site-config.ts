@@ -1,6 +1,13 @@
 import { site } from "@/data/site";
 
-const OFFICIAL_SITE_URL = "https://woolimcompany.kr";
+/**
+ * 운영 도메인은 www 쪽입니다. apex(`woolimcompany.kr`)로 들어온 요청은
+ * 서버에서 www로 308 이동시키므로, canonical·sitemap·robots·llms.txt가
+ * apex를 가리키면 전부 "이동당하는 주소"를 내보내게 됩니다. 그래서 기준값을
+ * www로 둡니다. 환경변수 NEXT_PUBLIC_SITE_URL이 비거나 잘못된 값일 때
+ * 떨어지는 자리라, 여기까지 www여야 어느 경로로도 apex가 새어나가지 않습니다.
+ */
+const OFFICIAL_SITE_URL = "https://www.woolimcompany.kr";
 
 export const SITE_URL = normalizeSiteUrl(site.url);
 export const SITE_URL_OBJECT = new URL(`${SITE_URL}/`);
