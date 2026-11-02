@@ -97,10 +97,10 @@ function visibleText(value: string) {
 }
 
 function sentenceLengths(value: string) {
-  const text = visibleText(value);
-  if (!text) return [];
-  return text
-    .split(/(?:(?<![\p{L}\p{N}])\.|\.(?![\p{L}\p{N}])|[!?。？！])+(?:["'”’」』)\]]*)?\s*/u)
+  return value
+    .split(/<\/?(?:h[1-6]|p|li|figcaption|blockquote|td|th|dt|dd)(?=[\s/>])[^>]*>/gi)
+    .map(visibleText)
+    .flatMap((text) => text.split(/(?:(?<![\p{L}\p{N}])\.|\.(?![\p{L}\p{N}])|[!?。？！])+(?:["'”’」』)\]]*)?\s*/u))
     .map((sentence) => sentence.replace(/\s/g, "").length)
     .filter((length) => length > 0);
 }
