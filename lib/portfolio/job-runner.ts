@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { contentAdmin } from "@/lib/content-ops/data";
 import { assertPortfolioRestartApproved } from "./restart-control";
 import { portfolioFontExclusion } from "./font-policy";
@@ -27,6 +28,7 @@ import { describeRedactions, type RedactionSummaryEntry } from "./redaction-summ
 import { createLocalPortfolioReview } from "./local-review";
 import {
   createLocalRedactionProof,
+  isCurrentPortfolioRedactionProof,
   isVerifiedPortfolioRedactionProof,
   localRedactionRegions,
   parseLocalRedactionManifest,
@@ -262,7 +264,7 @@ type CompletedPortfolioMockup = {
   confidentialRegions: SensitiveRegion[];
   portfolioMockup: ReturnType<typeof portfolioMockupMetadata>;
   redactionProof: PortfolioRedactionProof;
-  localRedactionManifest: LocalRedactionManifest;
+  localRedactionManifest?: LocalRedactionManifest;
   legacyDraftProgress?: PortfolioDraftProgress;
 };
 
@@ -319,6 +321,47 @@ function completedPortfolioMockup(value: unknown): CompletedPortfolioMockup | nu
       ? result.portfolioDraftProgress as PortfolioDraftProgress
       : undefined,
   };
+}
+
+function storedPortfolioMockup(metadata: Record<string, unknown>): CompletedPortfolioMockup | null {
+  const assets = Array.isArray(metadata.portfolioAssets)
+    ? metadata.portfolioAssets.filter(isGeneratedPortfolioAsset)
+    : [];
+  const indexes = renderedPortfolioSlideIndexes(assets);
+  const review = metadata.portfolioReview as PortfolioVisualReview | undefined;
+  if (!hasCompleteStoredPortfolioAssets(metadata)
+    || !indexes?.length
+    || !review?.suitable
+    || typeof metadata.portfolioSourceFingerprint !== "string"
+    || typeof metadata.portfolioRuleVersion !== "string"
+    || typeof metadata.portfolioGenerationId !== "string"
+    || !metadata.portfolioGenerationId
+    || !metadata.portfolioMockup || typeof metadata.portfolioMockup !== "object"
+    || !isCurrentPortfolioRedactionProof(metadata.redactionProof, metadata.portfolioSourceFingerprint, indexes)) return null;
+  // 저장된 완성 이미지만 글에 사용합니다. 원본 가림과 발행 검증은 기존 절차를 따릅니다.
+  return {
+    sourceFingerprint: metadata.portfolioSourceFingerprint,
+    portfolioRuleVersion: metadata.portfolioRuleVersion,
+    portfolioGenerationId: metadata.portfolioGenerationId,
+    review,
+    assets,
+    redactionMode: typeof metadata.redactionMode === "string" ? metadata.redactionMode : "confidential",
+    confidentialRegions: Array.isArray(metadata.confidentialRegions) ? metadata.confidentialRegions as SensitiveRegion[] : [],
+    portfolioMockup: metadata.portfolioMockup as ReturnType<typeof portfolioMockupMetadata>,
+    redactionProof: metadata.redactionProof,
+  };
+}
+
+function hasCompleteStoredPortfolioAssets(metadata: Record<string, unknown>) {
+  if (!Array.isArray(metadata.portfolioAssets) || !metadata.portfolioAssets.every(isGeneratedPortfolioAsset)) return false;
+  const assets = metadata.portfolioAssets as GeneratedPortfolioAsset[];
+  return assets.filter((asset) => asset.kind === "thumbnail").length === 1
+    && assets.filter((asset) => asset.kind === "body_image").length >= 3;
+}
+
+function recoveredPortfolioDraftJobId(workItemId: string, candidateId: string) {
+  const hash = createHash("sha256").update(`portfolio-draft:${workItemId}:${candidateId}`).digest("hex");
+  return `${hash.slice(0, 8)}-${hash.slice(8, 12)}-8${hash.slice(13, 16)}-a${hash.slice(17, 20)}-${hash.slice(20, 32)}`;
 }
 
 type PortfolioTerminalHoldInput = {
@@ -1751,9 +1794,14 @@ export async function processNextPortfolioDraft(candidateId?: string, options: {
       .eq("status", "completed")
       .maybeSingle();
     if (mockupError) throw new Error(mockupError.message);
-    const frozenMockup = completedPortfolioMockup(mockupJob?.result);
+    const pendingPayload = pendingJob.payload && typeof pendingJob.payload === "object"
+      ? pendingJob.payload as Record<string, unknown>
+      : {};
+    const savedMetadata = (protectedWorkItem.metadata || {}) as Record<string, unknown>;
+    const frozenMockup = (pendingPayload.recoverStoredMockup === true ? storedPortfolioMockup(savedMetadata) : null)
+      || (manualMockupApprovedAt(savedMetadata) === null ? completedPortfolioMockup(mockupJob?.result) : null);
     if (!frozenMockup) {
-      if (mockupJob) {
+      if (mockupJob || pendingPayload.recoverStoredMockup === true) {
         await holdDraftForRedactionUpgrade(admin, {
           job: {
             id: pendingJob.id,
@@ -1767,9 +1815,6 @@ export async function processNextPortfolioDraft(candidateId?: string, options: {
       }
       continue;
     }
-    const pendingPayload = pendingJob.payload && typeof pendingJob.payload === "object"
-      ? pendingJob.payload as Record<string, unknown>
-      : {};
     if (typeof pendingPayload.portfolioGenerationId === "string"
       && pendingPayload.portfolioGenerationId !== frozenMockup.portfolioGenerationId) {
       continue;
@@ -1836,7 +1881,9 @@ export async function processNextPortfolioDraft(candidateId?: string, options: {
     const savedProgress = result.portfolioDraftProgress
       && typeof result.portfolioDraftProgress === "object"
       ? result.portfolioDraftProgress as PortfolioDraftProgress
-      : mockup.legacyDraftProgress;
+      : (job.payload as Record<string, unknown> | null)?.recoverStoredMockup === true
+        ? undefined
+        : mockup.legacyDraftProgress;
     await checkpoint({
       designCompleted: true,
       draftStartedAt: claimStartedAt,
@@ -1850,7 +1897,7 @@ export async function processNextPortfolioDraft(candidateId?: string, options: {
       assets: mockup.assets,
       // 장표에서 읽어낸 제목을 넘겨 줍니다.
       // 이게 없으면 "비즈니스 문서" 같은 분류만 보고 일반론만 쓴 글이 나옵니다.
-      publicTitles: manifestPublicTitles(mockup.localRedactionManifest),
+      publicTitles: mockup.localRedactionManifest ? manifestPublicTitles(mockup.localRedactionManifest) : [],
       progress: savedProgress,
       shouldYield,
       onProgress: async (progress) => {
@@ -2407,11 +2454,14 @@ export async function retryPortfolioDraft(workItemId: string) {
   await assertPortfolioRestartApproved();
   const admin = contentAdmin();
   const { data: workItem, error } = await admin.from("content_work_items")
-    .select("id,status,metadata")
+    .select("id,format,status,metadata,updated_at")
     .eq("id", workItemId)
     .single();
   if (error) throw new Error(error.message);
   assertLegacyPortfolioImageWriteAllowed(workItem.metadata);
+  if (workItem.format !== "portfolio") {
+    throw new Error("포트폴리오 작업만 본문을 다시 생성할 수 있습니다.");
+  }
   // 다른 재시도·재빌드 함수와 같은 자리를 지킵니다. 발행이 끝난 작업을 다시
   // 만들기 시작하면 이미 네이버에 올라간 글과 어긋나고, 보존 정책이 정리한
   // 장표를 다시 읽으려 들게 됩니다.
@@ -2424,6 +2474,56 @@ export async function retryPortfolioDraft(workItemId: string) {
   const candidateId = metadata.candidateId;
   if (!candidateId) return null;
   const now = new Date().toISOString();
+  const { data: existingJob, error: existingError } = await admin.from("content_jobs")
+    .select("id,status,updated_at,payload")
+    .eq("candidate_id", candidateId)
+    .eq("job_type", "draft")
+    .maybeSingle();
+  if (existingError) throw new Error(existingError.message);
+  if (existingJob?.status === "running") {
+    return { workItemId, candidateId, status: "creating", alreadyRunning: true };
+  }
+  if (!existingJob) {
+    if (!hasCompleteStoredPortfolioAssets(metadata)) {
+      throw new Error("완성된 목업 이미지가 없어 본문 작업을 새로 만들 수 없습니다.");
+    }
+    const queueState = portfolioDraftQueueState(geminiRuntimeStatus());
+    const { data: claimedWorkItem, error: claimError } = await admin.from("content_work_items").update({
+      status: queueState.status === "queued" ? "creating" : "draft_waiting",
+      summary: "저장된 목업 이미지를 유지하고 포트폴리오 본문 작업을 새로 대기열에 넣었습니다.",
+      review_note: queueState.error_message,
+      metadata: { ...metadata, portfolioStage: "design_completed", draftRetryAt: null, draftLastErrorCode: queueState.last_error_code },
+      updated_at: now,
+    }).eq("id", workItemId)
+      .eq("status", workItem.status)
+      .eq("updated_at", workItem.updated_at)
+      .neq("status", "published")
+      .select("id")
+      .maybeSingle();
+    if (claimError) throw new Error(claimError.message);
+    if (!claimedWorkItem) throw new PortfolioRebuildConflict();
+    const draftJobId = recoveredPortfolioDraftJobId(workItemId, candidateId);
+    const { error: insertError } = await admin.from("content_jobs").insert({
+      id: draftJobId,
+      candidate_id: candidateId,
+      work_item_id: workItemId,
+      job_type: "draft",
+      ...queueState,
+      attempts: 0,
+      payload: { portfolioGenerationId: metadata.portfolioGenerationId, recoverStoredMockup: true },
+      result: { manuallyRetriedAt: now },
+      updated_at: now,
+    });
+    if (insertError) {
+      if (insertError.code !== "23505") throw new Error(insertError.message);
+      const { data: concurrentJob, error: concurrentError } = await admin.from("content_jobs")
+        .select("id,status").eq("id", draftJobId).eq("work_item_id", workItemId).maybeSingle();
+      if (concurrentError) throw new Error(concurrentError.message);
+      if (!concurrentJob) throw new Error(insertError.message);
+      return { workItemId, candidateId, status: concurrentJob.status, stage: "design_completed" };
+    }
+    return { workItemId, candidateId, status: queueState.status, stage: "design_completed" };
+  }
   const { data: resetJob, error: resetError } = await admin.from("content_jobs").update({
     status: "queued",
     attempts: 0,
@@ -2432,15 +2532,20 @@ export async function retryPortfolioDraft(workItemId: string) {
     next_retry_at: null,
     last_error_code: null,
     error_message: null,
+    payload: {
+      ...(existingJob.payload && typeof existingJob.payload === "object" ? existingJob.payload as Record<string, unknown> : {}),
+      portfolioGenerationId: metadata.portfolioGenerationId,
+      recoverStoredMockup: true,
+    },
     result: { manuallyRetriedAt: now },
     updated_at: now,
-  }).eq("candidate_id", candidateId)
-    .eq("job_type", "draft")
+  }).eq("id", existingJob.id)
+    .eq("updated_at", existingJob.updated_at)
     .neq("status", "running")
     .select("id")
     .maybeSingle();
   if (resetError) throw new Error(resetError.message);
-  if (!resetJob) return null;
+  if (!resetJob) throw new PortfolioRebuildConflict();
 
   /**
    * 목업 작업에 남아 있는 예전 본문을 지웁니다.
@@ -3207,6 +3312,8 @@ export async function rebuildPortfolioDraft(
   if (manualApprovedAt !== null && !options.discardManualAssets) {
     throw new PortfolioManualAssetsPresent(manualApprovedAt);
   }
+  const generated = metadata.generated as { bodyHtml?: unknown } | undefined;
+  const hasBody = typeof generated?.bodyHtml === "string" && generated.bodyHtml.trim().length > 0;
   let candidateId = metadata.candidateId;
   if (!candidateId) {
     const { data: linkedJob, error: linkedJobError } = await admin
@@ -3277,6 +3384,9 @@ export async function rebuildPortfolioDraft(
     if (activeJobsError) throw new Error(activeJobsError.message);
     const activeMockup = activeJobs?.find((job) => job.job_type === "mockup");
     const activeDraft = activeJobs?.find((job) => job.job_type === "draft");
+    if (activeDraft?.status === "running") {
+      return { workItemId, candidateId, status: "creating", stage: "design_completed", alreadyRunning: true };
+    }
     if (activeMockup?.status === "running") {
       const activeUpdatedAt = Date.parse(activeMockup.updated_at || activeMockup.started_at || "");
       const manuallyRecoverable = Number.isFinite(activeUpdatedAt)
@@ -3303,11 +3413,13 @@ export async function rebuildPortfolioDraft(
         .maybeSingle();
       if (recoverMockupError) throw new Error(recoverMockupError.message);
       if (!recoveredMockup) throw new PortfolioRebuildConflict();
-      const resumed = await processNextPortfolioMockup(candidateId);
-      if (resumed) return resumed;
-      throw new Error("멈춘 포트폴리오 목업 작업을 다시 시작하지 못했습니다.");
+      if (hasBody) {
+        const resumed = await processNextPortfolioMockup(candidateId);
+        if (resumed) return resumed;
+        throw new Error("멈춘 포트폴리오 목업 작업을 다시 시작하지 못했습니다.");
+      }
     }
-    if (activeMockup?.status === "queued" || activeMockup?.status === "failed") {
+    if (hasBody && (activeMockup?.status === "queued" || activeMockup?.status === "failed")) {
       if (activeMockup.next_retry_at && new Date(activeMockup.next_retry_at).getTime() > Date.now()) {
         return {
           workItemId,
@@ -3320,16 +3432,7 @@ export async function rebuildPortfolioDraft(
       if (resumed) return resumed;
       throw new Error(activeMockup.error_message || "저장된 포트폴리오 제작 작업을 이어가지 못했습니다.");
     }
-    if (activeMockup?.status === "completed" && activeDraft?.status !== "completed") {
-      if (activeDraft?.status === "running") {
-        return {
-          workItemId,
-          candidateId,
-          status: "creating",
-          stage: "design_completed",
-          alreadyRunning: true,
-        };
-      }
+    if (hasBody && activeMockup?.status === "completed" && activeDraft?.status !== "completed") {
       if (activeDraft?.next_retry_at && new Date(activeDraft.next_retry_at).getTime() > Date.now()) {
         return {
           workItemId,
@@ -3387,6 +3490,7 @@ export async function rebuildPortfolioDraft(
     "portfolioStage",
     "designCompletedAt",
     "generatedAt",
+    "mockupOnlyRestoreState",
   ]) delete preservedMetadata[key];
   const { data: claimedWorkItem, error: claimWorkError } = await admin
     .from("content_work_items")
@@ -3414,13 +3518,16 @@ export async function rebuildPortfolioDraft(
   // 이미 만들어 둔 결과를 넘겨서 원본이 바뀐 경우에만 다시 만들도록 합니다.
   const { data: previousMockupJob, error: previousMockupError } = await admin
     .from("content_jobs")
-    .select("result")
+    .select("id,result,payload")
     .eq("candidate_id", candidateId)
     .eq("job_type", "mockup")
     .maybeSingle();
   if (previousMockupError) throw new Error(previousMockupError.message);
 
-  const { error: mockupResetError } = await admin.from("content_jobs").update({
+  const previousPayload = previousMockupJob?.payload && typeof previousMockupJob.payload === "object"
+    ? previousMockupJob.payload as Record<string, unknown>
+    : {};
+  const mockupReset = {
     status: "queued",
     attempts: 0,
     next_retry_at: null,
@@ -3428,12 +3535,16 @@ export async function rebuildPortfolioDraft(
     started_at: null,
     completed_at: null,
     error_message: null,
+    payload: { ...previousPayload, mockupOnly: false },
     result: preservedMockupCheckpoint(previousMockupJob?.result, { rebuildRequestedAt: now }),
     updated_at: now,
-  }).eq("candidate_id", candidateId).eq("job_type", "mockup");
+  };
+  const { error: mockupResetError } = previousMockupJob
+    ? await admin.from("content_jobs").update(mockupReset).eq("id", previousMockupJob.id)
+    : await admin.from("content_jobs").insert({ ...mockupReset, candidate_id: candidateId, work_item_id: workItemId, job_type: "mockup" });
   if (mockupResetError) throw new Error(mockupResetError.message);
 
-  const { error: draftResetError } = await admin.from("content_jobs").update({
+  const { data: resetDraft, error: draftResetError } = await admin.from("content_jobs").update({
     status: "on_hold",
     attempts: 0,
     next_retry_at: null,
@@ -3441,10 +3552,17 @@ export async function rebuildPortfolioDraft(
     started_at: null,
     completed_at: null,
     error_message: null,
+    payload: {},
     result: {},
     updated_at: now,
-  }).eq("candidate_id", candidateId).eq("job_type", "draft");
+  }).eq("candidate_id", candidateId).eq("job_type", "draft").select("id").maybeSingle();
   if (draftResetError) throw new Error(draftResetError.message);
+  if (!resetDraft) {
+    const { error: draftInsertError } = await admin.from("content_jobs").insert({
+      candidate_id: candidateId, work_item_id: workItemId, job_type: "draft", status: "on_hold", updated_at: now,
+    });
+    if (draftInsertError) throw new Error(draftInsertError.message);
+  }
 
   const { error: candidateResetError } = await admin.from("portfolio_candidates").update({
     status: "selected",
