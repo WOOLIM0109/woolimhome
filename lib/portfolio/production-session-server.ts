@@ -2,7 +2,7 @@ import 'server-only';
 import {randomUUID} from 'node:crypto';
 import {contentAdmin} from '@/lib/content-ops/data';
 import {sharedDriveDownloadAuthorization} from '@/lib/naver-works/client';
-import {canonicalHash,createMockupSessionBinding,isUuid,plainObject,MOCKUP_BRIDGE_VERSION} from './production-session';
+import {canonicalHash,createMockupSessionBinding,assertMockupImageInputs,expectedMockupActiveSetId,isUuid,plainObject,MOCKUP_BRIDGE_VERSION} from './production-session';
 
 export async function readMockupSource(workItemId:string) {
  if(!isUuid(workItemId))throw new Error('MOCKUP_WORK_ITEM_INVALID');
@@ -18,6 +18,7 @@ export async function readMockupSource(workItemId:string) {
 }
 export async function requestProductionMockup(workItemId:string,actor:string) {
  const {item,binding}=await readMockupSource(workItemId),db=contentAdmin();
+ if(item.status==='published')throw new Error('MOCKUP_PUBLISHED_LOCKED');
  const {data:running,error:readError}=await db.from('portfolio_mockup_sessions').select('id,status').eq('work_item_id',workItemId).in('status',['queued','preparing','review','uploading','staged']).limit(1);
  if(readError)throw new Error('MOCKUP_SCHEMA_NOT_READY');
  if(running?.[0])return {id:running[0].id,status:running[0].status,reused:true};
@@ -30,8 +31,11 @@ export async function requestProductionMockup(workItemId:string,actor:string) {
  return {id,status:'queued',reused:false,expectedUpdatedAt:item.updated_at};
 }
 export async function authorizeSessionSource(session:Record<string,unknown>) {
- const {source,binding}=await readMockupSource(String(session.work_item_id)),expected=plainObject(session.binding);
- if(binding.expectedUpdatedAt!==expected.expectedUpdatedAt||binding.expectedMetadataHash!==expected.expectedMetadataHash||binding.sourceBindingHash!==expected.sourceBindingHash)throw new Error('MOCKUP_SOURCE_OR_MANUSCRIPT_CHANGED');
+ const {item,source,binding}=await readMockupSource(String(session.work_item_id)),expected=plainObject(session.binding);
+ if(item.status==='published')throw new Error('MOCKUP_PUBLISHED_LOCKED');
+ if(binding.candidateId!==session.candidate_id||binding.sourceBindingHash!==expected.sourceBindingHash)throw new Error('MOCKUP_SOURCE_OR_MANUSCRIPT_CHANGED');
+ if(binding.expectedActiveSetId!==expectedMockupActiveSetId(expected))throw new Error('IMAGE_SET_REVISION_CONFLICT');
+ assertMockupImageInputs(item.metadata,expected);
  const db=contentAdmin();let sourceUrl:string,sourceAuthorization:string|null=null;
  if(source.delivery==='pc_direct'){
   const {data:file,error}=await db.from('naver_works_drive_files').select('root_id,external_file_id').eq('id',String(source.driveFileId)).single();

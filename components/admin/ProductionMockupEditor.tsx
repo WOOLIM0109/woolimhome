@@ -40,20 +40,33 @@ export function productionMockupImageUrl(value: unknown) {
 export function productionMockupError(value: unknown) {
   const code = typeof value === "string" ? value : "";
   const known: Record<string,string> = {
-    MOCKUP_TITLE_TOO_WIDE: "제목이 표시 영역을 벗어납니다. 문구를 줄이거나 보조 제목 표시를 꺼 주세요.",
-    MOCKUP_TITLE_UNSUPPORTED_GLYPH: "지원하지 않는 글자나 기호가 있습니다. 다른 문자로 바꿔 주세요.",
-    MOCKUP_TITLE_INVALID_CHARACTER: "제목에는 줄바꿈이나 제어 문자를 넣을 수 없습니다.",
-    MOCKUP_TITLE_REQUIRED: "메인 제목을 입력해 주세요.",
-    THUMBNAIL_VERIFIED_BASE_REQUIRED: "새 편집 경로로 목업을 먼저 확인·확정해야 제목만 수정할 수 있습니다.",
-    THUMBNAIL_PREVIEW_LIMIT: "미리보기 요청이 잠시 많아졌습니다. 잠시 뒤 직접 다시 눌러 주세요.",
-    MOCKUP_EXISTING_JOB_RUNNING: "기존 이미지 작업이 실행 중입니다. 끝난 뒤 새 목업을 준비해 주세요.",
-    MOCKUP_SESSION_ALREADY_OPEN: "이미 준비 중인 요청이 있습니다. 상태 새로고침으로 확인해 주세요.",
+    MOCKUP_TITLE_TOO_WIDE: "제목이 표시 영역을 벗어납니다.\n문구를 줄이거나 보조 제목 표시를 꺼 주세요. 이어서 ‘제목 미리보기 만들기’를 누르세요.",
+    MOCKUP_TITLE_UNSUPPORTED_GLYPH: "지원하지 않는 글자나 기호가 있습니다.\n다른 문자로 바꾼 뒤 ‘제목 미리보기 만들기’를 누르세요.",
+    MOCKUP_TITLE_INVALID_CHARACTER: "제목에는 줄바꿈이나 제어 문자를 넣을 수 없습니다.\n줄바꿈과 제어 문자를 지운 뒤 ‘제목 미리보기 만들기’를 누르세요.",
+    MOCKUP_TITLE_REQUIRED: "메인 제목이 비어 있습니다.\n메인 제목을 입력한 뒤 ‘제목 미리보기 만들기’를 누르세요.",
+    THUMBNAIL_VERIFIED_BASE_REQUIRED: "제목을 편집할 수 있는 확인된 목업이 없습니다.\n‘PC에서 새 목업 준비’를 누르고 5장을 확인·교체한 뒤 제목을 수정하세요.",
+    THUMBNAIL_PREVIEW_LIMIT: "미리보기 요청이 잠시 많아졌습니다.\n잠시 뒤 ‘제목 미리보기 만들기’를 직접 다시 누르세요.",
+    MOCKUP_EXISTING_JOB_RUNNING: "기존 이미지 작업이 실행 중입니다.\n작업이 끝나면 ‘상태 새로고침’을 누른 뒤 ‘PC에서 새 목업 준비’를 누르세요.",
+    MOCKUP_SESSION_ALREADY_OPEN: "이미 준비 중인 요청이 있습니다.\n‘상태 새로고침’을 눌러 해당 요청을 확인하세요.",
+    IMAGE_SET_BODY_REQUIRED: "지금 원고에 이미지 교체에 필요한 본문이 없습니다.\n원고를 저장한 뒤 ‘상태 새로고침’을 누르고 같은 후보로 다시 교체하세요.",
+    IMAGE_SET_BODY_MAPPING_REQUIRED: "지금 본문에서 교체할 그림 네 자리를 모두 찾지 못했습니다.\n본문에 현재 내지 그림 네 장을 각각 한 번씩 넣어 저장한 뒤 ‘상태 새로고침’을 누르고 같은 후보로 다시 교체하세요.",
+    IMAGE_SET_BODY_MAPPING_AMBIGUOUS: "지금 본문의 그림 주소가 중복되거나 여러 주소로 지정되어 교체 위치를 확정할 수 없습니다.\n현재 내지 그림 네 장의 주소를 각각 한 번씩 넣어 저장한 뒤 ‘상태 새로고침’을 누르고 같은 후보로 다시 교체하세요.",
+    IMAGE_SET_REVISION_CONFLICT: "교체를 저장하는 동안 원고나 현재 목업이 바뀌었습니다.\n‘상태 새로고침’으로 현재 이미지를 확인한 뒤 같은 후보로 다시 교체하세요. 다른 목업이 먼저 교체됐다면 이 후보로 되돌릴 수 없으므로 새 준비 요청이 필요합니다.",
+    IMAGE_SET_PUBLISHED_LOCKED: "이미 발행된 작업물은 이미지를 다시 교체할 수 없습니다.\n이 화면에서 잠금을 풀거나 되돌릴 방법은 없습니다. 발행된 작업물의 수정은 담당자에게 요청하세요.",
+    MOCKUP_PUBLISHED_LOCKED: "이미 발행된 작업물은 목업을 다시 만들거나 교체할 수 없습니다.\n이 화면에서 잠금을 풀거나 되돌릴 방법은 없습니다. 발행된 작업물의 수정은 담당자에게 요청하세요.",
+    MOCKUP_IMAGE_INPUTS_CHANGED: "목업을 요청한 뒤 장표 선정이나 가림 설정 또는 수동으로 올린 이미지가 바뀌어 이 후보를 사용할 수 없습니다.\n이 후보를 다시 쓰도록 되돌릴 방법은 없습니다. ‘이 준비 요청 취소’ 후 ‘PC에서 새 목업 준비’를 눌러 현재 이미지를 확인하고 다시 검토하세요.",
+    MOCKUP_IMAGE_INPUTS_UNVERIFIABLE: "예전에 만든 후보는 바뀐 원고의 장표 선정·가림 설정·수동 이미지와 맞는지 확인할 기록이 없습니다.\n이 후보를 자동으로 복구할 방법은 없습니다. ‘이 준비 요청 취소’ 후 ‘PC에서 새 목업 준비’를 눌러 현재 이미지를 확인하고 다시 검토하세요.",
+    MOCKUP_SOURCE_OR_MANUSCRIPT_CHANGED: "목업을 만든 뒤 원본 PPT·장표 선정 또는 가림 설정이 바뀌어 이 후보를 사용할 수 없습니다.\n이 후보를 다시 쓰도록 되돌릴 방법은 없습니다. ‘이 준비 요청 취소’ 후 ‘PC에서 새 목업 준비’를 눌러 다시 검토하세요.",
+    MOCKUP_SESSION_REVIEW_STALE: "확인한 후보와 현재 검토 내용 또는 현재 목업이 달라졌습니다.\n‘상태 새로고침’을 누르고 지금 후보 5장을 다시 열어 확인하세요. 다른 목업이 먼저 교체됐다면 이 후보를 복구할 방법은 없습니다. ‘이 준비 요청 취소’ 후 ‘PC에서 새 목업 준비’를 누르세요.",
+    MOCKUP_EXPLICIT_REVIEW_REQUIRED: "지금 후보 5장의 확인 기록이 없거나 후보가 바뀌었습니다.\n‘상태 새로고침’을 누르고 5장을 각각 열어 확인한 뒤 확인란을 선택하세요.",
+    MOCKUP_SESSION_NO_LONGER_ACTIVE: "다른 목업이 이미 교체되어 이 요청은 더 이상 현재 목업이 아닙니다.\n이 요청으로 되돌릴 방법은 없습니다. ‘상태 새로고침’으로 현재 목업을 확인하고 새 목업이 필요하면 ‘PC에서 새 목업 준비’를 누르세요.",
   };
   if (known[code]) return `${known[code]} (${code})`;
-  if (/^(MOCKUP|THUMBNAIL|IMAGE_SET)_.*(?:STALE|CHANGED|CONFLICT|NO_LONGER_ACTIVE)$/.test(code)) return `다른 편집으로 기준 상태가 바뀌었습니다. 최신 상태를 확인하고 새 후보를 만들어 주세요. (${code})`;
-  if (/^(MOCKUP|THUMBNAIL)_SCHEMA_NOT_READY$/.test(code)) return `편집 기능의 서버 준비가 아직 끝나지 않았습니다. (${code})`;
-  if (/^(MOCKUP|THUMBNAIL|IMAGE_SET)_[A-Z0-9_]+$/.test(code)) return `요청을 처리하지 못했습니다. (${code})`;
-  return code === "Unauthorized" ? "관리자 로그인이 필요합니다." : "요청을 처리하지 못했습니다. 현재 이미지는 유지됩니다.";
+  if (/^(MOCKUP|THUMBNAIL|IMAGE_SET)_.*(?:REDACTION|SOURCE_PROOF|LAYOUT_PROOF)/.test(code)) return `가림 확인 기록이 지금 원본·장표·가림 설정과 맞지 않아 이 후보를 사용할 수 없습니다.\n이 후보를 다시 쓰도록 되돌릴 방법은 없습니다. ‘이 준비 요청 취소’ 후 ‘PC에서 새 목업 준비’를 눌러 가림을 다시 확인하세요. (${code})`;
+  if (/^(MOCKUP|THUMBNAIL|IMAGE_SET)_.*(?:STALE|CHANGED|CONFLICT|NO_LONGER_ACTIVE)$/.test(code)) return `다른 편집으로 기준 상태가 바뀌었습니다.\n‘상태 새로고침’으로 최신 상태를 확인한 뒤 ‘제목 미리보기 만들기’로 새 후보를 만들어 주세요. (${code})`;
+  if (/^(MOCKUP|THUMBNAIL)_SCHEMA_NOT_READY$/.test(code)) return `편집 기능의 서버 준비가 아직 끝나지 않았습니다.\n담당자에게 오류 코드를 전달해 서버 준비를 요청한 뒤 ‘상태 새로고침’을 누르세요. (${code})`;
+  if (/^(MOCKUP|THUMBNAIL|IMAGE_SET)_[A-Z0-9_]+$/.test(code)) return `요청을 처리하지 못했습니다.\n‘상태 새로고침’으로 처리 여부를 확인하고 계속 막히면 담당자에게 오류 코드를 전달하세요. (${code})`;
+  return code === "Unauthorized" ? "관리자 로그인이 필요합니다.\n관리자 로그인 후 편집 화면을 다시 여세요." : "요청을 처리하지 못했습니다.\n‘상태 새로고침’으로 처리 여부를 확인하고 계속 막히면 담당자에게 문의하세요.";
 }
 function checkedTitle(value: unknown): TitleSpec | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
@@ -155,7 +168,10 @@ export default function ProductionMockupEditor({ workItemId, title: workTitle, c
     if (busyRef.current) return;
     busyRef.current = true; setBusy(true); setError(""); setMessage("");
     try { await operation(); }
-    catch (reason) { setError(`${reason instanceof Error ? reason.message : "요청을 처리하지 못했습니다."} 입력 중인 내용과 기존 완성본은 유지됩니다. 자동 재시도하지 않습니다.`); }
+    catch (reason) {
+      const detail=reason instanceof Error ? reason.message : "요청을 처리하지 못했습니다.";
+      setError(`${detail}${detail.includes("\n") ? "" : "\n‘상태 새로고침’으로 처리 여부를 확인하고 계속 막히면 담당자에게 문의하세요."} 입력 중인 내용과 기존 완성본은 유지됩니다. 자동 재시도하지 않습니다.`);
+    }
     finally { busyRef.current = false; setBusy(false); }
   }
   function openEditor() {
@@ -240,17 +256,36 @@ export default function ProductionMockupEditor({ workItemId, title: workTitle, c
   const titleMatches = Boolean(candidate && sameTitle(candidate.title,cleanTitle(titleSpec)));
   const titleUnchanged = Boolean(data?.title.current && sameTitle(data.title.current,cleanTitle(titleSpec)));
   const currentImages = [...currentAssets].filter(a => ["thumbnail","body_image"].includes(a.asset_type)).sort((a,b) => (a.sort_order ?? 0)-(b.sort_order ?? 0));
+  const busyReasonId = `mockup-${workItemId}-busy`;
+  const createReasonId = `mockup-${workItemId}-create`;
+  const previewReasonId = `mockup-${workItemId}-preview`;
+  const applyTitleReasonId = `mockup-${workItemId}-apply-title`;
+  const createReason = busy ? "요청 처리가 끝나면 새 목업을 준비할 수 있습니다."
+    : !data ? "‘상태 새로고침’으로 준비 상태를 먼저 확인하세요."
+    : liveSession ? "진행 중인 요청을 먼저 확인·교체하거나 ‘이 준비 요청 취소’를 눌러야 새 목업을 준비할 수 있습니다." : "";
+  const previewReason = busy ? "요청 처리가 끝나면 제목 미리보기를 만들 수 있습니다."
+    : !data?.title.available ? "먼저 ‘PC에서 새 목업 준비’로 만든 5장을 확인·교체해야 제목 미리보기를 만들 수 있습니다."
+    : !titleSpec.main.trim() ? "메인 제목을 입력해야 미리보기를 만들 수 있습니다."
+    : titleSpec.showSub && !titleSpec.sub.trim() ? "보조 제목을 입력하거나 ‘보조 제목 표시’를 꺼야 미리보기를 만들 수 있습니다."
+    : titleUnchanged ? "현재 제목과 같습니다. 문구를 바꿔야 새 미리보기를 만들 수 있습니다."
+    : titleMatches ? "같은 문구의 후보가 있습니다. ‘제목 후보 열어 확인’을 누르세요." : "";
+  const applyTitleReason = busy ? "요청 처리가 끝나면 확인한 썸네일을 교체할 수 있습니다."
+    : !titleMatches ? "입력 문구가 후보와 다릅니다. ‘제목 미리보기 만들기’를 다시 누르세요."
+    : !titleProof || !seen.includes(titleProof) ? "‘제목 후보 열어 확인’을 눌러 확대 이미지가 열린 뒤 확인란을 선택해야 교체할 수 있습니다."
+    : !titleInspected ? "후보를 확인했다는 확인란을 선택해야 교체할 수 있습니다." : "";
 
   return <>
-    <button type="button" className={primaryClass} disabled={disabled} onClick={openEditor}>목업·썸네일 편집</button>
+    <button type="button" className={primaryClass} disabled={disabled} aria-describedby={disabled ? `mockup-${workItemId}-disabled` : undefined} onClick={openEditor}>목업·썸네일 편집</button>
+    {disabled && <p id={`mockup-${workItemId}-disabled`} className="text-xs text-[var(--muted)]">이 작업물의 이미지 제작·업로드가 끝나면 편집할 수 있습니다.</p>}
     <dialog ref={dialogRef} aria-label={`${workTitle} 목업·썸네일 편집`} onCancel={event => {event.preventDefault();closeEditor();}}
       className="fixed inset-0 m-auto max-h-[92vh] w-[min(1180px,calc(100vw-24px))] overflow-auto rounded-2xl border border-[var(--line)] bg-[#f7f7f7] p-5 shadow-2xl backdrop:bg-black/60">
       {open && <>
-        <header className="flex items-start justify-between gap-4"><div><h2 className="text-xl font-bold">목업·썸네일 편집</h2><p className="mt-1 text-sm text-[var(--muted)]">{workTitle}</p></div><button type="button" className={buttonClass} disabled={busy} onClick={closeEditor}>닫기</button></header>
+        <header className="flex items-start justify-between gap-4"><div><h2 className="text-xl font-bold">목업·썸네일 편집</h2><p className="mt-1 text-sm text-[var(--muted)]">{workTitle}</p></div><button type="button" className={buttonClass} disabled={busy} aria-describedby={busy ? busyReasonId : undefined} onClick={closeEditor}>닫기</button></header>
+        {busy && <p id={busyReasonId} className="mt-2 text-xs text-[var(--muted)]">요청 처리 중에는 닫기·새로고침·취소·편집 연결·입력 되돌리기를 사용할 수 없습니다. 처리가 끝나면 다시 누르세요.</p>}
         <p className="mt-4 rounded-xl border border-orange-200 bg-orange-50 p-3 text-sm">원고·발행 정보는 유지하고 확인한 이미지만 교체합니다. 새 후보를 만드는 동안 기존 완성본은 유지됩니다.</p>
-        {error && <p role="alert" className="mt-3 rounded-xl bg-red-50 p-3 text-sm text-red-800">{error}</p>}
+        {error && <p role="alert" className="mt-3 whitespace-pre-line rounded-xl bg-red-50 p-3 text-sm text-red-800">{error}</p>}
         {message && <p role="status" className="mt-3 rounded-xl bg-emerald-50 p-3 text-sm text-emerald-800">{message}</p>}
-        <div className="my-4 flex flex-wrap gap-2"><button type="button" className={buttonClass} disabled={busy} onClick={() => void guarded(async () => {await readState();setMessage("최신 준비 상태를 확인했습니다.");})}>상태 새로고침</button><button type="button" className={primaryClass} disabled={busy || !data || liveSession} onClick={() => void createSession()}>PC에서 새 목업 준비</button><span className="self-center text-xs text-[var(--muted)]">요청 버튼을 누를 때만 PC 작업을 만듭니다.</span></div>
+        <div className="my-4 flex flex-wrap gap-2"><button type="button" className={buttonClass} disabled={busy} aria-describedby={busy ? busyReasonId : undefined} onClick={() => void guarded(async () => {await readState();setMessage("최신 준비 상태를 확인했습니다.");})}>상태 새로고침</button><button type="button" className={primaryClass} disabled={Boolean(createReason)} aria-describedby={createReason ? createReasonId : undefined} onClick={() => void createSession()}>PC에서 새 목업 준비</button><span className="self-center text-xs text-[var(--muted)]">요청 버튼을 누를 때만 PC 작업을 만듭니다.</span>{createReason && <p id={createReasonId} className="w-full text-xs text-[var(--muted)]">{createReason}</p>}</div>
         <section className="rounded-xl border border-[var(--line)] bg-white p-4"><h3 className="font-bold">현재 사용 중인 이미지</h3><div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">{currentImages.map((asset,index) => <button key={asset.id} type="button" className="overflow-hidden rounded-lg border border-[var(--line)]" onClick={() => showImage(asset.public_url,`현재 이미지 ${index+1}`,null)}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src={asset.public_url} alt={`현재 ${asset.asset_type === "thumbnail" ? "썸네일" : "내지"} ${index+1}`} className="aspect-square w-full object-contain"/><span className="block p-2 text-xs">현재 {asset.asset_type === "thumbnail" ? "썸네일" : `이미지 ${index+1}`}</span></button>)}</div>{!currentImages.length && <p className="mt-2 text-sm text-[var(--muted)]">등록된 현재 이미지가 없습니다.</p>}</section>
@@ -260,15 +295,22 @@ export default function ProductionMockupEditor({ workItemId, title: workTitle, c
           {data?.sessions.map(session => {
             const complete=Boolean(completeImageSet(session));
             const allSeen=complete && session.images.every(i=>seen.includes(proofKey(session,i)));
+            const seenCount=session.images.filter(i=>seen.includes(proofKey(session,i))).length;
+            const activationReason=busy ? "요청 처리가 끝나면 확인한 목업으로 교체할 수 있습니다."
+              : !allSeen ? `5장을 각각 열어 확인해야 켜집니다. (지금 ${seenCount}/5 확인함)`
+              : !approved[session.id] ? "5장의 가림·잘림·장표 배치를 확인했다는 확인란을 선택해야 켜집니다." : "";
+            const activationReasonId=`mockup-${workItemId}-${session.id}-activate`;
             const terminal=["activated","completed","cancelled","failed"].includes(session.status);
-            return <article key={session.id} className="mt-3 rounded-xl border border-[var(--line)] p-3"><div className="flex flex-wrap items-center justify-between gap-2"><div><strong className="text-sm">{stageLabel(session.status)}</strong><p className="text-xs text-[var(--muted)]">{session.createdAt.replace("T"," ").slice(0,19)}</p></div>{!terminal && <button type="button" className={buttonClass} disabled={busy} onClick={()=>void cancelSession(session)}>이 준비 요청 취소</button>}</div>
-              {session.errorCode && <p className="mt-2 text-xs text-red-800">준비 오류: {session.errorCode} · 기존 완성본은 유지됩니다.</p>}
+            const sessionError=session.errorCode ? productionMockupError(session.errorCode) : "";
+            return <article key={session.id} className="mt-3 rounded-xl border border-[var(--line)] p-3"><div className="flex flex-wrap items-center justify-between gap-2"><div><strong className="text-sm">{stageLabel(session.status)}</strong><p className="text-xs text-[var(--muted)]">{session.createdAt.replace("T"," ").slice(0,19)}</p></div>{!terminal && <button type="button" className={buttonClass} disabled={busy} aria-describedby={busy ? busyReasonId : undefined} onClick={()=>void cancelSession(session)}>이 준비 요청 취소</button>}</div>
+              {sessionError && <p className="mt-2 whitespace-pre-line text-xs text-red-800">{terminal ? sessionError.replaceAll('‘이 준비 요청 취소’ 후 ','') : sessionError} 기존 완성본은 유지됩니다.</p>}
+              {session.status === "failed" && <p className="mt-2 text-xs text-red-800">이 준비 요청을 다시 진행할 방법은 없습니다. ‘PC에서 새 목업 준비’를 눌러 새로 요청하세요.</p>}
               {session.localReviewUrl && !terminal && <a href={session.localReviewUrl} target="_blank" rel="noopener noreferrer" referrerPolicy="no-referrer" className="mt-3 inline-block rounded-lg bg-slate-800 px-3 py-2 text-sm font-bold text-white">이 PC의 장표·블러·슬롯 편집 열기</a>}
-              {["review","uploading"].includes(session.status) && <button type="button" className={`${buttonClass} ml-2 mt-3`} disabled={busy} onClick={()=>void guarded(async()=>{const receipt=await jsonRequest(endpoint,{action:"reopen",sessionId:session.id});if(receipt.sessionId!==session.id||receipt.reopenRequested!==true)throw new Error("새 연결 요청을 확인하지 못했습니다.");await readState();setMessage("새 편집 연결을 요청했습니다. PC 워커가 연결을 준비한 뒤 상태 새로고침을 눌러 주세요. PPT 재변환은 하지 않습니다.");})}>편집 연결 다시 받기</button>}
+              {["review","uploading"].includes(session.status) && <button type="button" className={`${buttonClass} ml-2 mt-3`} disabled={busy} aria-describedby={busy ? busyReasonId : undefined} onClick={()=>void guarded(async()=>{const receipt=await jsonRequest(endpoint,{action:"reopen",sessionId:session.id});if(receipt.sessionId!==session.id||receipt.reopenRequested!==true)throw new Error("새 연결 요청을 확인하지 못했습니다.");await readState();setMessage("새 편집 연결을 요청했습니다. PC 워커가 연결을 준비한 뒤 상태 새로고침을 눌러 주세요. PPT 재변환은 하지 않습니다.");})}>편집 연결 다시 받기</button>}
               {!!session.images.length && <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">{session.images.map((image,index)=><button key={image.url} type="button" className="rounded-lg border border-[var(--line)]" onClick={()=>showImage(image.url,`새 후보 ${index+1} · ${image.kind==="thumbnail"?"썸네일":"내지"}`,proofKey(session,image))}>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src={image.url} alt={`새 목업 후보 ${index+1}`} className="aspect-square w-full object-contain"/><span className="block p-2 text-xs">{seen.includes(proofKey(session,image)) ? "확대 확인함" : "열어 확인"}</span></button>)}</div>}
-              {complete && !terminal && <div className="mt-3 flex flex-wrap items-center gap-3"><label className="text-sm"><input type="checkbox" checked={Boolean(approved[session.id])} disabled={busy || !allSeen} onChange={e=>setApproved(p=>({...p,[session.id]:e.target.checked}))}/> 새 후보 5장의 가림·잘림·장표 배치를 확인함</label><button type="button" className={primaryClass} disabled={busy || !allSeen || !approved[session.id]} onClick={()=>void activateSession(session)}>확인한 목업 5장으로 교체</button>{!allSeen && <p className="text-xs text-[var(--muted)]">5장을 각각 열어 확인해야 교체할 수 있습니다.</p>}</div>}
+              {complete && !terminal && <div className="mt-3 flex flex-wrap items-center gap-3"><label className="text-sm"><input type="checkbox" checked={Boolean(approved[session.id])} disabled={busy || !allSeen} aria-describedby={activationReason ? activationReasonId : undefined} onChange={e=>setApproved(p=>({...p,[session.id]:e.target.checked}))}/> 새 후보 5장의 가림·잘림·장표 배치를 확인함</label><button type="button" className={primaryClass} disabled={Boolean(activationReason)} aria-describedby={activationReason ? activationReasonId : undefined} onClick={()=>void activateSession(session)}>확인한 목업 5장으로 교체</button>{activationReason && <p id={activationReasonId} className="w-full text-xs text-[var(--muted)]">{activationReason}</p>}</div>}
             </article>;
           })}
         </section>
@@ -277,19 +319,20 @@ export default function ProductionMockupEditor({ workItemId, title: workTitle, c
           {!data?.title.available && <p className="mt-3 rounded-lg bg-slate-50 p-3 text-sm">{data?.title.reason || "제목만 편집할 수 있는 검증된 목업이 준비되면 사용할 수 있습니다."}</p>}
           <div className="mt-3 grid gap-3 sm:grid-cols-2"><label className="grid gap-1 text-sm font-bold">메인 제목 · 작업물 종류<input value={titleSpec.main} maxLength={40} disabled={busy || !data?.title.available} onChange={e=>titleChanged({...titleSpec,main:e.target.value})} className="rounded-lg border border-[var(--line)] p-2 font-normal" placeholder="예: 행사 대행 제안서"/></label><label className="grid gap-1 text-sm font-bold">보조 제목 · 브랜드명(선택)<input value={titleSpec.sub} maxLength={60} disabled={busy || !data?.title.available} onChange={e=>titleChanged({...titleSpec,sub:e.target.value})} className="rounded-lg border border-[var(--line)] p-2 font-normal" placeholder="작게 표시할 브랜드명"/></label></div>
           <label className="mt-3 block text-sm"><input type="checkbox" checked={titleSpec.showSub} disabled={busy || !data?.title.available} onChange={e=>titleChanged({...titleSpec,showSub:e.target.checked})}/> 보조 제목 표시</label>
-          <div className="mt-3 flex gap-2"><button type="button" className={primaryClass} disabled={busy || !data?.title.available || titleUnchanged || titleMatches || !titleSpec.main.trim() || (titleSpec.showSub && !titleSpec.sub.trim())} onClick={()=>void previewTitle()}>제목 미리보기 만들기</button><button type="button" className={buttonClass} disabled={busy} onClick={()=>{setTitleSpec(data?.title.current??blankTitle);titleDirtyRef.current=false;candidatePresentRef.current=false;setCandidate(null);setTitleInspected(false);setTitleNotice("");setMessage("입력 문구만 현재 제목으로 되돌렸습니다. 서버 이미지는 변경하지 않았습니다.");}}>입력만 되돌리기</button></div>
+          <div className="mt-3 flex gap-2"><button type="button" className={primaryClass} disabled={Boolean(previewReason)} aria-describedby={previewReason ? previewReasonId : undefined} onClick={()=>void previewTitle()}>제목 미리보기 만들기</button><button type="button" className={buttonClass} disabled={busy} aria-describedby={busy ? busyReasonId : undefined} onClick={()=>{setTitleSpec(data?.title.current??blankTitle);titleDirtyRef.current=false;candidatePresentRef.current=false;setCandidate(null);setTitleInspected(false);setTitleNotice("");setMessage("입력 문구만 현재 제목으로 되돌렸습니다. 서버 이미지는 변경하지 않았습니다.");}}>입력만 되돌리기</button></div>
+          {previewReason && <p id={previewReasonId} className="mt-2 text-xs text-[var(--muted)]">{previewReason}</p>}
           {candidate && <div className="mt-4 rounded-xl bg-slate-50 p-3"><button type="button" className="block w-full max-w-[360px] overflow-hidden rounded-lg border border-[var(--line)]" onClick={()=>showImage(candidate.url,"썸네일 제목 후보 · 적용 전 확인",titleMatches?titleProof:null)}>
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src={candidate.url} alt="수정한 썸네일 제목 후보" className="aspect-square w-full object-contain"/><span className="block p-2 text-xs font-bold">제목 후보 열어 확인</span></button>
             {!titleMatches && <p className="mt-2 text-xs text-orange-800">입력 문구가 달라졌습니다. 이 이미지는 이전 후보입니다. 미리보기를 다시 만들어 주세요.</p>}
-            <label className="mt-3 block text-sm"><input type="checkbox" checked={titleInspected} disabled={busy || !titleMatches || !titleProof || !seen.includes(titleProof)} onChange={e=>setTitleInspected(e.target.checked)}/> 후보를 열어 제목·잘림·브랜드 노출을 확인함</label><button type="button" className={`${primaryClass} mt-3`} disabled={busy || !titleMatches || !titleInspected || !titleProof || !seen.includes(titleProof)} onClick={()=>void activateTitle()}>확인한 썸네일만 교체</button></div>}
+            <label className="mt-3 block text-sm"><input type="checkbox" checked={titleInspected} disabled={busy || !titleMatches || !titleProof || !seen.includes(titleProof)} aria-describedby={applyTitleReason ? applyTitleReasonId : undefined} onChange={e=>setTitleInspected(e.target.checked)}/> 후보를 열어 제목·잘림·브랜드 노출을 확인함</label><button type="button" className={`${primaryClass} mt-3`} disabled={Boolean(applyTitleReason)} aria-describedby={applyTitleReason ? applyTitleReasonId : undefined} onClick={()=>void activateTitle()}>확인한 썸네일만 교체</button>{applyTitleReason && <p id={applyTitleReasonId} className="mt-2 text-xs text-[var(--muted)]">{applyTitleReason}</p>}</div>}
         </section>
       </>}
     </dialog>
     <dialog ref={imageDialogRef} aria-label={preview?.label || "목업 이미지 확대"} onClose={()=>setPreview(null)} className="fixed inset-0 m-auto max-h-[96vh] w-[min(1700px,calc(100vw-16px))] overflow-auto rounded-xl border-0 bg-white p-3 shadow-2xl backdrop:bg-black/70">
       {preview && <><div className="sticky top-0 z-10 flex items-center justify-between gap-3 bg-white pb-3"><h3 className="font-bold">{preview.label}</h3><button type="button" className={buttonClass} onClick={()=>{imageDialogRef.current?.close();setPreview(null);}}>닫기</button></div>
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img key={`${preview.url}:${preview.proof}`} src={preview.url} alt={preview.label} className="mx-auto block max-w-none" onLoad={()=>{if(preview.proof)setSeen(keys=>keys.includes(preview.proof!)?keys:[...keys,preview.proof!]);}} onError={()=>{if(preview.proof)setSeen(keys=>keys.filter(key=>key!==preview.proof));setTitleInspected(false);setError("확대 이미지를 읽지 못했습니다. 확인되지 않은 후보는 교체할 수 없습니다.");}}/></>}
+        <img key={`${preview.url}:${preview.proof}`} src={preview.url} alt={preview.label} className="mx-auto block max-w-none" onLoad={()=>{if(preview.proof)setSeen(keys=>keys.includes(preview.proof!)?keys:[...keys,preview.proof!]);}} onError={()=>{if(preview.proof)setSeen(keys=>keys.filter(key=>key!==preview.proof));setTitleInspected(false);setError("확대 이미지를 읽지 못해 확인되지 않은 후보는 교체할 수 없습니다.\n확대 창을 닫고 ‘열어 확인’을 다시 누르세요. 계속 안 열리면 ‘상태 새로고침’으로 후보를 확인하세요.");}}/></>}
     </dialog>
   </>;
 }

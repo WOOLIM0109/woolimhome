@@ -1,0 +1,169 @@
+✖ failing tests:
+
+test at lib\pc-worker\preparation\production-bridge.test.mjs:288:1
+✖ explicit preparation review applies into a fresh generation and swaps editor only after verified success (4.7729ms)
+  Error: EPERM: operation not permitted, mkdtemp 'C:\Users\becky\AppData\Local\b-XXXXXX'
+      at async mkdtemp (node:internal/fs/promises:1194:10)
+      at async preparationBridgeFixture (file:///C:/dev/woolimhome/.codex-tmp/mockup-swap/lib/pc-worker/preparation/production-bridge.test.mjs:237:21)
+      at async TestContext.<anonymous> (file:///C:/dev/woolimhome/.codex-tmp/mockup-swap/lib/pc-worker/preparation/production-bridge.test.mjs:289:13)
+      at async Test.run (node:internal/test_runner/test:1313:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:897:7) {
+    errno: -4048,
+    code: 'EPERM',
+    syscall: 'mkdtemp',
+    path: 'C:\\Users\\becky\\AppData\\Local\\b-XXXXXX'
+  }
+
+test at lib\pc-worker\preparation\production-bridge.test.mjs:309:1
+✖ manual preparation selection reaches only the fresh generation and empty selection keeps automatic defaults (2.5577ms)
+  Error: EPERM: operation not permitted, mkdtemp 'C:\Users\becky\AppData\Local\b-XXXXXX'
+      at async mkdtemp (node:internal/fs/promises:1194:10)
+      at async preparationBridgeFixture (file:///C:/dev/woolimhome/.codex-tmp/mockup-swap/lib/pc-worker/preparation/production-bridge.test.mjs:237:21)
+      at async TestContext.<anonymous> (file:///C:/dev/woolimhome/.codex-tmp/mockup-swap/lib/pc-worker/preparation/production-bridge.test.mjs:311:15)
+      at async Test.run (node:internal/test_runner/test:1313:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:897:7) {
+    errno: -4048,
+    code: 'EPERM',
+    syscall: 'mkdtemp',
+    path: 'C:\\Users\\becky\\AppData\\Local\\b-XXXXXX'
+  }
+
+test at lib\pc-worker\preparation\production-bridge.test.mjs:323:1
+✖ failed preparation, stale old evidence or failed review URL publication preserves original record/editor/artifacts (4.5483ms)
+  Error: EPERM: operation not permitted, mkdtemp 'C:\Users\becky\AppData\Local\b-XXXXXX'
+      at async mkdtemp (node:internal/fs/promises:1194:10)
+      at async preparationBridgeFixture (file:///C:/dev/woolimhome/.codex-tmp/mockup-swap/lib/pc-worker/preparation/production-bridge.test.mjs:237:21)
+      at async TestContext.<anonymous> (file:///C:/dev/woolimhome/.codex-tmp/mockup-swap/lib/pc-worker/preparation/production-bridge.test.mjs:327:15)
+      at async Test.run (node:internal/test_runner/test:1313:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:897:7) {
+    errno: -4048,
+    code: 'EPERM',
+    syscall: 'mkdtemp',
+    path: 'C:\\Users\\becky\\AppData\\Local\\b-XXXXXX'
+  }
+
+test at lib\pc-worker\preparation\production-bridge.test.mjs:339:1
+✖ restarted daemon resumes the accepted generation without reconversion and rejects arbitrary work directory (3.6089ms)
+  Error: EPERM: operation not permitted, mkdtemp 'C:\Users\becky\AppData\Local\b-XXXXXX'
+      at async mkdtemp (node:internal/fs/promises:1194:10)
+      at async preparationBridgeFixture (file:///C:/dev/woolimhome/.codex-tmp/mockup-swap/lib/pc-worker/preparation/production-bridge.test.mjs:237:21)
+      at async TestContext.<anonymous> (file:///C:/dev/woolimhome/.codex-tmp/mockup-swap/lib/pc-worker/preparation/production-bridge.test.mjs:340:13)
+      at async Test.run (node:internal/test_runner/test:1313:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:897:7) {
+    errno: -4048,
+    code: 'EPERM',
+    syscall: 'mkdtemp',
+    path: 'C:\\Users\\becky\\AppData\\Local\\b-XXXXXX'
+  }
+
+test at lib\pc-worker\preparation\production-bridge.test.mjs:354:1
+✖ preparation actions serialize and uploading sessions cannot change selection or source format (2.7261ms)
+  Error: EPERM: operation not permitted, mkdtemp 'C:\Users\becky\AppData\Local\b-XXXXXX'
+      at async mkdtemp (node:internal/fs/promises:1194:10)
+      at async preparationBridgeFixture (file:///C:/dev/woolimhome/.codex-tmp/mockup-swap/lib/pc-worker/preparation/production-bridge.test.mjs:237:21)
+      at async TestContext.<anonymous> (file:///C:/dev/woolimhome/.codex-tmp/mockup-swap/lib/pc-worker/preparation/production-bridge.test.mjs:356:13)
+      at async Test.run (node:internal/test_runner/test:1313:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:897:7) {
+    errno: -4048,
+    code: 'EPERM',
+    syscall: 'mkdtemp',
+    path: 'C:\\Users\\becky\\AppData\\Local\\b-XXXXXX'
+  }
+
+test at lib\pc-worker\preparation\production-bridge.test.mjs:367:1
+✖ explicit reopen rotates only launch token with no preparation, source download or record mutation (2.8635ms)
+  Error: EPERM: operation not permitted, mkdtemp 'C:\Users\becky\AppData\Local\b-XXXXXX'
+      at async mkdtemp (node:internal/fs/promises:1194:10)
+      at async preparationBridgeFixture (file:///C:/dev/woolimhome/.codex-tmp/mockup-swap/lib/pc-worker/preparation/production-bridge.test.mjs:237:21)
+      at async TestContext.<anonymous> (file:///C:/dev/woolimhome/.codex-tmp/mockup-swap/lib/pc-worker/preparation/production-bridge.test.mjs:368:13)
+      at async Test.run (node:internal/test_runner/test:1313:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:897:7) {
+    errno: -4048,
+    code: 'EPERM',
+    syscall: 'mkdtemp',
+    path: 'C:\\Users\\becky\\AppData\\Local\\b-XXXXXX'
+  }
+
+test at lib\pc-worker\preparation\production-bridge.test.mjs:379:1
+✖ missing local token-rotation feature fails safely without conversion or requeue (2.7517ms)
+  Error: EPERM: operation not permitted, mkdtemp 'C:\Users\becky\AppData\Local\b-XXXXXX'
+      at async mkdtemp (node:internal/fs/promises:1194:10)
+      at async preparationBridgeFixture (file:///C:/dev/woolimhome/.codex-tmp/mockup-swap/lib/pc-worker/preparation/production-bridge.test.mjs:237:21)
+      at async TestContext.<anonymous> (file:///C:/dev/woolimhome/.codex-tmp/mockup-swap/lib/pc-worker/preparation/production-bridge.test.mjs:380:13)
+      at async Test.run (node:internal/test_runner/test:1313:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:897:7) {
+    errno: -4048,
+    code: 'EPERM',
+    syscall: 'mkdtemp',
+    path: 'C:\\Users\\becky\\AppData\\Local\\b-XXXXXX'
+  }
+
+test at lib\pc-worker\preparation\production-bridge.test.mjs:388:1
+✖ verified snapshot upload holds exclusive preparation lock through record commit (2.5734ms)
+  Error: EPERM: operation not permitted, mkdtemp 'C:\Users\becky\AppData\Local\b-XXXXXX'
+      at async mkdtemp (node:internal/fs/promises:1194:10)
+      at async preparationBridgeFixture (file:///C:/dev/woolimhome/.codex-tmp/mockup-swap/lib/pc-worker/preparation/production-bridge.test.mjs:237:21)
+      at async TestContext.<anonymous> (file:///C:/dev/woolimhome/.codex-tmp/mockup-swap/lib/pc-worker/preparation/production-bridge.test.mjs:392:13)
+      at async Test.run (node:internal/test_runner/test:1313:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:897:7) {
+    errno: -4048,
+    code: 'EPERM',
+    syscall: 'mkdtemp',
+    path: 'C:\\Users\\becky\\AppData\\Local\\b-XXXXXX'
+  }
+
+test at lib\pc-worker\preparation\production-bridge.test.mjs:409:1
+✖ failed snapshot upload releases preparation lock and preserves review record (3.5618ms)
+  Error: EPERM: operation not permitted, mkdtemp 'C:\Users\becky\AppData\Local\b-XXXXXX'
+      at async mkdtemp (node:internal/fs/promises:1194:10)
+      at async preparationBridgeFixture (file:///C:/dev/woolimhome/.codex-tmp/mockup-swap/lib/pc-worker/preparation/production-bridge.test.mjs:237:21)
+      at async TestContext.<anonymous> (file:///C:/dev/woolimhome/.codex-tmp/mockup-swap/lib/pc-worker/preparation/production-bridge.test.mjs:411:13)
+      at async Test.run (node:internal/test_runner/test:1313:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:897:7) {
+    errno: -4048,
+    code: 'EPERM',
+    syscall: 'mkdtemp',
+    path: 'C:\\Users\\becky\\AppData\\Local\\b-XXXXXX'
+  }
+
+test at lib\portfolio\approved-16x9-templates.test.mjs:1:1
+✖ lib\portfolio\approved-16x9-templates.test.mjs (2464.6252ms)
+  'test failed'
+
+✖ failing tests:
+
+test at lib\pc-worker\preparation\powerpoint-cleanup.test.mjs:353:1
+✖ injected export, Quit, timeout and checkpoint failures leave no converter-owned POWERPNT process (2055.9897ms)
+  Error: Command failed: powershell.exe -NoProfile -NonInteractive -Command $ErrorActionPreference='Stop';$tokens=$null;$errors=$null;$ast=[System.Management.Automation.Language.Parser]::ParseFile('C:\dev\woolimhome\.codex-tmp\mockup-swap\tools\woolim-pc-worker\prepare-slides.ps1',[ref]$tokens,[ref]$errors);if($errors.Count){throw 'CONVERTER_PARSE_ERROR'};foreach($function in $ast.FindAll({param($node)$node -is [System.Management.Automation.Language.FunctionDefinitionAst]},$true)){. ([scriptblock]::Create($function.Extent.Text))};
+        $app=$null;$presentation=$null;$identity=$null;$mutex=New-Object System.Threading.Mutex($false,'Local\WoolimPowerPointPreparation');$owns=$false;
+        try{$owns=$mutex.WaitOne(0);if(-not $owns -or @(Get-Process -Name POWERPNT -ErrorAction SilentlyContinue).Count){throw 'POWERPOINT_BUSY'};
+          $started=[DateTime]::UtcNow;$app=[Activator]::CreateInstance([Type]::GetTypeFromProgID('PowerPoint.Application'));$identity=Get-OwnedPowerPointProcess -Application $app -StartedAfter $started;
+          $presentation=$app.Presentations.Add(0);$slide=$presentation.Slides.Add(1,12);
+          $shape=$slide.Shapes.AddTextbox(1,40,40,500,220);$frame=$shape.TextFrame;$range=$frame.TextRange;$range.Text='SYNTHETIC CLEANUP TEST 0123456789';$font=$range.Font;$font.Size=32;
+          foreach($reference in @($font,$range,$frame,$shape,$slide)){[Runtime.InteropServices.Marshal]::FinalReleaseComObject($reference)|Out-Null};
+          $presentation.SaveAs('C:\Users\becky\AppData\Local\Temp\ppt-cleanup-JBGWNR\synthetic.pptx',24);$presentation.Close();[Runtime.InteropServices.Marshal]::FinalReleaseComObject($presentation)|Out-Null;$presentation=$null;
+        }finally{if($presentation){try{$presentation.Close()}catch{};[Runtime.InteropServices.Marshal]::FinalReleaseComObject($presentation)|Out-Null};if($app){Close-OwnedPowerPointProcess -Application $app -Identity $identity -CopyPath 'C:\Users\becky\AppData\Local\Temp\ppt-cleanup-JBGWNR\synthetic.pptx';[Runtime.InteropServices.Marshal]::FinalReleaseComObject($app)|Out-Null};[GC]::Collect();[GC]::WaitForPendingFinalizers();if($owns){$mutex.ReleaseMutex()};$mutex.Dispose()}
+  "1"���� �μ��� �ִ� "CreateInstance"��(��) ȣ���ϴ� ���� ���ܰ� �߻��߽��ϴ�. "80070520 ������ �α׿� ������ �����ϴ�. 
+  �̹� ����Ǿ��� ���� �ֽ��ϴ�. (���ܰ� �߻��� HRESULT: 0x80070520) ������ ���� CLSID�� {91493441-5A91-11CF-8700-00AA006
+  0263B}�� ���� ����� COM Ŭ���� ���͸��� �˻����� ���߽��ϴ�."
+  ��ġ ��:4 ����:37
+  + ... me]::UtcNow;$app=[Activator]::CreateInstance([Type]::GetTypeFromProgI ...
+  +                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+      + CategoryInfo          : NotSpecified: (:) [], ParentContainsErrorRecordException
+      + FullyQualifiedErrorId : COMException
+   
+  
+      at genericNodeError (node:internal/errors:985:15)
+      at wrappedFn (node:internal/errors:539:14)
+      at ChildProcess.exithandler (node:child_process:417:12)
+      at ChildProcess.emit (node:events:509:28)
+      at maybeClose (node:internal/child_process:1124:16)
+      at ChildProcess._handle.onexit (node:internal/child_process:306:5) {
+    code: 1,
+    killed: false,
+    signal: null,
+    cmd: "powershell.exe -NoProfile -NonInteractive -Command $ErrorActionPreference='Stop';$tokens=$null;$errors=$null;$ast=[System.Management.Automation.Language.Parser]::ParseFile('C:\\dev\\woolimhome\\.codex-tmp\\mockup-swap\\tools\\woolim-pc-worker\\prepare-slides.ps1',[ref]$tokens,[ref]$errors);if($errors.Count){throw 'CONVERTER_PARSE_ERROR'};foreach($function in $ast.FindAll({param($node)$node -is [System.Management.Automation.Language.FunctionDefinitionAst]},$true)){. ([scriptblock]::Create($function.Extent.Text))};\n      $app=$null;$presentation=$null;$identity=$null;$mutex=New-Object System.Threading.Mutex($false,'Local\\WoolimPowerPointPreparation');$owns=$false;\n      try{$owns=$mutex.WaitOne(0);if(-not $owns -or @(Get-Process -Name POWERPNT -ErrorAction SilentlyContinue).Count){throw 'POWERPOINT_BUSY'};\n        $started=[DateTime]::UtcNow;$app=[Activator]::CreateInstance([Type]::GetTypeFromProgID('PowerPoint.Application'));$identity=Get-OwnedPowerPointProcess -Application $app -StartedAfter $started;\n        $presentation=$app.Presentations.Add(0);$slide=$presentation.Slides.Add(1,12);\n        $shape=$slide.Shapes.AddTextbox(1,40,40,500,220);$frame=$shape.TextFrame;$range=$frame.TextRange;$range.Text='SYNTHETIC CLEANUP TEST 0123456789';$font=$range.Font;$font.Size=32;\n        foreach($reference in @($font,$range,$frame,$shape,$slide)){[Runtime.InteropServices.Marshal]::FinalReleaseComObject($reference)|Out-Null};\n        $presentation.SaveAs('C:\\Users\\becky\\AppData\\Local\\Temp\\ppt-cleanup-JBGWNR\\synthetic.pptx',24);$presentation.Close();[Runtime.InteropServices.Marshal]::FinalReleaseComObject($presentation)|Out-Null;$presentation=$null;\n      }finally{if($presentation){try{$presentation.Close()}catch{};[Runtime.InteropServices.Marshal]::FinalReleaseComObject($presentation)|Out-Null};if($app){Close-OwnedPowerPointProcess -Application $app -Identity $identity -CopyPath 'C:\\Users\\becky\\AppData\\Local\\Temp\\ppt-cleanup-JBGWNR\\synthetic.pptx';[Runtime.InteropServices.Marshal]::FinalReleaseComObject($app)|Out-Null};[GC]::Collect();[GC]::WaitForPendingFinalizers();if($owns){$mutex.ReleaseMutex()};$mutex.Dispose()}",
+    stdout: '',
+    stderr: '"1"���� �μ��� �ִ� "CreateInstance"��(��) ȣ���ϴ� ���� ���ܰ� �߻��߽��ϴ�. "80070520 ������ �α׿� ������ �����ϴ�. \r\n�̹� ����Ǿ��� ���� �ֽ��ϴ�. (���ܰ� �߻��� HRESULT: 0x80070520) ������ ���� CLSID�� {91493441-5A91-11CF-8700-00AA006\r\n0263B}�� ���� ����� COM Ŭ���� ���͸��� �˻����� ���߽��ϴ�."\r\n��ġ ��:4 ����:37\r\n+ ... me]::UtcNow;$app=[Activator]::CreateInstance([Type]::GetTypeFromProgI ...\r\n+                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\r\n    + CategoryInfo          : NotSpecified: (:) [], ParentContainsErrorRecordException\r\n    + FullyQualifiedErrorId : COMException\r\n \r\n'
+  }
+

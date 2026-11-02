@@ -25,7 +25,7 @@ function all(root,predicate){
  walk(root);return out;
 }
 function words(node){return Array.isArray(node)?node.map(words).join(''):node&&typeof node==='object'?words(node.props?.children):node==null||typeof node==='boolean'?'':String(node);}
-function harness(){
+function harness(overrides={}){
  const slots=[],requests=[],responses=[];
  let cursor=0,tree,activated=0;
  const hooks={useRef(initial){const index=cursor++;slots[index]??={current:initial};return slots[index];},useState(initial){const index=cursor++;if(!(index in slots))slots[index]=initial;return [slots[index],next=>{slots[index]=typeof next==='function'?next(slots[index]):next;}];}};
@@ -33,7 +33,7 @@ function harness(){
  const exports={};
  const sandbox={exports,URL,console,fetch:async(url,options)=>{requests.push({url,...options,body:options.body?JSON.parse(options.body):null});const response=responses.shift();assert.ok(response,'Unexpected request: '+url);return {ok:response.status<400,status:response.status,json:async()=>response.body};},require(name){if(name==='react')return hooks;if(name==='react/jsx-runtime')return {jsx,jsxs:jsx,Fragment:'Fragment'};if(name==='@/lib/http/read-json')return {readJsonResponse:response=>response.json()};throw new Error('Unexpected client dependency: '+name);}};
  vm.runInNewContext(js,sandbox,{filename:'ProductionMockupEditor.js'});
- const props={workItemId:workId,title:'기존 게시글 제목',currentAssets:[{id:'legacy',asset_type:'thumbnail',public_url:'/existing-thumbnail.png'}],onActivated:async()=>{activated++;}};
+ const props={workItemId:workId,title:'기존 게시글 제목',currentAssets:[{id:'legacy',asset_type:'thumbnail',public_url:'/existing-thumbnail.png'}],onActivated:async()=>{activated++;},...overrides};
  const render=()=>{cursor=0;tree=exports.default(props);for(const node of all(tree,n=>n.type==='dialog'&&n.props.ref)){node.props.ref.current??={showModal(){},close(){}};}return tree;};
  const button=text=>{const found=all(tree,n=>n.type==='button'&&words(n)===text);assert.equal(found.length,1,text);return found[0];};
  const input=label=>{const labels=all(tree,n=>n.type==='label'&&words(n).trim().startsWith(label));assert.equal(labels.length,1,label);return all(labels[0],n=>n.type==='input')[0];};
@@ -155,4 +155,77 @@ test('WorkQueue adds one isolated portfolio editor and leaves the existing cover
  assert.match(queue,/item\.format === "portfolio"[\s\S]{0,140}<ProductionMockupEditor/);
  assert.match(queue,/currentAssets=\{item\.content_review_assets \|\| \[\]\} onActivated=\{load\}/);
  assert.match(queue,/set_cover_title/);
+});
+
+function describedReason(h,element){
+ const id=element.props['aria-describedby'];assert.equal(typeof id,'string');
+ const explanations=all(h.tree,node=>node.props?.id===id);assert.equal(explanations.length,1);
+ return words(explanations[0]);
+}
+
+test('disabled editor and preparation buttons explain how they become available',async()=>{
+ const locked=harness({disabled:true});assert.match(describedReason(locked,locked.button('목업·썸네일 편집')),/제작·업로드가 끝나면/);
+ const h=harness();await h.open(state({sessions:[session({status:'queued',snapshotHash:null,images:[]})]}));
+ assert.match(describedReason(h,h.button('PC에서 새 목업 준비')),/이 준비 요청 취소/);
+ assert.match(describedReason(h,h.button('제목 미리보기 만들기')),/메인 제목을 입력/);
+ h.change('메인 제목',entered.main);h.change('보조 제목 표시',true);
+ assert.match(describedReason(h,h.button('제목 미리보기 만들기')),/보조 제목을 입력/);
+ h.respond(state());h.button('상태 새로고침').props.onClick();h.render();
+ for(const button of all(h.tree,node=>node.type==='button'&&node.props.disabled))assert.ok(describedReason(h,button).length>0);
+ await h.flush();
+});
+
+test('five-image activation explains the remaining image count and then the inspection checkbox',async()=>{
+ const h=harness();await h.open(state({sessions:[session()]}));
+ assert.match(describedReason(h,h.button('확인한 목업 5장으로 교체')),/지금 0\/5 확인함/);
+ for(let i=0;i<5;i++){
+  all(h.tree,node=>node.type==='button'&&all(node,image=>image.type==='img'&&image.props.src===imageUrl(i)).length===1)[0].props.onClick();h.render();h.fullLoad();
+  if(i===1)assert.match(describedReason(h,h.button('확인한 목업 5장으로 교체')),/지금 2\/5 확인함/);
+ }
+ assert.match(describedReason(h,h.button('확인한 목업 5장으로 교체')),/확인란을 선택해야/);
+ h.change('새 후보 5장의',true);assert.equal(h.button('확인한 목업 5장으로 교체').props.disabled,false);
+});
+
+test('thumbnail activation explains candidate mismatch, full-size viewing and confirmation',async()=>{
+ const h=harness();await makeTitleCandidate(h);
+ assert.match(describedReason(h,h.button('제목 미리보기 만들기')),/같은 문구의 후보/);
+ assert.match(describedReason(h,h.button('확인한 썸네일만 교체')),/제목 후보 열어 확인/);
+ await h.click('제목 후보 열어 확인');h.fullLoad();
+ assert.match(describedReason(h,h.button('확인한 썸네일만 교체')),/확인란을 선택해야/);
+ h.change('메인 제목','다른 제목');assert.match(describedReason(h,h.button('확인한 썸네일만 교체')),/제목 미리보기 만들기/);
+});
+
+test('blocked swaps show a human reason and a next action; unusable candidates disclose no recovery',()=>{
+ const h=harness();
+ const cases=[
+  ['IMAGE_SET_BODY_REQUIRED',/본문/,/상태 새로고침/],
+  ['IMAGE_SET_BODY_MAPPING_REQUIRED',/그림 네 자리/,/같은 후보로 다시 교체/],
+  ['IMAGE_SET_BODY_MAPPING_AMBIGUOUS',/교체 위치/,/주소를 각각 한 번씩/],
+  ['IMAGE_SET_REVISION_CONFLICT',/저장하는 동안/,/상태 새로고침/],
+  ['MOCKUP_SESSION_REVIEW_STALE',/검토 내용.*달라/,/5장을 다시 열어/],
+  ['MOCKUP_SOURCE_OR_MANUSCRIPT_CHANGED',/원본 PPT·장표 선정/,/PC에서 새 목업 준비/],
+  ['MOCKUP_IMAGE_INPUTS_CHANGED',/장표 선정이나 가림 설정.*수동으로 올린 이미지/,/PC에서 새 목업 준비/],
+  ['MOCKUP_IMAGE_INPUTS_UNVERIFIABLE',/확인할 기록이 없습니다/,/PC에서 새 목업 준비/],
+  ['MOCKUP_CURRENT_LAYOUT_PROOF_MISMATCH',/가림 확인 기록/,/가림을 다시 확인/],
+  ['MOCKUP_PUBLISHED_LOCKED',/이미 발행된/,/담당자에게 요청/],
+  ['IMAGE_SET_PUBLISHED_LOCKED',/이미 발행된/,/담당자에게 요청/],
+  ['MOCKUP_SCHEMA_NOT_READY',/서버 준비/,/서버 준비를 요청/],
+  ['MOCKUP_OPERATION_FAILED',/요청을 처리하지 못했습니다/,/상태 새로고침/],
+ ];
+ for(const [code,reason,action] of cases){const message=h.exports.productionMockupError(code);const lines=message.split('\n');assert.equal(lines.length,2,code);assert.match(lines[0],reason,code);assert.match(lines[1],action,code);assert.match(message,new RegExp(code));}
+ for(const code of ['MOCKUP_SESSION_REVIEW_STALE','MOCKUP_SOURCE_OR_MANUSCRIPT_CHANGED','MOCKUP_IMAGE_INPUTS_CHANGED','MOCKUP_IMAGE_INPUTS_UNVERIFIABLE','MOCKUP_CURRENT_LAYOUT_PROOF_MISMATCH','MOCKUP_PUBLISHED_LOCKED','IMAGE_SET_PUBLISHED_LOCKED'])assert.match(h.exports.productionMockupError(code),/(되돌릴|복구할) 방법은? 없습니다/,code);
+});
+
+test('failed requests disclose that they cannot resume and direct staff to an available new-request button',async()=>{
+ const h=harness();await h.open(state({sessions:[session({status:'failed',errorCode:'MOCKUP_IMAGE_INPUTS_CHANGED',images:[],snapshotHash:null})]}));
+ assert.match(words(h.tree),/이 준비 요청을 다시 진행할 방법은 없습니다/);assert.doesNotMatch(words(h.tree),/‘이 준비 요청 취소’ 후/);
+ assert.equal(h.button('PC에서 새 목업 준비').props.disabled,false);
+});
+
+test('activation rejection renders both reason and next action without replacing existing images',async()=>{
+ const h=harness();await h.open(state({sessions:[session()]}));
+ for(let i=0;i<5;i++){all(h.tree,node=>node.type==='button'&&all(node,image=>image.type==='img'&&image.props.src===imageUrl(i)).length===1)[0].props.onClick();h.render();h.fullLoad();}
+ h.change('새 후보 5장의',true);h.respond({error:'IMAGE_SET_BODY_MAPPING_REQUIRED'},409);await h.click('확인한 목업 5장으로 교체');
+ const alerts=all(h.tree,node=>node.props?.role==='alert');assert.equal(alerts.length,1);assert.match(words(alerts[0]),/그림 네 자리를 모두 찾지 못했습니다\.\n본문에/);assert.match(words(alerts[0]),/같은 후보로 다시 교체/);assert.match(alerts[0].props.className,/whitespace-pre-line/);assert.equal(h.activated,0);
+ assert.equal(all(h.tree,node=>node.type==='img'&&node.props.src==='/existing-thumbnail.png').length,1);
 });
