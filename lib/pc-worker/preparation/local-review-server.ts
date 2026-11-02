@@ -6,6 +6,7 @@ import path from "node:path";
 import type { Socket } from "node:net";
 import {
   approveLocalRedactionSlide,
+  archiveSavedLocalRedactions,
   getLocalRedactionSlide,
   getPreviousSavedRedactionSlide,
   readSafeRedactedSlide,
@@ -103,6 +104,8 @@ type LedgerSnapshot = {
   selection: unknown;
   artifacts: Map<string, LedgerArtifact>;
   redactionStatuses: Map<number, RedactionState["status"]>;
+  carriedRedactions: Set<number>;
+  savedRedactions: Set<number>;
 };
 
 type SafeIssue = { code: string; detail: string };
@@ -117,6 +120,8 @@ type ReviewSlide = {
   previewUrl: string | null;
   highresUrl: string | null;
   redactionStatus?: RedactionState["status"];
+  redactionCarried?: boolean;
+  redactionSaved?: boolean;
 };
 
 type ReviewModel = {
@@ -286,6 +291,8 @@ async function readLedger(root: string, buildId: string): Promise<LedgerSnapshot
   const sourceStage = isRecord(build.stages.source_inspection) ? build.stages.source_inspection : null;
   const selectionStage = isRecord(build.stages.slide_selection) ? build.stages.slide_selection : null;
   const redactionStatuses: LedgerSnapshot["redactionStatuses"] = new Map();
+  const carriedRedactions = new Set<number>();
+  const savedRedactions = new Set<number>();
   for (const [key, raw] of Object.entries(build.artifacts)) {
     const match = /^redaction-state:([1-9]\d*)$/.exec(key);
     if (!match) continue;
@@ -302,12 +309,17 @@ async function readLedger(root: string, buildId: string): Promise<LedgerSnapshot
       fail("INVALID_LEDGER", "가림 기록의 장표 또는 상태가 올바르지 않습니다.");
     }
     redactionStatuses.set(Number(match[1]), state.status as RedactionState["status"]);
+    if (isRecord(state.carryOver)) carriedRedactions.add(Number(match[1]));
+    if (state.savedAt || isRecord(state.output) || (isRecord(state.review) && safeString(state.review.reviewer, 100))
+      || ["rendered", "verified"].includes(String(state.status))) savedRedactions.add(Number(match[1]));
   }
   return {
     inspection: sourceStage?.data ?? null,
     selection: selectionStage?.data ?? null,
     artifacts,
     redactionStatuses,
+    carriedRedactions,
+    savedRedactions,
   };
 }
 
@@ -459,6 +471,8 @@ function buildReviewModel(snapshot: LedgerSnapshot): ReviewModel {
   for (const slide of ordered) {
     if (slide.highresUrl && (slide.status === "selected" || slide.status === "reserve")) {
       slide.redactionStatus = snapshot.redactionStatuses.get(slide.sourceSlideNumber);
+      slide.redactionCarried = snapshot.carriedRedactions.has(slide.sourceSlideNumber);
+      slide.redactionSaved = snapshot.savedRedactions.has(slide.sourceSlideNumber);
     }
   }
   const counts: ReviewModel["counts"] = { selected: 0, reserve: 0, excluded: 0, pending: 0 };
@@ -505,6 +519,7 @@ function renderHtml(model: ReviewModel, preparationReview = false) {
       : slide.redactionStatus === "rendered" ? "블러본 만듦 · 승인 전"
         : slide.redactionStatus ? "편집 중" : "가림 시작 안 함";
     const redaction = editor ? `<p class="redaction-state${slide.redactionStatus === "verified" ? " redaction-approved-label" : ""}">${redactionLabel}</p>` : "";
+    const origin = editor ? `<p class="redaction-origin-label ${slide.redactionCarried ? "redaction-carried" : slide.redactionSaved ? "redaction-saved" : "redaction-new"}">${slide.redactionCarried ? "가림 이어받음" : slide.redactionSaved ? "이 빌드에서 저장함" : "새로 가릴 장표"}</p>` : "";
     return `<article class="card status-${slide.status}${editor && slide.redactionStatus === "verified" ? " redaction-approved" : ""}">
       <div class="card-head"><strong>${slide.sourceSlideNumber}번</strong><span>${STATUS_LABEL[slide.status]}</span></div>
       ${imageUrl ? `<a href="${escapeHtml(slide.highresUrl ?? imageUrl)}" aria-label="${slide.sourceSlideNumber}번 장표 크게 보기"><img src="${escapeHtml(imageUrl)}" alt="${slide.sourceSlideNumber}번 장표 로컬 미리보기"></a>` : "<div class=\"image-missing\">미리보기 없음</div>"}
@@ -512,7 +527,7 @@ function renderHtml(model: ReviewModel, preparationReview = false) {
       ${slide.hidden ? "<p class=\"font-warning\">숨김 장표</p>" : ""}
       ${fonts}${reasons}
       <p class="asset-state">${slide.previewUrl ? "저해상도 있음" : "저해상도 없음"} · ${slide.highresUrl ? "고해상도 있음" : "고해상도 없음"}</p>
-      ${redaction}${editor}
+      ${redaction}${origin}${editor}
     </article>`;
   }).join("");
   return `<!doctype html>
@@ -523,7 +538,7 @@ function renderHtml(model: ReviewModel, preparationReview = false) {
 <div class="top-actions"><p class="step-note">선정·예비 장표의 고해상도 원본만 가림 편집할 수 있습니다.</p>${preparationReview ? '<a class="mockup-link" href="/preparation">규격·추상 그래픽 직접 검수</a>' : ''}<a class="mockup-link" href="/mockups">목업 배정·미리보기</a></div></header>
 <section class="summary" aria-label="선정 현황"><b>선정 ${model.counts.selected}</b><b>예비 ${model.counts.reserve}</b><b>제외·보류 ${model.counts.excluded}</b><b>미선정 ${model.counts.pending}</b><b>가림 승인 ${approvedCount} / ${editableSlides.length}</b></section>
 ${issueList}<main class="gallery">${cards || "<p class=\"empty\">아직 표시할 장표가 없습니다.</p>"}</main>
-<footer>원본과 편집 기록은 이 PC의 작업 폴더 안에만 남습니다. 가림 편집은 버튼을 누른 뒤 저장할 때만 기록됩니다.</footer></body></html>`;
+<footer>원본과 편집 기록은 이 PC에만 남습니다. 저장·승인한 가림은 다음 준비에도 이어 쓸 수 있도록 워커의 개인 폴더에 보관합니다.</footer></body></html>`;
 }
 
 function renderEditorHtml(sourceSlideNumber: number) {
@@ -534,17 +549,18 @@ function renderEditorHtml(sourceSlideNumber: number) {
 <body class="editor-page" data-source-slide-number="${sourceSlideNumber}">
 <header class="editor-header"><div><p class="privacy">로컬 확인 전용 · 업로드 안 함</p><h1>${sourceSlideNumber}번 장표 가림 편집</h1></div><a class="back-link" href="/">선정표로 돌아가기</a></header>
 <p id="editor-status" class="editor-status" role="status" aria-live="polite">편집 기록을 불러오는 중입니다…</p>
+<p id="redaction-origin" class="redaction-origin" aria-live="polite">가림 기록을 확인하는 중입니다…</p><p id="redaction-approval-history" class="redaction-approval-history" hidden></p>
 <main class="editor-layout">
   <section class="viewer-panel" aria-label="고해상도 원본 편집 화면">
-    <div class="viewer-toolbar"><strong id="slide-label">원본 ${sourceSlideNumber}번</strong><button id="fit-image" type="button">화면 맞춤</button><label for="zoom">확대</label><input id="zoom" type="range" min="10" max="400" step="1" value="100"><output id="zoom-label" for="zoom">확대 100% · 실제크기</output></div>
+    <div class="viewer-toolbar"><strong id="slide-label">원본 ${sourceSlideNumber}번</strong><button id="fit-image" type="button">화면 맞춤</button><span id="fit-image-hint" class="control-hint" hidden></span><label for="zoom">확대</label><input id="zoom" type="range" min="10" max="400" step="1" value="100"><output id="zoom-label" for="zoom">확대 100% · 실제크기</output></div>
     <div class="image-scroller"><div id="image-stage" class="image-stage"><img id="source-image" src="${escapeHtml(highresUrl)}" alt="${sourceSlideNumber}번 원본 장표"><div id="redaction-overlay" class="redaction-overlay" aria-label="가림 영역 편집판"></div></div></div>
-    <div class="compare-controls" aria-label="적용 전후 비교"><strong>비교</strong><label><input id="compare-before" type="radio" name="compare" value="before" checked> 적용 전</label><label><input id="compare-after" type="radio" name="compare" value="after" disabled> 적용 후</label></div>
+    <div class="compare-controls" aria-label="적용 전후 비교"><strong>비교</strong><label><input id="compare-before" type="radio" name="compare" value="before" checked> 적용 전</label><label><input id="compare-after" type="radio" name="compare" value="after" disabled aria-describedby="compare-after-hint"> 적용 후</label><span id="compare-after-hint" class="control-hint">저장하고 블러본을 만들면 적용 후 결과를 볼 수 있습니다.</span></div>
     <p class="viewer-warning">화면에서 가릴 자리에 사각형을 그리세요. 필수 정보의 불투명 가림은 자동으로 유지됩니다.</p>
   </section>
   <aside class="editor-sidebar">
-    <section class="editor-section"><h2>1. 가림 영역</h2><div class="button-row"><label for="mask-mode">새 영역 방식</label><select id="mask-mode"><option value="opaque">불투명 가림</option><option value="blur" selected>강한 흐림</option></select><button id="add-region" type="button" aria-pressed="false">사각형 영역 추가</button></div><div class="button-row"><button id="copy-previous-regions" type="button" hidden>앞 장표에서 그린 영역 그대로 넣기</button></div><div class="button-row"><button id="undo" type="button" disabled>실행 취소</button><button id="redo" type="button" disabled>다시 실행</button></div><ol id="region-list" class="editor-list"></ol></section>
-    <section class="editor-section"><h2>2. 검토·저장</h2><label class="field"><span>검토자 이름</span><input id="reviewer" type="text" maxlength="100" autocomplete="name" required></label><fieldset class="layout-choice"><legend>이 장표를 계속 사용합니까?</legend><label><input type="radio" name="layout-decision" value="keep" checked> 가림 후에도 사용 가능</label><label><input type="radio" name="layout-decision" value="replace"> 디자인 훼손·부적합으로 교체 필요</label></fieldset><p id="replacement-notice" class="replacement-notice" hidden>교체 필요로 저장하면 이 장표는 블러본 승인 대신 후보표의 예비 장표로 교체해야 합니다.</p><ul id="redaction-warnings" class="redaction-warnings" hidden></ul><button id="save-redaction" class="primary-action" type="button">저장하고 블러본 만들기</button></section>
-    <section class="editor-section"><h2>3. 블러본 확인·승인</h2><p class="section-help">만들어진 블러본을 확인한 뒤 승인하세요.</p><button id="approve-redaction" class="primary-action" type="button" disabled>블러본을 확인했고 승인합니다</button></section>
+    <section class="editor-section"><h2>1. 가림 영역</h2><div class="button-row"><label for="mask-mode">새 영역 방식</label><select id="mask-mode"><option value="opaque">불투명 가림</option><option value="blur" selected>강한 흐림</option></select><button id="add-region" type="button" aria-pressed="false">사각형 영역 추가</button><span id="add-region-hint" class="control-hint" hidden></span></div><div class="button-row"><button id="copy-previous-regions" type="button" hidden>앞 장표에서 그린 영역 그대로 넣기</button><span id="copy-previous-regions-hint" class="control-hint" hidden></span></div><div class="button-row"><button id="undo" type="button" disabled aria-describedby="undo-hint">실행 취소</button><span id="undo-hint" class="control-hint">가림 영역을 추가·이동·삭제하면 실행 취소할 수 있습니다.</span><button id="redo" type="button" disabled aria-describedby="redo-hint">다시 실행</button><span id="redo-hint" class="control-hint">영역 변경을 실행 취소하면 다시 실행할 수 있습니다.</span></div><ol id="region-list" class="editor-list"></ol></section>
+    <section class="editor-section"><h2>2. 검토·저장</h2><label class="field"><span>검토자 이름</span><input id="reviewer" type="text" maxlength="100" autocomplete="name" required></label><fieldset class="layout-choice"><legend>이 장표를 계속 사용합니까?</legend><label><input type="radio" name="layout-decision" value="keep" checked> 가림 후에도 사용 가능</label><label><input type="radio" name="layout-decision" value="replace"> 디자인 훼손·부적합으로 교체 필요</label></fieldset><p id="replacement-notice" class="replacement-notice" hidden>교체 필요로 저장하면 이 장표는 블러본 승인 대신 후보표의 예비 장표로 교체해야 합니다.</p><ul id="redaction-warnings" class="redaction-warnings" hidden></ul><button id="save-redaction" class="primary-action" type="button">저장하고 블러본 만들기</button><p id="save-redaction-hint" class="control-hint" hidden></p></section>
+    <section class="editor-section"><h2>3. 블러본 확인·승인</h2><p class="section-help">만들어진 블러본을 확인한 뒤 승인하세요.</p><button id="approve-redaction" class="primary-action" type="button" disabled aria-describedby="approve-redaction-hint">블러본을 확인했고 승인합니다</button><p id="approve-redaction-hint" class="control-hint">저장하고 블러본을 만든 뒤 결과를 확인하면 승인할 수 있습니다.</p></section>
   </aside>
 </main>
 <script type="module" src="/redaction-editor-client.mjs"></script></body></html>`;
@@ -598,6 +614,8 @@ ${productionBridge ? `<section id="production-bridge" class="thumbnail-title-edi
 }
 
 const STYLES = `
+.redaction-origin[data-kind="saved"],.redaction-saved{background:#edf0f3;color:#45515e}
+.control-hint{display:block;flex-basis:100%;margin:5px 0;color:#67511a;font-size:12px;line-height:1.45}.control-hint[hidden]{display:none}.redaction-origin,.redaction-approval-history{max-width:1600px;margin:10px auto;padding:10px 14px;border-radius:8px;font-size:14px}.redaction-origin[data-kind="carried"],.redaction-carried{background:#e7f4ed;color:#176640}.redaction-origin[data-kind="new"],.redaction-new{background:#fff3d8;color:#77530b}.redaction-approval-history{padding-top:0;color:#59636e;font-size:12px}.redaction-origin-label{margin:8px 12px;padding:7px 9px;border-radius:6px;font-size:13px;font-weight:800}
 .field[hidden]{display:none}
 .redaction-approved{outline:3px solid #7c3aed;outline-offset:1px}.redaction-state{font-size:13px;font-weight:700;margin:8px 12px;color:#59636e}.redaction-approved-label{color:#6d28d9;background:#f3e8ff;border-radius:6px;padding:7px 9px}
 :root{font-family:Arial,"Malgun Gothic",sans-serif;color:#202124;background:#f5f6f8}*{box-sizing:border-box}body{margin:0;padding:24px}button,input,select,textarea{font:inherit}.top,.editor-header{display:flex;gap:20px;align-items:flex-start;justify-content:space-between;max-width:1400px;margin:auto}.top h1,.editor-header h1{margin:4px 0;font-size:28px}.top p,.editor-header p{margin:4px 0;color:#59636e}.privacy{font-weight:800;color:#e85d24!important}.step-note{max-width:360px!important;padding:10px 13px;border-radius:10px;background:#fff;border:1px solid #dfe3e8}.summary{max-width:1400px;margin:18px auto;display:flex;gap:8px;flex-wrap:wrap}.summary b{background:#fff;border:1px solid #dfe3e8;border-radius:999px;padding:8px 12px}.notices{max-width:1400px;margin:0 auto 16px;padding:12px 28px;background:#fff7e8;border:1px solid #f1cf90;border-radius:12px}.gallery{max-width:1400px;margin:auto;display:grid;grid-template-columns:repeat(auto-fill,minmax(245px,1fr));gap:14px}.card{background:#fff;border:1px solid #dfe3e8;border-top:5px solid #9aa0a6;border-radius:12px;overflow:hidden;box-shadow:0 4px 14px #28334212}.status-selected{border-top-color:#11a36a}.status-reserve{border-top-color:#4274e8}.status-excluded{border-top-color:#d65555}.card-head{display:flex;justify-content:space-between;padding:10px 12px}.card-head span{font-weight:800}.card img,.image-missing{display:block;width:100%;aspect-ratio:16/10;object-fit:contain;background:#edf0f3}.image-missing{display:grid;place-items:center;color:#7a838d}.card h2{font-size:15px;line-height:1.4;margin:12px}.reasons{font-size:13px;line-height:1.45;margin:0 12px 12px;padding-left:18px}.muted,.font-warning,.asset-state{font-size:12px;margin:8px 12px}.muted,.asset-state{color:#727b84}.font-warning{color:#b4462c;font-weight:700}.edit-link,.back-link{display:inline-block;margin:0 12px 14px;padding:9px 12px;border-radius:8px;background:#202124;color:#fff;text-decoration:none;font-weight:800}.back-link{margin:0}.empty,footer{max-width:1400px;margin:24px auto;color:#68717a}footer{font-size:12px}
@@ -896,6 +914,12 @@ function publicRedactionState(state: RedactionState) {
     width: state.width,
     height: state.height,
     revision: state.revision,
+    ...(state.savedAt ? { savedAt: state.savedAt } : {}),
+    ...(state.carryOver ? { carryOver: {
+      savedAt: state.carryOver.savedAt,
+      approvedAt: state.carryOver.approvedAt,
+      approvedBy: state.carryOver.approvedBy ? safeString(state.carryOver.approvedBy, 100) : null,
+    } } : {}),
     renderBlocked: state.warnings.some(blocksRendering),
     uncertainties: (state.uncertainties ?? []).map((item) => ({
       id: item.id, candidateId: item.candidateId, code: item.code, rect: item.rect,
@@ -1134,13 +1158,14 @@ async function handleMockupTitlePost(input: {
 async function handleRedactionPost(input: {
   request: IncomingMessage;
   root: string;
+  carryStoreRoot?: string;
   buildId: string;
   sourceSlideNumber: number;
   action: string;
 }) {
   await assertEditableSlide(input.root, input.buildId, input.sourceSlideNumber);
   const body = await readPostJson(input.request);
-  const identity = { root: input.root, buildId: input.buildId, sourceSlideNumber: input.sourceSlideNumber };
+  const identity = { root: input.root, carryStoreRoot: input.carryStoreRoot, buildId: input.buildId, sourceSlideNumber: input.sourceSlideNumber };
   if (input.action === "save") {
     assertOnlyKeys(body, ["expectedRevision", "regions", "exceptions", "review", "manualResolutions"]);
     if (body.manualResolutions !== undefined && (!Array.isArray(body.manualResolutions) || body.manualResolutions.length > 500)) {
@@ -1224,6 +1249,7 @@ async function handleMockupPost(input: {
 
 export type StartLocalReviewServerInput = Readonly<{
   root: string;
+  carryStoreRoot?: string;
   buildId: string;
   preparationReview?: LocalPreparationReviewCallbacks;
   productionBridge?: Readonly<{
@@ -1355,6 +1381,7 @@ export async function startLocalReviewServer(
   await assertRealDirectory(input.root, "작업");
   const root = await realpath(input.root);
   await readLedger(root, input.buildId);
+  if (input.carryStoreRoot) await archiveSavedLocalRedactions({ root, buildId: input.buildId, carryStoreRoot: input.carryStoreRoot });
   const editorClient = await readFile(new URL("./redaction-editor-client.mjs", import.meta.url));
   const mockupClient = await readFile(new URL("./mockup-editor-client.mjs", import.meta.url));
   const productionClient = bridge ? await readFile(new URL("./production-bridge-client.mjs", import.meta.url)) : null;
@@ -1539,8 +1566,8 @@ export async function startLocalReviewServer(
         const apiRoute = redactionApiRoute(requestUrl.pathname);
         if (apiRoute?.action === "read") {
           await assertEditableSlide(root, input.buildId, apiRoute.sourceSlideNumber);
-          const state = await getLocalRedactionSlide({ root, buildId: input.buildId, sourceSlideNumber: apiRoute.sourceSlideNumber });
-          const previousSavedSlide = await getPreviousSavedRedactionSlide({ root, buildId: input.buildId, sourceSlideNumber: apiRoute.sourceSlideNumber });
+          const state = await getLocalRedactionSlide({ root, carryStoreRoot: input.carryStoreRoot, buildId: input.buildId, sourceSlideNumber: apiRoute.sourceSlideNumber });
+          const previousSavedSlide = await getPreviousSavedRedactionSlide({ root, carryStoreRoot: input.carryStoreRoot, buildId: input.buildId, sourceSlideNumber: apiRoute.sourceSlideNumber });
           sendJson(response, 200, { csrfToken, state: publicRedactionState(state), previousSavedSlide: previousSavedSlide
             ? { ...previousSavedSlide, reviewer: safeString(previousSavedSlide.reviewer, 100) } : null });
           return;
@@ -1549,7 +1576,7 @@ export async function startLocalReviewServer(
         if (redactedMatch) {
           const sourceSlideNumber = Number(redactedMatch[1]);
           await assertEditableSlide(root, input.buildId, sourceSlideNumber);
-          const identity = { root, buildId: input.buildId, sourceSlideNumber };
+          const identity = { root, carryStoreRoot: input.carryStoreRoot, buildId: input.buildId, sourceSlideNumber };
           const state = await getLocalRedactionSlide(identity);
           if (!state.output || state.output.sha256 !== redactedMatch[2]) {
             send(response, 404, "text/plain; charset=utf-8", "검토할 블러본이 없습니다.");
@@ -1567,7 +1594,7 @@ export async function startLocalReviewServer(
             if (candidate?.status !== "approved" || candidate.imageHash !== sourceMatch[2]) {
               return null;
             }
-            const bytes = await readSafeRedactedSlide({ root, buildId: input.buildId, sourceSlideNumber });
+            const bytes = await readSafeRedactedSlide({ root, carryStoreRoot: input.carryStoreRoot, buildId: input.buildId, sourceSlideNumber });
             if (createHash("sha256").update(bytes).digest("hex") !== sourceMatch[2]) {
               fail("STALE_ARTIFACT", "승인 블러본이 화면 요청 뒤 변경됐습니다.");
             }
@@ -1747,7 +1774,7 @@ export async function startLocalReviewServer(
             }));
             sendJson(response, 200, { review: publicMockupReview(review) });
           } else if (apiRoute && apiRoute.action !== "read") {
-            const state = await handleRedactionPost({ request, root, buildId: input.buildId, ...apiRoute });
+            const state = await handleRedactionPost({ request, root, carryStoreRoot: input.carryStoreRoot, buildId: input.buildId, ...apiRoute });
             sendJson(response, 200, { state: publicRedactionState(state) });
           }
         } catch (error) {

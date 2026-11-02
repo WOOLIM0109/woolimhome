@@ -6,8 +6,9 @@ import type { RedactionDetection, RedactionException, RedactionManualResolution,
 import { REDACTION_RULE_VERSION } from "./redaction-types.ts";
 import { decodeRedactionPng, redactionHash, redactionHolds, redactionInputFingerprint, renderRedactedPng, validRedactionRect, assertFlatRedactionPng, assertRedactionComplexity, validManualRedactionResolution, containsRedactionRect } from "./redaction-renderer.ts";
 import { detectPptxRedactionCandidates } from "./redaction-detection.ts";
+import { readRedactionCarry, writeRedactionCarry } from "./redaction-carry-store.ts";
 
-export type RedactionIdentity = { root: string; buildId: string; sourceSlideNumber: number };
+export type RedactionIdentity = { root: string; buildId: string; sourceSlideNumber: number; carryStoreRoot?: string };
 const idPattern = /^[a-zA-Z0-9:_-]{1,100}$/;
 const shaPattern = /^[a-f0-9]{64}$/;
 const candidatePolicy = new Map<string, boolean>([
@@ -110,6 +111,53 @@ async function persist(store: PreparationWorkStore, input: RedactionIdentity, st
   await writeArtifact(store, input, `redaction-state:${input.sourceSlideNumber}`, "json", JSON.stringify(state));
   return structuredClone(state);
 }
+async function persistSaved(store: PreparationWorkStore, input: RedactionIdentity, state: RedactionState) {
+  const saved = await persist(store, input, state);
+  await archiveSavedState(store, input, state);
+  return saved;
+}
+async function archiveSavedState(store: PreparationWorkStore, input: RedactionIdentity, state: RedactionState) {
+  if (input.carryStoreRoot && (state.savedAt || state.output?.approvedAt)) {
+    const build = await store.readBuild(input.buildId);
+    await writeRedactionCarry({ root: input.carryStoreRoot, workRoot: store.root,
+      sourceFingerprint: build.fingerprint.source, sourceHash: state.imageHash, state });
+  }
+}
+function requireOpaqueRegions(state: RedactionState, regions: RedactionRegion[]) {
+  for (const candidate of state.candidates.filter((entry) => entry.required)) {
+    if (!regions.some((region) => region.candidateId === candidate.id && region.mode === "opaque"
+      && containsRedactionRect(region.rect, candidate.rect))) fail("REQUIRED_REGION_MUST_BE_OPAQUE");
+  }
+}
+function carriedEdits(state: RedactionState, old: RedactionState) {
+  validateDetection(old);
+  if (!Array.isArray(old.regions) || !Array.isArray(old.exceptions)) fail("REDACTION_CARRY_CORRUPT");
+  const candidateIds = new Map<string, string>();
+  const used = new Set<string>();
+  const references = new Set([...old.regions.map((region) => region.candidateId).filter((id): id is string => !!id),
+    ...old.exceptions.map((exception) => exception.candidateId)]);
+  for (const id of references) {
+    const previous = old.candidates.find((candidate) => candidate.id === id);
+    if (!previous) fail("REDACTION_CARRY_CANDIDATE_MISMATCH");
+    const matches = state.candidates.filter((candidate) => !used.has(candidate.id) && candidate.category === previous.category
+      && candidate.required === previous.required && candidate.rect.x === previous.rect.x && candidate.rect.y === previous.rect.y
+      && candidate.rect.width === previous.rect.width && candidate.rect.height === previous.rect.height);
+    const current = matches.find((candidate) => candidate.id === id) ?? (matches.length === 1 ? matches[0] : undefined);
+    if (!current) fail("REDACTION_CARRY_CANDIDATE_MISMATCH");
+    candidateIds.set(id, current.id); used.add(current.id);
+  }
+  return { regions: old.regions.map((region) => ({ ...region, ...(region.candidateId ? { candidateId: candidateIds.get(region.candidateId)! } : {}) })),
+    exceptions: old.exceptions.map((exception) => ({ ...exception, candidateId: candidateIds.get(exception.candidateId)! })) };
+}
+async function renderState(store: PreparationWorkStore, input: RedactionIdentity, state: RedactionState, bytes: Buffer) {
+  const rendered = await renderRedactedPng(bytes, state);
+  const key = `redacted:${input.sourceSlideNumber}:${rendered.inputFingerprint.slice(0, 24)}`;
+  await writeArtifact(store, input, key, "png", rendered.png);
+  const next: RedactionState = { ...state, revision: state.revision + 1, status: "rendered", output: {
+    artifactKey: key, sha256: rendered.sha256, width: rendered.width, height: rendered.height,
+    inputFingerprint: rendered.inputFingerprint, checks: rendered.checks, createdAt: new Date().toISOString(), approvedAt: null, approvedBy: null } };
+  return persist(store, input, next);
+}
 async function load(store: PreparationWorkStore, input: RedactionIdentity, prepared?: VerifiedPreparationContext) {
   const current = await context(store, input, prepared);
   const record = await store.getReusableArtifact(input.buildId, `redaction-state:${input.sourceSlideNumber}`);
@@ -130,7 +178,7 @@ async function load(store: PreparationWorkStore, input: RedactionIdentity, prepa
 /** Trusted local dependency seam for synthetic tests. Not accepted by any HTTP endpoint.
  * Normal PPTX callers MUST use initializePptxRedactions so detections derive from the source bytes.
  */
-export async function initializeLocalRedactions(input: { root: string; buildId: string; detections: RedactionDetection[] }) {
+export async function initializeLocalRedactions(input: { root: string; buildId: string; detections: RedactionDetection[]; carryStoreRoot?: string }) {
   return locked(input.root, async (store) => {
     const results: RedactionState[] = [];
     if (!Array.isArray(input.detections) || new Set(input.detections.map((d) => d.sourceSlideNumber)).size !== input.detections.length) fail("INVALID_REDACTION_DETECTIONS");
@@ -149,7 +197,9 @@ export async function initializeLocalRedactions(input: { root: string; buildId: 
           && previous.slideContentHash === detection.slideContentHash && previous.sourceHash === detection.sourceHash
           && JSON.stringify(previous.candidates) === JSON.stringify(detection.candidates) && JSON.stringify(previous.warnings) === JSON.stringify(detection.warnings)
           && JSON.stringify(previous.uncertainties ?? []) === JSON.stringify(detection.uncertainties ?? [])) {
-          results.push((await load(store, identity)).state); continue;
+          const loaded = (await load(store, identity)).state;
+          await archiveSavedState(store, identity, loaded);
+          results.push(loaded); continue;
         }
       }
       const { width, height } = await decodeRedactionPng(current.bytes);
@@ -158,14 +208,48 @@ export async function initializeLocalRedactions(input: { root: string; buildId: 
         regions: detection.candidates.filter((c) => c.required).map((c) => ({ id: `auto-${redactionHash(c.id).slice(0, 24)}`, candidateId: c.id, rect: c.rect, mode: "opaque" })),
         exceptions: [], uncertainties: detection.uncertainties ?? [], manualResolutions: [],
         review: { reviewer: "", originalInspected: false, layoutAcceptable: true }, status: "editing", output: null };
+      if (!existing && input.carryStoreRoot) {
+        const entry = await readRedactionCarry({ root: input.carryStoreRoot, workRoot: store.root,
+          sourceFingerprint: current.build.fingerprint.source, sourceHash: current.imageHash });
+        if (entry && entry.state.ruleVersion === REDACTION_RULE_VERSION) {
+          const old = entry.state;
+          if (old.version !== 1 || old.width !== width || old.height !== height
+            || !Number.isSafeInteger(old.revision) || old.revision < 0) fail("REDACTION_CARRY_CORRUPT");
+          const edits = carriedEdits(state, old);
+          validateEdits(state, edits.regions, edits.exceptions, old.review);
+          requireOpaqueRegions(state, edits.regions);
+          Object.assign(state, { ...edits, review: old.review,
+            manualResolutions: old.manualResolutions ?? [], revision: Math.max(state.revision, old.revision + 1), savedAt: old.savedAt,
+            carryOver: { savedAt: old.savedAt ?? entry.savedAt, approvedAt: old.output?.approvedAt ?? old.carryOver?.approvedAt ?? null,
+              approvedBy: old.output?.approvedBy ?? old.carryOver?.approvedBy ?? null } });
+          state.manualResolutions = (state.manualResolutions ?? []).filter((resolution) => validManualRedactionResolution(state, resolution));
+          validateManualResolutions(state, state.manualResolutions);
+          state.status = !state.review.layoutAcceptable ? "replacement_required" : redactionHolds(state).length ? "needs_review" : "editing";
+          if (!redactionHolds(state).length) { results.push(await renderState(store, identity, state, current.bytes)); continue; }
+        }
+      }
       results.push(await persist(store, identity, state));
     }
     return results;
   });
 }
-export async function initializePptxRedactions(input: { root: string; buildId: string; source: Buffer; slideNumbers: readonly number[] }) {
+export async function initializePptxRedactions(input: { root: string; buildId: string; source: Buffer; slideNumbers: readonly number[]; carryStoreRoot?: string }) {
   const detections = await detectPptxRedactionCandidates(input.source, input.slideNumbers);
-  return initializeLocalRedactions({ root: input.root, buildId: input.buildId, detections });
+  return initializeLocalRedactions({ root: input.root, buildId: input.buildId, detections, carryStoreRoot: input.carryStoreRoot });
+}
+/** Seed saved records when an existing local review is reopened after installation. */
+export async function archiveSavedLocalRedactions(input: { root: string; buildId: string; carryStoreRoot: string }) {
+  return locked(input.root, async (store) => {
+    const build = await store.readBuild(input.buildId);
+    if (!Object.keys(build.artifacts).some((key) => /^redaction-state:[1-9]\d*$/.test(key))) return;
+    const prepared = await preparationContext(store, input);
+    for (const sourceSlideNumber of [...prepared.group.selected, ...prepared.group.reserves]) {
+      if (!prepared.build.artifacts[`redaction-state:${sourceSlideNumber}`]) continue;
+      const identity = { ...input, sourceSlideNumber };
+      const { state } = await load(store, identity, prepared);
+      await archiveSavedState(store, identity, state);
+    }
+  });
 }
 export async function getLocalRedactionSlide(input: RedactionIdentity) {
   return locked(input.root, async (store) => structuredClone((await load(store, input)).state));
@@ -202,10 +286,7 @@ export async function saveLocalRedactionSlide(input: RedactionIdentity & { expec
     const requestedReview = { ...input.review, originalInspected: input.review?.originalInspected ?? state.review.originalInspected };
     validateEdits(state, input.regions, input.exceptions, requestedReview);
     if (!requestedReview.reviewer.trim()) fail("REVIEWER_REQUIRED");
-    for (const candidate of state.candidates.filter((entry) => entry.required)) {
-      if (!input.regions.some((region) => region.candidateId === candidate.id && region.mode === "opaque"
-        && containsRedactionRect(region.rect, candidate.rect))) fail("REQUIRED_REGION_MUST_BE_OPAQUE");
-    }
+    requireOpaqueRegions(state, input.regions);
     // Explicit field projection prevents source text, arbitrary client metadata or old output receipts being persisted.
     const regions = input.regions.map((r) => ({ id: r.id, ...(r.candidateId ? { candidateId: r.candidateId } : {}),
       rect: { x: r.rect.x, y: r.rect.y, width: r.rect.width, height: r.rect.height }, mode: r.mode }));
@@ -226,10 +307,11 @@ export async function saveLocalRedactionSlide(input: RedactionIdentity & { expec
       sourceHash: item.sourceHash, slideContentHash: item.slideContentHash, imageHash: item.imageHash,
       uncertaintyHash: item.uncertaintyHash, editHash: item.editHash, ...(item.regionId ? { regionId: item.regionId } : {}) }));
     const savedAt = new Date().toISOString();
-    if (editsUnchanged && JSON.stringify(manualResolutions) === JSON.stringify(state.manualResolutions ?? [])) return persist(store, input, { ...state, savedAt });
-    const next: RedactionState = { ...state, revision: state.revision + 1, savedAt, regions, exceptions, review, manualResolutions, output: null, status: "editing" };
+    if (editsUnchanged && JSON.stringify(manualResolutions) === JSON.stringify(state.manualResolutions ?? [])) return persistSaved(store, input, { ...state, savedAt });
+    const next: RedactionState = { ...state, revision: state.revision + 1, savedAt, regions, exceptions, review, manualResolutions,
+      ...(state.carryOver ? { carryOver: { ...state.carryOver, approvedAt: null, approvedBy: null } } : {}), output: null, status: "editing" };
     next.status = !review.layoutAcceptable ? "replacement_required" : redactionHolds(next).length ? "needs_review" : "editing";
-    return persist(store, input, next);
+    return persistSaved(store, input, next);
   });
 }
 export async function renderLocalRedactionSlide(input: RedactionIdentity & { expectedRevision: number }) {
@@ -240,13 +322,7 @@ export async function renderLocalRedactionSlide(input: RedactionIdentity & { exp
       const cached = await store.getReusableArtifact(input.buildId, state.output.artifactKey);
       if (cached?.record.sha256 === state.output.sha256) return state;
     }
-    const rendered = await renderRedactedPng(bytes, state);
-    const key = `redacted:${input.sourceSlideNumber}:${rendered.inputFingerprint.slice(0, 24)}`;
-    await writeArtifact(store, input, key, "png", rendered.png);
-    const next: RedactionState = { ...state, revision: state.revision + 1, status: "rendered", output: {
-      artifactKey: key, sha256: rendered.sha256, width: rendered.width, height: rendered.height,
-      inputFingerprint: rendered.inputFingerprint, checks: rendered.checks, createdAt: new Date().toISOString(), approvedAt: null, approvedBy: null } };
-    return persist(store, input, next);
+    return renderState(store, input, state, bytes);
   });
 }
 async function verifiedBytes(store: PreparationWorkStore, input: RedactionIdentity, allowUnapproved = false, prepared?: VerifiedPreparationContext) {
@@ -265,8 +341,8 @@ export async function approveLocalRedactionSlide(input: RedactionIdentity & { ex
     const { state } = await verifiedBytes(store, input, true);
     checkRevision(state, input.expectedRevision);
     if (input.outputInspected !== true || !text(input.reviewer, 100) || !input.reviewer.trim() || state.output?.sha256 !== input.outputHash) fail("OUTPUT_REVIEW_REQUIRED");
-    if (state.status === "verified") return state;
-    return persist(store, input, { ...state, revision: state.revision + 1, status: "verified",
+    if (state.status === "verified") return persistSaved(store, input, state);
+    return persistSaved(store, input, { ...state, revision: state.revision + 1, status: "verified",
       output: { ...state.output!, approvedAt: new Date().toISOString(), approvedBy: input.reviewer.trim() } });
   });
 }

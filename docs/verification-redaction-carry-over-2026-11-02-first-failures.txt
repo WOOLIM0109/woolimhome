@@ -1,0 +1,324 @@
+✖ failing tests:
+
+test at lib\pc-worker\preparation\production-bridge.test.mjs:288:1
+✖ explicit preparation review applies into a fresh generation and swaps editor only after verified success (1.7313ms)
+  Error: EPERM: operation not permitted, mkdtemp 'C:\Users\becky\AppData\Local\b-XXXXXX'
+      at async mkdtemp (node:internal/fs/promises:1194:10)
+      at async preparationBridgeFixture (file:///C:/dev/woolimhome/.codex-tmp/redaction-carry/lib/pc-worker/preparation/production-bridge.test.mjs:237:21)
+      at async TestContext.<anonymous> (file:///C:/dev/woolimhome/.codex-tmp/redaction-carry/lib/pc-worker/preparation/production-bridge.test.mjs:289:13)
+      at async Test.run (node:internal/test_runner/test:1313:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:897:7) {
+    errno: -4048,
+    code: 'EPERM',
+    syscall: 'mkdtemp',
+    path: 'C:\\Users\\becky\\AppData\\Local\\b-XXXXXX'
+  }
+
+test at lib\pc-worker\preparation\production-bridge.test.mjs:309:1
+✖ manual preparation selection reaches only the fresh generation and empty selection keeps automatic defaults (2.8676ms)
+  Error: EPERM: operation not permitted, mkdtemp 'C:\Users\becky\AppData\Local\b-XXXXXX'
+      at async mkdtemp (node:internal/fs/promises:1194:10)
+      at async preparationBridgeFixture (file:///C:/dev/woolimhome/.codex-tmp/redaction-carry/lib/pc-worker/preparation/production-bridge.test.mjs:237:21)
+      at async TestContext.<anonymous> (file:///C:/dev/woolimhome/.codex-tmp/redaction-carry/lib/pc-worker/preparation/production-bridge.test.mjs:311:15)
+      at async Test.run (node:internal/test_runner/test:1313:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:897:7) {
+    errno: -4048,
+    code: 'EPERM',
+    syscall: 'mkdtemp',
+    path: 'C:\\Users\\becky\\AppData\\Local\\b-XXXXXX'
+  }
+
+test at lib\pc-worker\preparation\production-bridge.test.mjs:323:1
+✖ failed preparation, stale old evidence or failed review URL publication preserves original record/editor/artifacts (1.777ms)
+  Error: EPERM: operation not permitted, mkdtemp 'C:\Users\becky\AppData\Local\b-XXXXXX'
+      at async mkdtemp (node:internal/fs/promises:1194:10)
+      at async preparationBridgeFixture (file:///C:/dev/woolimhome/.codex-tmp/redaction-carry/lib/pc-worker/preparation/production-bridge.test.mjs:237:21)
+      at async TestContext.<anonymous> (file:///C:/dev/woolimhome/.codex-tmp/redaction-carry/lib/pc-worker/preparation/production-bridge.test.mjs:327:15)
+      at async Test.run (node:internal/test_runner/test:1313:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:897:7) {
+    errno: -4048,
+    code: 'EPERM',
+    syscall: 'mkdtemp',
+    path: 'C:\\Users\\becky\\AppData\\Local\\b-XXXXXX'
+  }
+
+test at lib\pc-worker\preparation\production-bridge.test.mjs:339:1
+✖ restarted daemon resumes the accepted generation without reconversion and rejects arbitrary work directory (1.2625ms)
+  Error: EPERM: operation not permitted, mkdtemp 'C:\Users\becky\AppData\Local\b-XXXXXX'
+      at async mkdtemp (node:internal/fs/promises:1194:10)
+      at async preparationBridgeFixture (file:///C:/dev/woolimhome/.codex-tmp/redaction-carry/lib/pc-worker/preparation/production-bridge.test.mjs:237:21)
+      at async TestContext.<anonymous> (file:///C:/dev/woolimhome/.codex-tmp/redaction-carry/lib/pc-worker/preparation/production-bridge.test.mjs:340:13)
+      at async Test.run (node:internal/test_runner/test:1313:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:897:7) {
+    errno: -4048,
+    code: 'EPERM',
+    syscall: 'mkdtemp',
+    path: 'C:\\Users\\becky\\AppData\\Local\\b-XXXXXX'
+  }
+
+test at lib\pc-worker\preparation\production-bridge.test.mjs:354:1
+✖ preparation actions serialize and uploading sessions cannot change selection or source format (1.5524ms)
+  Error: EPERM: operation not permitted, mkdtemp 'C:\Users\becky\AppData\Local\b-XXXXXX'
+      at async mkdtemp (node:internal/fs/promises:1194:10)
+      at async preparationBridgeFixture (file:///C:/dev/woolimhome/.codex-tmp/redaction-carry/lib/pc-worker/preparation/production-bridge.test.mjs:237:21)
+      at async TestContext.<anonymous> (file:///C:/dev/woolimhome/.codex-tmp/redaction-carry/lib/pc-worker/preparation/production-bridge.test.mjs:356:13)
+      at async Test.run (node:internal/test_runner/test:1313:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:897:7) {
+    errno: -4048,
+    code: 'EPERM',
+    syscall: 'mkdtemp',
+    path: 'C:\\Users\\becky\\AppData\\Local\\b-XXXXXX'
+  }
+
+test at lib\pc-worker\preparation\production-bridge.test.mjs:367:1
+✖ explicit reopen rotates only launch token with no preparation, source download or record mutation (1.5128ms)
+  Error: EPERM: operation not permitted, mkdtemp 'C:\Users\becky\AppData\Local\b-XXXXXX'
+      at async mkdtemp (node:internal/fs/promises:1194:10)
+      at async preparationBridgeFixture (file:///C:/dev/woolimhome/.codex-tmp/redaction-carry/lib/pc-worker/preparation/production-bridge.test.mjs:237:21)
+      at async TestContext.<anonymous> (file:///C:/dev/woolimhome/.codex-tmp/redaction-carry/lib/pc-worker/preparation/production-bridge.test.mjs:368:13)
+      at async Test.run (node:internal/test_runner/test:1313:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:897:7) {
+    errno: -4048,
+    code: 'EPERM',
+    syscall: 'mkdtemp',
+    path: 'C:\\Users\\becky\\AppData\\Local\\b-XXXXXX'
+  }
+
+test at lib\pc-worker\preparation\production-bridge.test.mjs:379:1
+✖ missing local token-rotation feature fails safely without conversion or requeue (2.4338ms)
+  Error: EPERM: operation not permitted, mkdtemp 'C:\Users\becky\AppData\Local\b-XXXXXX'
+      at async mkdtemp (node:internal/fs/promises:1194:10)
+      at async preparationBridgeFixture (file:///C:/dev/woolimhome/.codex-tmp/redaction-carry/lib/pc-worker/preparation/production-bridge.test.mjs:237:21)
+      at async TestContext.<anonymous> (file:///C:/dev/woolimhome/.codex-tmp/redaction-carry/lib/pc-worker/preparation/production-bridge.test.mjs:380:13)
+      at async Test.run (node:internal/test_runner/test:1313:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:897:7) {
+    errno: -4048,
+    code: 'EPERM',
+    syscall: 'mkdtemp',
+    path: 'C:\\Users\\becky\\AppData\\Local\\b-XXXXXX'
+  }
+
+test at lib\pc-worker\preparation\production-bridge.test.mjs:388:1
+✖ verified snapshot upload holds exclusive preparation lock through record commit (1.3686ms)
+  Error: EPERM: operation not permitted, mkdtemp 'C:\Users\becky\AppData\Local\b-XXXXXX'
+      at async mkdtemp (node:internal/fs/promises:1194:10)
+      at async preparationBridgeFixture (file:///C:/dev/woolimhome/.codex-tmp/redaction-carry/lib/pc-worker/preparation/production-bridge.test.mjs:237:21)
+      at async TestContext.<anonymous> (file:///C:/dev/woolimhome/.codex-tmp/redaction-carry/lib/pc-worker/preparation/production-bridge.test.mjs:392:13)
+      at async Test.run (node:internal/test_runner/test:1313:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:897:7) {
+    errno: -4048,
+    code: 'EPERM',
+    syscall: 'mkdtemp',
+    path: 'C:\\Users\\becky\\AppData\\Local\\b-XXXXXX'
+  }
+
+test at lib\pc-worker\preparation\production-bridge.test.mjs:409:1
+✖ failed snapshot upload releases preparation lock and preserves review record (2.9711ms)
+  Error: EPERM: operation not permitted, mkdtemp 'C:\Users\becky\AppData\Local\b-XXXXXX'
+      at async mkdtemp (node:internal/fs/promises:1194:10)
+      at async preparationBridgeFixture (file:///C:/dev/woolimhome/.codex-tmp/redaction-carry/lib/pc-worker/preparation/production-bridge.test.mjs:237:21)
+      at async TestContext.<anonymous> (file:///C:/dev/woolimhome/.codex-tmp/redaction-carry/lib/pc-worker/preparation/production-bridge.test.mjs:411:13)
+      at async Test.run (node:internal/test_runner/test:1313:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:897:7) {
+    errno: -4048,
+    code: 'EPERM',
+    syscall: 'mkdtemp',
+    path: 'C:\\Users\\becky\\AppData\\Local\\b-XXXXXX'
+  }
+
+test at lib\pc-worker\preparation\runtime-package.test.mjs:39:1
+﹣ dependency collection excludes npm bin links before recursion but includes locked nested semver (201.8964ms) # SKIP
+  Error: PREPARATION_DEPENDENCY_MISSING
+      at fail (file:///C:/dev/woolimhome/.codex-tmp/redaction-carry/scripts/preparation-runtime-package.mjs:69:32)
+      at visit (file:///C:/dev/woolimhome/.codex-tmp/redaction-carry/scripts/preparation-runtime-package.mjs:158:44)
+      at async dependencyRecords (file:///C:/dev/woolimhome/.codex-tmp/redaction-carry/scripts/preparation-runtime-package.mjs:166:41)
+      at async packagePreparationRuntime (file:///C:/dev/woolimhome/.codex-tmp/redaction-carry/scripts/preparation-runtime-package.mjs:208:24)
+      at async TestContext.<anonymous> (file:///C:/dev/woolimhome/.codex-tmp/redaction-carry/lib/pc-worker/preparation/runtime-package.test.mjs:23:14)
+      at async TestHook.run (node:internal/test_runner/test:1313:7)
+
+test at lib\pc-worker\preparation\runtime-package.test.mjs:50:1
+﹣ dependency payload rejects internal external and broken symlinks (0.8929ms) # SKIP
+  Error: PREPARATION_DEPENDENCY_MISSING
+      at fail (file:///C:/dev/woolimhome/.codex-tmp/redaction-carry/scripts/preparation-runtime-package.mjs:69:32)
+      at visit (file:///C:/dev/woolimhome/.codex-tmp/redaction-carry/scripts/preparation-runtime-package.mjs:158:44)
+      at async dependencyRecords (file:///C:/dev/woolimhome/.codex-tmp/redaction-carry/scripts/preparation-runtime-package.mjs:166:41)
+      at async packagePreparationRuntime (file:///C:/dev/woolimhome/.codex-tmp/redaction-carry/scripts/preparation-runtime-package.mjs:208:24)
+      at async TestContext.<anonymous> (file:///C:/dev/woolimhome/.codex-tmp/redaction-carry/lib/pc-worker/preparation/runtime-package.test.mjs:23:14)
+      at async TestHook.run (node:internal/test_runner/test:1313:7)
+
+test at lib\pc-worker\preparation\runtime-package.test.mjs:62:1
+﹣ dependency roots and excluded node_modules must be real directories (0.101ms) # SKIP
+  Error: PREPARATION_DEPENDENCY_MISSING
+      at fail (file:///C:/dev/woolimhome/.codex-tmp/redaction-carry/scripts/preparation-runtime-package.mjs:69:32)
+      at visit (file:///C:/dev/woolimhome/.codex-tmp/redaction-carry/scripts/preparation-runtime-package.mjs:158:44)
+      at async dependencyRecords (file:///C:/dev/woolimhome/.codex-tmp/redaction-carry/scripts/preparation-runtime-package.mjs:166:41)
+      at async packagePreparationRuntime (file:///C:/dev/woolimhome/.codex-tmp/redaction-carry/scripts/preparation-runtime-package.mjs:208:24)
+      at async TestContext.<anonymous> (file:///C:/dev/woolimhome/.codex-tmp/redaction-carry/lib/pc-worker/preparation/runtime-package.test.mjs:23:14)
+      at async TestHook.run (node:internal/test_runner/test:1313:7)
+
+test at lib\pc-worker\preparation\runtime-package.test.mjs:79:1
+✖ dependency payload still rejects hard links and environment files (0.0735ms)
+  Error: PREPARATION_DEPENDENCY_MISSING
+      at fail (file:///C:/dev/woolimhome/.codex-tmp/redaction-carry/scripts/preparation-runtime-package.mjs:69:32)
+      at visit (file:///C:/dev/woolimhome/.codex-tmp/redaction-carry/scripts/preparation-runtime-package.mjs:158:44)
+      at async dependencyRecords (file:///C:/dev/woolimhome/.codex-tmp/redaction-carry/scripts/preparation-runtime-package.mjs:166:41)
+      at async packagePreparationRuntime (file:///C:/dev/woolimhome/.codex-tmp/redaction-carry/scripts/preparation-runtime-package.mjs:208:24)
+      at async TestContext.<anonymous> (file:///C:/dev/woolimhome/.codex-tmp/redaction-carry/lib/pc-worker/preparation/runtime-package.test.mjs:23:14)
+      at async TestHook.run (node:internal/test_runner/test:1313:7)
+
+test at lib\pc-worker\preparation\runtime-package.test.mjs:89:1
+﹣ dependency payload rejects special files before reading them (0.0892ms) # SKIP
+  Error: PREPARATION_DEPENDENCY_MISSING
+      at fail (file:///C:/dev/woolimhome/.codex-tmp/redaction-carry/scripts/preparation-runtime-package.mjs:69:32)
+      at visit (file:///C:/dev/woolimhome/.codex-tmp/redaction-carry/scripts/preparation-runtime-package.mjs:158:44)
+      at async dependencyRecords (file:///C:/dev/woolimhome/.codex-tmp/redaction-carry/scripts/preparation-runtime-package.mjs:166:41)
+      at async packagePreparationRuntime (file:///C:/dev/woolimhome/.codex-tmp/redaction-carry/scripts/preparation-runtime-package.mjs:208:24)
+      at async TestContext.<anonymous> (file:///C:/dev/woolimhome/.codex-tmp/redaction-carry/lib/pc-worker/preparation/runtime-package.test.mjs:23:14)
+      at async TestHook.run (node:internal/test_runner/test:1313:7)
+
+test at lib\pc-worker\preparation\runtime-package.test.mjs:95:1
+✖ finished package inspection never excludes unexpected node_modules entries (0.0616ms)
+  Error: PREPARATION_DEPENDENCY_MISSING
+      at fail (file:///C:/dev/woolimhome/.codex-tmp/redaction-carry/scripts/preparation-runtime-package.mjs:69:32)
+      at visit (file:///C:/dev/woolimhome/.codex-tmp/redaction-carry/scripts/preparation-runtime-package.mjs:158:44)
+      at async dependencyRecords (file:///C:/dev/woolimhome/.codex-tmp/redaction-carry/scripts/preparation-runtime-package.mjs:166:41)
+      at async packagePreparationRuntime (file:///C:/dev/woolimhome/.codex-tmp/redaction-carry/scripts/preparation-runtime-package.mjs:208:24)
+      at async TestContext.<anonymous> (file:///C:/dev/woolimhome/.codex-tmp/redaction-carry/lib/pc-worker/preparation/runtime-package.test.mjs:23:14)
+      at async TestHook.run (node:internal/test_runner/test:1313:7)
+
+test at lib\pc-worker\preparation\runtime-package.test.mjs:103:1
+﹣ finished package inspection rejects unexpected node_modules symlinks (0.0568ms) # SKIP
+  Error: PREPARATION_DEPENDENCY_MISSING
+      at fail (file:///C:/dev/woolimhome/.codex-tmp/redaction-carry/scripts/preparation-runtime-package.mjs:69:32)
+      at visit (file:///C:/dev/woolimhome/.codex-tmp/redaction-carry/scripts/preparation-runtime-package.mjs:158:44)
+      at async dependencyRecords (file:///C:/dev/woolimhome/.codex-tmp/redaction-carry/scripts/preparation-runtime-package.mjs:166:41)
+      at async packagePreparationRuntime (file:///C:/dev/woolimhome/.codex-tmp/redaction-carry/scripts/preparation-runtime-package.mjs:208:24)
+      at async TestContext.<anonymous> (file:///C:/dev/woolimhome/.codex-tmp/redaction-carry/lib/pc-worker/preparation/runtime-package.test.mjs:23:14)
+      at async TestHook.run (node:internal/test_runner/test:1313:7)
+
+test at lib\pc-worker\preparation\runtime-package.test.mjs:111:1
+✖ fixed preparation payload includes local editor, title and PowerPoint adapter without secrets or app code (0.0542ms)
+  Error: PREPARATION_DEPENDENCY_MISSING
+      at fail (file:///C:/dev/woolimhome/.codex-tmp/redaction-carry/scripts/preparation-runtime-package.mjs:69:32)
+      at visit (file:///C:/dev/woolimhome/.codex-tmp/redaction-carry/scripts/preparation-runtime-package.mjs:158:44)
+      at async dependencyRecords (file:///C:/dev/woolimhome/.codex-tmp/redaction-carry/scripts/preparation-runtime-package.mjs:166:41)
+      at async packagePreparationRuntime (file:///C:/dev/woolimhome/.codex-tmp/redaction-carry/scripts/preparation-runtime-package.mjs:208:24)
+      at async TestContext.<anonymous> (file:///C:/dev/woolimhome/.codex-tmp/redaction-carry/lib/pc-worker/preparation/runtime-package.test.mjs:23:14)
+      at async TestHook.run (node:internal/test_runner/test:1313:7)
+
+test at lib\pc-worker\preparation\runtime-package.test.mjs:126:1
+✖ offline package is reproducible and does not overwrite nonempty destinations (0.0752ms)
+  Error: PREPARATION_DEPENDENCY_MISSING
+      at fail (file:///C:/dev/woolimhome/.codex-tmp/redaction-carry/scripts/preparation-runtime-package.mjs:69:32)
+      at visit (file:///C:/dev/woolimhome/.codex-tmp/redaction-carry/scripts/preparation-runtime-package.mjs:158:44)
+      at async dependencyRecords (file:///C:/dev/woolimhome/.codex-tmp/redaction-carry/scripts/preparation-runtime-package.mjs:166:41)
+      at async packagePreparationRuntime (file:///C:/dev/woolimhome/.codex-tmp/redaction-carry/scripts/preparation-runtime-package.mjs:208:24)
+      at async TestContext.<anonymous> (file:///C:/dev/woolimhome/.codex-tmp/redaction-carry/lib/pc-worker/preparation/runtime-package.test.mjs:23:14)
+      at async TestHook.run (node:internal/test_runner/test:1313:7)
+
+test at lib\pc-worker\preparation\runtime-package.test.mjs:132:1
+✖ immutable package verification requires an external trusted fingerprint and platform match (0.0917ms)
+  Error: PREPARATION_DEPENDENCY_MISSING
+      at fail (file:///C:/dev/woolimhome/.codex-tmp/redaction-carry/scripts/preparation-runtime-package.mjs:69:32)
+      at visit (file:///C:/dev/woolimhome/.codex-tmp/redaction-carry/scripts/preparation-runtime-package.mjs:158:44)
+      at async dependencyRecords (file:///C:/dev/woolimhome/.codex-tmp/redaction-carry/scripts/preparation-runtime-package.mjs:166:41)
+      at async packagePreparationRuntime (file:///C:/dev/woolimhome/.codex-tmp/redaction-carry/scripts/preparation-runtime-package.mjs:208:24)
+      at async TestContext.<anonymous> (file:///C:/dev/woolimhome/.codex-tmp/redaction-carry/lib/pc-worker/preparation/runtime-package.test.mjs:23:14)
+      at async TestHook.run (node:internal/test_runner/test:1313:7)
+
+test at lib\pc-worker\preparation\runtime-package.test.mjs:138:1
+✖ changed source, unexpected env file and altered manifest each fail closed (0.0456ms)
+  Error: PREPARATION_DEPENDENCY_MISSING
+      at fail (file:///C:/dev/woolimhome/.codex-tmp/redaction-carry/scripts/preparation-runtime-package.mjs:69:32)
+      at visit (file:///C:/dev/woolimhome/.codex-tmp/redaction-carry/scripts/preparation-runtime-package.mjs:158:44)
+      at async dependencyRecords (file:///C:/dev/woolimhome/.codex-tmp/redaction-carry/scripts/preparation-runtime-package.mjs:166:41)
+      at async packagePreparationRuntime (file:///C:/dev/woolimhome/.codex-tmp/redaction-carry/scripts/preparation-runtime-package.mjs:208:24)
+      at async TestContext.<anonymous> (file:///C:/dev/woolimhome/.codex-tmp/redaction-carry/lib/pc-worker/preparation/runtime-package.test.mjs:23:14)
+      at async TestHook.run (node:internal/test_runner/test:1313:7)
+
+test at lib\pc-worker\preparation\runtime-package.test.mjs:153:1
+✖ Node policy rejects pre-22.6 and malformed versions (0.056ms)
+  Error: PREPARATION_DEPENDENCY_MISSING
+      at fail (file:///C:/dev/woolimhome/.codex-tmp/redaction-carry/scripts/preparation-runtime-package.mjs:69:32)
+      at visit (file:///C:/dev/woolimhome/.codex-tmp/redaction-carry/scripts/preparation-runtime-package.mjs:158:44)
+      at async dependencyRecords (file:///C:/dev/woolimhome/.codex-tmp/redaction-carry/scripts/preparation-runtime-package.mjs:166:41)
+      at async packagePreparationRuntime (file:///C:/dev/woolimhome/.codex-tmp/redaction-carry/scripts/preparation-runtime-package.mjs:208:24)
+      at async TestContext.<anonymous> (file:///C:/dev/woolimhome/.codex-tmp/redaction-carry/lib/pc-worker/preparation/runtime-package.test.mjs:23:14)
+      at async TestHook.run (node:internal/test_runner/test:1313:7)
+
+test at lib\pc-worker\preparation\runtime-package.test.mjs:158:1
+✖ launcher only forwards preparation CLI options and strips inherited credentials/preloads (0.054ms)
+  Error: PREPARATION_DEPENDENCY_MISSING
+      at fail (file:///C:/dev/woolimhome/.codex-tmp/redaction-carry/scripts/preparation-runtime-package.mjs:69:32)
+      at visit (file:///C:/dev/woolimhome/.codex-tmp/redaction-carry/scripts/preparation-runtime-package.mjs:158:44)
+      at async dependencyRecords (file:///C:/dev/woolimhome/.codex-tmp/redaction-carry/scripts/preparation-runtime-package.mjs:166:41)
+      at async packagePreparationRuntime (file:///C:/dev/woolimhome/.codex-tmp/redaction-carry/scripts/preparation-runtime-package.mjs:208:24)
+      at async TestContext.<anonymous> (file:///C:/dev/woolimhome/.codex-tmp/redaction-carry/lib/pc-worker/preparation/runtime-package.test.mjs:23:14)
+      at async TestHook.run (node:internal/test_runner/test:1313:7)
+
+test at lib\pc-worker\preparation\runtime-package.test.mjs:171:1
+✖ packaged --check loads private dependencies offline without starting preparation (0.0526ms)
+  Error: PREPARATION_DEPENDENCY_MISSING
+      at fail (file:///C:/dev/woolimhome/.codex-tmp/redaction-carry/scripts/preparation-runtime-package.mjs:69:32)
+      at visit (file:///C:/dev/woolimhome/.codex-tmp/redaction-carry/scripts/preparation-runtime-package.mjs:158:44)
+      at async dependencyRecords (file:///C:/dev/woolimhome/.codex-tmp/redaction-carry/scripts/preparation-runtime-package.mjs:166:41)
+      at async packagePreparationRuntime (file:///C:/dev/woolimhome/.codex-tmp/redaction-carry/scripts/preparation-runtime-package.mjs:208:24)
+      at async TestContext.<anonymous> (file:///C:/dev/woolimhome/.codex-tmp/redaction-carry/lib/pc-worker/preparation/runtime-package.test.mjs:23:14)
+      at async TestHook.run (node:internal/test_runner/test:1313:7)
+
+test at lib\pc-worker\preparation\runtime-package.test.mjs:181:1
+✖ complete packaged import graph resolves with only allowlisted runtime dependencies (0.047ms)
+  Error: PREPARATION_DEPENDENCY_MISSING
+      at fail (file:///C:/dev/woolimhome/.codex-tmp/redaction-carry/scripts/preparation-runtime-package.mjs:69:32)
+      at visit (file:///C:/dev/woolimhome/.codex-tmp/redaction-carry/scripts/preparation-runtime-package.mjs:158:44)
+      at async dependencyRecords (file:///C:/dev/woolimhome/.codex-tmp/redaction-carry/scripts/preparation-runtime-package.mjs:166:41)
+      at async packagePreparationRuntime (file:///C:/dev/woolimhome/.codex-tmp/redaction-carry/scripts/preparation-runtime-package.mjs:208:24)
+      at async TestContext.<anonymous> (file:///C:/dev/woolimhome/.codex-tmp/redaction-carry/lib/pc-worker/preparation/runtime-package.test.mjs:23:14)
+      at async TestHook.run (node:internal/test_runner/test:1313:7)
+
+test at lib\pc-worker\preparation\runtime-package.test.mjs:188:1
+✖ versioned staging is idempotent, keeps previous versions and never activates a task or pointer (0.0573ms)
+  Error: PREPARATION_DEPENDENCY_MISSING
+      at fail (file:///C:/dev/woolimhome/.codex-tmp/redaction-carry/scripts/preparation-runtime-package.mjs:69:32)
+      at visit (file:///C:/dev/woolimhome/.codex-tmp/redaction-carry/scripts/preparation-runtime-package.mjs:158:44)
+      at async dependencyRecords (file:///C:/dev/woolimhome/.codex-tmp/redaction-carry/scripts/preparation-runtime-package.mjs:166:41)
+      at async packagePreparationRuntime (file:///C:/dev/woolimhome/.codex-tmp/redaction-carry/scripts/preparation-runtime-package.mjs:208:24)
+      at async TestContext.<anonymous> (file:///C:/dev/woolimhome/.codex-tmp/redaction-carry/lib/pc-worker/preparation/runtime-package.test.mjs:23:14)
+      at async TestHook.run (node:internal/test_runner/test:1313:7)
+
+✖ failing tests:
+
+test at lib\pc-worker\preparation\powerpoint-cleanup.test.mjs:353:1
+✖ injected export, Quit, timeout and checkpoint failures leave no converter-owned POWERPNT process (1771.6397ms)
+  Error: Command failed: powershell.exe -NoProfile -NonInteractive -Command $ErrorActionPreference='Stop';$tokens=$null;$errors=$null;$ast=[System.Management.Automation.Language.Parser]::ParseFile('C:\dev\woolimhome\.codex-tmp\redaction-carry\tools\woolim-pc-worker\prepare-slides.ps1',[ref]$tokens,[ref]$errors);if($errors.Count){throw 'CONVERTER_PARSE_ERROR'};foreach($function in $ast.FindAll({param($node)$node -is [System.Management.Automation.Language.FunctionDefinitionAst]},$true)){. ([scriptblock]::Create($function.Extent.Text))};
+        $app=$null;$presentation=$null;$identity=$null;$mutex=New-Object System.Threading.Mutex($false,'Local\WoolimPowerPointPreparation');$owns=$false;
+        try{$owns=$mutex.WaitOne(0);if(-not $owns -or @(Get-Process -Name POWERPNT -ErrorAction SilentlyContinue).Count){throw 'POWERPOINT_BUSY'};
+          $started=[DateTime]::UtcNow;$app=[Activator]::CreateInstance([Type]::GetTypeFromProgID('PowerPoint.Application'));$identity=Get-OwnedPowerPointProcess -Application $app -StartedAfter $started;
+          $presentation=$app.Presentations.Add(0);$slide=$presentation.Slides.Add(1,12);
+          $shape=$slide.Shapes.AddTextbox(1,40,40,500,220);$frame=$shape.TextFrame;$range=$frame.TextRange;$range.Text='SYNTHETIC CLEANUP TEST 0123456789';$font=$range.Font;$font.Size=32;
+          foreach($reference in @($font,$range,$frame,$shape,$slide)){[Runtime.InteropServices.Marshal]::FinalReleaseComObject($reference)|Out-Null};
+          $presentation.SaveAs('C:\Users\becky\AppData\Local\Temp\ppt-cleanup-y7Mpdy\synthetic.pptx',24);$presentation.Close();[Runtime.InteropServices.Marshal]::FinalReleaseComObject($presentation)|Out-Null;$presentation=$null;
+        }finally{if($presentation){try{$presentation.Close()}catch{};[Runtime.InteropServices.Marshal]::FinalReleaseComObject($presentation)|Out-Null};if($app){Close-OwnedPowerPointProcess -Application $app -Identity $identity -CopyPath 'C:\Users\becky\AppData\Local\Temp\ppt-cleanup-y7Mpdy\synthetic.pptx';[Runtime.InteropServices.Marshal]::FinalReleaseComObject($app)|Out-Null};[GC]::Collect();[GC]::WaitForPendingFinalizers();if($owns){$mutex.ReleaseMutex()};$mutex.Dispose()}
+  "1"���� �μ��� �ִ� "CreateInstance"��(��) ȣ���ϴ� ���� ���ܰ� �߻��߽��ϴ�. "80070520 ������ �α׿� ������ �����ϴ�. 
+  �̹� ����Ǿ��� ���� �ֽ��ϴ�. (���ܰ� �߻��� HRESULT: 0x80070520) ������ ���� CLSID�� {91493441-5A91-11CF-8700-00AA006
+  0263B}�� ���� ����� COM Ŭ���� ���͸��� �˻����� ���߽��ϴ�."
+  ��ġ ��:4 ����:37
+  + ... me]::UtcNow;$app=[Activator]::CreateInstance([Type]::GetTypeFromProgI ...
+  +                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+      + CategoryInfo          : NotSpecified: (:) [], ParentContainsErrorRecordException
+      + FullyQualifiedErrorId : COMException
+   
+  
+      at genericNodeError (node:internal/errors:985:15)
+      at wrappedFn (node:internal/errors:539:14)
+      at ChildProcess.exithandler (node:child_process:417:12)
+      at ChildProcess.emit (node:events:509:28)
+      at maybeClose (node:internal/child_process:1124:16)
+      at ChildProcess._handle.onexit (node:internal/child_process:306:5) {
+    code: 1,
+    killed: false,
+    signal: null,
+    cmd: "powershell.exe -NoProfile -NonInteractive -Command $ErrorActionPreference='Stop';$tokens=$null;$errors=$null;$ast=[System.Management.Automation.Language.Parser]::ParseFile('C:\\dev\\woolimhome\\.codex-tmp\\redaction-carry\\tools\\woolim-pc-worker\\prepare-slides.ps1',[ref]$tokens,[ref]$errors);if($errors.Count){throw 'CONVERTER_PARSE_ERROR'};foreach($function in $ast.FindAll({param($node)$node -is [System.Management.Automation.Language.FunctionDefinitionAst]},$true)){. ([scriptblock]::Create($function.Extent.Text))};\n      $app=$null;$presentation=$null;$identity=$null;$mutex=New-Object System.Threading.Mutex($false,'Local\\WoolimPowerPointPreparation');$owns=$false;\n      try{$owns=$mutex.WaitOne(0);if(-not $owns -or @(Get-Process -Name POWERPNT -ErrorAction SilentlyContinue).Count){throw 'POWERPOINT_BUSY'};\n        $started=[DateTime]::UtcNow;$app=[Activator]::CreateInstance([Type]::GetTypeFromProgID('PowerPoint.Application'));$identity=Get-OwnedPowerPointProcess -Application $app -StartedAfter $started;\n        $presentation=$app.Presentations.Add(0);$slide=$presentation.Slides.Add(1,12);\n        $shape=$slide.Shapes.AddTextbox(1,40,40,500,220);$frame=$shape.TextFrame;$range=$frame.TextRange;$range.Text='SYNTHETIC CLEANUP TEST 0123456789';$font=$range.Font;$font.Size=32;\n        foreach($reference in @($font,$range,$frame,$shape,$slide)){[Runtime.InteropServices.Marshal]::FinalReleaseComObject($reference)|Out-Null};\n        $presentation.SaveAs('C:\\Users\\becky\\AppData\\Local\\Temp\\ppt-cleanup-y7Mpdy\\synthetic.pptx',24);$presentation.Close();[Runtime.InteropServices.Marshal]::FinalReleaseComObject($presentation)|Out-Null;$presentation=$null;\n      }finally{if($presentation){try{$presentation.Close()}catch{};[Runtime.InteropServices.Marshal]::FinalReleaseComObject($presentation)|Out-Null};if($app){Close-OwnedPowerPointProcess -Application $app -Identity $identity -CopyPath 'C:\\Users\\becky\\AppData\\Local\\Temp\\ppt-cleanup-y7Mpdy\\synthetic.pptx';[Runtime.InteropServices.Marshal]::FinalReleaseComObject($app)|Out-Null};[GC]::Collect();[GC]::WaitForPendingFinalizers();if($owns){$mutex.ReleaseMutex()};$mutex.Dispose()}",
+    stdout: '',
+    stderr: '"1"���� �μ��� �ִ� "CreateInstance"��(��) ȣ���ϴ� ���� ���ܰ� �߻��߽��ϴ�. "80070520 ������ �α׿� ������ �����ϴ�. \r\n�̹� ����Ǿ��� ���� �ֽ��ϴ�. (���ܰ� �߻��� HRESULT: 0x80070520) ������ ���� CLSID�� {91493441-5A91-11CF-8700-00AA006\r\n0263B}�� ���� ����� COM Ŭ���� ���͸��� �˻����� ���߽��ϴ�."\r\n��ġ ��:4 ����:37\r\n+ ... me]::UtcNow;$app=[Activator]::CreateInstance([Type]::GetTypeFromProgI ...\r\n+                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\r\n    + CategoryInfo          : NotSpecified: (:) [], ParentContainsErrorRecordException\r\n    + FullyQualifiedErrorId : COMException\r\n \r\n'
+  }
