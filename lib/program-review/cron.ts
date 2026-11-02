@@ -9,7 +9,7 @@ type CronDependencies = {
 
 const COUNT_FIELDS = [
   "profiles", "queued", "remaining", "considered", "extracted", "reused", "matched",
-  "failed", "alreadyAttempted", "budgetSkipped",
+  "failed", "alreadyAttempted", "recoveryRefused", "budgetSkipped",
 ] as const;
 const FLAG_FIELDS = ["refreshPending", "stoppedForTime", "budgetExhausted", "budgetBlocked", "leaseBusy", "busy"] as const;
 

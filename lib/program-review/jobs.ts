@@ -3,7 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 const COUNT_FIELDS = [
   "profiles", "queued", "remaining", "considered", "extracted", "reused", "matched", "failed",
-  "alreadyAttempted", "budgetSkipped", "discovered", "discoveredAttachments", "discoveryFailed",
+  "alreadyAttempted", "recoveryRefused", "budgetSkipped", "discovered", "discoveredAttachments", "discoveryFailed",
   "processed", "noText", "skipped", "expanded", "deferred", "zipCachePeakBytes", "zipCacheEvictions",
   "ready", "waitingAttachments", "eligible", "withText", "requirementsExtracted", "requirementsFailed",
   "pendingInputChars", "estimatedInputTokens", "estimatedOutputTokens", "remainingDailyCalls", "remainingMonthlyCalls",

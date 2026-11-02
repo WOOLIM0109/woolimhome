@@ -28,9 +28,10 @@ function form(result: Record<string, unknown> = {}) {
     <form method="post"><input type="hidden" name="task" value="all">
       <button type="submit">마감일 미상 포함 요건·매칭 실행</button></form>
     <form method="post"><input type="hidden" name="task" value="recover">
-      <p>같은 원문으로 실패한 공고는 자동 재호출하지 않습니다. 수동 복구는 공고·원문별 1회만 기록됩니다.</p>
+      <p>같은 원문으로 실패한 공고는 자동으로 다시 부르지 않습니다. 수동 복구는 같은 원문에 3회까지 되고, 부른 기록은 한 번에 한 줄씩 남습니다.</p>
+      <p>3회를 다 쓰면 recoveryRefused 로 표시됩니다. 그때는 첨부 원문부터 다시 확인하세요.</p>
       <label>실패 공고 ID <input name="programId" required pattern="[0-9a-fA-F-]{36}"></label>
-      <button type="submit">실패 공고 1회 복구</button></form></main></html>`, { headers });
+      <button type="submit">실패 공고 복구</button></form></main></html>`, { headers });
 }
 export async function GET() {
   if (!(await authenticatedAdmin())) return Response.json({ error: "Unauthorized" }, { status: 401 });
