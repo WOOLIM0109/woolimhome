@@ -10,6 +10,10 @@ export type MatchProfile = {
   employees: number | null;
   revenueKrw: number | null;
   certifications: string[] | null;
+  /** 무엇을 만들고 파는지 — 분야 키워드. 비어 있으면 분야로 거르지 않는다. */
+  itemFields?: string[] | null;
+  /** 확실히 아닌 분야. 애매하면 비운다 — 빈칸을 부적합으로 쓰지 않는다. */
+  itemNotFields?: string[] | null;
   hasSupportHistory: boolean;
   missingFields: string[];
   certificationsComplete?: boolean;
@@ -143,7 +147,9 @@ export function selfMatchProfiles(rows?: readonly unknown[]): MatchProfile[] {
       && certifications.length === rawCertifications?.length;
     return {
       targetKind: "self" as const, targetId: row.id, targetName: name, region, foundedOn, businessType, industries,
-      employees, revenueKrw, certifications, certificationsComplete, hasSupportHistory: profile.has_support_history === true,
+      employees, revenueKrw, certifications, certificationsComplete,
+      itemFields: texts(profile.item_fields), itemNotFields: texts(profile.item_not_fields),
+      hasSupportHistory: profile.has_support_history === true,
       missingFields: [
         ...(region ? [] : ["region"]), ...(foundedOn ? [] : ["foundedOn"]), ...(businessType ? [] : ["businessType"]),
         ...(industries !== null ? [] : ["industries"]), ...(employees !== null ? [] : ["employees"]),
@@ -199,6 +205,7 @@ export function customerEntityMatchProfile(
     targetName: entityTargetName(customer.name, entity.entityName, options.several),
     region, foundedOn, businessType, industries, employees, revenueKrw, certifications,
     certificationsComplete,
+    itemFields: many(stored.item_fields), itemNotFields: many(stored.item_not_fields),
     hasSupportHistory: stored.has_support_history === true || customer.hasSupportHistory,
     missingFields: [
       ...(region ? [] : ["region"]), ...(foundedOn ? [] : ["foundedOn"]),

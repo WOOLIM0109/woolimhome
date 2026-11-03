@@ -18,9 +18,11 @@ const ORIGIN = "https://hub.woolimcompany.kr";
 /** 쓸 수 있는 칸. 저장소의 `valid_openchat_self_profile_patch` 와 같아야 합니다. */
 const PROFILE_KEYS = ["region", "founded_on", "business_type", "industries", "employees",
   "revenue_krw", "revenue_band", "certifications", "certifications_complete",
-  "has_support_history", "notes"] as const;
+  "has_support_history", "notes",
+  // ★ 분야. 무엇을 만들고 파는지와, 확실히 아닌 분야.
+  "item_fields", "item_not_fields"] as const;
 const BOOLEAN_KEYS = new Set(["certifications_complete", "has_support_history"]);
-const LIST_KEYS = new Set(["industries", "certifications"]);
+const LIST_KEYS = new Set(["industries", "certifications", "item_fields", "item_not_fields"]);
 const NUMBER_KEYS = new Set(["employees", "revenue_krw"]);
 const BUSINESS_NUMBER = /^\d{3}-\d{2}-\d{5}$/;
 const FOUNDED_ON = /^\d{4}-\d{2}-\d{2}$/;
