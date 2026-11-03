@@ -21,6 +21,10 @@ export type Requirements = {
     as_of?: string | null;
   } | null;
   size: { max_employees: number | null; max_revenue_krw: number | null; text: string | null } | null;
+  /** 이 공고가 지원하려는 분야·주제. 자격이 아니라 '무엇에 관한 사업인가'. */
+  support_fields: string[] | null;
+  /** 그 분야가 자격 요건인가. false 면 신청 트랙 구분일 뿐이라 분야로 제외하지 않는다. */
+  support_field_required: boolean | null;
   industries_included: string[] | null;
   industries_excluded: string[] | null;
   required_certifications: string[] | null;
@@ -278,6 +282,16 @@ export function normalizeRequirements(raw: unknown, source: RequirementInput | r
     return accepted.length ? accepted : null;
   }
 
+  /** 참/거짓 한 칸. 근거 인용이 원문에 있어야 값을 쓴다. */
+  function flag(path: string) {
+    const value = own(data, path);
+    if (typeof value !== "boolean") return null;
+    const verified = proof(path);
+    if (!verified) return null;
+    evidence[path] = verified.canonical;
+    return value;
+  }
+
   const age = record(own(data, "business_age"));
   const businessAge: NonNullable<Requirements["business_age"]> = {
     min_years: number(own(age, "min_years"), "business_age.min_years", "years"),
@@ -427,6 +441,8 @@ export function normalizeRequirements(raw: unknown, source: RequirementInput | r
     target_types: list("target_types"),
     business_age: ageNeedsReview || Object.values(businessAge).some((value) => value !== null) ? businessAge : null,
     size: Object.values(size).some((value) => value !== null) ? size : null,
+    support_fields: list("support_fields"),
+    support_field_required: flag("support_field_required"),
     industries_included: list("industries_included"),
     industries_excluded: list("industries_excluded"),
     required_certifications: list("required_certifications"),
@@ -449,6 +465,7 @@ export function requirementsPrompt(input: RequirementInput): string {
     regions: null, target_types: null,
     business_age: { min_years: null, max_years: null, basis: null },
     size: { max_employees: null, max_revenue_krw: null, text: null },
+    support_fields: null, support_field_required: null,
     industries_included: null, industries_excluded: null, required_certifications: null, bonus_points: null,
     support_amount_text: null, self_pay_text: null, deadline_at: null, submission_documents: null,
     evaluation: { method: null, criteria_text: null }, contact: null, evidence: null,
@@ -464,6 +481,8 @@ ${JSON.stringify(schema)}
 모든 값은 근거가 없으면 null이다. 빈 문자열·빈 배열 대신 null을 쓴다. 추측·상식 보완·날짜/시간 생성은 금지한다.
 문자열은 근거에서 문구를 그대로 복사한다(지역·대상·업종·인증도 원문에 실제 있는 문구만 사용).
 regions/target_types/industries_included/industries_excluded/required_certifications는 문자열 배열 또는 null이다.
+support_fields는 이 공고가 **지원하려는 분야·주제**다. 모집분야·지원분야·과제분야·지원내용에 적힌 기술·산업·주제를 원문 문구 그대로 배열에 담는다. 자격 제한이 아니라 '무엇에 관한 사업인가'를 적는 칸이며, 분야를 좁히지 않은 공고는 null이다. 자사 공장·생산설비·연구소 보유를 전제하는 사업이면 그 문구도 항목으로 함께 담는다.
+support_field_required는 그 분야가 자격 요건일 때만 true다. '모집 분야와 관련한 기술을 1개 이상 보유한 경우', '해당 분야 사업을 영위하는 자'처럼 적혀 있으면 true, '지원분야: 1)마케팅 2)디자인 중 택1'처럼 신청 트랙을 나누는 구분일 뿐이면 false, 근거가 없으면 null이다.
 target_types에서 연구기관·대학·지자체 전용 조건을 기업으로 바꾸거나 생략하지 않는다. 기업도 함께 가능하면 모두 보존한다.
 business_age.min_years/max_years는 원문에 명시된 년 수만 숫자로, basis는 기준 문구 그대로 쓴다.
 business_age.as_of는 원문에 기준일의 완전한 연월일이 명시된 때만 YYYY-MM-DD로 추가한다. '공고일 기준'만 있으면 기준일을 추정하지 않는다.

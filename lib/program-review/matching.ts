@@ -11,7 +11,7 @@ export type ProgramMatch = {
 };
 export type MatchOptions = { now: Date | string | number; programDeadlineAt?: string | null };
 export type RankedProgramMatch = ProgramMatch & { programId: string };
-export const MATCHING_RULE_VERSION = 3;
+export const MATCHING_RULE_VERSION = 4;
 
 /** Database verdicts stay stable; partial positive matches are explicitly conditional. */
 export function matchVerdictLabel(match: Pick<ProgramMatch, "verdict" | "reasons">) {
@@ -33,11 +33,39 @@ const REGION_ALIASES: Array<[string, string[]]> = [
 ];
 
 function normalized(value: string) { return value.normalize("NFKC").replace(/[\s()（）·,.:\-/]/g, "").toLowerCase(); }
+/**
+ * 분야 한 쌍이 같은 것을 가리키는가.
+ *
+ * 공고의 분야는 길게 적히고(`디스플레이 소재·부품·장비`) 우리가 적는 말은
+ * 짧다(`디스플레이`). 그래서 **토막 단위 일치**와 **포함**을 본다.
+ *
+ * ★ 꾸미는 말은 혼자서 일치 근거가 되지 못한다. `AI` 를 일치로 보면
+ * 마케팅 회사가 `AI 기반 공정 자동화` 에 걸려서 디스플레이 공정 공고의
+ * 일치 근거를 얻는다. 그것이 바로 지금 고치려는 증상이다. 이런 말들은
+ * 거의 모든 공고에 붙고 **무슨 분야인지를 말해 주지 않는다**. 그래서
+ * 글자가 통째로 같을 때만 맞다고 본다 (`AI` 공고의 분야가 정말 `AI` 하나일 때).
+ */
+const FIELD_SPLIT = /[\s·,/&()（）]+/;
+const GENERIC_FIELD_WORDS = new Set(["ai", "it", "ict", "dx", "sw", "hw", "iot", "r&d", "rd",
+  "디지털", "스마트", "혁신", "기술", "플랫폼", "데이터", "솔루션", "서비스", "제품", "산업", "기업"]
+  .map((word) => word.normalize("NFKC").replace(/[\s()（）·,.:\-/]/g, "").toLowerCase()));
+function fieldMatches(ours: string, theirs: string) {
+  const a = normalized(ours);
+  const b = normalized(theirs);
+  if (!a || !b) return false;
+  if (a === b) return true;
+  // 꾸미는 말은 통째로 같을 때만. 위에서 이미 걸러졌으므로 여기서 끝낸다.
+  if (GENERIC_FIELD_WORDS.has(a)) return false;
+  if (a.length < 2) return false;
+  const tokens = theirs.split(FIELD_SPLIT).map(normalized).filter(Boolean);
+  return tokens.includes(a) || b.includes(a);
+}
+
 function hasEvidence(requirements: Requirements, path: string) {
   const text = requirements.evidence?.[path];
   return typeof text === "string" && /^\[source:[^\]\r\n]+ (?:p|para)\.\d+\]\s+\S/.test(text);
 }
-function list(requirements: Requirements, field: "regions" | "target_types" | "industries_included" | "industries_excluded" | "required_certifications") {
+function list(requirements: Requirements, field: "regions" | "target_types" | "support_fields" | "industries_included" | "industries_excluded" | "required_certifications") {
   const values = requirements[field];
   return values?.length && values.every((value, index) => value.trim() && hasEvidence(requirements, `${field}.${index}`)) ? values : null;
 }
@@ -288,6 +316,32 @@ export function matchProgram(requirements: Requirements, profiles: MatchProfile[
         else if (!certificationsComplete(profile)) unknowns.push("필수 인증 비교 정보 부족: 현재 인증 보유 현황 확인 필요");
         else mismatches.push(`필수 인증 미보유가 확인됨: ${missingCertifications.join(", ")}`);
       }
+    }
+    // ★ 분야 축 — 이 공고가 무슨 사업인가를 우리 아이템과 댄다.
+    //
+    // 자격(누가 낼 수 있나)만 보던 것이 LGD 공고에 고객사 13곳을 전원 후보로
+    // 올린 원인이다(2026-11-03 실측). 분야는 자격과 다른 질문이다.
+    //
+    // 빈칸을 부적합으로 쓰지 않는다 — 공고가 분야를 안 적었거나 우리 아이템이
+    // 비어 있으면 제외하지 않는다. 1차 수정 때 그 실수로 고객마다 같은 추천이 나왔다.
+    const fields = list(requirements, "support_fields");
+    if (fields) {
+      const ourFields = (profile.itemFields ?? []).filter((value) => value.trim());
+      const notOurFields = (profile.itemNotFields ?? []).filter((value) => value.trim());
+      const hit = ourFields.find((ours) => fields.some((theirs) => fieldMatches(ours, theirs)));
+      // 확실히 아니라고 적어 둔 분야에 걸리는가. 사람이 고른 말만 쓴다.
+      const blocked = notOurFields.flatMap((ours) =>
+        fields.filter((theirs) => fieldMatches(ours, theirs)).map((theirs) => ({ ours, theirs })));
+      if (hit) positives.push(`확인된 분야 일치: ${hit}`);
+      else if (blocked.length && requirements.support_field_required === true
+        && hasEvidence(requirements, "support_field_required")) {
+        // 분야가 자격 요건이라고 공고에 적혀 있을 때만 제외한다.
+        // 신청 트랙 구분일 뿐이면(택1 같은 것) 분야가 달라도 낼 수 있다.
+        mismatches.push(`공고 분야와 불일치: ${blocked[0].theirs} (우리 사업과 무관)`);
+      }
+      else if (blocked.length) unknowns.push(`분야 차이 확인 필요: ${blocked[0].theirs}`);
+      else if (!ourFields.length) unknowns.push("분야 비교 정보 부족: 우리 아이템 분야 확인 필요");
+      else unknowns.push("분야 일치 여부는 정독 확인 필요");
     }
     // Inclusion and size constraints are left for reading; they are outside automatic rejection rules.
     if (requirements.industries_included?.length && (!included || !profile.industries?.some((held) => included.some((item) => industry(held) === industry(item))))) {
