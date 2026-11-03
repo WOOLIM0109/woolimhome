@@ -24,6 +24,7 @@ type ScheduleRow = {
   retryCount: number;
   lastErrorCode: string | null;
   errorMessage: string | null;
+  emptySlotReason: string | null;
 };
 
 type AutomationRun = {
@@ -91,8 +92,11 @@ export default function TwoWeekSchedule({
           </thead>
           <tbody>
             {rows.map((row) => {
-              const statusLabel = row.status === "planned" ? statusText : STATUS_LABELS[row.status];
-              const statusClass = row.status === "planned"
+              const emptySlot = row.status === "planned" && row.emptySlotReason;
+              const statusLabel = emptySlot ? `빈손 · ${row.emptySlotReason}`
+                : row.status === "planned" ? statusText : STATUS_LABELS[row.status];
+              const statusClass = emptySlot ? "border border-red-200 bg-red-50 text-red-700"
+                : row.status === "planned"
                 ? "bg-stone-100 text-stone-700"
                 : STATUS_STYLES[row.status];
               return (

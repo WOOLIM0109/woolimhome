@@ -106,8 +106,8 @@ export async function prepareNextPortfolioCandidate(options: PrepareOptions = {}
     // Successful source inspections are already persisted by the inventory.
     // Rewriting another selectable candidate here can invalidate a concurrent
     // designated reservation even though its evidence has not changed.
-    if (inspectionState === "passed" && !check.match && !check.fontExclusionReason) continue;
-    const imageReviewReason = inspectionState === "no_preview"
+    if (inspectionState === "passed" && !check.match && !check.fontExclusionReason && !row.metadata?.imageReviewReason) continue;
+    const imageReviewReason = typeof row.metadata?.imageReviewReason === "string" ? row.metadata.imageReviewReason : inspectionState === "no_preview"
       ? "검사 완료 · 파일 안에 미리보기 이미지가 없어 중복 확인 불가"
       : inspectionState === "too_large" ? "100MB 초과 · 자동 검사 대상 아님"
         : inspectionState === "failed" ? row.exclusion_reasons?.[0] || "원본 확인 필요"
@@ -135,6 +135,8 @@ export async function prepareNextPortfolioCandidate(options: PrepareOptions = {}
       duplicateMatch: { title: targetCheck.match.title, url: targetCheck.match.url },
     };
     if (targetCheck?.fontExclusionReason) return inspectedFailure(targetCheck.fontExclusionReason);
+    const imageReviewReason = inventory.needsImageReview.find(candidate => !options.candidateId || candidate.id === options.candidateId)?.metadata?.imageReviewReason;
+    if (typeof imageReviewReason === "string") return inspectedFailure(imageReviewReason);
     if (inventory.metrics.remaining && !options.candidateId) return {
       ...inspectedFailure(`후보 검사 진행 중: ${inventory.metrics.inspected}/${inventory.metrics.total} 완료, 합격 0. 다음 호출에서 이어서 합니다.`),
       prepared: false, inspectionPending: true,

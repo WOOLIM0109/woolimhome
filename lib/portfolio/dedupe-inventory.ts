@@ -16,6 +16,7 @@ export type PortfolioInspectionMetrics = {
   downloaded: number; cached: number; failed: number; skippedLarge: number;
   durationMs: number; peakRssMb: number;
   tableReadMs: number; imageHashMs: number; candidateDownloadMs: number;
+  missingImagePaths: string[];
 };
 export type PortfolioInspectionOptions = { readOnly?: boolean; deadlineAt?: number; candidateId?: string };
 
@@ -34,7 +35,7 @@ export async function readPortfolioDedupeInventory(threshold: number, options: P
   const sourceFailures: SourceInspectionFailure[] = [];
   const metrics: PortfolioInspectionMetrics = { total: 0, inspected: 0, remaining: 0, deadlineReached: false,
     downloaded: 0, cached: 0, failed: 0, skippedLarge: 0, durationMs: 0, peakRssMb: 0,
-    tableReadMs: 0, imageHashMs: 0, candidateDownloadMs: 0 };
+    tableReadMs: 0, imageHashMs: 0, candidateDownloadMs: 0, missingImagePaths: [] };
   const sampleMemory = () => {
     if (typeof process !== "undefined" && typeof process.memoryUsage === "function") metrics.peakRssMb = Math.max(metrics.peakRssMb, process.memoryUsage().rss / 1024 / 1024);
   };
@@ -50,15 +51,33 @@ export async function readPortfolioDedupeInventory(threshold: number, options: P
   const candidates = rows as unknown as CandidateRow[];
   const pendingCandidates = candidates.filter(candidate => candidate.status === "candidate");
   metrics.total = pendingCandidates.length;
-  const hashCache = new Map<string, string>();
+  const hashCache = new Map<string, string | null>();
+  function missingObject(error: { message: string; status?: number | string; statusCode?: number | string; code?: number | string; error?: string }) {
+    const codes = [error.code, error.statusCode, error.error].filter(value => value !== undefined && value !== "").map(String);
+    const statuses = [error.status, error.statusCode].filter(value => value !== undefined).map(Number).filter(Number.isFinite);
+    // A missing bucket, denied request or bad key must never become missing evidence.
+    if (codes.some(code => !["400", "404", "nosuchkey", "objectnotfound"].includes(code.toLowerCase().replace(/[ _-]/g, "")))) return false;
+    if (statuses.some(status => status !== 400 && status !== 404)
+      || /bucket|invalid|malformed|access denied|unauthori[sz]ed|forbidden|permission|network|fetch failed|connection|socket|dns|timeout|timed? out/i.test(error.message)) return false;
+    return error.message.trim().toLowerCase() === "object not found" || Number(error.status) === 404
+      || codes.some(code => ["404", "nosuchkey", "objectnotfound"].includes(code.toLowerCase().replace(/[ _-]/g, "")));
+  }
   async function storedHash(bucket: string, path: string) {
+    if (bucket !== "portfolio-rendered" || typeof path !== "string" || !path || path.includes("..")
+      || path.includes("\\") || /[\x00-\x1f\x7f]/.test(path) || path.split("/").some(part => !part || part === ".")) {
+      throw new Error("중복 검수 이미지 경로가 올바르지 않습니다.");
+    }
     const key = `${bucket}/${path}`;
-    if (hashCache.has(key)) return hashCache.get(key)!;
-    if (bucket !== "portfolio-rendered" || !path || path.includes("..")) throw new Error("중복 검수 이미지 경로가 올바르지 않습니다.");
+    if (hashCache.has(key)) return hashCache.get(key) ?? null;
     const started = Date.now();
     try {
       const { data, error } = await contentAdmin().storage.from(bucket).download(path);
-      if (error) throw new Error(`중복 검수 이미지 조회 실패: ${error.message}`);
+      if (error) {
+        if (!missingObject(error)) throw new Error(`중복 검수 이미지 조회 실패: ${error.message}`);
+        metrics.missingImagePaths.push(key);
+        hashCache.set(key, null);
+        return null;
+      }
       const hash = (await fingerprintPortfolioImage(Buffer.from(await data.arrayBuffer()))).visualHash;
       sampleMemory(); hashCache.set(key, hash); return hash;
     } finally { metrics.imageHashMs += Date.now() - started; }
@@ -70,7 +89,7 @@ export async function readPortfolioDedupeInventory(threshold: number, options: P
     const { data, error } = await contentAdmin().from("portfolio_candidates").update({
       metadata: candidate.metadata, updated_at: updatedAt,
       ...(failed ? { status: "excluded", exclusion_reasons: candidate.exclusion_reasons } : {}),
-    }).eq("id", candidate.id).eq("status", "candidate").eq("updated_at", current.updated_at).select("id").maybeSingle();
+    }).eq("id", candidate.id).eq("status", candidate.status).eq("updated_at", current.updated_at).select("id").maybeSingle();
     if (error) throw new Error(error.message);
     if (!data) throw new Error("원본 검사 중 후보가 변경되었습니다. 동시 실행 결과를 확인해 주세요.");
     current.updated_at = updatedAt;
@@ -83,7 +102,10 @@ export async function readPortfolioDedupeInventory(threshold: number, options: P
     if (result?.bucket && result.slidePaths?.length && (candidate.status !== "candidate"
       || (file?.modified_at && candidate.metadata?.hashSourceFileSize === file.file_size
         && Date.parse(String(conversion.updated_at)) >= Date.parse(file.modified_at)))) {
-      for (const path of result.slidePaths.slice(0, 3)) hashes.push(await storedHash(result.bucket, path));
+      for (const path of result.slidePaths.slice(0, 3)) {
+        const hash = await storedHash(result.bucket, path);
+        if (hash) hashes.push(hash);
+      }
     }
     return hashes;
   }
@@ -92,9 +114,16 @@ export async function readPortfolioDedupeInventory(threshold: number, options: P
   for (const candidate of candidates) {
     const file = driveFile(candidate);
     if (candidate.status !== "candidate") {
-      if (!portfolioFontExclusion(candidate)) candidate.metadata = { ...candidate.metadata,
-        representativeHashes: [...new Set(await conversionHashes(candidate, validProjectHashes(candidate.metadata?.representativeHashes)))],
-        hashSourceModifiedAt: file?.modified_at || null };
+      if (!portfolioFontExclusion(candidate)) {
+        const savedHashes = validProjectHashes(candidate.metadata?.representativeHashes);
+        if (!savedHashes.length) {
+          const hashes = [...new Set(validProjectHashes(await conversionHashes(candidate, [])))];
+          candidate.metadata = { ...candidate.metadata, representativeHashes: hashes,
+            hashSourceModifiedAt: file?.modified_at || null,
+            imageReviewReason: hashes.length ? null : "기존 작업의 대표 이미지 지문이 없어 중복 확인 불가" };
+          await persistInspection(candidate);
+        }
+      }
       continue;
     }
     const sourceCache = !portfolioFontExclusion(candidate) && file && cachedSourceInspection(candidate.metadata?.sourceInspection, file);
@@ -164,14 +193,17 @@ export async function readPortfolioDedupeInventory(threshold: number, options: P
         }
         candidate.metadata = { ...candidate.metadata, representativeHashes: [...new Set(validProjectHashes(hashes))],
           inspectionState: validProjectHashes(hashes).length ? "passed" : "no_preview",
+          imageReviewReason: validProjectHashes(hashes).length ? null : "검사 완료 · 파일 안에 미리보기 이미지가 없어 중복 확인 불가",
           hashSourceModifiedAt: file.modified_at || null, hashSourceFileSize: file.file_size };
         sampleMemory();
         await persistInspection(candidate);
     }
   }
-  const references: ProjectReference[] = ledger.map(entry => ({ id: String(entry.id), title: String(entry.title),
+  type InventoryReference = ProjectReference & { workItemId?: string };
+  const references: InventoryReference[] = ledger.map(entry => ({ id: String(entry.id), title: String(entry.title),
     normalizedName: String(entry.normalized_project_name), url: String(entry.blog_url),
     candidateId: typeof entry.candidate_id === "string" ? entry.candidate_id : undefined,
+    workItemId: typeof entry.work_item_id === "string" ? entry.work_item_id : undefined,
     hashes: validProjectHashes(entry.representative_hashes) }));
   // Legacy publications remain comparison evidence even before an approved history import.
   for (const item of items.filter(item => item.status === "published" && item.channel === "naver_design" && item.format === "portfolio")) {
@@ -180,22 +212,46 @@ export async function readPortfolioDedupeInventory(threshold: number, options: P
     const candidate = candidates.find(candidate => candidate.id === metadata.candidateId);
     references.push({ id: String(item.id), title: String(item.title),
       normalizedName: normalizePortfolioProjectName(metadata.sourceFileName),
-      candidateId: candidate?.id, url: String(item.published_url_normalized || "") || undefined,
+      candidateId: typeof metadata.candidateId === "string" ? metadata.candidateId : undefined,
+      workItemId: String(item.id), url: String(item.published_url_normalized || "") || undefined,
       hashes: validProjectHashes(candidate?.metadata?.representativeHashes) });
   }
   for (const set of sets) {
     const item = items.find(item => item.id === set.work_item_id);
     const metadata = item?.metadata as Record<string, unknown> | undefined;
-    const manifest = set.manifest as { assets?: { bucket: string; path: string }[] };
-    const hashes: string[] = [];
-    for (const asset of (manifest.assets || []).slice(0, 3)) hashes.push(await storedHash(asset.bucket, asset.path));
+    const manifest = set.manifest as { assets?: { bucket: string; path: string }[] } | null;
+    const candidate = candidates.find(candidate => candidate.id === metadata?.candidateId);
+    const hashes = candidate?.status !== "candidate" ? validProjectHashes(candidate?.metadata?.representativeHashes) : [];
+    if (!hashes.length) for (const asset of (manifest?.assets || []).slice(0, 3)) {
+      const hash = await storedHash(asset.bucket, asset.path);
+      if (hash) hashes.push(hash);
+    }
+    if (candidate && candidate.status !== "candidate" && !validProjectHashes(candidate.metadata?.representativeHashes).length
+      && validProjectHashes(hashes).length && !portfolioFontExclusion(candidate)) {
+      candidate.metadata = { ...candidate.metadata, representativeHashes: [...new Set(validProjectHashes(hashes))], imageReviewReason: null };
+      await persistInspection(candidate);
+    }
     references.push({ id: String(set.id), title: String(item?.title || "기존 이미지 세트"),
       normalizedName: normalizePortfolioProjectName(String(metadata?.sourceFileName || "")),
       candidateId: typeof metadata?.candidateId === "string" ? metadata.candidateId : undefined,
+      workItemId: typeof set.work_item_id === "string" ? set.work_item_id : undefined,
       url: typeof item?.published_url_normalized === "string" ? item.published_url_normalized : undefined, hashes });
   }
+  const comparisonReferences: InventoryReference[] = [...references, ...candidates.filter(candidate => ["selected", "processed", "on_hold"].includes(candidate.status))
+    .map(candidate => ({ id: candidate.id, candidateId: candidate.id, title: candidate.project_name,
+      normalizedName: normalizePortfolioProjectName(candidate.project_name), hashes: validProjectHashes(candidate.metadata?.representativeHashes) }))];
+  for (const reference of comparisonReferences) {
+    if (validProjectHashes(reference.hashes).length) continue;
+    const candidateHashes = validProjectHashes(candidates.find(candidate => candidate.id === reference.candidateId)?.metadata?.representativeHashes);
+    const related = comparisonReferences.filter(other => (reference.candidateId && other.candidateId === reference.candidateId)
+      || (reference.workItemId && other.workItemId === reference.workItemId
+        && (!reference.candidateId || !other.candidateId || reference.candidateId === other.candidateId)));
+    reference.hashes = [...new Set([...candidateHashes, ...related.flatMap(other => validProjectHashes(other.hashes))])];
+  }
+  const unavailableReference = comparisonReferences.find(reference => !validProjectHashes(reference.hashes).length);
+  const comparisonReviewReason = unavailableReference ? `기존 작업 「${unavailableReference.title}」의 대표 이미지 지문이 없어 중복 확인 불가` : null;
   const acceptedRows = () => inspectPortfolioDuplicates(candidates, references, threshold).accepted.filter(row =>
-    validProjectHashes(row.metadata?.representativeHashes).length && row.metadata?.fontPolicyVersion === PORTFOLIO_FONT_POLICY_VERSION);
+    !comparisonReviewReason && validProjectHashes(row.metadata?.representativeHashes).length && row.metadata?.fontPolicyVersion === PORTFOLIO_FONT_POLICY_VERSION);
   const queue = pendingCandidates.filter(candidate => {
     const file = driveFile(candidate);
     return (!options.candidateId || options.candidateId === candidate.id) && !portfolioFontExclusion(candidate)
@@ -224,7 +280,10 @@ export async function readPortfolioDedupeInventory(threshold: number, options: P
   if (fatal) throw fatal;
   const inspection = inspectPortfolioDuplicates(candidates, references, threshold);
   // Unknown visual evidence is a review task, never permission to convert first.
-  const needsImageReview = inspection.accepted.filter(row => !validProjectHashes(row.metadata?.representativeHashes).length);
+  if (comparisonReviewReason) for (const candidate of inspection.accepted) {
+    candidate.metadata = { ...candidate.metadata, imageReviewReason: comparisonReviewReason };
+  }
+  const needsImageReview = inspection.accepted.filter(row => comparisonReviewReason || !validProjectHashes(row.metadata?.representativeHashes).length);
   const needsFontReview = inspection.accepted.filter(row => row.metadata?.fontPolicyVersion !== PORTFOLIO_FONT_POLICY_VERSION);
   metrics.inspected = pendingCandidates.filter(candidate => candidate.metadata?.inspectionState !== "pending").length;
   metrics.remaining = metrics.total - metrics.inspected;
@@ -233,7 +292,7 @@ export async function readPortfolioDedupeInventory(threshold: number, options: P
   sampleMemory();
   if (!options.readOnly) console.info("[portfolio-inventory]", JSON.stringify(metrics));
   return { ...inspection, candidates, sourceFailures, metrics, inspection: metrics, needsImageReview, needsFontReview, accepted: inspection.accepted.filter(row =>
-    validProjectHashes(row.metadata?.representativeHashes).length && row.metadata?.fontPolicyVersion === PORTFOLIO_FONT_POLICY_VERSION) };
+    !comparisonReviewReason && validProjectHashes(row.metadata?.representativeHashes).length && row.metadata?.fontPolicyVersion === PORTFOLIO_FONT_POLICY_VERSION) };
 }
 
 export async function assertPortfolioDedupePassed(candidateId: string) {
