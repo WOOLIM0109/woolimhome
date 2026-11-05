@@ -29,7 +29,7 @@ PowerPoint가 없는 PC는 PPT/PPTX/PPTM을 처리할 수 없습니다. Poppler�
 
 1. 집 PC와 사무실 PC용 비밀키를 각각 생성합니다.
 2. 서버의 `PC_WORKER_SECRETS`에 두 ID와 비밀키를 등록합니다. 전환 중에는 기존 `PC_WORKER_SECRET`을 유지하고 `PC_WORKER_ALLOW_LEGACY=true`로 둡니다.
-3. `202608040008_multi_pc_workers.sql` DB 마이그레이션을 먼저 적용하고 성공을 확인합니다.
+3. `202608040018_multi_pc_workers.sql` DB 마이그레이션을 먼저 적용하고 성공을 확인합니다.
 4. 다중 워커 애플리케이션 코드를 배포하고 작업 선점·상태 API가 정상인지 확인합니다.
 5. **3번과 4번이 모두 끝난 뒤에만 새 사무실 PC 워커를 설정하고 시작합니다.** 이전에는 두 번째 워커를 실행하지 마세요.
 
