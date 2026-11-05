@@ -18,7 +18,7 @@ import type { EditorialSlot } from "@/lib/content-ops/types";
 import { authorizeCron } from "@/lib/cron-auth";
 import { GENERATION_BUDGET_MS, isDeadlineError } from "@/lib/content-ops/deadline";
 import { sweepStuckWorkItems } from "@/lib/content-ops/stuck-items";
-import { notifyStalledPortfolios } from "@/lib/content-ops/portfolio-stall-notice";
+import { notifyEmptyPortfolioSlot, notifyStalledPortfolios } from "@/lib/content-ops/portfolio-stall-notice";
 import { appendStatusChange } from "@/lib/content-ops/status-history";
 
 /**
@@ -201,30 +201,42 @@ export async function GET(request: Request) {
       `${kst.date}T${String(slot.hour).padStart(2, "0")}:00:00+09:00`,
     ).toISOString();
     if (slot.channel === "naver_design" && slot.format === "portfolio") {
-      const { data: existingPortfolio, error: existingError } = await admin
-        .from("content_work_items")
-        .select("id,status,metadata")
-        .eq("schedule_key", scheduleKey)
-        .maybeSingle();
-      if (existingError) throw new Error(existingError.message);
-      const existingCandidateId = typeof existingPortfolio?.metadata?.candidateId === "string"
-        ? existingPortfolio.metadata.candidateId
-        : null;
-      if (existingCandidateId) {
-        const { data: candidate, error: candidateError } = await admin
-          .from("portfolio_candidates")
-          .select("status")
-          .eq("id", existingCandidateId)
-          .maybeSingle();
-        if (candidateError) throw new Error(candidateError.message);
-        if (candidate?.status !== "excluded") {
-          const downloaded = await processNextPortfolioDownload(existingCandidateId);
-          if (downloaded) localProgress.push(downloaded);
-          scheduled.push(existingPortfolio);
-          continue;
+      const notifyEmpty = async (reason: string) => {
+        try {
+          localProgress.push(await notifyEmptyPortfolioSlot({
+            slotKey: slot.key, scheduleKey, scheduledAt, label: `디자인 ${slot.label}`, reason,
+          }, now, { deadlineAt: runDeadlineAt }));
+        } catch (error) {
+          localProgress.push({
+            stage: "portfolio_stall_notice", status: "failed", slotKey: slot.key, scheduleKey,
+            error: error instanceof Error ? error.message : "포트폴리오 빈 회차 알림 실패",
+          });
         }
-      }
+      };
       try {
+        const { data: existingPortfolio, error: existingError } = await admin
+          .from("content_work_items")
+          .select("id,status,metadata")
+          .eq("schedule_key", scheduleKey)
+          .maybeSingle();
+        if (existingError) throw new Error(existingError.message);
+        const existingCandidateId = typeof existingPortfolio?.metadata?.candidateId === "string"
+          ? existingPortfolio.metadata.candidateId
+          : null;
+        if (existingCandidateId) {
+          const { data: candidate, error: candidateError } = await admin
+            .from("portfolio_candidates")
+            .select("status")
+            .eq("id", existingCandidateId)
+            .maybeSingle();
+          if (candidateError) throw new Error(candidateError.message);
+          if (candidate?.status !== "excluded") {
+            const downloaded = await processNextPortfolioDownload(existingCandidateId);
+            if (downloaded) localProgress.push(downloaded);
+            scheduled.push(existingPortfolio);
+            continue;
+          }
+        }
         const prepared = await prepareNextPortfolioCandidate({ scheduleKey, scheduledAt, deadlineAt: runStartedAt + 90_000 });
         if (prepared.prepared) {
           scheduled.push(prepared);
@@ -249,13 +261,19 @@ export async function GET(request: Request) {
             reason: prepared.reason,
             inspection: prepared.inspection,
           });
+          await notifyEmpty(prepared.reason || "고를 수 있는 포트폴리오 후보가 없습니다.");
         }
       } catch (error) {
+        const reason = error instanceof Error ? error.message : "포트폴리오 후보 준비 실패";
         localProgress.push({
           stage: "deterministic_portfolio_prepare",
           status: "failed",
-          error: error instanceof Error ? error.message : "포트폴리오 후보 준비 실패",
+          slotKey: slot.key,
+          scheduleKey,
+          reason,
+          error: reason,
         });
+        await notifyEmpty(reason);
       }
       continue;
     }

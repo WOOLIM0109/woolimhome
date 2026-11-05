@@ -3,6 +3,7 @@ import { isAdmin } from "@/lib/auth";
 import { EDITORIAL_SLOTS } from "@/lib/content-ops/config";
 import { authenticatedPartner, contentAdmin } from "@/lib/content-ops/data";
 import type { ContentChannel } from "@/lib/content-ops/types";
+import { emptyPortfolioSlotReason } from "@/lib/content-ops/schedule-slot-state";
 
 export const dynamic = "force-dynamic";
 
@@ -39,7 +40,8 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "조회할 수 있는 채널을 지정해 주세요." }, { status: 403 });
   }
 
-  const today = koreaDateParts(new Date());
+  const now = new Date();
+  const today = koreaDateParts(now);
   const start = new Date(Date.UTC(today.year, today.month - 1, today.day));
   const end = new Date(start);
   end.setUTCDate(end.getUTCDate() + 14);
@@ -69,7 +71,7 @@ export async function GET(request: Request) {
   const channelFilter = channels.length ? channels : ["homepage", "naver_consulting", "naver_design"];
   workQuery = workQuery.in("channel", channelFilter);
 
-  const [workResult, columnResult, automationResult] = await Promise.all([
+  const [workResult, columnResult, automationResult, portfolioRunsResult] = await Promise.all([
     workQuery,
     channelFilter.includes("homepage")
       ? admin.from("column_generation_runs")
@@ -82,8 +84,16 @@ export async function GET(request: Request) {
       .in("cron_name", ["columns", "content-operations"])
       .order("scheduled_for", { ascending: false })
       .limit(12),
+    selectedSlots.some((slot) => slot.channel === "naver_design" && slot.format === "portfolio")
+      ? admin.from("content_automation_runs")
+        .select("scheduled_for,metrics")
+        .eq("cron_name", "content-operations")
+        .gte("scheduled_for", new Date(`${start.toISOString().slice(0, 10)}T00:00:00+09:00`).toISOString())
+        .lt("scheduled_for", end.toISOString())
+        .order("scheduled_for", { ascending: false })
+      : Promise.resolve({ data: [], error: null }),
   ]);
-  const error = workResult.error || columnResult.error || automationResult.error;
+  const error = workResult.error || columnResult.error || automationResult.error || portfolioRunsResult.error;
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
   const workByKey = new Map((workResult.data || []).map((item) => [item.schedule_key, item]));
@@ -114,6 +124,7 @@ export async function GET(request: Request) {
       retryCount: columnRun?.retry_count || workItem?.retry_count || 0,
       lastErrorCode: columnRun?.last_error_code || workItem?.last_error_code || null,
       errorMessage: columnRun?.error_message || null,
+      emptySlotReason: emptyPortfolioSlotReason(plan, Boolean(workItem), portfolioRunsResult.data || [], now),
     };
   });
 

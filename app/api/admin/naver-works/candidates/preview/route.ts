@@ -31,7 +31,9 @@ export async function GET(request: Request) {
         duplicateScore: row.duplicateScore, distance: row.distance, reason: row.reason, match: row.match })),
       reviewRequired: inventory.decisions.filter(row => !row.normalizedName).map(row => ({ id: row.candidate.id, title: row.candidate.project_name, reason: row.reason }))
         .concat(inventory.needsImageReview.map(row => ({ id: row.id, title: row.project_name,
-          reason: row.metadata?.inspectionState === "no_preview"
+          reason: typeof row.metadata?.imageReviewReason === "string" && row.metadata.imageReviewReason
+            ? row.metadata.imageReviewReason
+            : row.metadata?.inspectionState === "no_preview"
             ? "검사 완료 · 파일 안에 미리보기 이미지가 없어 중복 확인 불가"
             : row.metadata?.inspectionState === "too_large" ? "100MB 초과 · 자동 검사 대상 아님" : "검사 전" })))
         .concat(inventory.needsFontReview.map(row => ({ id: row.id, title: row.project_name, reason: "변환 전 원본 글꼴 확인 필요" }))),
