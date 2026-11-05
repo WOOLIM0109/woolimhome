@@ -35,6 +35,13 @@ Claude Code 웹의 환경 설정에 넣습니다.
 고치는 일은 지금까지처럼 마이그레이션과 코드로 합니다. 그래야 무엇을 언제
 왜 바꿨는지가 저장소에 남습니다.
 
+`supabase/migrations/`의 미적용 파일은 이제 GitHub Actions의 `.github/workflows/ci.yml`에서
+`main` 브랜치로 push했을 때 기존 `verify`가 통과한 뒤 자동으로 적용합니다. Pull request에서는
+실행하지 않습니다. 적용에 쓰는 `SUPABASE_ACCESS_TOKEN`과 `SUPABASE_DB_PASSWORD`는
+GitHub 저장소의 **Settings → Secrets and variables → Actions → Repository secrets**에서
+관리하며, 워크플로는 이 값을 읽기만 합니다. 둘 중 하나라도 없으면 안내 로그를 남기고 적용을
+건너뜁니다. 프로젝트는 `lmgzibodxozdocxocpez`로 지정하며 토큰과 비밀번호는 로그에 출력하지 않습니다.
+
 ## 왜 `--project-ref` 를 함께 주나
 
 계정에 다른 프로젝트가 있어도 이 프로젝트 하나만 보게 묶어 둡니다.
