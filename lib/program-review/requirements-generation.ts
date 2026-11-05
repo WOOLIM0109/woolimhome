@@ -64,7 +64,13 @@ export const REQUIREMENTS_RESPONSE_SCHEMA = {
     contact: nullableText,
     evidence: { type: ["object", "null"], additionalProperties: { type: "string" } },
   },
-  required: ["regions", "target_types", "business_age", "size", "support_fields", "support_field_required",
+  // ★ support_fields·support_field_required 는 **필수로 두지 않습니다.**
+  // 2026-11-04 아침 cron 에서 요건 추출이 43건 몰아서 실패했습니다. 전날 이 두 칸을
+  // required 에 넣어 배포한 뒤였고, 그 전에는 실패가 없었습니다. 모델이 반드시
+  // 채워야 하는 칸이 늘면 출력이 길어져 16,000 토큰 상한에 걸립니다.
+  // business_age.as_of 를 required 에서 뺀 것과 같은 이유입니다.
+  // 빠진 칸은 정규화에서 null 이 되고, 판정은 분야가 없으면 거르지 않습니다.
+  required: ["regions", "target_types", "business_age", "size",
     "industries_included", "industries_excluded",
     "required_certifications", "bonus_points", "support_amount_text", "self_pay_text", "deadline_at",
     "submission_documents", "evaluation", "contact", "evidence"],
