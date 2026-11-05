@@ -570,6 +570,8 @@ export async function ingestPrograms(
   // 찾는 열쇠는 (기관, 공고번호) 입니다 — 지문과 달리 규칙이 바뀌어도 그대로입니다.
   const previousByKey = new Map<string,
     { id: string; fingerprint: string; retiredByUs: boolean }[]>();
+  /** (기관|공고번호) → 이미 있는 행 id. 접는 데는 안 쓰고 **요건을 써 줄 때만** 씁니다. */
+  const existingIdByKey = new Map<string, string>();
   const externalIds = [...new Set(payload.programs
     .map((program) => program.external_id).filter((value): value is string => Boolean(value)))];
   if (externalIds.length) {
@@ -578,6 +580,11 @@ export async function ingestPrograms(
       .in("external_id", externalIds);
     if (previousError) throw new IngestError(500, "PROGRAM_LOOKUP_FAILED", reason(previousError));
     for (const row of previous ?? []) {
+      // ★ 요건을 써 줄 자리를 먼저 찾아 둡니다 — **우리가 넣은 행이 아니어도** 입니다.
+      // 수집기가 요건을 뽑아 와도 우리가 넣지 않은 공고에는 아무것도 쓰지 못했습니다
+      // (실측 2026-11-05: 176건을 올렸는데 115건만 들어가고 61건이 그냥 지나갔습니다).
+      // 그 61건은 홈페이지가 **제 돈으로 다시 뽑아야** 했고, 몰아서 뽑다가 깨졌습니다.
+      existingIdByKey.set(`${(row as Row).source_id}|${(row as Row).external_id}`, String((row as Row).id));
       if (!ours(row as Row)) continue;          // 서버가 모은 행은 접지 않습니다
       const key = `${(row as Row).source_id}|${(row as Row).external_id}`;
       const found = previousByKey.get(key) ?? [];
@@ -729,9 +736,15 @@ export async function ingestPrograms(
     if (refreshError) throw new IngestError(500, "PROGRAM_REFRESH_FAILED", reason(refreshError));
   }
 
-  for (const program of payload.programs) {
-    const programId = idByFingerprint.get(program.fingerprint);
-    if (!programId) continue;   // 이미 있던 공고 — 아무것도 건드리지 않습니다
+  for (const [index, program] of payload.programs.entries()) {
+    let programId = idByFingerprint.get(program.fingerprint);
+    // 우리가 넣지 않은 공고라도 **요건을 들고 왔으면** 그 요건은 써 줍니다.
+    // 요건이 없으면 예전처럼 아무것도 건드리지 않습니다 — 첨부만 다시 써서
+    // 홈페이지가 다시 뽑게 만들면 돈만 쓰고 몰아서 깨집니다.
+    if (!programId && program.requirements) {
+      programId = existingIdByKey.get(`${rows[index].source_id}|${program.external_id}`);
+    }
+    if (!programId) continue;
 
     const attachmentIds = new Map<string, string>();
     if (program.attachments.length) {
