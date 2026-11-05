@@ -81,4 +81,4 @@ jobs:
 
       - name: 미적용 마이그레이션 적용
         if: steps.credentials.outputs.available == 'true'
-        run: supabase db push --remote --skip-vault --yes
+        run: supabase db push --linked --yes
