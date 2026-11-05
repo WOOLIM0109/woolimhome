@@ -39,6 +39,7 @@ export const REQUIREMENTS_RESPONSE_SCHEMA = {
     support_field_required: { type: ["boolean", "null"] },
     industries_included: nullableList,
     industries_excluded: nullableList,
+    exclusion_rules: nullableList,
     required_certifications: nullableList,
     bonus_points: {
       type: ["array", "null"],
