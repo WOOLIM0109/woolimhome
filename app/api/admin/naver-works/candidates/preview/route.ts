@@ -16,12 +16,20 @@ export async function GET(request: Request) {
   if (!Number.isInteger(threshold) || threshold < 0 || threshold > 8) return NextResponse.json({ error: "해시 기준은 0~8 정수입니다." }, { status: 400 });
   try {
     const inventory = await readPortfolioDedupeInventory(threshold, { readOnly: true });
-    const top10 = deterministicShortlist(inventory.accepted.filter(metadataEligible)).map(rank => {
-      const candidate = inventory.accepted.find(candidate => candidate.id === rank.id)!;
+    const previewCandidates = inventory.previewAccepted ?? inventory.accepted;
+    const blockingReferenceCount = inventory.blockingReferenceCount ?? 0;
+    const top10 = deterministicShortlist(previewCandidates.filter(metadataEligible)).map(rank => {
+      const candidate = previewCandidates.find(candidate => candidate.id === rank.id)!;
       return { ...rank, title: candidate.project_name, file: driveFile(candidate)?.file_name,
-        reasons: ["프로젝트명·발행 원장·대표 이미지 중복 검사 통과", ...rank.reasons] };
+        reasons: [blockingReferenceCount
+          ? "확인 가능한 기록의 중복 검사 완료 · 지문 없는 기존 기록 확인 대기"
+          : "프로젝트명·발행 원장·대표 이미지 중복 검사 통과", ...rank.reasons] };
     });
     return NextResponse.json({ readOnly: true, threshold, top10, groups: inventory.groups,
+      unavailableReferences: inventory.unavailableReferences ?? [],
+      blockingReferenceCount,
+      comparisonReviewReason: inventory.comparisonReviewReason ?? null,
+      productionBlocked: blockingReferenceCount > 0,
       onHoldCount: count || 0,
       inspection: inventory.metrics,
       pendingCount: inventory.metrics.remaining,

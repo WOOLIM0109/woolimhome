@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Cloud, FileSearch, Loader2, RefreshCw, ShieldCheck } from "lucide-react";
 import { continuePortfolioPreparation } from "./portfolio-progress";
 import { candidateInspectionLabel, candidateProductionBlockReason } from "./portfolio-candidate-state";
+import { COMPARISON_WAIVER_REASONS, type ComparisonWaiverEvent } from "@/lib/portfolio/comparison-waiver";
 
 type Candidate = {
   id: string;
@@ -43,6 +44,42 @@ type StatusPayload = {
   error?: string;
 };
 
+type UnavailableReference = {
+  id: string;
+  ledgerId: string | null;
+  title: string;
+  url?: string;
+  source: string;
+  imageStatus: "available" | "unavailable" | "no_image" | "unknown";
+  imageStatusLabel: string;
+  waiver: ComparisonWaiverEvent | null;
+  waiverHistory: ComparisonWaiverEvent[];
+  canWaive: boolean;
+};
+
+type PreviewPayload = {
+  top10: { id: string; title: string; file?: string; confidence: number; reasons: string[] }[];
+  unavailableReferences: UnavailableReference[];
+  blockingReferenceCount: number;
+  comparisonReviewReason: string | null;
+  error?: string;
+};
+
+function waiverReasonLabel(reason: string) {
+  return COMPARISON_WAIVER_REASONS.find(option => option.value === reason)?.label || reason;
+}
+
+function auditTime(at: string) {
+  return new Date(at).toLocaleString("ko-KR", { timeZone: "Asia/Seoul" });
+}
+
+async function readPanelPayload<T>(url: string): Promise<T> {
+  const response = await fetch(url, { cache: "no-store" });
+  const payload = await response.json();
+  if (!response.ok) throw new Error(payload.error || "후보 정보를 확인하지 못했습니다.");
+  return payload as T;
+}
+
 /** 후보 상태를 사람 말로 옮깁니다. */
 const CANDIDATE_STATUS_LABELS: Record<string, string> = {
   candidate: "대기",
@@ -63,6 +100,10 @@ export default function NaverWorksDrivePanel() {
   const [publishedUrl, setPublishedUrl] = useState("");
   const [publishedTitle, setPublishedTitle] = useState("");
   const [savingPublication, setSavingPublication] = useState(false);
+  const [preview, setPreview] = useState<PreviewPayload | null>(null);
+  const [previewError, setPreviewError] = useState("");
+  const [waiverReasons, setWaiverReasons] = useState<Record<string, string>>({});
+  const [savingWaiver, setSavingWaiver] = useState<string | null>(null);
 
   async function registerPublished() {
     setSavingPublication(true);
@@ -88,12 +129,22 @@ export default function NaverWorksDrivePanel() {
 
   const loadStatus = useCallback(async () => {
     setLoading(true);
+    setPreviewError("");
     try {
-      const response = await fetch("/api/admin/naver-works/status", { cache: "no-store" });
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error || "연결 상태를 확인하지 못했습니다.");
-      setData(payload);
+      const [statusResult, previewResult] = await Promise.allSettled([
+        readPanelPayload<StatusPayload>("/api/admin/naver-works/status"),
+        readPanelPayload<PreviewPayload>("/api/admin/naver-works/candidates/preview"),
+      ]);
+      if (statusResult.status === "fulfilled") setData(statusResult.value);
+      else setMessage(statusResult.reason instanceof Error ? statusResult.reason.message : "연결 상태를 확인하지 못했습니다.");
+      if (previewResult.status === "fulfilled") setPreview(previewResult.value);
+      else {
+        setPreview(null);
+        setPreviewError(previewResult.reason instanceof Error ? previewResult.reason.message : "후보 미리보기를 확인하지 못했습니다.");
+      }
     } catch (error) {
+      setPreview(null);
+      setPreviewError("후보 확인을 완료하지 못했습니다. 상태 새로고침 후 다시 확인해 주세요.");
       setMessage(error instanceof Error ? error.message : "연결 상태 확인에 실패했습니다.");
     } finally {
       setLoading(false);
@@ -104,6 +155,27 @@ export default function NaverWorksDrivePanel() {
     const timer = window.setTimeout(() => void loadStatus(), 0);
     return () => window.clearTimeout(timer);
   }, [loadStatus]);
+
+  async function updateWaiver(reference: UnavailableReference, action: "waive" | "restore") {
+    if (!reference.ledgerId || savingWaiver) return;
+    setSavingWaiver(reference.id);
+    setMessage("");
+    try {
+      const response = await fetch(`/api/admin/naver-works/publications/${encodeURIComponent(reference.ledgerId)}/comparison-waiver`, {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action, reason: waiverReasons[reference.id], expectedHistory: reference.waiverHistory }),
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || "비교 대상 표시를 저장하지 못했습니다.");
+      setMessage(action === "waive" ? `「${reference.title}」을 비교 대상 아님으로 표시했습니다.`
+        : `「${reference.title}」의 표시를 되돌렸습니다. ${reference.imageStatus === "available" ? "저장된 지문으로 계속 비교합니다." : "다시 중복 확인을 기다립니다."}`);
+      await loadStatus();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "비교 대상 표시 저장 실패");
+    } finally {
+      setSavingWaiver(null);
+    }
+  }
 
   async function syncNow() {
     setSyncing(true);
@@ -126,6 +198,7 @@ export default function NaverWorksDrivePanel() {
   }
 
   async function prepareNext() {
+    if (productionBlockReason) { setMessage(productionBlockReason); return; }
     setPreparing(true);
     setMessage("");
     setDuplicateMatch(null);
@@ -143,6 +216,7 @@ export default function NaverWorksDrivePanel() {
   }
 
   async function produceCandidate(candidate: Candidate) {
+    if (productionBlockReason) { setMessage(productionBlockReason); return; }
     const confirmed = window.confirm(`이 후보로 제작할까요?\n\n파일명: ${candidate.fileName}\n정규화 이름: ${candidate.normalizedProjectName || "확인 필요"}\n\n진행하면 회사 PC가 이 파일을 열어 변환하고 AI 본문 비용이 듭니다. 완성된 초안은 발행 전 검수를 거칩니다.`);
     if (!confirmed) return;
     const requestId = crypto.randomUUID();
@@ -177,6 +251,12 @@ export default function NaverWorksDrivePanel() {
 
   const connected = data?.connection?.status === "connected";
   const heldPortfolioItems = data?.heldPortfolioItems || [];
+  const unavailableReferences = preview?.unavailableReferences || [];
+  const blockingReferenceCount = preview?.blockingReferenceCount || 0;
+  const productionBlockReason = loading || !preview
+    ? "후보 미리보기 확인이 끝나야 제작할 수 있습니다."
+    : savingWaiver ? "비교 대상 표시를 저장하고 있습니다."
+      : blockingReferenceCount > 0 ? `지문 없는 기존 기록 ${blockingReferenceCount}건의 확인이 필요합니다.` : "";
 
   return (
     <section className="card mt-8 overflow-hidden">
@@ -209,13 +289,16 @@ export default function NaverWorksDrivePanel() {
             </button>
             <button
               type="button"
-              disabled={!connected || preparing || Boolean(data?.activePortfolioCount)}
+              disabled={!connected || preparing || Boolean(data?.activePortfolioCount) || Boolean(productionBlockReason)}
+              title={productionBlockReason || undefined}
               onClick={prepareNext}
               className="inline-flex items-center gap-2 rounded-xl border border-[var(--primary)] bg-white px-4 py-3 text-sm font-bold text-[var(--primary)] disabled:cursor-not-allowed disabled:opacity-50"
             >
               {preparing ? <Loader2 size={16} className="animate-spin" /> : <FileSearch size={16} />}
               다음 포트폴리오 준비
             </button>
+            <button type="button" disabled={loading || Boolean(savingWaiver)} onClick={() => void loadStatus()}
+              className="rounded-xl border border-[var(--line)] bg-white px-4 py-3 text-sm font-bold disabled:opacity-50">상태 새로고침</button>
           </div>
         </div>
       </div>
@@ -274,6 +357,57 @@ export default function NaverWorksDrivePanel() {
               </p>
             )}
 
+            {previewError && <p role="alert" className="mt-4 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-900">{previewError}</p>}
+            {blockingReferenceCount > 0 && <div role="alert" className="mt-4 rounded-xl border-2 border-amber-400 bg-amber-50 p-4 text-sm text-amber-950">
+              <p className="font-bold">지문 없는 기존 기록 {blockingReferenceCount}건이 확인을 기다립니다.</p>
+              <p className="mt-1">후보 목록과 순위는 확인할 수 있습니다. 남은 기록을 확인하기 전까지 자동 회차와 제작은 멈춥니다.</p>
+            </div>}
+            {unavailableReferences.length > 0 && <div className="mt-5">
+              <h3 className="font-bold">지문 확인 기록 전체 {unavailableReferences.length}건 · 확인 대기 {blockingReferenceCount}건</h3>
+              <p className="mt-1 text-sm text-[var(--muted)]">지문 없는 기록과 이전 표시 이력을 함께 보여 줍니다. 빈 지문만으로 그림이 없던 글인지 알 수 없으니 글을 확인하고 이유를 골라 표시해 주세요. 같은 이름과 확인 가능한 그림의 중복 검사는 계속 적용됩니다.</p>
+              <div className="mt-3 divide-y divide-[var(--line)] rounded-xl border border-[var(--line)]">
+                {unavailableReferences.map(reference => <article key={reference.id} className="p-4">
+                  <h4 className="font-bold">{reference.title}</h4>
+                  {reference.url && <a className="mt-1 inline-block break-all text-sm underline" href={reference.url} target="_blank" rel="noreferrer">{reference.url}</a>}
+                  <p className="mt-1 text-sm">기록 출처: {reference.source} · {reference.imageStatusLabel}</p>
+                  <p className={`mt-1 text-sm font-bold ${reference.waiver || reference.imageStatus === "available" ? "text-green-800" : "text-amber-800"}`}>{reference.waiver ? "비교 대상 아님" : reference.imageStatus === "available" ? "대표 이미지 지문 확인됨" : "중복 확인 대기"}</p>
+                  {reference.waiver && <p className="mt-1 text-xs text-[var(--muted)]">{waiverReasonLabel(reference.waiver.reason)} · {reference.waiver.actor} · {auditTime(reference.waiver.at)} KST</p>}
+                  {reference.canWaive ? <div className="mt-3 flex flex-wrap items-center gap-2">
+                    {reference.waiver ? <button type="button" disabled={Boolean(savingWaiver) || preparing}
+                      onClick={() => void updateWaiver(reference, "restore")}
+                      className="rounded-lg border border-[var(--line)] px-3 py-2 text-sm font-bold disabled:opacity-50">표시 되돌리기</button>
+                      : <>
+                        <label htmlFor={`waiver-reason-${reference.id}`} className="text-sm">비교 대상에서 빼는 이유</label>
+                        <select id={`waiver-reason-${reference.id}`} value={waiverReasons[reference.id] || ""}
+                          disabled={Boolean(savingWaiver) || preparing}
+                          onChange={event => setWaiverReasons(reasons => ({ ...reasons, [reference.id]: event.target.value }))}
+                          className="max-w-full rounded-lg border border-[var(--line)] bg-white p-2 text-sm">
+                          <option value="">이유를 고르세요</option>
+                          {COMPARISON_WAIVER_REASONS.map(reason => <option key={reason.value} value={reason.value}>{reason.label}</option>)}
+                        </select>
+                        <button type="button" disabled={Boolean(savingWaiver) || preparing || !waiverReasons[reference.id]}
+                          onClick={() => void updateWaiver(reference, "waive")}
+                          className="rounded-lg border border-[var(--primary)] px-3 py-2 text-sm font-bold text-[var(--primary)] disabled:opacity-50">비교 대상 아님으로 표시</button>
+                      </>}
+                    {savingWaiver === reference.id && <span role="status" className="text-sm">저장 중</span>}
+                  </div> : <p className="mt-2 text-xs text-[var(--muted)]">연결된 발행 원장 기록을 확인하거나 대표 이미지 지문을 복구해 주세요.</p>}
+                  {reference.waiverHistory.length > 0 && <details className="mt-3 text-xs text-[var(--muted)]">
+                    <summary className="cursor-pointer">표시·되돌리기 이력 {reference.waiverHistory.length}건</summary>
+                    <ul className="mt-2 space-y-1">{reference.waiverHistory.map((event, index) => <li key={`${event.at}-${index}`}>{event.action === "waive" ? "비교 대상 아님 표시" : "표시 되돌림"} · {waiverReasonLabel(event.reason)} · {event.actor} · {auditTime(event.at)} KST</li>)}</ul>
+                  </details>}
+                </article>)}
+              </div>
+            </div>}
+
+            {preview && <div className="mt-6 rounded-xl border border-[var(--line)] p-4">
+              <h3 className="font-bold">후보 미리보기 순위</h3>
+              {preview.top10?.length ? <ol className="mt-3 list-inside list-decimal space-y-3">{preview.top10.map(rank => <li key={rank.id}>
+                <a className="font-bold underline" href={`#candidate-${rank.id}`}>{rank.title}</a>
+                <span className="ml-2 text-xs text-[var(--muted)]">적합도 {Math.round(rank.confidence * 100)}점</span>
+                <p className="mt-1 text-xs text-[var(--muted)]">{rank.reasons.join(" · ")}</p>
+              </li>)}</ol> : <p className="mt-2 text-sm text-[var(--muted)]">현재 저장된 검사 결과로 순위를 매길 후보가 없습니다. 아래 후보별 검사 상태를 확인해 주세요.</p>}
+            </div>}
+
             <div className="mt-7 flex items-center gap-2">
               <FileSearch className="text-[var(--primary)]" size={20} />
               <h3 className="font-bold">자동 선별된 최근 후보</h3>
@@ -287,7 +421,7 @@ export default function NaverWorksDrivePanel() {
             {data?.candidates?.length ? (
               <div className="mt-3 divide-y divide-[var(--line)] rounded-xl border border-[var(--line)]">
                 {data.candidates.map((candidate) => {
-                  const blockedReason = candidateProductionBlockReason(candidate, { connected, activePortfolioCount: data.activePortfolioCount || 0, preparing });
+                  const blockedReason = productionBlockReason || candidateProductionBlockReason(candidate, { connected, activePortfolioCount: data.activePortfolioCount || 0, preparing });
                   const inspectionLabel = candidateInspectionLabel(candidate);
                   return (
                   <article id={`candidate-${candidate.id}`} key={candidate.id} className="flex flex-col gap-2 p-4 sm:flex-row sm:items-center sm:justify-between">
