@@ -137,6 +137,8 @@ export type IngestProgram = {
   event_label: string | null;
   regions: string[];
   application_period_text: string | null;
+  /** 주관기관. 같은 공고가 두 줄이 됐을 때 접을지 가리는 데 씁니다. */
+  org_name: string | null;
   applicant_summary: string | null;
   support_summary: string | null;
   application_method: string | null;
@@ -288,7 +290,7 @@ function parseAttachment(value: unknown, where: string): IngestAttachment {
 }
 
 const PROGRAM_KEYS = ["source_key", "external_id", "fingerprint", "title", "source_url",
-  "starts_at", "deadline_at", "regions", "application_period_text", "applicant_summary",
+  "starts_at", "deadline_at", "regions", "org_name", "application_period_text", "applicant_summary",
   "support_summary", "application_method", "detail_text", "attachments", "requirements",
   "collector_conditions", "event_like", "event_label"] as const;
 
@@ -361,6 +363,7 @@ function parseProgram(value: unknown, index: number): IngestProgram {
     deadline_at: instant(row, "deadline_at", where),
     regions: stringList(row, "regions", where, 40),
     application_period_text: text(row, "application_period_text", where, 500),
+    org_name: text(row, "org_name", where, 200),
     applicant_summary: text(row, "applicant_summary", where, 4000),
     support_summary: text(row, "support_summary", where, 4000),
     application_method: text(row, "application_method", where, 1000),
@@ -602,6 +605,7 @@ export async function ingestPrograms(
     title: program.title,
     // ★ 이 네 칸은 비어 있으면 안 됩니다 (NOT NULL).
     // 없으면 빈 글자로 넣습니다 — 없다고 저장 자체가 실패하면 안 됩니다.
+    org_name: program.org_name,
     applicant_summary: program.applicant_summary ?? "",
     support_summary: program.support_summary ?? "",
     application_method: program.application_method ?? "",
@@ -727,6 +731,7 @@ export async function ingestPrograms(
   for (const [id, row] of refresh) {
     const { error: refreshError } = await admin.from("openchat_programs").update({
       source_id: row.source_id, external_id: row.external_id, title: row.title,
+      org_name: row.org_name,
       applicant_summary: row.applicant_summary, support_summary: row.support_summary,
       application_method: row.application_method,
       application_period_text: row.application_period_text,
