@@ -27,6 +27,14 @@ export type Requirements = {
   support_field_required: boolean | null;
   industries_included: string[] | null;
   industries_excluded: string[] | null;
+  /**
+   * 중복·명의 제한 조건. 원문대로 옮긴 문장들.
+   *
+   * 여기서 쓰는 것은 **"대표자가 같으면 한 명의만 신청 가능"** 한 가지다.
+   * 뜻이 전혀 다른 문장이 같이 섞여 들어오므로(공동대표 전원이 자격을
+   * 갖춰야 한다 · 다른 정부사업과 중복지원 금지) 문장을 가려서 읽는다.
+   */
+  exclusion_rules: string[] | null;
   required_certifications: string[] | null;
   bonus_points: Array<{ item: string | null; points: number | null }> | null;
   support_amount_text: string | null;
@@ -445,6 +453,7 @@ export function normalizeRequirements(raw: unknown, source: RequirementInput | r
     support_field_required: flag("support_field_required"),
     industries_included: list("industries_included"),
     industries_excluded: list("industries_excluded"),
+    exclusion_rules: list("exclusion_rules"),
     required_certifications: list("required_certifications"),
     bonus_points: bonusPoints.length ? bonusPoints : null,
     support_amount_text: string(own(data, "support_amount_text"), "support_amount_text"),
@@ -466,7 +475,8 @@ export function requirementsPrompt(input: RequirementInput): string {
     business_age: { min_years: null, max_years: null, basis: null },
     size: { max_employees: null, max_revenue_krw: null, text: null },
     support_fields: null, support_field_required: null,
-    industries_included: null, industries_excluded: null, required_certifications: null, bonus_points: null,
+    industries_included: null, industries_excluded: null, exclusion_rules: null,
+    required_certifications: null, bonus_points: null,
     support_amount_text: null, self_pay_text: null, deadline_at: null, submission_documents: null,
     evaluation: { method: null, criteria_text: null }, contact: null, evidence: null,
   };
@@ -483,6 +493,7 @@ ${JSON.stringify(schema)}
 regions/target_types/industries_included/industries_excluded/required_certifications는 문자열 배열 또는 null이다.
 support_fields는 이 공고가 **지원하려는 분야·주제**다. 모집분야·지원분야·과제분야·지원내용에 적힌 기술·산업·주제를 원문 문구 그대로 배열에 담는다. 자격 제한이 아니라 '무엇에 관한 사업인가'를 적는 칸이며, 분야를 좁히지 않은 공고는 null이다. 자사 공장·생산설비·연구소 보유를 전제하는 사업이면 그 문구도 항목으로 함께 담는다.
 support_field_required는 그 분야가 자격 요건일 때만 true다. '모집 분야와 관련한 기술을 1개 이상 보유한 경우', '해당 분야 사업을 영위하는 자'처럼 적혀 있으면 true, '지원분야: 1)마케팅 2)디자인 중 택1'처럼 신청 트랙을 나누는 구분일 뿐이면 false, 근거가 없으면 null이다.
+exclusion_rules는 중복·명의 제한 문구를 **원문 문장 그대로** 담는다. '대표자가 같은 다수 기업은 1개 기업만 신청 가능', '대표자 1인당 한 사업장만 신청 가능', '특수관계 법인 제외' 같은 문장을 빠뜨리지 않는다. 문장을 요약하거나 합치지 않고 적힌 대로 한 항목씩 담는다. 해당 문구가 없으면 null이다.
 target_types에서 연구기관·대학·지자체 전용 조건을 기업으로 바꾸거나 생략하지 않는다. 기업도 함께 가능하면 모두 보존한다.
 business_age.min_years/max_years는 원문에 명시된 년 수만 숫자로, basis는 기준 문구 그대로 쓴다.
 business_age.as_of는 원문에 기준일의 완전한 연월일이 명시된 때만 YYYY-MM-DD로 추가한다. '공고일 기준'만 있으면 기준일을 추정하지 않는다.

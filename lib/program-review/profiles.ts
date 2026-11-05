@@ -14,6 +14,17 @@ export type MatchProfile = {
   itemFields?: string[] | null;
   /** 확실히 아닌 분야. 애매하면 비운다 — 빈칸을 부적합으로 쓰지 않는다. */
   itemNotFields?: string[] | null;
+  /**
+   * 같은 대표의 명의 묶음. 이 값이 같은 요건들은 **한 사람의 여러 명의**다.
+   *
+   * 경동종합상사는 박선영 대표 명의로 사업자가 5개(법인 1·개인 4)이고,
+   * 이엘그룹은 4개다. 대표자가 같아 특수관계이므로 한 공고에 여러 명의로
+   * 신청하지 않는다. 묶지 않으면 한 공고에 같은 고객사가 5줄로 뜬다.
+   *
+   * 고객사 하나가 곧 묶음이다 — 명의는 그 고객사 밑의 `entity_key` 다.
+   * 비어 있으면 그 요건은 혼자다 (자사 요건이 그렇다).
+   */
+  ownerKey?: string | null;
   hasSupportHistory: boolean;
   missingFields: string[];
   certificationsComplete?: boolean;
@@ -90,6 +101,7 @@ export function unknownProfileFields(region: string | null, foundedOn: string | 
 export function customerMatchProfile(customer: CachedCustomerProfile): MatchProfile {
   return {
     targetKind: "customer", targetId: customer.id, targetName: customer.name,
+    ownerKey: customer.id,
     region: customer.region, foundedOn: customer.foundedOn,
     businessType: null, industries: null, employees: null, revenueKrw: null, certifications: null,
     hasSupportHistory: customer.hasSupportHistory,
@@ -203,6 +215,8 @@ export function customerEntityMatchProfile(
   return {
     targetKind: "customer", targetId: options.targetId,
     targetName: entityTargetName(customer.name, entity.entityName, options.several),
+    // 고객사 하나가 곧 명의 묶음이다. 명의는 이 고객사 밑의 `entity_key` 다.
+    ownerKey: customer.id,
     region, foundedOn, businessType, industries, employees, revenueKrw, certifications,
     certificationsComplete,
     itemFields: many(stored.item_fields), itemNotFields: many(stored.item_not_fields),

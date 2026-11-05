@@ -11,7 +11,7 @@ export type ProgramMatch = {
 };
 export type MatchOptions = { now: Date | string | number; programDeadlineAt?: string | null };
 export type RankedProgramMatch = ProgramMatch & { programId: string };
-export const MATCHING_RULE_VERSION = 4;
+export const MATCHING_RULE_VERSION = 5;
 
 /** Database verdicts stay stable; partial positive matches are explicitly conditional. */
 export function matchVerdictLabel(match: Pick<ProgramMatch, "verdict" | "reasons">) {
@@ -198,6 +198,113 @@ function scoring(requirements: Requirements, profile: MatchProfile, positives: s
   return { score, reasons };
 }
 
+/**
+ * 공고가 **"대표자가 같으면 한 명의만"** 이라고 적어 두었는가. 적힌 문장을 그대로 돌려줍니다.
+ *
+ * `exclusion_rules` 에는 뜻이 전혀 다른 문장이 섞여 들어옵니다 (실측 2026-11-06,
+ * 살아 있는 공고 163건 중 81건에 값이 있고 그중 19건에 대표자 문구가 있음).
+ *
+ * 걸러야 하는 것:
+ *   "공동대표 또는 각자대표 체제는 대표자 **전원이** 신청 제한 사유에 해당하지
+ *    않아야 함"  ← 공동대표 자격 조건이지, 명의를 하나로 줄이라는 말이 아니다
+ *   "메인비즈와 이노비즈를 모두 보유한 기업은 1개 협회를 선택하여 1건만 신청"
+ *    ← 협회 선택이지 명의가 아니다
+ *   "1개 기업당 1명 지원"  ← 사람 수다
+ *   "여타 정부·지자체 지원사업에 중복 신청 금지"  ← 다른 사업과의 중복이다
+ *
+ * 잡아야 하는 것:
+ *   "대표자가 같은 다수 기업(법인, 사업체)은 1개 기업만 신청 가능"
+ *   "대표자 1인당 한 사업장만 신청 가능"
+ *   "공동대표일 경우 협의 후 위임대표가 한 사업장만 신청 가능"
+ *
+ * 그래서 **대표를 가리키는 말**과 **하나로 줄이라는 말**이 한 문장에 같이 있고,
+ * '전원이' 가 없을 때만 봅니다. 애매하면 잡지 않습니다 — 잡지 못하면 우리
+ * 원칙(한 공고에 한 명의)으로 접을 뿐이고, 잘못 잡으면 공고가 요구하지도 않은
+ * 것을 요구한다고 적게 됩니다.
+ */
+const OWNER_WORDS = /대표자|대표\s*1\s*인|동일\s*대표|같은\s*대표|공동대표|각자대표|위임대표|동일인|특수관계/;
+const ONE_ENTITY = /(?:1\s*개|한|하나의?)\s*(?:기업|명의|사업장|업체|사업체|사업자)/;
+/** 공동대표 **전원이** 자격을 갖춰야 한다 — 명의를 줄이라는 말이 아니다. */
+const ALL_MUST_QUALIFY = /전원이/;
+
+export function oneEntityPerOwnerRule(requirements: Requirements): string | null {
+  const rules = requirements.exclusion_rules;
+  if (!Array.isArray(rules)) return null;
+  for (const rule of rules) {
+    const text = typeof rule === "string" ? rule.trim() : "";
+    if (!text || ALL_MUST_QUALIFY.test(text)) continue;
+    if (OWNER_WORDS.test(text) && ONE_ENTITY.test(text)) return text.slice(0, 200);
+  }
+  return null;
+}
+
+/** 같은 대표의 여러 명의를 접을 때 붙는 말머리. 되살릴 때 이것으로 고릅니다. */
+export const SAME_OWNER_REASON = "같은 대표 명의";
+
+/**
+ * 같은 대표의 여러 명의 중 **한 명의만** 남깁니다.
+ *
+ * 경동종합상사는 박선영 대표 명의로 사업자가 5개(법인 1·개인 4), 이엘그룹은
+ * 4개입니다. 대표자가 같아 특수관계이고, 한 공고에 여러 명의로 신청하지
+ * 않습니다. 접지 않으면 한 공고에 같은 고객사가 5줄로 뜨고, 후보 수로 순위를
+ * 매기니 **경동이 걸리는 공고가 전부 위로 올라갑니다.**
+ *
+ * 남기는 기준은 판정 결과입니다 — 후보 → 조건부 후보 → 확인 필요 순이고,
+ * 같으면 점수가 높은 쪽, 그래도 같으면 이름 순(돌릴 때마다 같은 답이 나오게).
+ * 요건을 더 많이 적어 둔 명의가 점수가 높으니 대개 그 명의가 남습니다.
+ *
+ * 접은 명의는 `제외` 로 돌리고 **왜 접었는지와 어느 명의를 권하는지** 를
+ * 사유 맨 앞에 적습니다. 판정 근거는 그대로 남으니 "본점은 업력 때문에
+ * 안 된다" 같은 것은 그 줄을 열어 보면 그대로 있습니다.
+ *
+ * 공고가 **스스로** 한 명의만 받는다고 적어 둔 경우(`exclusion_rules`)는
+ * 그 문장을 근거로 함께 적습니다 — 우리 원칙이 아니라 공고의 요구입니다.
+ */
+export function foldSameOwnerEntities(
+  matches: readonly ProgramMatch[],
+  profiles: readonly MatchProfile[],
+  noticeRule?: string | null,
+): ProgramMatch[] {
+  const groups = new Map<string, number[]>();
+  matches.forEach((match, index) => {
+    const owner = profiles[index]?.ownerKey;
+    // 이미 제외된 명의는 접을 거리가 아닙니다 — 접어도 달라지는 것이 없습니다.
+    if (!owner || match.verdict === "mismatch") return;
+    const found = groups.get(owner) ?? [];
+    found.push(index);
+    groups.set(owner, found);
+  });
+
+  const quality = (match: ProgramMatch) => {
+    const label = matchVerdictLabel(match);
+    return label === "후보" ? 0 : label === "조건부 후보" ? 1 : 2;
+  };
+  const folded = [...matches];
+  for (const indexes of groups.values()) {
+    if (indexes.length < 2) continue;
+    const best = [...indexes].sort((left, right) => {
+      const a = matches[left], b = matches[right];
+      return quality(a) - quality(b)
+        || (Number.isFinite(b.score) ? b.score : 0) - (Number.isFinite(a.score) ? a.score : 0)
+        || (a.targetName < b.targetName ? -1 : a.targetName > b.targetName ? 1 : 0);
+    })[0];
+    const keep = matches[best];
+    const others = indexes.filter((index) => index !== best);
+    folded[best] = { ...keep, reasons: [
+      `${SAME_OWNER_REASON} ${indexes.length}개 중 이 명의를 권합니다 (다른 명의: ${
+        others.map((index) => matches[index].targetName).join(" · ")})`,
+      ...keep.reasons] };
+    for (const index of others) {
+      folded[index] = { ...matches[index], verdict: "mismatch", reasons: [
+        noticeRule
+          ? `${SAME_OWNER_REASON} 중 「${keep.targetName}」 로 신청하세요 — 공고가 한 명의만 받습니다: ${noticeRule}`
+          : `${SAME_OWNER_REASON} 중 「${keep.targetName}」 로 신청하세요 — 한 공고에 한 명의만 냅니다`,
+        ...matches[index].reasons] };
+    }
+  }
+  return folded;
+}
+
 /** Conservative screening only. Unknown data never becomes a rejection or a score penalty. */
 export function matchProgram(requirements: Requirements, profiles: MatchProfile[], options: MatchOptions): ProgramMatch[] {
   const now = options.now instanceof Date ? options.now.getTime()
@@ -224,7 +331,10 @@ export function matchProgram(requirements: Requirements, profiles: MatchProfile[
   const allInstitutions = Boolean(types?.length && types.every(institutionOnly)
     && !/기업|창업|소상공인|사업자|협약|컨소시엄|공동|주관|참여/.test(targetEvidence));
 
-  return profiles.map((profile) => {
+  // ★ 같은 대표의 여러 명의는 한 명의만 남깁니다 (아래 fold). 공고가 스스로
+  // 한 명의만 받는다고 적어 두었으면 그 문장을 근거로 함께 적습니다.
+  const ownerRule = oneEntityPerOwnerRule(requirements);
+  const matches: ProgramMatch[] = profiles.map((profile) => {
     const mismatches: string[] = [];
     const unknowns: string[] = [];
     const positives: string[] = [];
@@ -368,6 +478,7 @@ export function matchProgram(requirements: Requirements, profiles: MatchProfile[
       score: scored.score,
     };
   });
+  return foldSameOwnerEntities(matches, profiles, ownerRule);
 }
 
 /**
