@@ -98,6 +98,17 @@ export async function prepareNextPortfolioCandidate(options: PrepareOptions = {}
     prepared: false, inspected: inventory.metrics.inspected, eligible: decision.eligible,
     reason, inspection: inventory.metrics,
   });
+  if (inventory.blockingReferenceCount > 0) {
+    const targetCheck = options.candidateId
+      ? inventory.decisions.find(check => check.candidate.id === options.candidateId) : undefined;
+    if (targetCheck?.match) return {
+      ...inspectedFailure(targetCheck.reason || "이미 발행했거나 제작 중인 프로젝트와 중복됩니다."),
+      prepared: false,
+      duplicateMatch: { title: targetCheck.match.title, url: targetCheck.match.url },
+    };
+    return inspectedFailure(inventory.comparisonReviewReason
+      || `지문 없는 기존 기록 ${inventory.blockingReferenceCount}건이 확인을 기다립니다. 중복 확인 불가`);
+  }
   for (const check of inventory.decisions) {
     if (check.candidate.id === decision.selected?.candidate.id
       || (options.candidateId && check.candidate.id !== options.candidateId)) continue;

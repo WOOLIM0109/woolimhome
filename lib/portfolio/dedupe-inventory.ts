@@ -9,6 +9,7 @@ import { accessToken, downloadSharedDriveFile, DriveFileDownloadError } from "..
 import { PORTFOLIO_FONT_POLICY_VERSION, portfolioFontExclusion } from "./font-policy";
 import { readPptxSourceFonts } from "./source-fonts";
 import { cachedSourceInspection, sourceInspectionFailure, sourceInspectionState, PORTFOLIO_SOURCE_MAX_BYTES, SOURCE_INSPECTION_VERSION, type SourceInspectionFailure } from "./source-inspection";
+import { activeComparisonWaiver, comparisonWaiverHistory, type ComparisonWaiverEvent } from "./comparison-waiver";
 
 export const PORTFOLIO_INSPECTION_TARGET_ACCEPTED = 8;
 export type PortfolioInspectionMetrics = {
@@ -19,6 +20,11 @@ export type PortfolioInspectionMetrics = {
   missingImagePaths: string[];
 };
 export type PortfolioInspectionOptions = { readOnly?: boolean; deadlineAt?: number; candidateId?: string };
+export type UnavailablePortfolioReference = {
+  id: string; ledgerId: string | null; title: string; url?: string; source: string;
+  imageStatus: "available" | "unavailable" | "no_image" | "unknown"; imageStatusLabel: string;
+  waiver: ComparisonWaiverEvent | null; waiverHistory: ComparisonWaiverEvent[]; canWaive: boolean;
+};
 
 export async function readAllPortfolioRows(table: string, columns = "*") {
   const rows: Record<string, unknown>[] = [];
@@ -51,6 +57,7 @@ export async function readPortfolioDedupeInventory(threshold: number, options: P
   const candidates = rows as unknown as CandidateRow[];
   const pendingCandidates = candidates.filter(candidate => candidate.status === "candidate");
   metrics.total = pendingCandidates.length;
+  const candidatesWithMissingImages = new Set<string>();
   const hashCache = new Map<string, string | null>();
   function missingObject(error: { message: string; status?: number | string; statusCode?: number | string; code?: number | string; error?: string }) {
     const codes = [error.code, error.statusCode, error.error].filter(value => value !== undefined && value !== "").map(String);
@@ -105,6 +112,7 @@ export async function readPortfolioDedupeInventory(threshold: number, options: P
       for (const path of result.slidePaths.slice(0, 3)) {
         const hash = await storedHash(result.bucket, path);
         if (hash) hashes.push(hash);
+        else candidatesWithMissingImages.add(candidate.id);
       }
     }
     return hashes;
@@ -199,9 +207,13 @@ export async function readPortfolioDedupeInventory(threshold: number, options: P
         await persistInspection(candidate);
     }
   }
-  type InventoryReference = ProjectReference & { workItemId?: string };
+  type InventoryReference = ProjectReference & {
+    workItemId?: string; ledgerId?: string; source: string; waiverHistory?: ComparisonWaiverEvent[];
+    missingImages?: boolean;
+  };
   const references: InventoryReference[] = ledger.map(entry => ({ id: String(entry.id), title: String(entry.title),
     normalizedName: String(entry.normalized_project_name), url: String(entry.blog_url),
+    ledgerId: String(entry.id), source: String(entry.source || "history"), waiverHistory: comparisonWaiverHistory(entry.comparison_waiver),
     candidateId: typeof entry.candidate_id === "string" ? entry.candidate_id : undefined,
     workItemId: typeof entry.work_item_id === "string" ? entry.work_item_id : undefined,
     hashes: validProjectHashes(entry.representative_hashes) }));
@@ -210,7 +222,7 @@ export async function readPortfolioDedupeInventory(threshold: number, options: P
     const metadata = item.metadata as Record<string, unknown> | undefined;
     if (typeof metadata?.sourceFileName !== "string") continue;
     const candidate = candidates.find(candidate => candidate.id === metadata.candidateId);
-    references.push({ id: String(item.id), title: String(item.title),
+    references.push({ id: String(item.id), title: String(item.title), source: "publication",
       normalizedName: normalizePortfolioProjectName(metadata.sourceFileName),
       candidateId: typeof metadata.candidateId === "string" ? metadata.candidateId : undefined,
       workItemId: String(item.id), url: String(item.published_url_normalized || "") || undefined,
@@ -222,36 +234,66 @@ export async function readPortfolioDedupeInventory(threshold: number, options: P
     const manifest = set.manifest as { assets?: { bucket: string; path: string }[] } | null;
     const candidate = candidates.find(candidate => candidate.id === metadata?.candidateId);
     const hashes = candidate?.status !== "candidate" ? validProjectHashes(candidate?.metadata?.representativeHashes) : [];
+    let missingImages = false;
     if (!hashes.length) for (const asset of (manifest?.assets || []).slice(0, 3)) {
       const hash = await storedHash(asset.bucket, asset.path);
       if (hash) hashes.push(hash);
+      else missingImages = true;
     }
     if (candidate && candidate.status !== "candidate" && !validProjectHashes(candidate.metadata?.representativeHashes).length
       && validProjectHashes(hashes).length && !portfolioFontExclusion(candidate)) {
       candidate.metadata = { ...candidate.metadata, representativeHashes: [...new Set(validProjectHashes(hashes))], imageReviewReason: null };
       await persistInspection(candidate);
     }
-    references.push({ id: String(set.id), title: String(item?.title || "기존 이미지 세트"),
+    references.push({ id: String(set.id), title: String(item?.title || "기존 이미지 세트"), source: "image_set", missingImages,
       normalizedName: normalizePortfolioProjectName(String(metadata?.sourceFileName || "")),
       candidateId: typeof metadata?.candidateId === "string" ? metadata.candidateId : undefined,
       workItemId: typeof set.work_item_id === "string" ? set.work_item_id : undefined,
       url: typeof item?.published_url_normalized === "string" ? item.published_url_normalized : undefined, hashes });
   }
   const comparisonReferences: InventoryReference[] = [...references, ...candidates.filter(candidate => ["selected", "processed", "on_hold"].includes(candidate.status))
-    .map(candidate => ({ id: candidate.id, candidateId: candidate.id, title: candidate.project_name,
+    .map(candidate => ({ id: candidate.id, candidateId: candidate.id, title: candidate.project_name, source: "candidate",
       normalizedName: normalizePortfolioProjectName(candidate.project_name), hashes: validProjectHashes(candidate.metadata?.representativeHashes) }))];
+  const relatedReferences = (reference: InventoryReference) => comparisonReferences.filter(other =>
+    (reference.candidateId && other.candidateId === reference.candidateId)
+    || (reference.workItemId && other.workItemId === reference.workItemId
+      && (!reference.candidateId || !other.candidateId || reference.candidateId === other.candidateId)));
   for (const reference of comparisonReferences) {
     if (validProjectHashes(reference.hashes).length) continue;
     const candidateHashes = validProjectHashes(candidates.find(candidate => candidate.id === reference.candidateId)?.metadata?.representativeHashes);
-    const related = comparisonReferences.filter(other => (reference.candidateId && other.candidateId === reference.candidateId)
-      || (reference.workItemId && other.workItemId === reference.workItemId
-        && (!reference.candidateId || !other.candidateId || reference.candidateId === other.candidateId)));
+    const related = relatedReferences(reference);
     reference.hashes = [...new Set([...candidateHashes, ...related.flatMap(other => validProjectHashes(other.hashes))])];
   }
-  const unavailableReference = comparisonReferences.find(reference => !validProjectHashes(reference.hashes).length);
-  const comparisonReviewReason = unavailableReference ? `기존 작업 「${unavailableReference.title}」의 대표 이미지 지문이 없어 중복 확인 불가` : null;
+  const unavailableReferences: UnavailablePortfolioReference[] = [];
+  for (const reference of comparisonReferences) {
+    const hasHashes = validProjectHashes(reference.hashes).length > 0;
+    if (hasHashes && (!reference.ledgerId || !reference.waiverHistory?.length)) continue;
+    const related = relatedReferences(reference);
+    // A publication may also appear as a candidate and image set. Its ledger row
+    // supplies the one review action; names and hashes remain duplicate evidence.
+    if (!reference.ledgerId && related.some(other => other.ledgerId)) continue;
+    if (!reference.ledgerId && related.some(other => unavailableReferences.some(entry => entry.id === other.id))) continue;
+    const waiverHistory = reference.waiverHistory || [];
+    const waiver = activeComparisonWaiver(waiverHistory);
+    const missingImages = [reference, ...related].some(other => other.missingImages
+      || (other.candidateId && candidatesWithMissingImages.has(other.candidateId)));
+    const imageStatus = hasHashes ? "available" : waiver?.reason === "not_portfolio" ? "no_image"
+      : missingImages || waiver?.reason === "source_unavailable" ? "unavailable" : "unknown";
+    unavailableReferences.push({ id: reference.id, ledgerId: reference.ledgerId || null,
+      title: reference.title, url: reference.url, source: reference.source, imageStatus,
+      imageStatusLabel: imageStatus === "available" ? "저장된 대표 이미지 지문 있음"
+        : imageStatus === "no_image" ? "포트폴리오 글이 아님 · 비교할 그림 없음"
+        : imageStatus === "unavailable" ? "그림을 구할 수 없어 지문 확인 불가"
+          : "지문 없음 · 그림을 못 구한 것인지 원래 없는 것인지 확인 필요",
+      waiver, waiverHistory, canWaive: Boolean(reference.ledgerId) });
+  }
+  const blockingReferenceCount = unavailableReferences.filter(reference => reference.imageStatus !== "available" && !reference.waiver).length;
+  const comparisonReviewReason = blockingReferenceCount
+    ? `지문 없는 기존 기록 ${blockingReferenceCount}건이 확인을 기다립니다. 중복 확인 불가` : null;
+  // Count reviewable candidates for the download target even when old evidence
+  // blocks production, so the eight-result limit continues to bound the work.
   const acceptedRows = () => inspectPortfolioDuplicates(candidates, references, threshold).accepted.filter(row =>
-    !comparisonReviewReason && validProjectHashes(row.metadata?.representativeHashes).length && row.metadata?.fontPolicyVersion === PORTFOLIO_FONT_POLICY_VERSION);
+    validProjectHashes(row.metadata?.representativeHashes).length && row.metadata?.fontPolicyVersion === PORTFOLIO_FONT_POLICY_VERSION);
   const queue = pendingCandidates.filter(candidate => {
     const file = driveFile(candidate);
     return (!options.candidateId || options.candidateId === candidate.id) && !portfolioFontExclusion(candidate)
@@ -279,11 +321,7 @@ export async function readPortfolioDedupeInventory(threshold: number, options: P
   }
   if (fatal) throw fatal;
   const inspection = inspectPortfolioDuplicates(candidates, references, threshold);
-  // Unknown visual evidence is a review task, never permission to convert first.
-  if (comparisonReviewReason) for (const candidate of inspection.accepted) {
-    candidate.metadata = { ...candidate.metadata, imageReviewReason: comparisonReviewReason };
-  }
-  const needsImageReview = inspection.accepted.filter(row => comparisonReviewReason || !validProjectHashes(row.metadata?.representativeHashes).length);
+  const needsImageReview = inspection.accepted.filter(row => !validProjectHashes(row.metadata?.representativeHashes).length);
   const needsFontReview = inspection.accepted.filter(row => row.metadata?.fontPolicyVersion !== PORTFOLIO_FONT_POLICY_VERSION);
   metrics.inspected = pendingCandidates.filter(candidate => candidate.metadata?.inspectionState !== "pending").length;
   metrics.remaining = metrics.total - metrics.inspected;
@@ -291,8 +329,11 @@ export async function readPortfolioDedupeInventory(threshold: number, options: P
   metrics.durationMs = Date.now() - startedAt;
   sampleMemory();
   if (!options.readOnly) console.info("[portfolio-inventory]", JSON.stringify(metrics));
-  return { ...inspection, candidates, sourceFailures, metrics, inspection: metrics, needsImageReview, needsFontReview, accepted: inspection.accepted.filter(row =>
-    !comparisonReviewReason && validProjectHashes(row.metadata?.representativeHashes).length && row.metadata?.fontPolicyVersion === PORTFOLIO_FONT_POLICY_VERSION) };
+  const previewAccepted = inspection.accepted.filter(row => validProjectHashes(row.metadata?.representativeHashes).length
+    && row.metadata?.fontPolicyVersion === PORTFOLIO_FONT_POLICY_VERSION);
+  return { ...inspection, candidates, sourceFailures, metrics, inspection: metrics, needsImageReview, needsFontReview,
+    unavailableReferences, blockingReferenceCount, comparisonReviewReason, previewAccepted,
+    accepted: comparisonReviewReason ? [] : previewAccepted };
 }
 
 export async function assertPortfolioDedupePassed(candidateId: string) {
