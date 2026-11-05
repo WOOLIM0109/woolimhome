@@ -1,0 +1,92 @@
+name: Repair migration history once
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: '기록을 수리하려면 REPAIR를 정확히 입력하세요.'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  migration-repair:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    concurrency:
+      group: supabase-production-migrations
+      cancel-in-progress: false
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: 수리 입력 확인
+        env:
+          CONFIRMATION: ${{ inputs.confirmation }}
+        run: |
+          if [[ "$CONFIRMATION" != "REPAIR" ]]; then
+            echo "::error::REPAIR를 정확히 입력해야 합니다."
+            exit 1
+          fi
+
+      - uses: actions/checkout@v4
+
+      - uses: supabase/setup-cli@v3
+        with:
+          version: 3.0.0
+
+      - name: 운영 마이그레이션 기록 수리
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+          SUPABASE_PROJECT_REF: lmgzibodxozdocxocpez
+        run: |
+          set -euo pipefail
+          if [[ -z "$SUPABASE_ACCESS_TOKEN" || -z "$SUPABASE_DB_PASSWORD" ]]; then
+            echo "::error::SUPABASE_ACCESS_TOKEN과 SUPABASE_DB_PASSWORD가 모두 필요합니다."
+            exit 1
+          fi
+
+          applied_versions=()
+          for file in supabase/migrations/*.sql; do
+            version="${file##*/}"
+            version="${version%%_*}"
+            if [[ ! "$version" =~ ^[0-9]+$ ]]; then
+              echo "::error::마이그레이션 파일 번호를 읽지 못했습니다."
+              exit 1
+            fi
+            applied_versions+=("$version")
+          done
+          mapfile -t applied_versions < <(printf '%s\n' "${applied_versions[@]}" | sort -u)
+          if [[ "${#applied_versions[@]}" -ne 33 ]]; then
+            echo "::error::이 일회용 수리는 서로 다른 번호 33개만 대상으로 합니다."
+            exit 1
+          fi
+
+          # 04번 migration list --remote 실행 로그에서 확인한 13개:
+          # https://github.com/WOOLIM0109/woolimhome/actions/runs/42001404678/job/127157264719
+          reverted_versions=(
+            20261017114903
+            20261017114909
+            20261017114911
+            20261017114912
+            20261017114914
+            20261020123645
+            20261021034043
+            20261021044245
+            20261021052109
+            20261021061027
+            20261021063307
+            20261021064135
+            20261021100427
+          )
+
+          supabase link --project-ref "$SUPABASE_PROJECT_REF" --yes
+
+          # `migration repair` 는 기록표만 고친다. SQL 을 실행하지도, 되돌리지도 않는다.
+          # `reverted` 로 표시해도 그 SQL 이 한 일은 DB 에 그대로 남는다. 표가 지워지지 않는다.
+          supabase migration repair --status reverted "${reverted_versions[@]}" --remote --yes
+          supabase migration repair --status applied "${applied_versions[@]}" --remote --yes
+          supabase migration list --remote
