@@ -140,8 +140,22 @@ export async function runRequirementsTask(options: Options = {}) {
           // 횟수 상한·기간에 걸려 거절된 것은 '이번엔 할 일이 없었다' 와 달리 따로 센다.
           if (typeof data !== "string" || !data) { summary.recoveryRefused++; continue; }
           recoveryId = data;
+        } else if (existing?.status === "failed" && existing.input_hash === input.inputHash) {
+          // 같은 원문으로 실패한 채 굳은 공고다. 자동으로 **한 번만** 다시 부른다.
+          //
+          // 2026-11-04 에 답변 길이 한도를 넘겨 줄줄이 실패한 공고 67건이 이렇게
+          // 남았다. 스키마는 되돌렸지만, 일반 경로는 같은 원문을 두 번 부르지
+          // 않아서 고쳐진 뒤에도 영영 실패로 남았다.
+          //
+          // 그 한 번도 실패하면 거절되고 (kind='auto' 상한 1회), 그때부터는
+          // 공고 탓으로 보고 더 부르지 않는다. 사람이 부르는 복구 3회는 따로 남아 있다.
+          const { data, error } = await admin.rpc("claim_openchat_requirement_auto_retry", {
+            p_program_id: program.id, p_input_hash: input.inputHash,
+          });
+          if (error) throw new Error("요건 자동 재시도 잠금 실패");
+          if (typeof data !== "string" || !data) { summary.recoveryRefused++; continue; }
+          recoveryId = data;
         } else {
-          if (existing?.input_hash === input.inputHash && existing.status === "failed") { summary.alreadyAttempted++; continue; }
           const { data: claimed, error: claimError } = await admin.rpc("claim_openchat_requirement", {
             p_program_id: program.id, p_input_hash: input.inputHash,
           });
