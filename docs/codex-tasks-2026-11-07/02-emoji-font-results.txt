@@ -1,0 +1,356 @@
+이모지 글꼴 별칭 작업 검증 결과
+검증일: 2026-11-07 (Asia/Seoul)
+환경: Windows, Node.js v24.16.0, npm 11.13.0
+워커 버전: 2.10.2 -> 2.10.3
+
+명령: npm run verify
+종료 코드: 1
+- npm run typecheck: 통과
+- npm run lint: 통과
+- npm test: 실패 (병렬 그룹 199개 파일 + PowerPoint 직렬 그룹 3개 파일 모두 실행 완료)
+- 전체: 1,916개 중 통과 1,890개, 실패 20개, 건너뜀 6개, 취소 0개
+- 병렬 그룹: 1,859개 중 통과 1,834개, 실패 20개, 건너뜀 5개
+- PowerPoint 직렬 그룹: 57개 중 통과 56개, 실패 0개, 건너뜀 1개
+
+별도 명령: node --test lib/pc-worker/worker-fonts.test.mjs
+결과: 9개 통과, 실패 0개, 건너뜀 0개. 요청한 3개 회귀 테스트 포함.
+git diff --check: 통과
+
+실패 분류 및 읽기 전용 원인 확인:
+1. lib/pc-worker/preparation/production-bridge.test.mjs: 9개 실패
+   preparationBridgeFixture()의 mkdtemp가 Windows Temp의 부모인
+   C:\Users\becky\AppData\Local\b-XXXXXX 에 쓰기를 시도하여 EPERM 발생.
+2. lib/pc-worker/preparation/runtime-package.test.mjs: 11개 실패
+   공통 준비 단계의 packagePreparationRuntime -> dependencyRecords -> safeFile에서
+   PREPARATION_PACKAGE_UNSAFE_FILE 발생. 이 체크아웃의 node_modules는 Junction이며,
+   safeFile은 경로 중간의 심볼릭 링크를 거부한다. worker.ps1은 패키지 포함 대상이 아니다.
+두 오류는 이번 글꼴 별칭 코드에 도달하기 전의 환경/테스트 준비 단계에서 발생했다.
+
+전체 검증에서 이번 변경 관련 검사 원문:
+✔ worker 2.10.3 takes shared PowerPoint lock before claim and keeps heartbeat outside it (8.5394ms)
+✔ installed Segoe UI Emoji recognizes every emoji alias after normalization without case sensitivity (2063.7253ms)
+✔ installed fonts without an emoji family do not recognize color-emoji (2070.8065ms)
+✔ an installed emoji family leaves unrelated Work Sans SemiBold missing (1733.6816ms)
+
+검증 그룹별 요약 원문 (병렬, PowerPoint 직렬 순서):
+ℹ tests 1859
+ℹ suites 0
+ℹ pass 1834
+ℹ fail 20
+ℹ cancelled 0
+ℹ skipped 5
+ℹ todo 0
+ℹ duration_ms 317872.5709
+ℹ tests 57
+ℹ suites 0
+ℹ pass 56
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 1
+ℹ todo 0
+ℹ duration_ms 84019.3616
+
+실패한 검사 이름과 오류 원문 (npm run verify 출력 그대로):
+✖ failing tests:
+
+test at lib\pc-worker\preparation\production-bridge.test.mjs:288:1
+✖ explicit preparation review applies into a fresh generation and swaps editor only after verified success (1.8296ms)
+  Error: EPERM: operation not permitted, mkdtemp 'C:\Users\becky\AppData\Local\b-XXXXXX'
+      at async mkdtemp (node:internal/fs/promises:1194:10)
+      at async preparationBridgeFixture (file:///C:/dev/woolimhome/.codex-tmp/emoji-font/lib/pc-worker/preparation/production-bridge.test.mjs:237:21)
+      at async TestContext.<anonymous> (file:///C:/dev/woolimhome/.codex-tmp/emoji-font/lib/pc-worker/preparation/production-bridge.test.mjs:289:13)
+      at async Test.run (node:internal/test_runner/test:1313:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:897:7) {
+    errno: -4048,
+    code: 'EPERM',
+    syscall: 'mkdtemp',
+    path: 'C:\\Users\\becky\\AppData\\Local\\b-XXXXXX'
+  }
+
+test at lib\pc-worker\preparation\production-bridge.test.mjs:309:1
+✖ manual preparation selection reaches only the fresh generation and empty selection keeps automatic defaults (2.5235ms)
+  Error: EPERM: operation not permitted, mkdtemp 'C:\Users\becky\AppData\Local\b-XXXXXX'
+      at async mkdtemp (node:internal/fs/promises:1194:10)
+      at async preparationBridgeFixture (file:///C:/dev/woolimhome/.codex-tmp/emoji-font/lib/pc-worker/preparation/production-bridge.test.mjs:237:21)
+      at async TestContext.<anonymous> (file:///C:/dev/woolimhome/.codex-tmp/emoji-font/lib/pc-worker/preparation/production-bridge.test.mjs:311:15)
+      at async Test.run (node:internal/test_runner/test:1313:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:897:7) {
+    errno: -4048,
+    code: 'EPERM',
+    syscall: 'mkdtemp',
+    path: 'C:\\Users\\becky\\AppData\\Local\\b-XXXXXX'
+  }
+
+test at lib\pc-worker\preparation\production-bridge.test.mjs:323:1
+✖ failed preparation, stale old evidence or failed review URL publication preserves original record/editor/artifacts (3.0201ms)
+  Error: EPERM: operation not permitted, mkdtemp 'C:\Users\becky\AppData\Local\b-XXXXXX'
+      at async mkdtemp (node:internal/fs/promises:1194:10)
+      at async preparationBridgeFixture (file:///C:/dev/woolimhome/.codex-tmp/emoji-font/lib/pc-worker/preparation/production-bridge.test.mjs:237:21)
+      at async TestContext.<anonymous> (file:///C:/dev/woolimhome/.codex-tmp/emoji-font/lib/pc-worker/preparation/production-bridge.test.mjs:327:15)
+      at async Test.run (node:internal/test_runner/test:1313:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:897:7) {
+    errno: -4048,
+    code: 'EPERM',
+    syscall: 'mkdtemp',
+    path: 'C:\\Users\\becky\\AppData\\Local\\b-XXXXXX'
+  }
+
+test at lib\pc-worker\preparation\production-bridge.test.mjs:339:1
+✖ restarted daemon resumes the accepted generation without reconversion and rejects arbitrary work directory (1.6317ms)
+  Error: EPERM: operation not permitted, mkdtemp 'C:\Users\becky\AppData\Local\b-XXXXXX'
+      at async mkdtemp (node:internal/fs/promises:1194:10)
+      at async preparationBridgeFixture (file:///C:/dev/woolimhome/.codex-tmp/emoji-font/lib/pc-worker/preparation/production-bridge.test.mjs:237:21)
+      at async TestContext.<anonymous> (file:///C:/dev/woolimhome/.codex-tmp/emoji-font/lib/pc-worker/preparation/production-bridge.test.mjs:340:13)
+      at async Test.run (node:internal/test_runner/test:1313:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:897:7) {
+    errno: -4048,
+    code: 'EPERM',
+    syscall: 'mkdtemp',
+    path: 'C:\\Users\\becky\\AppData\\Local\\b-XXXXXX'
+  }
+
+test at lib\pc-worker\preparation\production-bridge.test.mjs:354:1
+✖ preparation actions serialize and uploading sessions cannot change selection or source format (1.8864ms)
+  Error: EPERM: operation not permitted, mkdtemp 'C:\Users\becky\AppData\Local\b-XXXXXX'
+      at async mkdtemp (node:internal/fs/promises:1194:10)
+      at async preparationBridgeFixture (file:///C:/dev/woolimhome/.codex-tmp/emoji-font/lib/pc-worker/preparation/production-bridge.test.mjs:237:21)
+      at async TestContext.<anonymous> (file:///C:/dev/woolimhome/.codex-tmp/emoji-font/lib/pc-worker/preparation/production-bridge.test.mjs:356:13)
+      at async Test.run (node:internal/test_runner/test:1313:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:897:7) {
+    errno: -4048,
+    code: 'EPERM',
+    syscall: 'mkdtemp',
+    path: 'C:\\Users\\becky\\AppData\\Local\\b-XXXXXX'
+  }
+
+test at lib\pc-worker\preparation\production-bridge.test.mjs:367:1
+✖ explicit reopen rotates only launch token with no preparation, source download or record mutation (1.8383ms)
+  Error: EPERM: operation not permitted, mkdtemp 'C:\Users\becky\AppData\Local\b-XXXXXX'
+      at async mkdtemp (node:internal/fs/promises:1194:10)
+      at async preparationBridgeFixture (file:///C:/dev/woolimhome/.codex-tmp/emoji-font/lib/pc-worker/preparation/production-bridge.test.mjs:237:21)
+      at async TestContext.<anonymous> (file:///C:/dev/woolimhome/.codex-tmp/emoji-font/lib/pc-worker/preparation/production-bridge.test.mjs:368:13)
+      at async Test.run (node:internal/test_runner/test:1313:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:897:7) {
+    errno: -4048,
+    code: 'EPERM',
+    syscall: 'mkdtemp',
+    path: 'C:\\Users\\becky\\AppData\\Local\\b-XXXXXX'
+  }
+
+test at lib\pc-worker\preparation\production-bridge.test.mjs:379:1
+✖ missing local token-rotation feature fails safely without conversion or requeue (1.2387ms)
+  Error: EPERM: operation not permitted, mkdtemp 'C:\Users\becky\AppData\Local\b-XXXXXX'
+      at async mkdtemp (node:internal/fs/promises:1194:10)
+      at async preparationBridgeFixture (file:///C:/dev/woolimhome/.codex-tmp/emoji-font/lib/pc-worker/preparation/production-bridge.test.mjs:237:21)
+      at async TestContext.<anonymous> (file:///C:/dev/woolimhome/.codex-tmp/emoji-font/lib/pc-worker/preparation/production-bridge.test.mjs:380:13)
+      at async Test.run (node:internal/test_runner/test:1313:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:897:7) {
+    errno: -4048,
+    code: 'EPERM',
+    syscall: 'mkdtemp',
+    path: 'C:\\Users\\becky\\AppData\\Local\\b-XXXXXX'
+  }
+
+test at lib\pc-worker\preparation\production-bridge.test.mjs:388:1
+✖ verified snapshot upload holds exclusive preparation lock through record commit (1.2239ms)
+  Error: EPERM: operation not permitted, mkdtemp 'C:\Users\becky\AppData\Local\b-XXXXXX'
+      at async mkdtemp (node:internal/fs/promises:1194:10)
+      at async preparationBridgeFixture (file:///C:/dev/woolimhome/.codex-tmp/emoji-font/lib/pc-worker/preparation/production-bridge.test.mjs:237:21)
+      at async TestContext.<anonymous> (file:///C:/dev/woolimhome/.codex-tmp/emoji-font/lib/pc-worker/preparation/production-bridge.test.mjs:392:13)
+      at async Test.run (node:internal/test_runner/test:1313:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:897:7) {
+    errno: -4048,
+    code: 'EPERM',
+    syscall: 'mkdtemp',
+    path: 'C:\\Users\\becky\\AppData\\Local\\b-XXXXXX'
+  }
+
+test at lib\pc-worker\preparation\production-bridge.test.mjs:409:1
+✖ failed snapshot upload releases preparation lock and preserves review record (4.046ms)
+  Error: EPERM: operation not permitted, mkdtemp 'C:\Users\becky\AppData\Local\b-XXXXXX'
+      at async mkdtemp (node:internal/fs/promises:1194:10)
+      at async preparationBridgeFixture (file:///C:/dev/woolimhome/.codex-tmp/emoji-font/lib/pc-worker/preparation/production-bridge.test.mjs:237:21)
+      at async TestContext.<anonymous> (file:///C:/dev/woolimhome/.codex-tmp/emoji-font/lib/pc-worker/preparation/production-bridge.test.mjs:411:13)
+      at async Test.run (node:internal/test_runner/test:1313:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:897:7) {
+    errno: -4048,
+    code: 'EPERM',
+    syscall: 'mkdtemp',
+    path: 'C:\\Users\\becky\\AppData\\Local\\b-XXXXXX'
+  }
+
+test at lib\pc-worker\preparation\runtime-package.test.mjs:39:1
+﹣ dependency collection excludes npm bin links before recursion but includes locked nested semver (241.0931ms) # SKIP
+  Error: PREPARATION_PACKAGE_UNSAFE_FILE
+      at fail (file:///C:/dev/woolimhome/.codex-tmp/emoji-font/scripts/preparation-runtime-package.mjs:69:32)
+      at safeFile (file:///C:/dev/woolimhome/.codex-tmp/emoji-font/scripts/preparation-runtime-package.mjs:103:7)
+      at async visit (file:///C:/dev/woolimhome/.codex-tmp/emoji-font/scripts/preparation-runtime-package.mjs:153:46)
+      at async dependencyRecords (file:///C:/dev/woolimhome/.codex-tmp/emoji-font/scripts/preparation-runtime-package.mjs:166:41)
+      at async packagePreparationRuntime (file:///C:/dev/woolimhome/.codex-tmp/emoji-font/scripts/preparation-runtime-package.mjs:208:24)
+      at async TestContext.<anonymous> (file:///C:/dev/woolimhome/.codex-tmp/emoji-font/lib/pc-worker/preparation/runtime-package.test.mjs:23:14)
+      at async TestHook.run (node:internal/test_runner/test:1313:7)
+
+test at lib\pc-worker\preparation\runtime-package.test.mjs:50:1
+﹣ dependency payload rejects internal external and broken symlinks (1.0852ms) # SKIP
+  Error: PREPARATION_PACKAGE_UNSAFE_FILE
+      at fail (file:///C:/dev/woolimhome/.codex-tmp/emoji-font/scripts/preparation-runtime-package.mjs:69:32)
+      at safeFile (file:///C:/dev/woolimhome/.codex-tmp/emoji-font/scripts/preparation-runtime-package.mjs:103:7)
+      at async visit (file:///C:/dev/woolimhome/.codex-tmp/emoji-font/scripts/preparation-runtime-package.mjs:153:46)
+      at async dependencyRecords (file:///C:/dev/woolimhome/.codex-tmp/emoji-font/scripts/preparation-runtime-package.mjs:166:41)
+      at async packagePreparationRuntime (file:///C:/dev/woolimhome/.codex-tmp/emoji-font/scripts/preparation-runtime-package.mjs:208:24)
+      at async TestContext.<anonymous> (file:///C:/dev/woolimhome/.codex-tmp/emoji-font/lib/pc-worker/preparation/runtime-package.test.mjs:23:14)
+      at async TestHook.run (node:internal/test_runner/test:1313:7)
+
+test at lib\pc-worker\preparation\runtime-package.test.mjs:62:1
+﹣ dependency roots and excluded node_modules must be real directories (0.2497ms) # SKIP
+  Error: PREPARATION_PACKAGE_UNSAFE_FILE
+      at fail (file:///C:/dev/woolimhome/.codex-tmp/emoji-font/scripts/preparation-runtime-package.mjs:69:32)
+      at safeFile (file:///C:/dev/woolimhome/.codex-tmp/emoji-font/scripts/preparation-runtime-package.mjs:103:7)
+      at async visit (file:///C:/dev/woolimhome/.codex-tmp/emoji-font/scripts/preparation-runtime-package.mjs:153:46)
+      at async dependencyRecords (file:///C:/dev/woolimhome/.codex-tmp/emoji-font/scripts/preparation-runtime-package.mjs:166:41)
+      at async packagePreparationRuntime (file:///C:/dev/woolimhome/.codex-tmp/emoji-font/scripts/preparation-runtime-package.mjs:208:24)
+      at async TestContext.<anonymous> (file:///C:/dev/woolimhome/.codex-tmp/emoji-font/lib/pc-worker/preparation/runtime-package.test.mjs:23:14)
+      at async TestHook.run (node:internal/test_runner/test:1313:7)
+
+test at lib\pc-worker\preparation\runtime-package.test.mjs:79:1
+✖ dependency payload still rejects hard links and environment files (0.0798ms)
+  Error: PREPARATION_PACKAGE_UNSAFE_FILE
+      at fail (file:///C:/dev/woolimhome/.codex-tmp/emoji-font/scripts/preparation-runtime-package.mjs:69:32)
+      at safeFile (file:///C:/dev/woolimhome/.codex-tmp/emoji-font/scripts/preparation-runtime-package.mjs:103:7)
+      at async visit (file:///C:/dev/woolimhome/.codex-tmp/emoji-font/scripts/preparation-runtime-package.mjs:153:46)
+      at async dependencyRecords (file:///C:/dev/woolimhome/.codex-tmp/emoji-font/scripts/preparation-runtime-package.mjs:166:41)
+      at async packagePreparationRuntime (file:///C:/dev/woolimhome/.codex-tmp/emoji-font/scripts/preparation-runtime-package.mjs:208:24)
+      at async TestContext.<anonymous> (file:///C:/dev/woolimhome/.codex-tmp/emoji-font/lib/pc-worker/preparation/runtime-package.test.mjs:23:14)
+      at async TestHook.run (node:internal/test_runner/test:1313:7)
+
+test at lib\pc-worker\preparation\runtime-package.test.mjs:89:1
+﹣ dependency payload rejects special files before reading them (0.1014ms) # SKIP
+  Error: PREPARATION_PACKAGE_UNSAFE_FILE
+      at fail (file:///C:/dev/woolimhome/.codex-tmp/emoji-font/scripts/preparation-runtime-package.mjs:69:32)
+      at safeFile (file:///C:/dev/woolimhome/.codex-tmp/emoji-font/scripts/preparation-runtime-package.mjs:103:7)
+      at async visit (file:///C:/dev/woolimhome/.codex-tmp/emoji-font/scripts/preparation-runtime-package.mjs:153:46)
+      at async dependencyRecords (file:///C:/dev/woolimhome/.codex-tmp/emoji-font/scripts/preparation-runtime-package.mjs:166:41)
+      at async packagePreparationRuntime (file:///C:/dev/woolimhome/.codex-tmp/emoji-font/scripts/preparation-runtime-package.mjs:208:24)
+      at async TestContext.<anonymous> (file:///C:/dev/woolimhome/.codex-tmp/emoji-font/lib/pc-worker/preparation/runtime-package.test.mjs:23:14)
+      at async TestHook.run (node:internal/test_runner/test:1313:7)
+
+test at lib\pc-worker\preparation\runtime-package.test.mjs:95:1
+✖ finished package inspection never excludes unexpected node_modules entries (0.0749ms)
+  Error: PREPARATION_PACKAGE_UNSAFE_FILE
+      at fail (file:///C:/dev/woolimhome/.codex-tmp/emoji-font/scripts/preparation-runtime-package.mjs:69:32)
+      at safeFile (file:///C:/dev/woolimhome/.codex-tmp/emoji-font/scripts/preparation-runtime-package.mjs:103:7)
+      at async visit (file:///C:/dev/woolimhome/.codex-tmp/emoji-font/scripts/preparation-runtime-package.mjs:153:46)
+      at async dependencyRecords (file:///C:/dev/woolimhome/.codex-tmp/emoji-font/scripts/preparation-runtime-package.mjs:166:41)
+      at async packagePreparationRuntime (file:///C:/dev/woolimhome/.codex-tmp/emoji-font/scripts/preparation-runtime-package.mjs:208:24)
+      at async TestContext.<anonymous> (file:///C:/dev/woolimhome/.codex-tmp/emoji-font/lib/pc-worker/preparation/runtime-package.test.mjs:23:14)
+      at async TestHook.run (node:internal/test_runner/test:1313:7)
+
+test at lib\pc-worker\preparation\runtime-package.test.mjs:103:1
+﹣ finished package inspection rejects unexpected node_modules symlinks (0.0759ms) # SKIP
+  Error: PREPARATION_PACKAGE_UNSAFE_FILE
+      at fail (file:///C:/dev/woolimhome/.codex-tmp/emoji-font/scripts/preparation-runtime-package.mjs:69:32)
+      at safeFile (file:///C:/dev/woolimhome/.codex-tmp/emoji-font/scripts/preparation-runtime-package.mjs:103:7)
+      at async visit (file:///C:/dev/woolimhome/.codex-tmp/emoji-font/scripts/preparation-runtime-package.mjs:153:46)
+      at async dependencyRecords (file:///C:/dev/woolimhome/.codex-tmp/emoji-font/scripts/preparation-runtime-package.mjs:166:41)
+      at async packagePreparationRuntime (file:///C:/dev/woolimhome/.codex-tmp/emoji-font/scripts/preparation-runtime-package.mjs:208:24)
+      at async TestContext.<anonymous> (file:///C:/dev/woolimhome/.codex-tmp/emoji-font/lib/pc-worker/preparation/runtime-package.test.mjs:23:14)
+      at async TestHook.run (node:internal/test_runner/test:1313:7)
+
+test at lib\pc-worker\preparation\runtime-package.test.mjs:111:1
+✖ fixed preparation payload includes local editor, title and PowerPoint adapter without secrets or app code (0.223ms)
+  Error: PREPARATION_PACKAGE_UNSAFE_FILE
+      at fail (file:///C:/dev/woolimhome/.codex-tmp/emoji-font/scripts/preparation-runtime-package.mjs:69:32)
+      at safeFile (file:///C:/dev/woolimhome/.codex-tmp/emoji-font/scripts/preparation-runtime-package.mjs:103:7)
+      at async visit (file:///C:/dev/woolimhome/.codex-tmp/emoji-font/scripts/preparation-runtime-package.mjs:153:46)
+      at async dependencyRecords (file:///C:/dev/woolimhome/.codex-tmp/emoji-font/scripts/preparation-runtime-package.mjs:166:41)
+      at async packagePreparationRuntime (file:///C:/dev/woolimhome/.codex-tmp/emoji-font/scripts/preparation-runtime-package.mjs:208:24)
+      at async TestContext.<anonymous> (file:///C:/dev/woolimhome/.codex-tmp/emoji-font/lib/pc-worker/preparation/runtime-package.test.mjs:23:14)
+      at async TestHook.run (node:internal/test_runner/test:1313:7)
+
+test at lib\pc-worker\preparation\runtime-package.test.mjs:126:1
+✖ offline package is reproducible and does not overwrite nonempty destinations (0.1629ms)
+  Error: PREPARATION_PACKAGE_UNSAFE_FILE
+      at fail (file:///C:/dev/woolimhome/.codex-tmp/emoji-font/scripts/preparation-runtime-package.mjs:69:32)
+      at safeFile (file:///C:/dev/woolimhome/.codex-tmp/emoji-font/scripts/preparation-runtime-package.mjs:103:7)
+      at async visit (file:///C:/dev/woolimhome/.codex-tmp/emoji-font/scripts/preparation-runtime-package.mjs:153:46)
+      at async dependencyRecords (file:///C:/dev/woolimhome/.codex-tmp/emoji-font/scripts/preparation-runtime-package.mjs:166:41)
+      at async packagePreparationRuntime (file:///C:/dev/woolimhome/.codex-tmp/emoji-font/scripts/preparation-runtime-package.mjs:208:24)
+      at async TestContext.<anonymous> (file:///C:/dev/woolimhome/.codex-tmp/emoji-font/lib/pc-worker/preparation/runtime-package.test.mjs:23:14)
+      at async TestHook.run (node:internal/test_runner/test:1313:7)
+
+test at lib\pc-worker\preparation\runtime-package.test.mjs:132:1
+✖ immutable package verification requires an external trusted fingerprint and platform match (0.1473ms)
+  Error: PREPARATION_PACKAGE_UNSAFE_FILE
+      at fail (file:///C:/dev/woolimhome/.codex-tmp/emoji-font/scripts/preparation-runtime-package.mjs:69:32)
+      at safeFile (file:///C:/dev/woolimhome/.codex-tmp/emoji-font/scripts/preparation-runtime-package.mjs:103:7)
+      at async visit (file:///C:/dev/woolimhome/.codex-tmp/emoji-font/scripts/preparation-runtime-package.mjs:153:46)
+      at async dependencyRecords (file:///C:/dev/woolimhome/.codex-tmp/emoji-font/scripts/preparation-runtime-package.mjs:166:41)
+      at async packagePreparationRuntime (file:///C:/dev/woolimhome/.codex-tmp/emoji-font/scripts/preparation-runtime-package.mjs:208:24)
+      at async TestContext.<anonymous> (file:///C:/dev/woolimhome/.codex-tmp/emoji-font/lib/pc-worker/preparation/runtime-package.test.mjs:23:14)
+      at async TestHook.run (node:internal/test_runner/test:1313:7)
+
+test at lib\pc-worker\preparation\runtime-package.test.mjs:138:1
+✖ changed source, unexpected env file and altered manifest each fail closed (0.0882ms)
+  Error: PREPARATION_PACKAGE_UNSAFE_FILE
+      at fail (file:///C:/dev/woolimhome/.codex-tmp/emoji-font/scripts/preparation-runtime-package.mjs:69:32)
+      at safeFile (file:///C:/dev/woolimhome/.codex-tmp/emoji-font/scripts/preparation-runtime-package.mjs:103:7)
+      at async visit (file:///C:/dev/woolimhome/.codex-tmp/emoji-font/scripts/preparation-runtime-package.mjs:153:46)
+      at async dependencyRecords (file:///C:/dev/woolimhome/.codex-tmp/emoji-font/scripts/preparation-runtime-package.mjs:166:41)
+      at async packagePreparationRuntime (file:///C:/dev/woolimhome/.codex-tmp/emoji-font/scripts/preparation-runtime-package.mjs:208:24)
+      at async TestContext.<anonymous> (file:///C:/dev/woolimhome/.codex-tmp/emoji-font/lib/pc-worker/preparation/runtime-package.test.mjs:23:14)
+      at async TestHook.run (node:internal/test_runner/test:1313:7)
+
+test at lib\pc-worker\preparation\runtime-package.test.mjs:153:1
+✖ Node policy rejects pre-22.6 and malformed versions (0.0893ms)
+  Error: PREPARATION_PACKAGE_UNSAFE_FILE
+      at fail (file:///C:/dev/woolimhome/.codex-tmp/emoji-font/scripts/preparation-runtime-package.mjs:69:32)
+      at safeFile (file:///C:/dev/woolimhome/.codex-tmp/emoji-font/scripts/preparation-runtime-package.mjs:103:7)
+      at async visit (file:///C:/dev/woolimhome/.codex-tmp/emoji-font/scripts/preparation-runtime-package.mjs:153:46)
+      at async dependencyRecords (file:///C:/dev/woolimhome/.codex-tmp/emoji-font/scripts/preparation-runtime-package.mjs:166:41)
+      at async packagePreparationRuntime (file:///C:/dev/woolimhome/.codex-tmp/emoji-font/scripts/preparation-runtime-package.mjs:208:24)
+      at async TestContext.<anonymous> (file:///C:/dev/woolimhome/.codex-tmp/emoji-font/lib/pc-worker/preparation/runtime-package.test.mjs:23:14)
+      at async TestHook.run (node:internal/test_runner/test:1313:7)
+
+test at lib\pc-worker\preparation\runtime-package.test.mjs:158:1
+✖ launcher only forwards preparation CLI options and strips inherited credentials/preloads (0.0648ms)
+  Error: PREPARATION_PACKAGE_UNSAFE_FILE
+      at fail (file:///C:/dev/woolimhome/.codex-tmp/emoji-font/scripts/preparation-runtime-package.mjs:69:32)
+      at safeFile (file:///C:/dev/woolimhome/.codex-tmp/emoji-font/scripts/preparation-runtime-package.mjs:103:7)
+      at async visit (file:///C:/dev/woolimhome/.codex-tmp/emoji-font/scripts/preparation-runtime-package.mjs:153:46)
+      at async dependencyRecords (file:///C:/dev/woolimhome/.codex-tmp/emoji-font/scripts/preparation-runtime-package.mjs:166:41)
+      at async packagePreparationRuntime (file:///C:/dev/woolimhome/.codex-tmp/emoji-font/scripts/preparation-runtime-package.mjs:208:24)
+      at async TestContext.<anonymous> (file:///C:/dev/woolimhome/.codex-tmp/emoji-font/lib/pc-worker/preparation/runtime-package.test.mjs:23:14)
+      at async TestHook.run (node:internal/test_runner/test:1313:7)
+
+test at lib\pc-worker\preparation\runtime-package.test.mjs:171:1
+✖ packaged --check loads private dependencies offline without starting preparation (0.045ms)
+  Error: PREPARATION_PACKAGE_UNSAFE_FILE
+      at fail (file:///C:/dev/woolimhome/.codex-tmp/emoji-font/scripts/preparation-runtime-package.mjs:69:32)
+      at safeFile (file:///C:/dev/woolimhome/.codex-tmp/emoji-font/scripts/preparation-runtime-package.mjs:103:7)
+      at async visit (file:///C:/dev/woolimhome/.codex-tmp/emoji-font/scripts/preparation-runtime-package.mjs:153:46)
+      at async dependencyRecords (file:///C:/dev/woolimhome/.codex-tmp/emoji-font/scripts/preparation-runtime-package.mjs:166:41)
+      at async packagePreparationRuntime (file:///C:/dev/woolimhome/.codex-tmp/emoji-font/scripts/preparation-runtime-package.mjs:208:24)
+      at async TestContext.<anonymous> (file:///C:/dev/woolimhome/.codex-tmp/emoji-font/lib/pc-worker/preparation/runtime-package.test.mjs:23:14)
+      at async TestHook.run (node:internal/test_runner/test:1313:7)
+
+test at lib\pc-worker\preparation\runtime-package.test.mjs:181:1
+✖ complete packaged import graph resolves with only allowlisted runtime dependencies (0.0377ms)
+  Error: PREPARATION_PACKAGE_UNSAFE_FILE
+      at fail (file:///C:/dev/woolimhome/.codex-tmp/emoji-font/scripts/preparation-runtime-package.mjs:69:32)
+      at safeFile (file:///C:/dev/woolimhome/.codex-tmp/emoji-font/scripts/preparation-runtime-package.mjs:103:7)
+      at async visit (file:///C:/dev/woolimhome/.codex-tmp/emoji-font/scripts/preparation-runtime-package.mjs:153:46)
+      at async dependencyRecords (file:///C:/dev/woolimhome/.codex-tmp/emoji-font/scripts/preparation-runtime-package.mjs:166:41)
+      at async packagePreparationRuntime (file:///C:/dev/woolimhome/.codex-tmp/emoji-font/scripts/preparation-runtime-package.mjs:208:24)
+      at async TestContext.<anonymous> (file:///C:/dev/woolimhome/.codex-tmp/emoji-font/lib/pc-worker/preparation/runtime-package.test.mjs:23:14)
+      at async TestHook.run (node:internal/test_runner/test:1313:7)
+
+test at lib\pc-worker\preparation\runtime-package.test.mjs:188:1
+✖ versioned staging is idempotent, keeps previous versions and never activates a task or pointer (0.0627ms)
+  Error: PREPARATION_PACKAGE_UNSAFE_FILE
+      at fail (file:///C:/dev/woolimhome/.codex-tmp/emoji-font/scripts/preparation-runtime-package.mjs:69:32)
+      at safeFile (file:///C:/dev/woolimhome/.codex-tmp/emoji-font/scripts/preparation-runtime-package.mjs:103:7)
+      at async visit (file:///C:/dev/woolimhome/.codex-tmp/emoji-font/scripts/preparation-runtime-package.mjs:153:46)
+      at async dependencyRecords (file:///C:/dev/woolimhome/.codex-tmp/emoji-font/scripts/preparation-runtime-package.mjs:166:41)
+      at async packagePreparationRuntime (file:///C:/dev/woolimhome/.codex-tmp/emoji-font/scripts/preparation-runtime-package.mjs:208:24)
+      at async TestContext.<anonymous> (file:///C:/dev/woolimhome/.codex-tmp/emoji-font/lib/pc-worker/preparation/runtime-package.test.mjs:23:14)
+      at async TestHook.run (node:internal/test_runner/test:1313:7)
