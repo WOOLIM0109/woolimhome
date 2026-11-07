@@ -1,0 +1,16 @@
+[
+  {
+    "fingerprint": "88cdb899c938d2f2d8362f2b7690e0ddc0092cf93a33c5414ce647cfbaf40eef",
+    "version": "1.0.0",
+    "platform": "win32",
+    "arch": "x64",
+    "note": "2026-09-13 사무실 PC 기존 설치본 (되돌리기 기록)"
+  },
+  {
+    "fingerprint": "0dd37af3825d72c564dfe28846a5282cfeba41b15b624fbf43e47d42425020cd",
+    "version": "1.0.0",
+    "platform": "win32",
+    "arch": "x64",
+    "note": "2026-11-08 PR #224 병합 직후 main에서 만든 현재 사무실 PC 설치본"
+  }
+]
