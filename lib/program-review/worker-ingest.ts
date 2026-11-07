@@ -52,6 +52,19 @@ export const COLLECTOR_TAG = "gonggo-monitor";
 export const RETIRED_REASON = "같은 공고를 새 지문으로 다시 올렸습니다 (수집기 중복 정리)";
 
 /**
+ * 홈페이지가 "내가 못 가져왔다" 고 적어 두는 제외 사유의 머리말
+ * (`lib/openchat/operations.ts`). 수집기가 가져왔으면 이 까닭은 사라집니다.
+ */
+export const INCOMPLETE_REASON = "상세정보 수집 미완료";
+
+/** 마감이 아직 안 지났는가. 마감일을 모르면 '열려 있다' 로 봅니다 (상시 접수). */
+function stillOpen(deadline: unknown, now: Date) {
+  if (deadline === null || deadline === undefined || deadline === "") return true;
+  const at = Date.parse(String(deadline));
+  return Number.isFinite(at) ? at >= now.getTime() : true;
+}
+
+/**
  * 공고 검토 화면이 보여 주는 기간. `agent-api.ts` 의 `since` 와 같습니다.
  * 이보다 오래 전에 만들어진 행은 화면에 아예 안 나옵니다.
  */
@@ -663,6 +676,21 @@ export async function ingestPrograms(
     { id: string; fingerprint: string; retiredByUs: boolean }[]>();
   /** (기관|공고번호) → 이미 있는 행 id. 접는 데는 안 쓰고 **요건을 써 줄 때만** 씁니다. */
   const existingIdByKey = new Map<string, string>();
+  /**
+   * (기관|공고번호) → 홈페이지가 제 수집기로 넣어 둔 행. 수집한 사실만 고칩니다.
+   *
+   * ★ 2026-11-08 에 넣었습니다. 홈페이지 자체 수집은 멈췄지만(크론에서 뺐습니다)
+   *   8~10월에 넣어 둔 행이 그대로 남아 있습니다. 그 행들이 수집기 자료를
+   *   막습니다 — 전에는 **우리가 넣은 행만** 값을 다시 맞췄기 때문입니다.
+   *
+   *   실측: 판판대로 '소담상회 with LOTTE ON' 이 홈페이지 행으로 남아
+   *   마감 2026-09-11 · status excluded · 제외 까닭 '상세정보 수집 미완료:
+   *   신청대상 누락' 이었습니다. 수집기가 마감 2026-11-16 과 신청대상
+   *   '전국 · 소상공인' 을 보냈는데도 덮지 못해, 아직 20일 남은 공고가
+   *   화면에서 제외로 보였습니다.
+   */
+  const serverRowByKey = new Map<string,
+    { id: string; status: string; exclusionReason: string }>();
   const externalIds = [...new Set(payload.programs
     .map((program) => program.external_id).filter((value): value is string => Boolean(value)))];
   if (externalIds.length) {
@@ -676,7 +704,15 @@ export async function ingestPrograms(
       // (실측 2026-11-05: 176건을 올렸는데 115건만 들어가고 61건이 그냥 지나갔습니다).
       // 그 61건은 홈페이지가 **제 돈으로 다시 뽑아야** 했고, 몰아서 뽑다가 깨졌습니다.
       existingIdByKey.set(`${(row as Row).source_id}|${(row as Row).external_id}`, String((row as Row).id));
-      if (!ours(row as Row)) continue;          // 서버가 모은 행은 접지 않습니다
+      if (!ours(row as Row)) {
+        // 서버가 모은 행은 접지 않습니다. 대신 수집한 사실만 고칠 자리로 적어 둡니다.
+        serverRowByKey.set(`${(row as Row).source_id}|${(row as Row).external_id}`, {
+          id: String((row as Row).id),
+          status: String((row as Row).status ?? ""),
+          exclusionReason: String((row as Row).exclusion_reason ?? ""),
+        });
+        continue;
+      }
       const key = `${(row as Row).source_id}|${(row as Row).external_id}`;
       const found = previousByKey.get(key) ?? [];
       found.push({ id: String((row as Row).id), fingerprint: String((row as Row).fingerprint),
@@ -827,6 +863,48 @@ export async function ingestPrograms(
       regions: row.regions, raw_payload: row.raw_payload, updated_at: row.updated_at,
     }).eq("id", id);
     if (refreshError) throw new IngestError(500, "PROGRAM_REFRESH_FAILED", reason(refreshError));
+  }
+
+  // ★ 홈페이지가 제 수집기로 넣어 둔 행도 **수집한 사실만** 고칩니다.
+  //
+  // 마감일 · 신청대상 · 지원내용 · 접수기간 · 지역 · 신청방법은 사이트에 적힌
+  // 사실입니다. 사람이 화면에서 내린 판단이 아닙니다. 수집기가 그걸 들고
+  // 왔으면 틀린 값을 그대로 둘 이유가 없습니다.
+  //
+  // 건드리지 않는 것: `title`·`source_url`·`raw_payload`·`priority`·`draft_for`.
+  //   제목과 원문 주소는 홈페이지가 제 게시판에서 본 그대로 두고, raw_payload 를
+  //   덮으면 그 행이 우리 행으로 바뀌어 다음 실행에서 접히게 됩니다.
+  //
+  // 되살리는 경우: 제외 까닭이 '상세정보 수집 미완료' 일 때만. 그건 홈페이지가
+  //   "내가 못 가져왔다" 고 적어 둔 것이라, 우리가 가져왔으면 까닭이 사라집니다.
+  //   사람이 다른 까닭으로 제외한 행은 그대로 둡니다.
+  for (const [index, program] of payload.programs.entries()) {
+    const server = serverRowByKey.get(`${rows[index].source_id}|${program.external_id}`);
+    if (!server) continue;
+    const row = rows[index];
+    const patch: Row = {
+      org_name: row.org_name,
+      applicant_summary: row.applicant_summary,
+      support_summary: row.support_summary,
+      application_method: row.application_method,
+      application_period_text: row.application_period_text,
+      starts_at: row.starts_at,
+      deadline_at: row.deadline_at,
+      regions: row.regions,
+      updated_at: stamp,
+    };
+    const 미수집으로제외 = server.status === "excluded"
+      && server.exclusionReason.startsWith(INCOMPLETE_REASON);
+    const 되살릴수있나 = 미수집으로제외 && Boolean(row.applicant_summary)
+      && stillOpen(row.deadline_at, now());
+    if (되살릴수있나) {
+      patch.status = "review_required";
+      patch.exclusion_reason = null;
+    }
+    const { error: serverError } = await admin.from("openchat_programs")
+      .update(patch).eq("id", server.id);
+    if (serverError) throw new IngestError(500, "PROGRAM_REFRESH_FAILED", reason(serverError));
+    if (되살릴수있나) result.restored += 1;
   }
 
   for (const [index, program] of payload.programs.entries()) {
