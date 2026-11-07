@@ -31,6 +31,40 @@ function boundedAdmin(clock: () => number, end: number): Admin {
     ]) }) } });
 }
 
+/**
+ * 비워진 요건을 저장해 둔 답에서 되살립니다. 유료 호출이 없습니다.
+ *
+ * 2026-11-05 저녁 17:55~17:57(KST) 사이에 살아 있는 공고 67건의 요건이
+ * 한꺼번에 비워졌습니다. 모두 성공해서 저장까지 끝난 것이었습니다
+ * (diagnostics stage='stored', extracted_at 있음). 같은 원문을 두 번 부르지
+ * 않으려고 둔 가지가 그 행을 'failed' 로 바꾸고 requirements 를 null 로
+ * 비웠습니다. 모델이 준 답은 그대로 남아 있었습니다 — 67건 전부 완전한
+ * JSON 이었고 평균 5,900자였습니다(16k 한도와 무관).
+ *
+ * 그래서 다시 부르지 않고 그 답을 읽어 되살립니다. 다만 **지금 읽은 원문으로
+ * 근거 검증을 다시 통과해야** 합니다. 원문이 그새 바뀌었으면 되살리지 않고
+ * 유료 재시도로 넘깁니다 — 옛 답을 새 원문의 요건이라고 우기면 안 됩니다.
+ *
+ * 복구 기록을 먼저 봅니다. 사람이 나중에 부른 쪽이 더 최신입니다.
+ */
+async function restorableRequirements(
+  admin: Admin, programId: string, input: ReturnType<typeof buildRequirementInput>,
+) {
+  for (const table of ["openchat_program_requirement_recoveries", "openchat_program_requirement_attempts"] as const) {
+    const { data, error } = await admin.from(table).select("response_text,responded_at")
+      .eq("program_id", programId).eq("input_hash", input.inputHash);
+    if (error) throw new Error("저장해 둔 요건 응답 조회 실패");
+    const text = ((data ?? []) as { response_text?: unknown; responded_at?: unknown }[])
+      .filter((row) => typeof row.response_text === "string" && row.response_text.trim())
+      .sort((left, right) => String(right.responded_at ?? "").localeCompare(String(left.responded_at ?? "")))[0]
+      ?.response_text;
+    if (typeof text !== "string") continue;
+    // 근거가 지금 원문과 맞지 않으면 되살리지 않는다. 터뜨리지 않고 유료 재시도로 넘긴다.
+    try { return normalizeRequirements(parseGeminiJson<unknown>(text), input); } catch { continue; }
+  }
+  return null;
+}
+
 /** Independent review work only. The lease also excludes concurrent attachment review work. */
 export async function runRequirementsTask(options: Options = {}) {
   const clock = options.now ?? Date.now;
@@ -44,7 +78,7 @@ export async function runRequirementsTask(options: Options = {}) {
     const max = typeof options.limit === "number" && Number.isFinite(options.limit)
       ? Math.max(1, Math.min(Math.floor(options.limit), 100)) : 100;
     const summary = { date, profiles: 0, queued: 0, scopeProgramCount: options.recoveryProgramId ? 1 : options.programIds?.length ?? 0,
-      considered: 0, extracted: 0, reused: 0, matched: 0,
+      considered: 0, extracted: 0, reused: 0, restored: 0, matched: 0,
       failed: 0, alreadyAttempted: 0, recoveryRefused: 0, budgetSkipped: 0, refreshPending: false, stoppedForTime: false,
       ready: 0, remaining: 0, eligible: 0, withText: 0, waitingAttachments: 0,
       requirementsExtracted: 0, requirementsFailed: 0, pendingInputChars: 0 };
@@ -116,8 +150,25 @@ export async function runRequirementsTask(options: Options = {}) {
       const { data: existing, error: existingError } = await admin.from("openchat_program_requirements")
         .select("input_hash,status,requirements").eq("program_id", program.id).maybeSingle();
       if (existingError) throw new Error("요건 처리 이력 조회 실패");
+      // 요건이 비워진 행은, 다시 부르기 전에 저장해 둔 답으로 되살릴 수 있는지 먼저 본다.
+      const restorable = !options.recoveryProgramId && existing?.status === "failed"
+        && existing.input_hash === input.inputHash
+        ? await restorableRequirements(admin, program.id, input)
+        : null;
       let requirements: Requirements;
-      if (!options.recoveryProgramId && existing?.input_hash === input.inputHash && existing.status === "extracted") {
+      if (restorable) {
+        // 유료 호출이 없다. 모델이 이미 준 답을 그대로 쓴다.
+        const { data: restored, error: restoreError } = await admin.from("openchat_program_requirements").update({
+          ...metadata, status: "extracted", requirements: restorable, error: null,
+          normalization_version: REQUIREMENTS_NORMALIZATION_VERSION,
+          diagnostics: { stage: "restored", code: "REQUIREMENTS_RESTORED_FROM_ARTIFACT" },
+          extracted_at: new Date(clock()).toISOString(), updated_at: new Date(clock()).toISOString(),
+        }).eq("program_id", program.id).eq("input_hash", input.inputHash).eq("status", "failed")
+          .select("program_id").maybeSingle();
+        if (restoreError || !restored) throw new Error("요건 되살리기 저장 실패");
+        requirements = restorable;
+        summary.restored++;
+      } else if (!options.recoveryProgramId && existing?.input_hash === input.inputHash && existing.status === "extracted") {
         requirements = normalizeRequirements(existing.requirements, input);
         const { data: refreshed, error: refreshError } = await admin.from("openchat_program_requirements").update({
           ...metadata, requirements, normalization_version: REQUIREMENTS_NORMALIZATION_VERSION,
