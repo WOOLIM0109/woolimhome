@@ -148,9 +148,25 @@ export type IngestProgram = {
   collector_conditions: Row | null;
 };
 
+/** 게시판 한 곳을 오늘 읽어 봤는지, 됐는지 안 됐는지. */
+export type IngestSourceStatus = {
+  source_key: string;
+  ok: boolean;
+  error: string | null;
+};
+
 export type IngestPayload = {
   collectorVersion: string;
   programs: IngestProgram[];
+  /**
+   * 수집기가 오늘 읽어 본 게시판들의 상태입니다. 없어도 됩니다.
+   *
+   * 공고가 하나도 새로 없는 기관은 programs 에 아무것도 올리지 않습니다.
+   * 그 기관을 '소식 없음' 으로 두면 관리 화면의 `마지막 수집 성공` 이
+   * 영영 멈춰서, 멀쩡히 읽히는 기관이 빨간 글씨로 남습니다. 그래서 읽어
+   * 본 사실 자체를 따로 받습니다.
+   */
+  sources: IngestSourceStatus[];
 };
 
 function object(value: unknown): Row | null {
@@ -374,7 +390,10 @@ function parseProgram(value: unknown, index: number): IngestProgram {
   };
 }
 
-const BODY_KEYS = ["workerId", "workerName", "collectorVersion", "programs"] as const;
+const BODY_KEYS = ["workerId", "workerName", "collectorVersion", "programs", "sources"] as const;
+const SOURCE_KEYS = ["source_key", "ok", "error"] as const;
+/** 한 번에 받는 게시판 상태 수. 수집 대상이 25곳 남짓이라 넉넉합니다. */
+const MAX_SOURCES = 100;
 
 /** 올라온 본문을 검사해 모양을 고정합니다. 틀린 곳이 있으면 어디가 틀렸는지 알려 줍니다. */
 export function parseIngestBody(value: unknown): IngestPayload {
@@ -405,7 +424,26 @@ export function parseIngestBody(value: unknown): IngestPayload {
   }
   if (total > MAX_TOTAL_CHARS) throw new IngestError(413, "PAYLOAD_TOO_LARGE");
 
-  return { collectorVersion, programs };
+  return { collectorVersion, programs, sources: parseSources(row.sources) };
+}
+
+/** 게시판 상태를 검사합니다. 없으면 빈 목록입니다 — 옛 수집기도 그대로 돕니다. */
+function parseSources(value: unknown): IngestSourceStatus[] {
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value)) throw new IngestError(400, "INVALID_FIELD", "body.sources");
+  if (value.length > MAX_SOURCES) throw new IngestError(400, "TOO_MANY_SOURCES");
+  const seen = new Set<string>();
+  return value.map((item, index) => {
+    const where = `body.sources[${index}]`;
+    const row = object(item);
+    if (!row) throw new IngestError(400, "INVALID_FIELD", where);
+    strictKeys(row, SOURCE_KEYS, where);
+    const source_key = text(row, "source_key", where, 60, true) as string;
+    if (seen.has(source_key)) throw new IngestError(400, "DUPLICATE_SOURCE", source_key);
+    seen.add(source_key);
+    if (typeof row.ok !== "boolean") throw new IngestError(400, "INVALID_FIELD", `${where}.ok`);
+    return { source_key, ok: row.ok, error: text(row, "error", where, 300) };
+  });
 }
 
 /**
@@ -542,7 +580,43 @@ export type IngestResult = {
   restored: number;
   attachments: number;
   requirements: number;
+  /** 상태를 갱신한 게시판 수 */
+  sources: number;
 };
+
+/**
+ * 게시판별 수집 상태를 기록합니다. 관리 화면의 `기관별 수집·첨부 현황` 이
+ * 이 칸들을 읽습니다.
+ *
+ * 2026-11-07 에 공고 수집을 홈페이지에서 PC 수집기로 옮겼습니다. 그러면서
+ * 이 칸을 아무도 안 쓰게 되어, 화면의 `마지막 수집 성공` 이 11-06 에 멈추고
+ * 부산테크노파크처럼 PC 에서는 멀쩡히 읽히는 기관이 영영 빨간 글씨로
+ * 남게 됐습니다. 수집기가 읽어 본 사실을 여기에 남깁니다.
+ *
+ * 실패해도 공고 넣기를 막지 않습니다. 이것은 화면에 보여 줄 기록일 뿐이고,
+ * 공고가 들어가는 일이 더 중요합니다.
+ */
+async function recordSourceStatus(admin: IngestDependencies["admin"], sources: IngestSourceStatus[], stamp: string) {
+  if (!sources.length) return 0;
+  const { data, error } = await admin.from("openchat_sources")
+    .select("id,source_key").in("source_key", sources.map((row) => row.source_key));
+  if (error) return 0;
+  const idByKey = new Map((data ?? []).map((row: Row) => [String(row.source_key), String(row.id)]));
+  let 적음 = 0;
+  for (const source of sources) {
+    const id = idByKey.get(source.source_key);
+    if (!id) continue;
+    const { error: writeError } = await admin.from("openchat_sources").update({
+      last_checked_at: stamp,
+      ...(source.ok ? { last_succeeded_at: stamp } : {}),
+      last_status: source.ok ? "success" : "failed",
+      last_error: source.ok ? null : source.error,
+      updated_at: stamp,
+    }).eq("id", id);
+    if (!writeError) 적음 += 1;
+  }
+  return 적음;
+}
 
 /**
  * 받은 공고를 넣습니다.
@@ -557,8 +631,9 @@ export async function ingestPrograms(
   const stamp = now().toISOString();
   const result: IngestResult = {
     received: payload.programs.length, inserted: 0, resumed: 0,
-    skipped_existing: 0, retired: 0, restored: 0, attachments: 0, requirements: 0,
+    skipped_existing: 0, retired: 0, restored: 0, attachments: 0, requirements: 0, sources: 0,
   };
+  result.sources = await recordSourceStatus(admin, payload.sources, stamp);
 
   const sourceKeys = [...new Set(payload.programs.map((program) => program.source_key))];
   const { data: sourceRows, error: sourceError } = await admin.from("openchat_sources")
