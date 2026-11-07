@@ -86,6 +86,10 @@ begin
   return recovery_id;
 end;
 $$;
+-- 새로 만든 함수라 기본값이 '누구나 실행' 이다. 이 저장소의 다른 요건 함수와
+-- 같게 서비스 역할만 부른다. create or replace 로 고친 함수들은 권한이 그대로 남는다.
+revoke all on function public.claim_openchat_requirement_auto_retry(uuid,text) from public,anon,authenticated;
+grant execute on function public.claim_openchat_requirement_auto_retry(uuid,text) to service_role;
 
 -- 줄 세우기. 실패한 공고 중 **자동 재시도를 아직 안 쓴 것**을 뒤에 붙인다.
 -- 저장된 r.input_hash 로 따진다. 원문이 바뀐 공고는 맨 앞의 source_checked_at
