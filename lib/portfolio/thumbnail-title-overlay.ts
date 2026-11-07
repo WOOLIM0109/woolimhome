@@ -7,7 +7,7 @@ import sharp, { type OverlayOptions } from "sharp";
 export const THUMBNAIL_TITLE_OVERLAY_VERSION = "thumbnail-title-overlay-v1" as const;
 export const THUMBNAIL_TITLE_MAX_MAIN_CHARACTERS = 40;
 export const THUMBNAIL_TITLE_MAX_SUB_CHARACTERS = 60;
-export type ThumbnailTitleAspectClass = "16:9" | "a4_landscape" | "a4_portrait";
+export type ThumbnailTitleAspectClass = "16:9" | "a4_landscape" | "a4_portrait" | "4:3_portrait";
 export type ThumbnailTitleSpec = Readonly<{
   main: string;
   sub: string;
@@ -89,7 +89,7 @@ export function normalizeThumbnailTitleSpec(value: unknown): ThumbnailTitleSpec 
 }
 
 function assertAspectClass(aspectClass: unknown): asserts aspectClass is ThumbnailTitleAspectClass {
-  if (!["16:9", "a4_landscape", "a4_portrait"].includes(String(aspectClass))) {
+  if (!["16:9", "a4_landscape", "a4_portrait", "4:3_portrait"].includes(String(aspectClass))) {
     failure("MOCKUP_TITLE_ASPECT_UNSUPPORTED", "제목 편집을 지원하지 않는 목업 규격입니다.");
   }
 }
@@ -211,7 +211,7 @@ function fitsAboveSlides(line: Box, aspect: ThumbnailTitleAspectClass) {
   if (line.left < TITLE_REGION.left || line.top < TITLE_REGION.top
     || right > TITLE_REGION.left + TITLE_REGION.width
     || bottom > TITLE_REGION.top + TITLE_REGION.height) return false;
-  if (aspect === "a4_portrait") return bottom <= 126;
+  if (aspect === "a4_portrait" || aspect === "4:3_portrait") return bottom <= 126;
   const rail = aspect === "16:9" ? { x: -150, y: 190, angle: -9 }
     : { x: -160, y: 215, angle: -8 };
   const railY = rail.y + (right - rail.x) * Math.tan(rail.angle * Math.PI / 180);

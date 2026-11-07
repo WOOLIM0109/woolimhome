@@ -938,7 +938,7 @@ export async function createPortfolioMockups(input: {
   ];
 
   if (plan.mode === "short" && !aspect.primary) {
-    throw new Error("PPT 규격을 16:9, 4:3, A4 가로, A4 세로 중 하나로 판별하지 못했습니다.");
+    throw new Error("PPT 규격을 16:9, 4:3, 세로 4:3, A4 가로, A4 세로 중 하나로 판별하지 못했습니다.");
   }
   const coverTitle = privacySafeThumbnailTitle(input.review, input.coverTitle);
   const renderShortBodies = async (forceLegacyLayout = false) => {

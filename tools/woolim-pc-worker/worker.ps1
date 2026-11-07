@@ -6,7 +6,7 @@
 )
 
 $ErrorActionPreference = "Stop"
-$WorkerVersion = "2.10.3"
+$WorkerVersion = "2.11.0"
 
 # The console window cannot be hidden reliably: PowerPoint COM needs the
 # interactive session. So the window will be seen, and an unlabeled PowerShell
@@ -819,6 +819,7 @@ function Test-SupportedPageRatio {
   $targets = @(
     (16.0 / 9.0),
     (4.0 / 3.0),
+    (3.0 / 4.0),
     (297.0 / 210.0),
     (210.0 / 297.0)
   )
@@ -838,7 +839,7 @@ function Assert-SupportedPageImage {
   try {
     $aspectRatio = [double]$image.Width / [double]$image.Height
     if (-not (Test-SupportedPageRatio -AspectRatio $aspectRatio)) {
-      throw "NON_PRESENTATION_LAYOUT: Page ratio $([Math]::Round($aspectRatio, 3)) is not 16:9, 4:3, A4 landscape, or A4 portrait."
+      throw "NON_PRESENTATION_LAYOUT: Page ratio $([Math]::Round($aspectRatio, 3)) is not 16:9, 4:3, 4:3 portrait, A4 landscape, or A4 portrait."
     }
   } finally {
     $image.Dispose()
@@ -2072,7 +2073,7 @@ function Convert-Document {
       $slideHeight = [double]$presentation.PageSetup.SlideHeight
       $aspectRatio = $slideWidth / $slideHeight
       if (-not (Test-SupportedPageRatio -AspectRatio $aspectRatio)) {
-        throw "NON_PRESENTATION_LAYOUT: Slide ratio $([Math]::Round($aspectRatio, 3)) is not 16:9, 4:3, A4 landscape, or A4 portrait."
+        throw "NON_PRESENTATION_LAYOUT: Slide ratio $([Math]::Round($aspectRatio, 3)) is not 16:9, 4:3, 4:3 portrait, A4 landscape, or A4 portrait."
       }
       if ([int]$presentation.Slides.Count -lt 5) {
         throw "NON_PRESENTATION_LAYOUT: A portfolio presentation must contain at least 5 slides."
