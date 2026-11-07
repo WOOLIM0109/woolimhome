@@ -14,7 +14,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.redirect(new URL("/admin/sources?works=invalid_state", request.url));
   }
   try {
-    await exchangeAuthorizationCode(code, user.email || "");
+    await exchangeAuthorizationCode(code, user.email || "", request);
     const response = NextResponse.redirect(new URL("/admin/sources?works=connected", request.url));
     response.cookies.delete("naver_works_oauth_state");
     return response;

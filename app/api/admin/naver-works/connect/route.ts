@@ -1,16 +1,16 @@
 import { randomBytes } from "node:crypto";
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { authenticatedAdmin } from "@/lib/content-ops/data";
 import { authorizationUrl } from "@/lib/naver-works/client";
 
 export const runtime = "nodejs";
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   const user = await authenticatedAdmin();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   try {
     const state = randomBytes(32).toString("base64url");
-    const response = NextResponse.redirect(authorizationUrl(state));
+    const response = NextResponse.redirect(authorizationUrl(state, request));
     response.cookies.set("naver_works_oauth_state", state, {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",

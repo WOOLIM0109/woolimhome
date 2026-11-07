@@ -1,0 +1,332 @@
+NAVER WORKS OAuth 리디렉션 / 토큰 응답 검증 결과
+실행일: 2026-11-07
+작업 브랜치: fix/works-oauth-redirect-host-20261107
+
+관련 검사: node --test lib/naver-works/token-refresh.test.mjs
+결과: 22개 통과, 0개 실패.
+
+전체 검사: npm run verify
+종료 코드: 1
+npm run typecheck: 통과
+npm run lint: 통과
+병렬 테스트: 1853개 중 통과 1828 / 실패 20 / 건너뜀 5
+PowerPoint 직렬 테스트: 57개 중 통과 56 / 실패 0 / 건너뜀 1
+합계: 1910개 중 통과 1884 / 실패 20 / 건너뜀 6
+
+실패 요약:
+- lib/pc-worker/preparation/production-bridge.test.mjs: 9개 실패. 작업 폴더 밖 임시 폴더 생성 시 EPERM.
+- lib/pc-worker/preparation/runtime-package.test.mjs: 11개 실패. 준비 단계에서 PREPARATION_PACKAGE_UNSAFE_FILE.
+위 두 파일은 이번 작업에서 수정하지 않았다.
+
+건너뛴 검사 원문:
+﹣ dependency collection excludes npm bin links before recursion but includes locked nested semver (266.9699ms) # SKIP
+﹣ dependency payload rejects internal external and broken symlinks (1.8963ms) # SKIP
+﹣ dependency roots and excluded node_modules must be real directories (0.1007ms) # SKIP
+﹣ dependency payload rejects special files before reading them (0.7732ms) # SKIP
+﹣ finished package inspection rejects unexpected node_modules symlinks (0.0754ms) # SKIP
+﹣ injected export, Quit, timeout and checkpoint failures leave no converter-owned POWERPNT process (777.1847ms) # An existing PowerPoint instance belongs to the user.
+
+실패한 검사 이름과 오류 원문 (실행 출력에서 그대로 추출):
+✖ failing tests:
+
+test at lib\pc-worker\preparation\production-bridge.test.mjs:288:1
+✖ explicit preparation review applies into a fresh generation and swaps editor only after verified success (1.9333ms)
+  Error: EPERM: operation not permitted, mkdtemp 'C:\Users\becky\AppData\Local\b-XXXXXX'
+      at async mkdtemp (node:internal/fs/promises:1194:10)
+      at async preparationBridgeFixture (file:///C:/dev/woolimhome/.codex-tmp/works-redirect/lib/pc-worker/preparation/production-bridge.test.mjs:237:21)
+      at async TestContext.<anonymous> (file:///C:/dev/woolimhome/.codex-tmp/works-redirect/lib/pc-worker/preparation/production-bridge.test.mjs:289:13)
+      at async Test.run (node:internal/test_runner/test:1313:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:897:7) {
+    errno: -4048,
+    code: 'EPERM',
+    syscall: 'mkdtemp',
+    path: 'C:\\Users\\becky\\AppData\\Local\\b-XXXXXX'
+  }
+
+test at lib\pc-worker\preparation\production-bridge.test.mjs:309:1
+✖ manual preparation selection reaches only the fresh generation and empty selection keeps automatic defaults (6.1819ms)
+  Error: EPERM: operation not permitted, mkdtemp 'C:\Users\becky\AppData\Local\b-XXXXXX'
+      at async mkdtemp (node:internal/fs/promises:1194:10)
+      at async preparationBridgeFixture (file:///C:/dev/woolimhome/.codex-tmp/works-redirect/lib/pc-worker/preparation/production-bridge.test.mjs:237:21)
+      at async TestContext.<anonymous> (file:///C:/dev/woolimhome/.codex-tmp/works-redirect/lib/pc-worker/preparation/production-bridge.test.mjs:311:15)
+      at async Test.run (node:internal/test_runner/test:1313:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:897:7) {
+    errno: -4048,
+    code: 'EPERM',
+    syscall: 'mkdtemp',
+    path: 'C:\\Users\\becky\\AppData\\Local\\b-XXXXXX'
+  }
+
+test at lib\pc-worker\preparation\production-bridge.test.mjs:323:1
+✖ failed preparation, stale old evidence or failed review URL publication preserves original record/editor/artifacts (2.3407ms)
+  Error: EPERM: operation not permitted, mkdtemp 'C:\Users\becky\AppData\Local\b-XXXXXX'
+      at async mkdtemp (node:internal/fs/promises:1194:10)
+      at async preparationBridgeFixture (file:///C:/dev/woolimhome/.codex-tmp/works-redirect/lib/pc-worker/preparation/production-bridge.test.mjs:237:21)
+      at async TestContext.<anonymous> (file:///C:/dev/woolimhome/.codex-tmp/works-redirect/lib/pc-worker/preparation/production-bridge.test.mjs:327:15)
+      at async Test.run (node:internal/test_runner/test:1313:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:897:7) {
+    errno: -4048,
+    code: 'EPERM',
+    syscall: 'mkdtemp',
+    path: 'C:\\Users\\becky\\AppData\\Local\\b-XXXXXX'
+  }
+
+test at lib\pc-worker\preparation\production-bridge.test.mjs:339:1
+✖ restarted daemon resumes the accepted generation without reconversion and rejects arbitrary work directory (1.0498ms)
+  Error: EPERM: operation not permitted, mkdtemp 'C:\Users\becky\AppData\Local\b-XXXXXX'
+      at async mkdtemp (node:internal/fs/promises:1194:10)
+      at async preparationBridgeFixture (file:///C:/dev/woolimhome/.codex-tmp/works-redirect/lib/pc-worker/preparation/production-bridge.test.mjs:237:21)
+      at async TestContext.<anonymous> (file:///C:/dev/woolimhome/.codex-tmp/works-redirect/lib/pc-worker/preparation/production-bridge.test.mjs:340:13)
+      at async Test.run (node:internal/test_runner/test:1313:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:897:7) {
+    errno: -4048,
+    code: 'EPERM',
+    syscall: 'mkdtemp',
+    path: 'C:\\Users\\becky\\AppData\\Local\\b-XXXXXX'
+  }
+
+test at lib\pc-worker\preparation\production-bridge.test.mjs:354:1
+✖ preparation actions serialize and uploading sessions cannot change selection or source format (1.3179ms)
+  Error: EPERM: operation not permitted, mkdtemp 'C:\Users\becky\AppData\Local\b-XXXXXX'
+      at async mkdtemp (node:internal/fs/promises:1194:10)
+      at async preparationBridgeFixture (file:///C:/dev/woolimhome/.codex-tmp/works-redirect/lib/pc-worker/preparation/production-bridge.test.mjs:237:21)
+      at async TestContext.<anonymous> (file:///C:/dev/woolimhome/.codex-tmp/works-redirect/lib/pc-worker/preparation/production-bridge.test.mjs:356:13)
+      at async Test.run (node:internal/test_runner/test:1313:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:897:7) {
+    errno: -4048,
+    code: 'EPERM',
+    syscall: 'mkdtemp',
+    path: 'C:\\Users\\becky\\AppData\\Local\\b-XXXXXX'
+  }
+
+test at lib\pc-worker\preparation\production-bridge.test.mjs:367:1
+✖ explicit reopen rotates only launch token with no preparation, source download or record mutation (0.9825ms)
+  Error: EPERM: operation not permitted, mkdtemp 'C:\Users\becky\AppData\Local\b-XXXXXX'
+      at async mkdtemp (node:internal/fs/promises:1194:10)
+      at async preparationBridgeFixture (file:///C:/dev/woolimhome/.codex-tmp/works-redirect/lib/pc-worker/preparation/production-bridge.test.mjs:237:21)
+      at async TestContext.<anonymous> (file:///C:/dev/woolimhome/.codex-tmp/works-redirect/lib/pc-worker/preparation/production-bridge.test.mjs:368:13)
+      at async Test.run (node:internal/test_runner/test:1313:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:897:7) {
+    errno: -4048,
+    code: 'EPERM',
+    syscall: 'mkdtemp',
+    path: 'C:\\Users\\becky\\AppData\\Local\\b-XXXXXX'
+  }
+
+test at lib\pc-worker\preparation\production-bridge.test.mjs:379:1
+✖ missing local token-rotation feature fails safely without conversion or requeue (1.169ms)
+  Error: EPERM: operation not permitted, mkdtemp 'C:\Users\becky\AppData\Local\b-XXXXXX'
+      at async mkdtemp (node:internal/fs/promises:1194:10)
+      at async preparationBridgeFixture (file:///C:/dev/woolimhome/.codex-tmp/works-redirect/lib/pc-worker/preparation/production-bridge.test.mjs:237:21)
+      at async TestContext.<anonymous> (file:///C:/dev/woolimhome/.codex-tmp/works-redirect/lib/pc-worker/preparation/production-bridge.test.mjs:380:13)
+      at async Test.run (node:internal/test_runner/test:1313:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:897:7) {
+    errno: -4048,
+    code: 'EPERM',
+    syscall: 'mkdtemp',
+    path: 'C:\\Users\\becky\\AppData\\Local\\b-XXXXXX'
+  }
+
+test at lib\pc-worker\preparation\production-bridge.test.mjs:388:1
+✖ verified snapshot upload holds exclusive preparation lock through record commit (1.9078ms)
+  Error: EPERM: operation not permitted, mkdtemp 'C:\Users\becky\AppData\Local\b-XXXXXX'
+      at async mkdtemp (node:internal/fs/promises:1194:10)
+      at async preparationBridgeFixture (file:///C:/dev/woolimhome/.codex-tmp/works-redirect/lib/pc-worker/preparation/production-bridge.test.mjs:237:21)
+      at async TestContext.<anonymous> (file:///C:/dev/woolimhome/.codex-tmp/works-redirect/lib/pc-worker/preparation/production-bridge.test.mjs:392:13)
+      at async Test.run (node:internal/test_runner/test:1313:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:897:7) {
+    errno: -4048,
+    code: 'EPERM',
+    syscall: 'mkdtemp',
+    path: 'C:\\Users\\becky\\AppData\\Local\\b-XXXXXX'
+  }
+
+test at lib\pc-worker\preparation\production-bridge.test.mjs:409:1
+✖ failed snapshot upload releases preparation lock and preserves review record (1.3007ms)
+  Error: EPERM: operation not permitted, mkdtemp 'C:\Users\becky\AppData\Local\b-XXXXXX'
+      at async mkdtemp (node:internal/fs/promises:1194:10)
+      at async preparationBridgeFixture (file:///C:/dev/woolimhome/.codex-tmp/works-redirect/lib/pc-worker/preparation/production-bridge.test.mjs:237:21)
+      at async TestContext.<anonymous> (file:///C:/dev/woolimhome/.codex-tmp/works-redirect/lib/pc-worker/preparation/production-bridge.test.mjs:411:13)
+      at async Test.run (node:internal/test_runner/test:1313:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:897:7) {
+    errno: -4048,
+    code: 'EPERM',
+    syscall: 'mkdtemp',
+    path: 'C:\\Users\\becky\\AppData\\Local\\b-XXXXXX'
+  }
+
+test at lib\pc-worker\preparation\runtime-package.test.mjs:39:1
+﹣ dependency collection excludes npm bin links before recursion but includes locked nested semver (266.9699ms) # SKIP
+  Error: PREPARATION_PACKAGE_UNSAFE_FILE
+      at fail (file:///C:/dev/woolimhome/.codex-tmp/works-redirect/scripts/preparation-runtime-package.mjs:69:32)
+      at safeFile (file:///C:/dev/woolimhome/.codex-tmp/works-redirect/scripts/preparation-runtime-package.mjs:103:7)
+      at async visit (file:///C:/dev/woolimhome/.codex-tmp/works-redirect/scripts/preparation-runtime-package.mjs:153:46)
+      at async dependencyRecords (file:///C:/dev/woolimhome/.codex-tmp/works-redirect/scripts/preparation-runtime-package.mjs:166:41)
+      at async packagePreparationRuntime (file:///C:/dev/woolimhome/.codex-tmp/works-redirect/scripts/preparation-runtime-package.mjs:208:24)
+      at async TestContext.<anonymous> (file:///C:/dev/woolimhome/.codex-tmp/works-redirect/lib/pc-worker/preparation/runtime-package.test.mjs:23:14)
+      at async TestHook.run (node:internal/test_runner/test:1313:7)
+
+test at lib\pc-worker\preparation\runtime-package.test.mjs:50:1
+﹣ dependency payload rejects internal external and broken symlinks (1.8963ms) # SKIP
+  Error: PREPARATION_PACKAGE_UNSAFE_FILE
+      at fail (file:///C:/dev/woolimhome/.codex-tmp/works-redirect/scripts/preparation-runtime-package.mjs:69:32)
+      at safeFile (file:///C:/dev/woolimhome/.codex-tmp/works-redirect/scripts/preparation-runtime-package.mjs:103:7)
+      at async visit (file:///C:/dev/woolimhome/.codex-tmp/works-redirect/scripts/preparation-runtime-package.mjs:153:46)
+      at async dependencyRecords (file:///C:/dev/woolimhome/.codex-tmp/works-redirect/scripts/preparation-runtime-package.mjs:166:41)
+      at async packagePreparationRuntime (file:///C:/dev/woolimhome/.codex-tmp/works-redirect/scripts/preparation-runtime-package.mjs:208:24)
+      at async TestContext.<anonymous> (file:///C:/dev/woolimhome/.codex-tmp/works-redirect/lib/pc-worker/preparation/runtime-package.test.mjs:23:14)
+      at async TestHook.run (node:internal/test_runner/test:1313:7)
+
+test at lib\pc-worker\preparation\runtime-package.test.mjs:62:1
+﹣ dependency roots and excluded node_modules must be real directories (0.1007ms) # SKIP
+  Error: PREPARATION_PACKAGE_UNSAFE_FILE
+      at fail (file:///C:/dev/woolimhome/.codex-tmp/works-redirect/scripts/preparation-runtime-package.mjs:69:32)
+      at safeFile (file:///C:/dev/woolimhome/.codex-tmp/works-redirect/scripts/preparation-runtime-package.mjs:103:7)
+      at async visit (file:///C:/dev/woolimhome/.codex-tmp/works-redirect/scripts/preparation-runtime-package.mjs:153:46)
+      at async dependencyRecords (file:///C:/dev/woolimhome/.codex-tmp/works-redirect/scripts/preparation-runtime-package.mjs:166:41)
+      at async packagePreparationRuntime (file:///C:/dev/woolimhome/.codex-tmp/works-redirect/scripts/preparation-runtime-package.mjs:208:24)
+      at async TestContext.<anonymous> (file:///C:/dev/woolimhome/.codex-tmp/works-redirect/lib/pc-worker/preparation/runtime-package.test.mjs:23:14)
+      at async TestHook.run (node:internal/test_runner/test:1313:7)
+
+test at lib\pc-worker\preparation\runtime-package.test.mjs:79:1
+✖ dependency payload still rejects hard links and environment files (0.9558ms)
+  Error: PREPARATION_PACKAGE_UNSAFE_FILE
+      at fail (file:///C:/dev/woolimhome/.codex-tmp/works-redirect/scripts/preparation-runtime-package.mjs:69:32)
+      at safeFile (file:///C:/dev/woolimhome/.codex-tmp/works-redirect/scripts/preparation-runtime-package.mjs:103:7)
+      at async visit (file:///C:/dev/woolimhome/.codex-tmp/works-redirect/scripts/preparation-runtime-package.mjs:153:46)
+      at async dependencyRecords (file:///C:/dev/woolimhome/.codex-tmp/works-redirect/scripts/preparation-runtime-package.mjs:166:41)
+      at async packagePreparationRuntime (file:///C:/dev/woolimhome/.codex-tmp/works-redirect/scripts/preparation-runtime-package.mjs:208:24)
+      at async TestContext.<anonymous> (file:///C:/dev/woolimhome/.codex-tmp/works-redirect/lib/pc-worker/preparation/runtime-package.test.mjs:23:14)
+      at async TestHook.run (node:internal/test_runner/test:1313:7)
+
+test at lib\pc-worker\preparation\runtime-package.test.mjs:89:1
+﹣ dependency payload rejects special files before reading them (0.7732ms) # SKIP
+  Error: PREPARATION_PACKAGE_UNSAFE_FILE
+      at fail (file:///C:/dev/woolimhome/.codex-tmp/works-redirect/scripts/preparation-runtime-package.mjs:69:32)
+      at safeFile (file:///C:/dev/woolimhome/.codex-tmp/works-redirect/scripts/preparation-runtime-package.mjs:103:7)
+      at async visit (file:///C:/dev/woolimhome/.codex-tmp/works-redirect/scripts/preparation-runtime-package.mjs:153:46)
+      at async dependencyRecords (file:///C:/dev/woolimhome/.codex-tmp/works-redirect/scripts/preparation-runtime-package.mjs:166:41)
+      at async packagePreparationRuntime (file:///C:/dev/woolimhome/.codex-tmp/works-redirect/scripts/preparation-runtime-package.mjs:208:24)
+      at async TestContext.<anonymous> (file:///C:/dev/woolimhome/.codex-tmp/works-redirect/lib/pc-worker/preparation/runtime-package.test.mjs:23:14)
+      at async TestHook.run (node:internal/test_runner/test:1313:7)
+
+test at lib\pc-worker\preparation\runtime-package.test.mjs:95:1
+✖ finished package inspection never excludes unexpected node_modules entries (0.0907ms)
+  Error: PREPARATION_PACKAGE_UNSAFE_FILE
+      at fail (file:///C:/dev/woolimhome/.codex-tmp/works-redirect/scripts/preparation-runtime-package.mjs:69:32)
+      at safeFile (file:///C:/dev/woolimhome/.codex-tmp/works-redirect/scripts/preparation-runtime-package.mjs:103:7)
+      at async visit (file:///C:/dev/woolimhome/.codex-tmp/works-redirect/scripts/preparation-runtime-package.mjs:153:46)
+      at async dependencyRecords (file:///C:/dev/woolimhome/.codex-tmp/works-redirect/scripts/preparation-runtime-package.mjs:166:41)
+      at async packagePreparationRuntime (file:///C:/dev/woolimhome/.codex-tmp/works-redirect/scripts/preparation-runtime-package.mjs:208:24)
+      at async TestContext.<anonymous> (file:///C:/dev/woolimhome/.codex-tmp/works-redirect/lib/pc-worker/preparation/runtime-package.test.mjs:23:14)
+      at async TestHook.run (node:internal/test_runner/test:1313:7)
+
+test at lib\pc-worker\preparation\runtime-package.test.mjs:103:1
+﹣ finished package inspection rejects unexpected node_modules symlinks (0.0754ms) # SKIP
+  Error: PREPARATION_PACKAGE_UNSAFE_FILE
+      at fail (file:///C:/dev/woolimhome/.codex-tmp/works-redirect/scripts/preparation-runtime-package.mjs:69:32)
+      at safeFile (file:///C:/dev/woolimhome/.codex-tmp/works-redirect/scripts/preparation-runtime-package.mjs:103:7)
+      at async visit (file:///C:/dev/woolimhome/.codex-tmp/works-redirect/scripts/preparation-runtime-package.mjs:153:46)
+      at async dependencyRecords (file:///C:/dev/woolimhome/.codex-tmp/works-redirect/scripts/preparation-runtime-package.mjs:166:41)
+      at async packagePreparationRuntime (file:///C:/dev/woolimhome/.codex-tmp/works-redirect/scripts/preparation-runtime-package.mjs:208:24)
+      at async TestContext.<anonymous> (file:///C:/dev/woolimhome/.codex-tmp/works-redirect/lib/pc-worker/preparation/runtime-package.test.mjs:23:14)
+      at async TestHook.run (node:internal/test_runner/test:1313:7)
+
+test at lib\pc-worker\preparation\runtime-package.test.mjs:111:1
+✖ fixed preparation payload includes local editor, title and PowerPoint adapter without secrets or app code (0.1992ms)
+  Error: PREPARATION_PACKAGE_UNSAFE_FILE
+      at fail (file:///C:/dev/woolimhome/.codex-tmp/works-redirect/scripts/preparation-runtime-package.mjs:69:32)
+      at safeFile (file:///C:/dev/woolimhome/.codex-tmp/works-redirect/scripts/preparation-runtime-package.mjs:103:7)
+      at async visit (file:///C:/dev/woolimhome/.codex-tmp/works-redirect/scripts/preparation-runtime-package.mjs:153:46)
+      at async dependencyRecords (file:///C:/dev/woolimhome/.codex-tmp/works-redirect/scripts/preparation-runtime-package.mjs:166:41)
+      at async packagePreparationRuntime (file:///C:/dev/woolimhome/.codex-tmp/works-redirect/scripts/preparation-runtime-package.mjs:208:24)
+      at async TestContext.<anonymous> (file:///C:/dev/woolimhome/.codex-tmp/works-redirect/lib/pc-worker/preparation/runtime-package.test.mjs:23:14)
+      at async TestHook.run (node:internal/test_runner/test:1313:7)
+
+test at lib\pc-worker\preparation\runtime-package.test.mjs:126:1
+✖ offline package is reproducible and does not overwrite nonempty destinations (1.3294ms)
+  Error: PREPARATION_PACKAGE_UNSAFE_FILE
+      at fail (file:///C:/dev/woolimhome/.codex-tmp/works-redirect/scripts/preparation-runtime-package.mjs:69:32)
+      at safeFile (file:///C:/dev/woolimhome/.codex-tmp/works-redirect/scripts/preparation-runtime-package.mjs:103:7)
+      at async visit (file:///C:/dev/woolimhome/.codex-tmp/works-redirect/scripts/preparation-runtime-package.mjs:153:46)
+      at async dependencyRecords (file:///C:/dev/woolimhome/.codex-tmp/works-redirect/scripts/preparation-runtime-package.mjs:166:41)
+      at async packagePreparationRuntime (file:///C:/dev/woolimhome/.codex-tmp/works-redirect/scripts/preparation-runtime-package.mjs:208:24)
+      at async TestContext.<anonymous> (file:///C:/dev/woolimhome/.codex-tmp/works-redirect/lib/pc-worker/preparation/runtime-package.test.mjs:23:14)
+      at async TestHook.run (node:internal/test_runner/test:1313:7)
+
+test at lib\pc-worker\preparation\runtime-package.test.mjs:132:1
+✖ immutable package verification requires an external trusted fingerprint and platform match (1.0584ms)
+  Error: PREPARATION_PACKAGE_UNSAFE_FILE
+      at fail (file:///C:/dev/woolimhome/.codex-tmp/works-redirect/scripts/preparation-runtime-package.mjs:69:32)
+      at safeFile (file:///C:/dev/woolimhome/.codex-tmp/works-redirect/scripts/preparation-runtime-package.mjs:103:7)
+      at async visit (file:///C:/dev/woolimhome/.codex-tmp/works-redirect/scripts/preparation-runtime-package.mjs:153:46)
+      at async dependencyRecords (file:///C:/dev/woolimhome/.codex-tmp/works-redirect/scripts/preparation-runtime-package.mjs:166:41)
+      at async packagePreparationRuntime (file:///C:/dev/woolimhome/.codex-tmp/works-redirect/scripts/preparation-runtime-package.mjs:208:24)
+      at async TestContext.<anonymous> (file:///C:/dev/woolimhome/.codex-tmp/works-redirect/lib/pc-worker/preparation/runtime-package.test.mjs:23:14)
+      at async TestHook.run (node:internal/test_runner/test:1313:7)
+
+test at lib\pc-worker\preparation\runtime-package.test.mjs:138:1
+✖ changed source, unexpected env file and altered manifest each fail closed (0.5944ms)
+  Error: PREPARATION_PACKAGE_UNSAFE_FILE
+      at fail (file:///C:/dev/woolimhome/.codex-tmp/works-redirect/scripts/preparation-runtime-package.mjs:69:32)
+      at safeFile (file:///C:/dev/woolimhome/.codex-tmp/works-redirect/scripts/preparation-runtime-package.mjs:103:7)
+      at async visit (file:///C:/dev/woolimhome/.codex-tmp/works-redirect/scripts/preparation-runtime-package.mjs:153:46)
+      at async dependencyRecords (file:///C:/dev/woolimhome/.codex-tmp/works-redirect/scripts/preparation-runtime-package.mjs:166:41)
+      at async packagePreparationRuntime (file:///C:/dev/woolimhome/.codex-tmp/works-redirect/scripts/preparation-runtime-package.mjs:208:24)
+      at async TestContext.<anonymous> (file:///C:/dev/woolimhome/.codex-tmp/works-redirect/lib/pc-worker/preparation/runtime-package.test.mjs:23:14)
+      at async TestHook.run (node:internal/test_runner/test:1313:7)
+
+test at lib\pc-worker\preparation\runtime-package.test.mjs:153:1
+✖ Node policy rejects pre-22.6 and malformed versions (0.2473ms)
+  Error: PREPARATION_PACKAGE_UNSAFE_FILE
+      at fail (file:///C:/dev/woolimhome/.codex-tmp/works-redirect/scripts/preparation-runtime-package.mjs:69:32)
+      at safeFile (file:///C:/dev/woolimhome/.codex-tmp/works-redirect/scripts/preparation-runtime-package.mjs:103:7)
+      at async visit (file:///C:/dev/woolimhome/.codex-tmp/works-redirect/scripts/preparation-runtime-package.mjs:153:46)
+      at async dependencyRecords (file:///C:/dev/woolimhome/.codex-tmp/works-redirect/scripts/preparation-runtime-package.mjs:166:41)
+      at async packagePreparationRuntime (file:///C:/dev/woolimhome/.codex-tmp/works-redirect/scripts/preparation-runtime-package.mjs:208:24)
+      at async TestContext.<anonymous> (file:///C:/dev/woolimhome/.codex-tmp/works-redirect/lib/pc-worker/preparation/runtime-package.test.mjs:23:14)
+      at async TestHook.run (node:internal/test_runner/test:1313:7)
+
+test at lib\pc-worker\preparation\runtime-package.test.mjs:158:1
+✖ launcher only forwards preparation CLI options and strips inherited credentials/preloads (0.072ms)
+  Error: PREPARATION_PACKAGE_UNSAFE_FILE
+      at fail (file:///C:/dev/woolimhome/.codex-tmp/works-redirect/scripts/preparation-runtime-package.mjs:69:32)
+      at safeFile (file:///C:/dev/woolimhome/.codex-tmp/works-redirect/scripts/preparation-runtime-package.mjs:103:7)
+      at async visit (file:///C:/dev/woolimhome/.codex-tmp/works-redirect/scripts/preparation-runtime-package.mjs:153:46)
+      at async dependencyRecords (file:///C:/dev/woolimhome/.codex-tmp/works-redirect/scripts/preparation-runtime-package.mjs:166:41)
+      at async packagePreparationRuntime (file:///C:/dev/woolimhome/.codex-tmp/works-redirect/scripts/preparation-runtime-package.mjs:208:24)
+      at async TestContext.<anonymous> (file:///C:/dev/woolimhome/.codex-tmp/works-redirect/lib/pc-worker/preparation/runtime-package.test.mjs:23:14)
+      at async TestHook.run (node:internal/test_runner/test:1313:7)
+
+test at lib\pc-worker\preparation\runtime-package.test.mjs:171:1
+✖ packaged --check loads private dependencies offline without starting preparation (0.0639ms)
+  Error: PREPARATION_PACKAGE_UNSAFE_FILE
+      at fail (file:///C:/dev/woolimhome/.codex-tmp/works-redirect/scripts/preparation-runtime-package.mjs:69:32)
+      at safeFile (file:///C:/dev/woolimhome/.codex-tmp/works-redirect/scripts/preparation-runtime-package.mjs:103:7)
+      at async visit (file:///C:/dev/woolimhome/.codex-tmp/works-redirect/scripts/preparation-runtime-package.mjs:153:46)
+      at async dependencyRecords (file:///C:/dev/woolimhome/.codex-tmp/works-redirect/scripts/preparation-runtime-package.mjs:166:41)
+      at async packagePreparationRuntime (file:///C:/dev/woolimhome/.codex-tmp/works-redirect/scripts/preparation-runtime-package.mjs:208:24)
+      at async TestContext.<anonymous> (file:///C:/dev/woolimhome/.codex-tmp/works-redirect/lib/pc-worker/preparation/runtime-package.test.mjs:23:14)
+      at async TestHook.run (node:internal/test_runner/test:1313:7)
+
+test at lib\pc-worker\preparation\runtime-package.test.mjs:181:1
+✖ complete packaged import graph resolves with only allowlisted runtime dependencies (0.0627ms)
+  Error: PREPARATION_PACKAGE_UNSAFE_FILE
+      at fail (file:///C:/dev/woolimhome/.codex-tmp/works-redirect/scripts/preparation-runtime-package.mjs:69:32)
+      at safeFile (file:///C:/dev/woolimhome/.codex-tmp/works-redirect/scripts/preparation-runtime-package.mjs:103:7)
+      at async visit (file:///C:/dev/woolimhome/.codex-tmp/works-redirect/scripts/preparation-runtime-package.mjs:153:46)
+      at async dependencyRecords (file:///C:/dev/woolimhome/.codex-tmp/works-redirect/scripts/preparation-runtime-package.mjs:166:41)
+      at async packagePreparationRuntime (file:///C:/dev/woolimhome/.codex-tmp/works-redirect/scripts/preparation-runtime-package.mjs:208:24)
+      at async TestContext.<anonymous> (file:///C:/dev/woolimhome/.codex-tmp/works-redirect/lib/pc-worker/preparation/runtime-package.test.mjs:23:14)
+      at async TestHook.run (node:internal/test_runner/test:1313:7)
+
+test at lib\pc-worker\preparation\runtime-package.test.mjs:188:1
+✖ versioned staging is idempotent, keeps previous versions and never activates a task or pointer (0.0675ms)
+  Error: PREPARATION_PACKAGE_UNSAFE_FILE
+      at fail (file:///C:/dev/woolimhome/.codex-tmp/works-redirect/scripts/preparation-runtime-package.mjs:69:32)
+      at safeFile (file:///C:/dev/woolimhome/.codex-tmp/works-redirect/scripts/preparation-runtime-package.mjs:103:7)
+      at async visit (file:///C:/dev/woolimhome/.codex-tmp/works-redirect/scripts/preparation-runtime-package.mjs:153:46)
+      at async dependencyRecords (file:///C:/dev/woolimhome/.codex-tmp/works-redirect/scripts/preparation-runtime-package.mjs:166:41)
+      at async packagePreparationRuntime (file:///C:/dev/woolimhome/.codex-tmp/works-redirect/scripts/preparation-runtime-package.mjs:208:24)
+      at async TestContext.<anonymous> (file:///C:/dev/woolimhome/.codex-tmp/works-redirect/lib/pc-worker/preparation/runtime-package.test.mjs:23:14)
+      at async TestHook.run (node:internal/test_runner/test:1313:7)
