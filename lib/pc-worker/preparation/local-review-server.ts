@@ -83,6 +83,7 @@ const REDACTION_REASON_LABELS: Readonly<Record<string, string>> = Object.freeze(
   UNINSPECTABLE_OBJECT_REQUIRES_LOCAL_REVIEW: "자동 검사하기 어려운 개체이므로 원본에서 직접 확인해 주세요.",
 });
 const REDACTION_WARNING_LABELS: Readonly<Record<string, string>> = Object.freeze({
+  OFFSLIDE_SHAPES_NOT_RENDERED: "슬라이드 밖에 놓인 도형이 있습니다. 그림에는 나오지 않아 가림 대상이 아닙니다.",
   PIXEL_CONTENT_REQUIRES_HIGH_RESOLUTION_LOCAL_REVIEW: "사진·도형 속 내용을 포함해 고해상도 원본을 직접 확인하세요.",
   CANDIDATE_GEOMETRY_REQUIRES_LOCAL_REVIEW: "자동으로 잡은 가림 위치가 정확한지 확대해 확인하세요.",
   HIGH_REQUIRED_REDACTION_COVERAGE_REPLACEMENT_REVIEW: "필수 가림 범위가 넓습니다. 디자인을 유지하기 어렵다면 장표를 교체하세요.",
