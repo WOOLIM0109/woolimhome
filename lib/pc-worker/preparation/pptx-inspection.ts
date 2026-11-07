@@ -835,12 +835,13 @@ export async function extractPptxRedactionPrimitives(
   function exactPlaceholder(document: Document | undefined, reference: El | undefined) {
     if(!document || !reference) return undefined;
     const shapes=descendants(document,"sp").filter((shape)=>one(shape,"ph"));
+    const type=reference.getAttribute("type") || "obj";
     const index=reference.getAttribute("idx");
-    if(index!==null && index!=="") {
+    // Header/footer fields inherit across parts by type; their indexes are local.
+    if(!["dt","ftr","sldNum","hdr"].includes(type) && index!==null && index!=="") {
       const matches=shapes.filter((shape)=>one(shape,"ph")?.getAttribute("idx")===index);
       return matches.length===1?matches[0]:undefined;
     }
-    const type=reference.getAttribute("type") || "obj";
     const matches=shapes.filter((shape)=>(one(shape,"ph")?.getAttribute("type") || "obj")===type);
     return matches.length===1?matches[0]:undefined;
   }
@@ -891,6 +892,10 @@ export async function extractPptxRedactionPrimitives(
       const master=inherited.find((entry)=>entry.kind==="slideMaster")?.document;
       const emit=(input:Omit<PptxRedactionPrimitive,"rect">&{rawRect:RawRect|null})=>{
         const rect=input.rawRect?normalizeRect(input.rawRect):null;
+        if(input.rawRect && !rect) {
+          warnings.add("OFFSLIDE_SHAPES_NOT_RENDERED");
+          return;
+        }
         if(!rect) warnings.add("GEOMETRY_UNRESOLVED");
         primitives.push({key:input.key,kind:input.kind,rect,text:input.text,metadata:input.metadata,
           geometryReview:input.geometryReview || !rect,
