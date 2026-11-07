@@ -22,8 +22,17 @@ export function pickQueueCandidates(
     const deadline = row.deadline_at ? Date.parse(row.deadline_at) : null;
     // 마감이 지난 것과 날짜를 못 읽는 것은 내보내지 않습니다.
     if (row.deadline_at && (deadline === null || Number.isNaN(deadline) || deadline < options.now)) return false;
-    // 신청대상이 비어 있으면 게시문이 빈칸으로 나갑니다. 줄에 세우지 않습니다.
-    return normalizeText(row.applicant_summary || "").length >= 10;
+    // 신청대상이 비어 있으면 게시문이 빈칸으로 나갑니다. 그것만 걸러 냅니다.
+    //
+    // ★ 글자 수로 걸러서는 안 됩니다. 수집기가 적는 신청대상은 짧습니다 —
+    //   "부산 · 중소기업"(9자), "전국 · 중소기업"(9자) 처럼. 2026-11-07 에
+    //   열 글자를 기준으로 뒀다가 운영 후보 92건 중 27건이 빠지는 것을 보고
+    //   고쳤습니다. 빠진 것이 하필 부산·전국 중소기업 공고였습니다.
+    //
+    //   줄에 세운 공고는 대표님이 보고 승인해야 나갑니다. 그러니 애매한
+    //   것은 보여 드리고 고르시게 하는 편이 낫습니다. 여기서 미리 버리면
+    //   그 공고는 눈에 띄지도 않습니다.
+    return normalizeText(row.applicant_summary || "").length > 0;
   });
   // 행사·교육으로 보이는 것은 뒤로 밉니다. 버리지는 않습니다.
   // (sort 는 같은 값끼리 순서를 지키므로, 들어온 마감 순서가 그대로 남습니다.)
