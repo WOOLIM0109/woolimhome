@@ -6,6 +6,10 @@ const NOTIFICATIONS: Record<Exclude<OpenchatCronTask, "attachments">, { title: s
     title: "지원사업 누락정보 복구 완료",
     body: (summary) => `누락 공고 ${Number(summary.repaired || 0)}건을 복구했습니다.`,
   },
+  "morning-queue": {
+    title: "오전 공고 줄 세우기 완료",
+    body: (summary) => `오늘 검토 후보 ${Number(summary.queued || 0)}건을 줄에 세웠습니다.`,
+  },
   "morning-collect": {
     title: "지원사업 수집 완료",
     body: (summary) => `신규 검토 대상 ${Number(summary.newPrograms || 0)}건이 수집되었습니다.`,
@@ -43,7 +47,10 @@ const NOTIFICATIONS: Record<Exclude<OpenchatCronTask, "attachments">, { title: s
 };
 
 export async function sendOpenchatNotification(task: Exclude<OpenchatCronTask, "attachments">, summary: Record<string, unknown>) {
-  if (task === "morning-collect" || task === "morning-repair") return { sent: 0, skipped: "관리자 수동 작업" };
+  // 줄 세우기 직후 morning-draft-notify 가 같은 내용을 알립니다. 두 번 울리지 않습니다.
+  if (task === "morning-collect" || task === "morning-repair" || task === "morning-queue") {
+    return { sent: 0, skipped: "관리자 수동 작업" };
+  }
   // 보내는 일 자체는 lib/notify/web-push.ts 가 합니다.
   // 포트폴리오 쪽에서도 같은 기기로 알려야 해서 전송부를 한곳으로 모았습니다.
   const notification = NOTIFICATIONS[task];

@@ -85,6 +85,7 @@ export type OpenchatContentDraft = {
 export type OpenchatCronTask =
   | "attachments"
   | "morning-collect"
+  | "morning-queue"
   | "morning-repair"
   | "morning-draft-notify"
   | "morning-approval-reminder"

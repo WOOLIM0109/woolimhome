@@ -9,7 +9,10 @@ const BASELINE = [
   ["/api/cron/openchat/attachments", "10 0 * * 1-5"],
   ["/api/cron/columns", "17 1 * * 2,4,6"],
   ["/api/cron/content-operations", "7 * * * *"],
-  ["/api/cron/openchat/morning-collect", "0 23 * * 0-4"],
+  // 2026-11-07: 같은 자리에서 morning-collect 를 morning-queue 로 바꿨다.
+  // 홈페이지(해외 서버)가 일부 기관에 연결조차 되지 않아 수집을 PC 수집기로 모으고,
+  // 홈페이지는 이미 들어와 있는 공고에서 그날 치를 고르기만 한다.
+  ["/api/cron/openchat/morning-queue", "0 23 * * 0-4"],
   ["/api/cron/openchat/morning-draft-notify", "0 0 * * 1-5"],
   ["/api/cron/openchat/morning-approval-reminder", "0 1 * * 1-5"],
   ["/api/cron/openchat/morning-cutoff", "15 1 * * 1-5"],

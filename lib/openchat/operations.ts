@@ -4,6 +4,7 @@ import { analyzeProgramDeterministically, analyzePrograms, generateAfternoonCont
 import { collectSource, hydratePrograms } from "./collectors";
 import { MORNING_REPAIR_LIMIT, morningProgramLimit } from "./config";
 import { pickDistinctPrograms } from "./daily-pick";
+import { pickQueueCandidates } from "./morning-queue";
 import { condenseProgramSummaries } from "./condense-run";
 import { GeminiAutomationBlocked, runBudgetedGeminiAutomation } from "@/lib/gemini/automation";
 import { sendOpenchatNotification } from "./push";
@@ -200,6 +201,76 @@ async function repairIncompleteMorningPrograms(date: string) {
     else excluded += 1;
   }
   return { attempted: incomplete.length, repaired, stillIncomplete, excluded, detailFetchFailures, sourceKeys, structured, diagnostics };
+}
+
+/**
+ * 그날 오픈채팅에 내보낼 후보를 고릅니다. **수집은 하지 않습니다.**
+ *
+ * 전에는 홈페이지가 직접 게시판을 훑어서(morning-collect) 이 줄을 채웠습니다.
+ * 그런데 홈페이지는 해외 서버에서 돌아서, 부산테크노파크·부산경제진흥원·
+ * IP지역지식재산센터 같은 곳은 연결 자체가 되지 않습니다. 2026-11-07 에
+ * 확인한 것: 뒤의 두 곳은 등록한 날부터 한 번도 성공한 적이 없고, 같은
+ * 사이트를 대표님 PC 의 수집기는 1~2초 만에 읽습니다.
+ *
+ * 그래서 **수집은 PC 수집기 한 곳으로 모으고**, 홈페이지는 이미 들어와
+ * 있는 공고 중에서 그날 치를 고르기만 합니다. 고르는 기준·하루 건수·
+ * 요약 줄이기는 전과 똑같습니다 (limitDailyReviewQueue / condenseDailyPrograms).
+ *
+ * 수집기가 넣은 공고는 draft_for 가 비어 있습니다. 그 가운데
+ *   - 마감이 남아 있고
+ *   - 신청대상이 실제로 적혀 있고
+ *   - 최근 CANDIDATE_DAYS 일 안에 들어온 것
+ * 을 마감이 가까운 순으로 골라 그날 줄에 세웁니다. 행사·교육으로 보이는
+ * 것은 뒤로 밀되 버리지는 않습니다.
+ */
+const CANDIDATE_DAYS = 14;
+
+async function queueMorningPrograms(date: string) {
+  const admin = createAdminClient();
+  // 어제 승인받지 못해 넘어온 공고를 먼저 오늘 줄에 되돌립니다.
+  const { error: carryError } = await admin.from("openchat_programs")
+    .update({ status: "review_required", updated_at: new Date().toISOString() })
+    .eq("draft_for", date)
+    .eq("status", "deferred");
+  if (carryError) throw new Error(carryError.message);
+
+  const limit = morningProgramLimit();
+  const { count: carried, error: carriedError } = await admin.from("openchat_programs")
+    .select("id", { count: "exact", head: true })
+    .eq("draft_for", date)
+    .eq("status", "review_required");
+  if (carriedError) throw new Error(carriedError.message);
+
+  const since = new Date(Date.now() - CANDIDATE_DAYS * 86400_000).toISOString();
+  const { data: pool, error: poolError } = await admin.from("openchat_programs")
+    .select("id,title,applicant_summary,deadline_at,created_at,raw_payload")
+    .eq("status", "review_required")
+    .is("draft_for", null)
+    .gte("created_at", since)
+    .order("deadline_at", { ascending: true, nullsFirst: false })
+    .limit(300);
+  if (poolError) throw new Error(poolError.message);
+
+  const { picked, skippedNoApplicant } = pickQueueCandidates(pool || [], {
+    now: Date.now(), limit, carried: carried || 0,
+  });
+  if (picked.length) {
+    const { error: queueError } = await admin.from("openchat_programs")
+      .update({ draft_for: date, updated_at: new Date().toISOString() })
+      .in("id", picked.map((row) => row.id));
+    if (queueError) throw new Error(queueError.message);
+  }
+
+  const trimmed = await limitDailyReviewQueue(date);
+  const condensed = await condenseDailyPrograms(date);
+  return {
+    pool: (pool || []).length,
+    carried: carried || 0,
+    queued: picked.length,
+    skippedNoApplicant,
+    dailyLimit: trimmed,
+    condensed,
+  };
 }
 
 async function collectMorningPrograms(date: string) {
@@ -557,6 +628,9 @@ export async function executeOpenchatTask(task: OpenchatCronTask, requestedDate?
         break;
       case "morning-collect":
         summary = await collectMorningPrograms(date);
+        break;
+      case "morning-queue":
+        summary = await queueMorningPrograms(date);
         break;
       case "morning-draft-notify": {
         const { count, error } = await createAdminClient().from("openchat_programs")

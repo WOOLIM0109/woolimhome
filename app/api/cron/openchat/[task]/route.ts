@@ -7,7 +7,7 @@ export const maxDuration = 300;
 
 const TASKS: OpenchatCronTask[] = [
   "attachments",
-  "morning-collect", "morning-repair", "morning-draft-notify", "morning-approval-reminder", "morning-cutoff", "morning-ready",
+  "morning-collect", "morning-queue", "morning-repair", "morning-draft-notify", "morning-approval-reminder", "morning-cutoff", "morning-ready",
   "afternoon-draft", "afternoon-cutoff", "afternoon-ready",
 ];
 
