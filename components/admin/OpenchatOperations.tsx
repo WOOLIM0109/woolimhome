@@ -344,7 +344,7 @@ export default function OpenchatOperations() {
             </div>
             <div className="flex flex-wrap gap-2">
               <button onClick={() => void run("morning-repair")} disabled={Boolean(busy)} className="inline-flex items-center gap-2 rounded-xl bg-orange-700 px-4 py-3 text-sm font-bold text-white disabled:opacity-60"><RefreshCw size={16} /> 누락만 복구</button>
-              <button onClick={() => void run("morning-collect")} disabled={Boolean(busy)} className="inline-flex items-center gap-2 rounded-xl border border-orange-300 bg-white px-4 py-3 text-sm font-bold disabled:opacity-60"><Play size={16} /> 신규 공고 수집</button>
+              <button onClick={() => void run("morning-queue")} disabled={Boolean(busy)} className="inline-flex items-center gap-2 rounded-xl border border-orange-300 bg-white px-4 py-3 text-sm font-bold disabled:opacity-60"><Play size={16} /> 오늘 공고 줄 세우기</button>
               <button onClick={() => void copy(formatMorningPost(selectedPrograms, date))} disabled={!selectedPrograms.length} className="inline-flex items-center gap-2 rounded-xl border border-orange-300 bg-white px-4 py-3 text-sm font-bold disabled:opacity-50"><Clipboard size={16} /> 게시문 복사</button>
             </div>
           </div>
