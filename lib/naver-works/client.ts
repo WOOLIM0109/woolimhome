@@ -5,6 +5,11 @@ import { decryptToken, encryptToken } from "./crypto";
 const AUTHORIZE_URL = "https://auth.worksmobile.com/oauth2/v2.0/authorize";
 const TOKEN_URL = "https://auth.worksmobile.com/oauth2/v2.0/token";
 const API_BASE = "https://www.worksapis.com/v1.0";
+const OAUTH_REDIRECT_HOSTS = new Set([
+  "www.woolimcompany.kr",
+  "woolimcompany.kr",
+  "woolim-site.vercel.app",
+]);
 const EXPIRED_DRIVE_TOKEN_MESSAGE = "중복 검수용 Drive 읽기 토큰이 만료되었습니다. 동기화 후 다시 확인해 주세요.";
 
 /** Contains no signed URL, authorization header or provider response body. */
@@ -58,16 +63,20 @@ function credentials() {
   return { clientId, clientSecret };
 }
 
-export function oauthRedirectUri() {
+export function oauthRedirectUri(request?: Request) {
+  const host = request ? new URL(request.url).host : undefined;
+  if (host && OAUTH_REDIRECT_HOSTS.has(host)) {
+    return `https://${host}/api/admin/naver-works/callback`;
+  }
   return process.env.NAVER_WORKS_REDIRECT_URI
     || `${process.env.NEXT_PUBLIC_SITE_URL || "https://woolim-site.vercel.app"}/api/admin/naver-works/callback`;
 }
 
-export function authorizationUrl(state: string) {
+export function authorizationUrl(state: string, request?: Request) {
   const { clientId } = credentials();
   const url = new URL(AUTHORIZE_URL);
   url.searchParams.set("client_id", clientId);
-  url.searchParams.set("redirect_uri", oauthRedirectUri());
+  url.searchParams.set("redirect_uri", oauthRedirectUri(request));
   url.searchParams.set("scope", "file.read");
   url.searchParams.set("response_type", "code");
   url.searchParams.set("state", state);
@@ -83,17 +92,20 @@ async function tokenRequest(params: URLSearchParams) {
   });
   const payload = await response.json();
   if (!response.ok) throw new Error(payload.error_description || payload.error || `토큰 요청 실패: ${response.status}`);
+  if (typeof payload?.access_token !== "string" || !payload.access_token.trim()) {
+    throw new Error("NAVER WORKS가 Access Token을 돌려주지 않았습니다. 다시 연결해 주세요.");
+  }
   return payload as TokenResponse;
 }
 
-export async function exchangeAuthorizationCode(code: string, connectedBy: string) {
+export async function exchangeAuthorizationCode(code: string, connectedBy: string, request?: Request) {
   const { clientId, clientSecret } = credentials();
   const token = await tokenRequest(new URLSearchParams({
     code,
     grant_type: "authorization_code",
     client_id: clientId,
     client_secret: clientSecret,
-    redirect_uri: oauthRedirectUri(),
+    redirect_uri: oauthRedirectUri(request),
   }));
   if (!token.refresh_token) throw new Error("Refresh Token이 발급되지 않았습니다.");
   const expiresAt = new Date(Date.now() + Number(token.expires_in) * 1000);
