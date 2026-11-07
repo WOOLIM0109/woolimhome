@@ -406,7 +406,16 @@ export function parseIngestBody(value: unknown): IngestPayload {
     throw new IngestError(409, "COLLECTOR_UPGRADE_REQUIRED", MIN_COLLECTOR_VERSION);
   }
 
-  if (!Array.isArray(row.programs) || !row.programs.length) {
+  const sources = parseSources(row.sources);
+
+  if (!Array.isArray(row.programs)) {
+    throw new IngestError(400, "MISSING_FIELD", "body.programs");
+  }
+  // ★ 공고가 비어 있어도 게시판 상태만 올리는 것은 받습니다.
+  // 새 공고가 하나도 없는 밤이 바로 이 기능이 필요한 밤입니다 — 그런 밤에
+  // 아무것도 받지 않으면 관리 화면의 `마지막 수집 성공` 이 멈춘 채 남아서,
+  // 멀쩡히 읽히는 기관이 빨간 글씨로 보입니다. 둘 다 비면 보낼 것이 없습니다.
+  if (!row.programs.length && !sources.length) {
     throw new IngestError(400, "MISSING_FIELD", "body.programs");
   }
   if (row.programs.length > MAX_PROGRAMS) throw new IngestError(400, "TOO_MANY_PROGRAMS");
@@ -424,7 +433,7 @@ export function parseIngestBody(value: unknown): IngestPayload {
   }
   if (total > MAX_TOTAL_CHARS) throw new IngestError(413, "PAYLOAD_TOO_LARGE");
 
-  return { collectorVersion, programs, sources: parseSources(row.sources) };
+  return { collectorVersion, programs, sources };
 }
 
 /** 게시판 상태를 검사합니다. 없으면 빈 목록입니다 — 옛 수집기도 그대로 돕니다. */
@@ -634,6 +643,10 @@ export async function ingestPrograms(
     skipped_existing: 0, retired: 0, restored: 0, attachments: 0, requirements: 0, sources: 0,
   };
   result.sources = await recordSourceStatus(admin, payload.sources, stamp);
+
+  // 게시판 상태만 올라온 밤입니다. 넣을 공고가 없으니 여기서 끝냅니다 —
+  // 빈 목록으로 저장을 부르면 될 이유가 없습니다.
+  if (!payload.programs.length) return result;
 
   const sourceKeys = [...new Set(payload.programs.map((program) => program.source_key))];
   const { data: sourceRows, error: sourceError } = await admin.from("openchat_sources")
