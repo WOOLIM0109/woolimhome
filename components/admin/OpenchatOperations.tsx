@@ -343,8 +343,10 @@ export default function OpenchatOperations() {
               <p className="mt-1 text-sm text-orange-900/80">승인 {selectedPrograms.length}/{MORNING_PROGRAM_LIMIT}건 · 검토 후보 {reviewPrograms.length}건 · 오전 10:15 미승인 공고는 다음 영업일로 이월</p>
             </div>
             <div className="flex flex-wrap gap-2">
-              <button onClick={() => void run("morning-repair")} disabled={Boolean(busy)} className="inline-flex items-center gap-2 rounded-xl bg-orange-700 px-4 py-3 text-sm font-bold text-white disabled:opacity-60"><RefreshCw size={16} /> 누락만 복구</button>
-              <button onClick={() => void run("morning-queue")} disabled={Boolean(busy)} className="inline-flex items-center gap-2 rounded-xl border border-orange-300 bg-white px-4 py-3 text-sm font-bold disabled:opacity-60"><Play size={16} /> 오늘 공고 줄 세우기</button>
+              {/* ★ '누락만 복구' 버튼도 치웠습니다 (2026-11-08). 위와 같은 까닭입니다 —
+                  이 버튼도 홈페이지가 직접 게시판을 훑어 상세를 다시 가져왔습니다.
+                  상세·첨부·요건은 PC 수집기가 밤마다 보냅니다. */}
+              <button onClick={() => void run("morning-queue")} disabled={Boolean(busy)} className="inline-flex items-center gap-2 rounded-xl bg-orange-700 px-4 py-3 text-sm font-bold text-white disabled:opacity-60"><Play size={16} /> 오늘 공고 줄 세우기</button>
               <button onClick={() => void copy(formatMorningPost(selectedPrograms, date))} disabled={!selectedPrograms.length} className="inline-flex items-center gap-2 rounded-xl border border-orange-300 bg-white px-4 py-3 text-sm font-bold disabled:opacity-50"><Clipboard size={16} /> 게시문 복사</button>
             </div>
           </div>
@@ -476,7 +478,14 @@ export default function OpenchatOperations() {
       {!loading && tab === "sources" && (
         <section className="mt-6 grid gap-5 xl:grid-cols-[1.2fr_0.8fr]">
           <div className="card p-6">
-            <div className="flex items-center justify-between gap-4"><div><h2 className="text-xl font-bold">21개 수집처</h2><p className="mt-1 text-sm text-[var(--muted)]">PC 수집기가 매일 밤 읽어 본 결과입니다. 사이트별 실패가 다른 수집을 중단시키지 않습니다.</p></div><button onClick={() => void run("morning-collect")} className="rounded-xl bg-[#262626] px-4 py-3 text-sm font-bold text-white">전체 수집·복구</button></div>
+            {/* ★ '전체 수집·복구' 버튼을 치웠습니다 (2026-11-08).
+                그 버튼은 홈페이지가 직접 21개 게시판을 훑어 공고를 넣었습니다.
+                공고 수집은 PC 수집기 하나로 모았는데(해외 서버에서 부산테크노파크·
+                부산경제진흥원에 연결조차 되지 않습니다), 버튼이 남아 있으면 한 번만
+                눌러도 낡은 행이 다시 쌓입니다. 그 행들은 수집기가 보낸 정확한
+                마감일을 막습니다 — 실측: 소담상회가 마감 09-11 로 남아 아직 20일
+                남은 공고가 화면에서 제외로 보였습니다. */}
+            <div><h2 className="text-xl font-bold">21개 수집처</h2><p className="mt-1 text-sm text-[var(--muted)]">PC 수집기가 매일 밤 읽어 본 결과입니다. 사이트별 실패가 다른 수집을 중단시키지 않습니다.</p></div>
             <div className="mt-5 divide-y divide-[var(--line)]">
               {sources.sources.map((source) => (
                 <div key={source.id} className="flex flex-col gap-3 py-4 sm:flex-row sm:items-center sm:justify-between">
