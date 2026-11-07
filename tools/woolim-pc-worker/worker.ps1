@@ -6,7 +6,7 @@
 )
 
 $ErrorActionPreference = "Stop"
-$WorkerVersion = "2.10.2"
+$WorkerVersion = "2.10.3"
 
 # The console window cannot be hidden reliably: PowerPoint COM needs the
 # interactive session. So the window will be seen, and an unlabeled PowerShell
@@ -484,6 +484,22 @@ function Get-WorkerFontAliases {
     if (@($aliases | Where-Object { $_ -match 'Test' }).Count) { continue }
     foreach ($alias in $aliases) {
       if ($alias) { [void]$names.Add((Get-NormalizedWorkerFont $alias)) }
+    }
+  }
+  # Exported emoji font names are aliases only when an installed emoji family can supply them.
+  if (@($names | Where-Object { $_ -match 'emoji' }).Count -gt 0) {
+    foreach ($alias in @(
+      'color-emoji',
+      'coloremoji',
+      'color emoji',
+      'noto color emoji',
+      'apple color emoji',
+      'segoe ui emoji',
+      'twemoji mozilla',
+      'emojione',
+      'joypixels'
+    )) {
+      [void]$names.Add((Get-NormalizedWorkerFont $alias))
     }
   }
   return ,$names
