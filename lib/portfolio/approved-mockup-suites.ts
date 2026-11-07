@@ -19,8 +19,14 @@ import {
   APPROVED_A4_PORTRAIT_TEMPLATE_SUITE_ID,
   APPROVED_A4_PORTRAIT_TEMPLATE_VERSION,
 } from "./approved-a4-portrait-templates.ts";
+import {
+  APPROVED_PORTRAIT_4X3_BODY_TEMPLATE_LIST,
+  APPROVED_PORTRAIT_4X3_TEMPLATES,
+  APPROVED_PORTRAIT_4X3_TEMPLATE_SUITE_ID,
+  APPROVED_PORTRAIT_4X3_TEMPLATE_VERSION,
+} from "./approved-portrait-4x3-templates.ts";
 
-export type ApprovedMockupSuiteAspectClass = "16:9" | "a4_landscape" | "a4_portrait";
+export type ApprovedMockupSuiteAspectClass = "16:9" | "a4_landscape" | "a4_portrait" | "4:3_portrait";
 
 export type ApprovedMockupSuite = Readonly<{
   aspectClass: ApprovedMockupSuiteAspectClass;
@@ -75,10 +81,19 @@ const APPROVED_A4_PORTRAIT_SUITE = {
   bodyTemplates: APPROVED_A4_PORTRAIT_BODY_TEMPLATE_LIST,
 } as const satisfies ApprovedMockupSuite;
 
+const APPROVED_PORTRAIT_4X3_SUITE = {
+  aspectClass: "4:3_portrait",
+  suiteId: APPROVED_PORTRAIT_4X3_TEMPLATE_SUITE_ID,
+  version: APPROVED_PORTRAIT_4X3_TEMPLATE_VERSION,
+  thumbnail: APPROVED_PORTRAIT_4X3_TEMPLATES["portrait-4x3-thumbnail-1"],
+  bodyTemplates: APPROVED_PORTRAIT_4X3_BODY_TEMPLATE_LIST,
+} as const satisfies ApprovedMockupSuite;
+
 export const APPROVED_MOCKUP_SUITES = deepFreeze([
   APPROVED_16X9_SUITE,
   APPROVED_A4_LANDSCAPE_SUITE,
   APPROVED_A4_PORTRAIT_SUITE,
+  APPROVED_PORTRAIT_4X3_SUITE,
 ] as const satisfies readonly ApprovedMockupSuite[]);
 
 /**

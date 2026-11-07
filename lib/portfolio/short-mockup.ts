@@ -21,7 +21,8 @@ export type SupportedShortMockupAspectClass =
   | "16:9"
   | "4:3"
   | "a4_landscape"
-  | "a4_portrait";
+  | "a4_portrait"
+  | "4:3_portrait";
 
 export type ShortMockupAspectClass = SupportedShortMockupAspectClass | "unknown";
 
@@ -105,6 +106,7 @@ const ASPECT_RATIOS: Record<SupportedShortMockupAspectClass, number> = {
   "4:3": 4 / 3,
   a4_landscape: Math.SQRT2,
   a4_portrait: 1 / Math.SQRT2,
+  "4:3_portrait": 3 / 4,
 };
 
 const PSD_TEMPLATE_ASPECTS = new Set<SupportedShortMockupAspectClass>(["16:9", "4:3"]);
@@ -988,7 +990,7 @@ export async function renderApprovedTemplateBodyMockups(input: {
  *
  * The input buffers must already have confidential text and images blurred.
  * This module intentionally has no Photoshop runtime dependency. The supplied
- * Approved 16:9 and A4-landscape suites lock coordinates, angles, shadows,
+ * Approved widescreen, A4 and portrait 4:3 suites lock coordinates, angles, shadows,
  * logo, and layer order while swapping only slide buffers. The existing 4:3
  * layout remains available, as does an explicit legacy recovery path.
  * Every slide is resized with `contain`,
@@ -1006,7 +1008,7 @@ export async function renderShortDocumentMockups(input: {
     throw new Error("짧은 문서 목업은 전체 장수가 5~19장인 문서에만 적용할 수 있습니다.");
   }
   if (!(input.aspectClass in ASPECT_RATIOS)) {
-    throw new Error("지원하지 않는 문서 규격입니다. 16:9, 4:3, A4 가로 또는 A4 세로를 사용해 주세요.");
+    throw new Error("지원하지 않는 문서 규격입니다. 16:9, 4:3, 세로 4:3, A4 가로 또는 A4 세로를 사용해 주세요.");
   }
   const selected = uniqueSelectedSlides(input.slides)
     .slice(0, input.aspectClass === "4:3" ? 13 : SHORT_MOCKUP_MAX_SELECTED_SLIDES);

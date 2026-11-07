@@ -1,4 +1,4 @@
-export type SlideAspect = "16:9" | "4:3" | "a4_landscape" | "a4_portrait" | "unknown";
+export type SlideAspect = "16:9" | "4:3" | "a4_landscape" | "a4_portrait" | "4:3_portrait" | "unknown";
 
 export type PortfolioMockupMode = "insufficient" | "short" | "long";
 
@@ -80,6 +80,7 @@ const ASPECT_TARGETS: ReadonlyArray<{ aspect: Exclude<SlideAspect, "unknown">; r
   { aspect: "4:3", ratio: 4 / 3 },
   { aspect: "a4_landscape", ratio: 297 / 210 },
   { aspect: "a4_portrait", ratio: 210 / 297 },
+  { aspect: "4:3_portrait", ratio: 3 / 4 },
 ];
 
 const DEFAULT_ASPECT_TOLERANCE = 0.025;

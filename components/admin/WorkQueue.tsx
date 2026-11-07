@@ -24,7 +24,7 @@ import {
 import { HYUNDAI_MANUAL_MOCKUP_LEGACY_TITLE } from "@/lib/portfolio/hyundai-manual-mockups";
 
 type PortfolioMockupMode = "short_psd" | "six_grid";
-type PortfolioAspectClass = "16:9" | "4:3" | "a4_landscape" | "a4_portrait" | "mixed" | "unknown";
+type PortfolioAspectClass = "16:9" | "4:3" | "4:3_portrait" | "a4_landscape" | "a4_portrait" | "mixed" | "unknown";
 type PortfolioRedactionStatus = "verified" | "blocked";
 
 type PortfolioMockupMetadata = {
@@ -166,6 +166,7 @@ const mockupModeLabels: Record<PortfolioMockupMode, string> = {
 const aspectClassLabels: Record<PortfolioAspectClass, string> = {
   "16:9": "16:9",
   "4:3": "4:3",
+  "4:3_portrait": "세로 4:3",
   a4_landscape: "A4 가로",
   a4_portrait: "A4 세로",
   mixed: "혼합 규격",
@@ -187,6 +188,7 @@ function isMockupMode(value: unknown): value is PortfolioMockupMode {
 function isAspectClass(value: unknown): value is PortfolioAspectClass {
   return value === "16:9"
     || value === "4:3"
+    || value === "4:3_portrait"
     || value === "a4_landscape"
     || value === "a4_portrait"
     || value === "mixed"
@@ -254,6 +256,7 @@ function classifyAspectRatio(ratio: number): Exclude<PortfolioAspectClass, "mixe
   if (Math.abs(ratio - 16 / 9) <= 0.08) return "16:9";
   if (Math.abs(ratio - 4 / 3) <= 0.06) return "4:3";
   if (Math.abs(ratio - Math.SQRT2) <= 0.06) return "a4_landscape";
+  if (Math.abs(ratio - 3 / 4) <= (3 / 4) * 0.025) return "4:3_portrait";
   if (Math.abs(ratio - 1 / Math.SQRT2) <= 0.05) return "a4_portrait";
   return "unknown";
 }

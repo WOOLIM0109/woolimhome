@@ -15,7 +15,7 @@ const output = path.join(repo, ".codex-tmp", "mockup-stage-1");
 const fontfile = path.join(repo, "public", "fonts", "Paperlogy-7Bold.ttf");
 const hash = (bytes) => createHash("sha256").update(bytes).digest("hex");
 const xml = (value) => String(value).replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;");
-const labels = { "16:9": "16:9", a4_landscape: "A4 가로", a4_portrait: "A4 세로" };
+const labels = { "16:9": "16:9", a4_landscape: "A4 가로", a4_portrait: "A4 세로", "4:3_portrait": "세로 4:3" };
 const colors = ["#23449c", "#06796f", "#ba4834", "#7850a4", "#a87625", "#2478aa", "#365747", "#b64475"];
 const subjects = ["프로젝트 방향", "핵심 목표", "정보 구조", "실행 순서", "디자인 원칙", "주요 구성", "기대 효과", "결과 정리"];
 

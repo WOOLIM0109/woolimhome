@@ -1752,6 +1752,603 @@
         "brightness": 0.86,
         "saturation": 0.75
       }
+    },
+    {
+      "suiteId": "approved-portrait-4x3-suite",
+      "templateId": "portrait-4x3-thumbnail-1",
+      "version": "approved-portrait-4x3-v1",
+      "geometryHash": "e188e6ebc35c78bd6026b7738123840d499fbfad323e57e80ecc092cb641d991",
+      "template": {
+        "id": "portrait-4x3-thumbnail-1",
+        "templateNumber": 1,
+        "version": "approved-portrait-4x3-v1",
+        "outputName": "thumbnail.jpg",
+        "kind": "thumbnail",
+        "canvas": {
+          "width": 1080,
+          "height": 1080
+        },
+        "slideAspectRatio": 0.75,
+        "axisAngle": 0,
+        "backgroundId": "a4-portrait-thumbnail-diagonal",
+        "logo": {
+          "assetPath": "/images/woolim-logo-cropped.png",
+          "left": 42,
+          "top": 34,
+          "width": 82,
+          "z": 1000
+        },
+        "titleBox": {
+          "left": 300,
+          "top": 36,
+          "width": 650,
+          "height": 60,
+          "fontSize": 34,
+          "color": "#27313a",
+          "align": "right"
+        },
+        "rails": [],
+        "fixedSlots": [
+          {
+            "id": "left",
+            "x": 95,
+            "y": 240,
+            "width": 420,
+            "height": 560,
+            "role": "support",
+            "priority": 1,
+            "z": 10,
+            "shadow": {
+              "kind": "custom",
+              "layers": [
+                {
+                  "dx": 10,
+                  "dy": 20,
+                  "blur": 20,
+                  "opacity": 0.22,
+                  "color": "#111111"
+                }
+              ]
+            },
+            "washOpacity": 0,
+            "allowCanvasClip": false
+          },
+          {
+            "id": "right",
+            "x": 565,
+            "y": 240,
+            "width": 420,
+            "height": 560,
+            "role": "support",
+            "priority": 0,
+            "z": 11,
+            "shadow": {
+              "kind": "custom",
+              "layers": [
+                {
+                  "dx": 10,
+                  "dy": 20,
+                  "blur": 20,
+                  "opacity": 0.22,
+                  "color": "#111111"
+                }
+              ]
+            },
+            "washOpacity": 0,
+            "allowCanvasClip": false
+          }
+        ],
+        "edgeAlignments": [
+          {
+            "slotIds": [
+              "left",
+              "right"
+            ],
+            "edges": [
+              "top",
+              "bottom"
+            ]
+          }
+        ],
+        "layerOrder": [
+          "background",
+          "support-shadow",
+          "support",
+          "focus-shadow",
+          "hero",
+          "logo"
+        ]
+      },
+      "background": {
+        "kind": "diagonal-split",
+        "base": {
+          "from": "#eef0f2",
+          "to": "#cbd0d7"
+        },
+        "lower": {
+          "from": "#090a0b",
+          "to": "#2b2c2e"
+        },
+        "leftY": 730,
+        "rightY": 330
+      }
+    },
+    {
+      "suiteId": "approved-portrait-4x3-suite",
+      "templateId": "portrait-4x3-body-1-flatlay",
+      "version": "approved-portrait-4x3-v1",
+      "geometryHash": "9d8ff6b8fe25ae001166a10759e04d5e710ea64fffc27fe1f75403032ba8f5a0",
+      "template": {
+        "id": "portrait-4x3-body-1-flatlay",
+        "templateNumber": 3,
+        "version": "approved-portrait-4x3-v1",
+        "outputName": "short-main.jpg",
+        "kind": "body",
+        "canvas": {
+          "width": 1600,
+          "height": 900
+        },
+        "slideAspectRatio": 0.75,
+        "axisAngle": -10,
+        "backgroundId": "a4-portrait-flatlay",
+        "logo": {
+          "assetPath": "/images/woolim-logo-cropped.png",
+          "left": 32,
+          "top": 12,
+          "width": 75,
+          "z": 1000
+        },
+        "rails": [
+          {
+            "id": "top",
+            "start": {
+              "x": -150.90011154084044,
+              "y": 125.04544541346158
+            },
+            "cardWidth": 355,
+            "gap": 61.32491087315549,
+            "count": 4,
+            "role": "support",
+            "priorities": [
+              6,
+              0,
+              2,
+              4
+            ],
+            "zStart": 10,
+            "zStep": 1,
+            "shadow": {
+              "kind": "custom",
+              "layers": [
+                {
+                  "dx": 12,
+                  "dy": 18,
+                  "blur": 17,
+                  "opacity": 0.2,
+                  "color": "#111111"
+                }
+              ]
+            },
+            "washOpacity": 0,
+            "allowCanvasClip": true
+          },
+          {
+            "id": "bottom",
+            "start": {
+              "x": 139.09988845915956,
+              "y": 577.7513833229909
+            },
+            "cardWidth": 355,
+            "gap": 61.32491087315549,
+            "count": 3,
+            "role": "support",
+            "priorities": [
+              1,
+              3,
+              5
+            ],
+            "zStart": 20,
+            "zStep": 1,
+            "shadow": {
+              "kind": "custom",
+              "layers": [
+                {
+                  "dx": 12,
+                  "dy": 18,
+                  "blur": 17,
+                  "opacity": 0.2,
+                  "color": "#111111"
+                }
+              ]
+            },
+            "washOpacity": 0,
+            "allowCanvasClip": true
+          }
+        ],
+        "fixedSlots": [],
+        "layerOrder": [
+          "background",
+          "support-shadow",
+          "support",
+          "focus-shadow",
+          "hero",
+          "logo"
+        ]
+      },
+      "background": {
+        "kind": "radial-gradient",
+        "center": {
+          "x": 0.52,
+          "y": 0.43
+        },
+        "radius": 0.76,
+        "stops": [
+          {
+            "offset": 0,
+            "color": "#fafafa"
+          },
+          {
+            "offset": 0.62,
+            "color": "#dadcdf"
+          },
+          {
+            "offset": 1,
+            "color": "#b7bbc0"
+          }
+        ]
+      }
+    },
+    {
+      "suiteId": "approved-portrait-4x3-suite",
+      "templateId": "portrait-4x3-body-2-triptych",
+      "version": "approved-portrait-4x3-v1",
+      "geometryHash": "cd411d1eb4a0d81a93557618e187ba7b9b481bbd7c9037aee422a9082f9408dc",
+      "template": {
+        "id": "portrait-4x3-body-2-triptych",
+        "templateNumber": 4,
+        "version": "approved-portrait-4x3-v1",
+        "outputName": "short-detail-1.jpg",
+        "kind": "body",
+        "canvas": {
+          "width": 1600,
+          "height": 900
+        },
+        "slideAspectRatio": 0.75,
+        "axisAngle": 0,
+        "backgroundId": "corridor-light",
+        "logo": {
+          "assetPath": "/images/woolim-logo-cropped.png",
+          "left": 48,
+          "top": 38,
+          "width": 110,
+          "z": 1000
+        },
+        "rails": [],
+        "fixedSlots": [
+          {
+            "id": "left",
+            "x": 90,
+            "y": 159.15404008195833,
+            "width": 350,
+            "height": 466.66666666666663,
+            "role": "support",
+            "priority": 1,
+            "z": 10,
+            "shadow": {
+              "kind": "support",
+              "strength": 1
+            },
+            "washOpacity": 0,
+            "allowCanvasClip": false
+          },
+          {
+            "id": "hero",
+            "x": 555,
+            "y": 91.81565611474167,
+            "width": 490,
+            "height": 653.3333333333333,
+            "role": "hero",
+            "priority": 0,
+            "z": 100,
+            "shadow": {
+              "kind": "focus"
+            },
+            "washOpacity": 0,
+            "allowCanvasClip": false
+          },
+          {
+            "id": "right",
+            "x": 1160,
+            "y": 159.15404008195833,
+            "width": 350,
+            "height": 466.66666666666663,
+            "role": "support",
+            "priority": 2,
+            "z": 11,
+            "shadow": {
+              "kind": "support",
+              "strength": 1
+            },
+            "washOpacity": 0,
+            "allowCanvasClip": false
+          }
+        ],
+        "layerOrder": [
+          "background",
+          "support-shadow",
+          "support",
+          "focus-shadow",
+          "hero",
+          "logo"
+        ]
+      },
+      "background": {
+        "kind": "linear-gradient",
+        "from": "#f6f8f9",
+        "to": "#e4eaed",
+        "vector": {
+          "x1": 0,
+          "y1": 0,
+          "x2": 1,
+          "y2": 1
+        }
+      }
+    },
+    {
+      "suiteId": "approved-portrait-4x3-suite",
+      "templateId": "portrait-4x3-body-3-grid",
+      "version": "approved-portrait-4x3-v1",
+      "geometryHash": "91bac4e396e95e190775b48c973c239aa3718dba810feddd64c249ea3b5158df",
+      "template": {
+        "id": "portrait-4x3-body-3-grid",
+        "templateNumber": 5,
+        "version": "approved-portrait-4x3-v1",
+        "outputName": "short-detail-2.jpg",
+        "kind": "body",
+        "canvas": {
+          "width": 1600,
+          "height": 900
+        },
+        "slideAspectRatio": 0.75,
+        "axisAngle": 0,
+        "backgroundId": "stage-radial",
+        "logo": {
+          "assetPath": "/images/woolim-logo-cropped.png",
+          "left": 32,
+          "top": 24,
+          "width": 110,
+          "z": 1000
+        },
+        "rails": [],
+        "fixedSlots": [
+          {
+            "id": "left-1",
+            "x": 75,
+            "y": 229.34523779156072,
+            "width": 330,
+            "height": 440,
+            "role": "support",
+            "priority": 0,
+            "z": 10,
+            "shadow": {
+              "kind": "support",
+              "strength": 1
+            },
+            "washOpacity": 0,
+            "allowCanvasClip": false
+          },
+          {
+            "id": "left-2",
+            "x": 445,
+            "y": 229.34523779156072,
+            "width": 330,
+            "height": 440,
+            "role": "support",
+            "priority": 1,
+            "z": 11,
+            "shadow": {
+              "kind": "support",
+              "strength": 1
+            },
+            "washOpacity": 0,
+            "allowCanvasClip": false
+          },
+          {
+            "id": "right-1",
+            "x": 815,
+            "y": 229.34523779156072,
+            "width": 330,
+            "height": 440,
+            "role": "support",
+            "priority": 2,
+            "z": 12,
+            "shadow": {
+              "kind": "support",
+              "strength": 1
+            },
+            "washOpacity": 0,
+            "allowCanvasClip": false
+          },
+          {
+            "id": "right-2",
+            "x": 1185,
+            "y": 229.34523779156072,
+            "width": 330,
+            "height": 440,
+            "role": "support",
+            "priority": 3,
+            "z": 13,
+            "shadow": {
+              "kind": "support",
+              "strength": 1
+            },
+            "washOpacity": 0,
+            "allowCanvasClip": false
+          }
+        ],
+        "edgeAlignments": [
+          {
+            "slotIds": [
+              "left-1",
+              "left-2",
+              "right-1",
+              "right-2"
+            ],
+            "edges": [
+              "top",
+              "bottom"
+            ]
+          }
+        ],
+        "layerOrder": [
+          "background",
+          "support-shadow",
+          "support",
+          "focus-shadow",
+          "hero",
+          "logo"
+        ]
+      },
+      "background": {
+        "kind": "radial-gradient",
+        "center": {
+          "x": 0.53,
+          "y": 0.43
+        },
+        "radius": 0.72,
+        "stops": [
+          {
+            "offset": 0,
+            "color": "#f8f8f8"
+          },
+          {
+            "offset": 0.58,
+            "color": "#d8dadd"
+          },
+          {
+            "offset": 1,
+            "color": "#aeb1b5"
+          }
+        ]
+      }
+    },
+    {
+      "suiteId": "approved-portrait-4x3-suite",
+      "templateId": "portrait-4x3-body-4-studio",
+      "version": "approved-portrait-4x3-v1",
+      "geometryHash": "c72024d01d1b25ebed5a1c14b904c718122258189c30ca80a9ba1b4f1fc98cff",
+      "template": {
+        "id": "portrait-4x3-body-4-studio",
+        "templateNumber": 6,
+        "version": "approved-portrait-4x3-v1",
+        "outputName": "short-detail-3.jpg",
+        "kind": "body",
+        "canvas": {
+          "width": 1600,
+          "height": 900
+        },
+        "slideAspectRatio": 0.75,
+        "axisAngle": -17.795988923930377,
+        "backgroundId": "a4-portrait-dark-wood",
+        "logo": {
+          "assetPath": "/images/woolim-logo-cropped.png",
+          "left": 48,
+          "top": 38,
+          "width": 95,
+          "z": 1000
+        },
+        "rails": [],
+        "fixedSlots": [
+          {
+            "id": "back-right",
+            "x": 742.2572148875845,
+            "y": 173.08195038055177,
+            "width": 425.3527947480773,
+            "height": 567.137059664103,
+            "role": "support",
+            "priority": 0,
+            "z": 10,
+            "shadow": {
+              "kind": "custom",
+              "layers": [
+                {
+                  "dx": 7,
+                  "dy": 10,
+                  "blur": 18,
+                  "opacity": 0.23,
+                  "color": "#111820"
+                },
+                {
+                  "dx": 2,
+                  "dy": 3,
+                  "blur": 5,
+                  "opacity": 0.36,
+                  "color": "#111820"
+                }
+              ]
+            },
+            "washOpacity": 0,
+            "allowCanvasClip": false
+          },
+          {
+            "id": "front-left",
+            "x": 280.2572148875845,
+            "y": 321.3782463805518,
+            "width": 425.3527947480773,
+            "height": 567.137059664103,
+            "role": "support",
+            "priority": 1,
+            "z": 20,
+            "shadow": {
+              "kind": "custom",
+              "layers": [
+                {
+                  "dx": 8,
+                  "dy": 12,
+                  "blur": 22,
+                  "opacity": 0.27,
+                  "color": "#111820"
+                },
+                {
+                  "dx": 2,
+                  "dy": 4,
+                  "blur": 6,
+                  "opacity": 0.4,
+                  "color": "#111820"
+                }
+              ]
+            },
+            "washOpacity": 0,
+            "allowCanvasClip": false
+          }
+        ],
+        "edgeAlignments": [
+          {
+            "slotIds": [
+              "back-right",
+              "front-left"
+            ],
+            "edges": [
+              "top",
+              "bottom"
+            ]
+          }
+        ],
+        "layerOrder": [
+          "background",
+          "support-shadow",
+          "support",
+          "focus-shadow",
+          "hero",
+          "logo"
+        ]
+      },
+      "background": {
+        "kind": "image",
+        "assetPath": "/images/mockup-templates/a4-portrait-dark-wood.png",
+        "brightness": 0.86,
+        "saturation": 0.75
+      }
     }
   ],
   "review": {

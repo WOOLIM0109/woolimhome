@@ -6,13 +6,14 @@ import sharp from "sharp";
 import { classifyImageRegion, imageRegionStats } from "../../portfolio/photo-detect.ts";
 
 export const PREPARATION_RULE_VERSION = "local-preparation-2";
-export type PreparationAspect = "16:9" | "a4_landscape" | "a4_portrait" | "4:3" | "unknown";
+export type PreparationAspect = "16:9" | "a4_landscape" | "a4_portrait" | "4:3_portrait" | "4:3" | "unknown";
 export type PreparationPageSizeVariant =
   | "widescreen_16_9"
   | "iso_a4_landscape"
   | "iso_a4_portrait"
   | "powerpoint_a4_preset_landscape"
   | "standard_4_3"
+  | "standard_4_3_portrait"
   | "custom"
   | "unknown";
 export type InspectionIssue = { code: string; detail: string };
@@ -339,6 +340,7 @@ export function classifyPreparationPageSize(
     ["a4_landscape", 297 / 210, "iso_a4_landscape"],
     ["a4_portrait", 210 / 297, "iso_a4_portrait"],
     ["4:3", 4 / 3, "standard_4_3"],
+    ["4:3_portrait", 3 / 4, "standard_4_3_portrait"],
   ] as const) {
     if (Math.abs(ratio / target - 1) <= .005) return { aspect, pageSizeVariant };
   }

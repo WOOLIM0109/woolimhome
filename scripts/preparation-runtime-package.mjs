@@ -45,6 +45,7 @@ export const PREPARATION_RUNTIME_SOURCE_FILES = Object.freeze([
   "lib/portfolio/approved-16x9-templates.ts",
   "lib/portfolio/approved-a4-landscape-templates.ts",
   "lib/portfolio/approved-a4-portrait-templates.ts",
+  "lib/portfolio/approved-portrait-4x3-templates.ts",
   "lib/portfolio/a4-source-fit.ts",
   "lib/portfolio/approved-assigned-board-renderer.ts",
   "lib/portfolio/approved-mockup-geometry.ts",

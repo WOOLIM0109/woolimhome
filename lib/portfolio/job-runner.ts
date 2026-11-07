@@ -181,11 +181,13 @@ function portfolioMockupCacheCurrent(assets: GeneratedPortfolioAsset[], savedTem
   const templateVersion = sharedMockupTemplateVersion(assets);
   const approvedSuite = getApprovedMockupSuiteByVersion(templateVersion);
   return assets.every((asset) => (
-    !(asset.mockupMode === "six_grid" && ["16:9", "a4_portrait", "mixed"].includes(asset.aspectClass || "unknown"))
+    !(asset.mockupMode === "six_grid" && ["16:9", "a4_portrait", "4:3_portrait", "mixed"].includes(asset.aspectClass || "unknown"))
     && (asset.mockupMode !== "short_psd"
       || (approvedSuite !== null
         && !asset.mockupTemplateId?.startsWith("legacy-a4_portrait-")
+        && !asset.mockupTemplateId?.startsWith("legacy-4:3_portrait-")
         && (asset.aspectClass !== "a4_portrait" || approvedSuite.aspectClass === "a4_portrait")
+        && (asset.aspectClass !== "4:3_portrait" || approvedSuite.aspectClass === "4:3_portrait")
         && templateVersion !== null
         && savedTemplateVersion === templateVersion
         && asset.mockupTemplateVersion === templateVersion))
