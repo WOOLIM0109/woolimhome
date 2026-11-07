@@ -209,7 +209,15 @@ export async function createProductionMockupBridge(input: { privateRoot: string;
   let processing = false;
   const event = (code: string, sessionId?: string) => input.onEvent?.({ code, ...(sessionId ? { sessionId } : {}) });
   async function remoteReviewIsOpen(directory: string, record: SessionRecord, server?: LocalReviewServerHandle) {
-    const response = await input.transport.post(record.sessionId, { action: "status" });
+    let response: Json;
+    try { response = await input.transport.post(record.sessionId, { action: "status" }); }
+    catch (error) {
+      if (!(error instanceof Error) || error.message !== "MOCKUP_SESSION_NOT_OWNED") throw error;
+      record.state = "cancelled";
+      await saveRecord(directory, record);
+      event("MOCKUP_REVIEW_CLOSED", record.sessionId);
+      return false;
+    }
     if (response.sessionId !== record.sessionId || !["preparing", "review", "uploading", "staged", "activated", "failed", "cancelled"].includes(String(response.status))) {
       fail("MOCKUP_BRIDGE_STATUS_INVALID");
     }
@@ -345,9 +353,11 @@ export async function createProductionMockupBridge(input: { privateRoot: string;
       try {
         for (const server of retired) { await server.close(); retired.delete(server); }
         for (const [id, entry] of active) {
-          const stillOpen = entry.record.state === "review"
-            && await remoteReviewIsOpen(path.join(root, id), entry.record, entry.server);
-          if (!stillOpen) { await entry.server.close(); active.delete(id); }
+          try {
+            const stillOpen = entry.record.state === "review"
+              && await remoteReviewIsOpen(path.join(root, id), entry.record, entry.server);
+            if (!stillOpen) { await entry.server.close(); active.delete(id); }
+          } catch (error) { event(publicProductionBridgeError(error), id); }
         }
         if (active.size >= 3) return { claimed: false, busy: true };
         session = await input.transport.claim();
