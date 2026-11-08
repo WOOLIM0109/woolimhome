@@ -11,6 +11,8 @@
     "version": "1.0.0",
     "platform": "win32",
     "arch": "x64",
-    "note": "2026-11-08 PR #224 병합 직후 main에서 만든 현재 사무실 PC 설치본"
+    "note": "2026-11-08 PR #224 병합 직후 main에서 만든 현재 사무실 PC 설치본",
+    "url": "https://github.com/WOOLIM0109/woolimhome/releases/download/preparation-runtime-1.0.0-0dd37af3/preparation-runtime-1.0.0-0dd37af3.zip",
+    "archiveSha256": "82e38cea49e508397d37d02897d054be09e9227d3cb5f3bdd4ac4dbffa3e1329"
   }
 ]
