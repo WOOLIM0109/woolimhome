@@ -18,9 +18,20 @@ $taskName = "Woolim Mockup Bridge - $workerId"
 $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
 $currentUser = $identity.Name
 $existing = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
-if ($existing -and $existing.Principal.UserId -and
-    $existing.Principal.UserId -ine $currentUser -and $existing.Principal.UserId -ine $identity.User.Value) {
-  throw "다른 Windows 사용자의 편집 연결 작업입니다. 워커를 설정한 사용자로 로그인해 주세요."
+if ($existing -and $existing.Principal.UserId) {
+  try {
+    $existingUserId = [string]$existing.Principal.UserId
+    if ($existingUserId -match '^S-1-') {
+      $existingUserSid = [Security.Principal.SecurityIdentifier]::new($existingUserId).Value
+    } else {
+      $existingUserSid = [Security.Principal.NTAccount]::new($existingUserId).Translate([Security.Principal.SecurityIdentifier]).Value
+    }
+  } catch {
+    $existingUserSid = $null
+  }
+  if ($existingUserSid -ne $identity.User.Value) {
+    throw "다른 Windows 사용자의 편집 연결 작업입니다. 워커를 설정한 사용자로 로그인해 주세요."
+  }
 }
 
 # 원래 설치 파일과 손으로 만든 실행 파일을 지우지 않습니다. 덮어쓰기 전에 복사합니다.
