@@ -8,7 +8,7 @@ function ConvertTo-BridgeNativeArgument {
 
 function Invoke-BridgeCommand {
   param([string]$FilePath, [string[]]$Arguments, [string]$WorkingDirectory,
-    [string]$InputText, [string]$FailureCode = 'PREPARATION_COMMAND_FAILED')
+    [string]$InputText, [string]$FailureCode = 'PREPARATION_COMMAND_FAILED', [int]$TimeoutSeconds = 0)
   $start = New-Object System.Diagnostics.ProcessStartInfo
   $start.FileName = $FilePath
   $start.Arguments = (($Arguments | ForEach-Object { ConvertTo-BridgeNativeArgument $_ }) -join ' ')
@@ -32,7 +32,12 @@ function Invoke-BridgeCommand {
       $child.StandardInput.BaseStream.Flush()
     }
     $child.StandardInput.Close()
-    $child.WaitForExit()
+    if ($TimeoutSeconds -gt 0) {
+      if (-not $child.WaitForExit($TimeoutSeconds * 1000)) {
+        $child.Kill()
+        throw $FailureCode
+      }
+    } else { $child.WaitForExit() }
     $stdout = $output.GetAwaiter().GetResult()
     $stderr = $errors.GetAwaiter().GetResult()
     if ($child.ExitCode -ne 0) {
@@ -143,7 +148,7 @@ function Invoke-BridgeRuntimeCheck {
   param([string]$NodePath, [object]$Record)
   $raw = Invoke-BridgeCommand -FilePath $NodePath -Arguments @('--experimental-strip-types',
     (Join-Path $Record.path 'scripts\run-production-mockup-worker.mjs'), '--expected-fingerprint', $Record.fingerprint, '--check') `
-    -WorkingDirectory $Record.path -FailureCode 'PREPARATION_RUNTIME_CHECK_FAILED'
+    -WorkingDirectory $Record.path -FailureCode 'PREPARATION_RUNTIME_CHECK_FAILED' -TimeoutSeconds 60
   try { $result = $raw | ConvertFrom-Json } catch { throw 'PREPARATION_RUNTIME_CHECK_FAILED' }
   # Whitelist the entire response shape. Never relay raw child output or settings.
   $allowed = @('ready', 'started', 'bridgeVersion', 'workerVersion', 'fingerprint')

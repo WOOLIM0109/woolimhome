@@ -288,6 +288,32 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\install.ps1
 
 비밀키를 교체할 때만 `setup.ps1`에 `-ReplaceSecret`을 붙입니다. 비밀키를 명령행 인수로 전달하는 옵션은 의도적으로 제공하지 않습니다.
 
+## 편집 연결 꾸러미 배포와 자동 업데이트
+
+개발 재료(`node_modules`)가 있는 Windows PC에서 빈 절대 경로를 지정해 배포 파일을 만듭니다.
+상위 폴더는 먼저 만들어 두어야 합니다.
+
+```powershell
+node scripts/publish-preparation-runtime.mjs --output C:\runtime-releases\release-20261108
+```
+
+지정한 폴더에 `runtime` 폴더와 `preparation-runtime-1.0.0-<지문앞8자>.zip`이 생깁니다.
+출력 JSON의 `fingerprint`, `archiveSha256`, `archivePath`를 확인합니다. 이 명령은 업로드하지 않습니다.
+담당자가 `gh release`로 이 저장소의 릴리스에 ZIP을 올린 뒤,
+`approved-preparation-runtimes.json`의 해당 항목에 실제 `url`과 `archiveSha256`을 함께 적고
+`main`에 반영합니다. 주소는 `https://github.com/WOOLIM0109/woolimhome/releases/download/`로
+시작해야 합니다. 예전 승인 항목은 두 칸 없이 유지할 수 있습니다.
+
+새 도구를 기존 PC에 적용할 때는 최신 저장소의 `bridge-install.ps1`을 한 번 실행합니다.
+이후 `PC 편집 연결 업데이트`는 원격 `main`의 최신 승인을 읽고, URL이 있으면 ZIP을 받아
+SHA-256을 먼저 확인한 뒤 압축을 풀고 기존 설치 검사를 수행합니다. 이 경로에는 PC의
+`node_modules`가 필요 없습니다. URL이 없으면 기존처럼 PC에서 꾸러미를 만듭니다.
+
+편집 연결을 시작할 때도 최신 지문을 확인합니다. 현재 지문과 다르고 URL이 있으면 자동으로
+업데이트하며, 편집 중인 요청(`state: review`)이 있으면 다음 시작으로 미룹니다.
+업데이트 실패 시 기존 꾸러미로 시작하고 `%LOCALAPPDATA%\WoolimWorker\bridge-launch.log`에
+이유를 남깁니다. 이미 실행 중인 편집 연결을 자동 확인 때문에 중단하지 않습니다.
+
 ## 제거
 
 예약 작업과 설치 파일만 제거하고 설정·로그는 보존합니다.

@@ -88,6 +88,108 @@ function Write-BridgeRestartNotice {
   }
 }
 
+function Start-BridgeLaunchChild {
+  param([string]$NodePath, [object]$Runtime, [string]$LogRoot)
+  $entryPoint = Join-Path $Runtime.path 'scripts\run-production-mockup-worker.mjs'
+  $stamp = (Get-Date -Format 'yyyyMMdd-HHmmss-fff') + '-' + [guid]::NewGuid().ToString('N')
+  $child = Start-Process -FilePath $NodePath -WorkingDirectory $Runtime.path `
+    -ArgumentList ("--experimental-strip-types `"{0}`" --expected-fingerprint {1}" -f $entryPoint, $Runtime.fingerprint) `
+    -RedirectStandardOutput (Join-Path $LogRoot ($stamp + '.stdout.log')) `
+    -RedirectStandardError (Join-Path $LogRoot ($stamp + '.stderr.log')) `
+    -WindowStyle Hidden -PassThru
+  # Keep the process handle available for ExitCode after WaitForExit on PS 5.1.
+  $null = $child.Handle
+  return $child
+}
+
+function Stop-BridgeLaunchCandidate {
+  param([object]$Child)
+  # This is the handle returned by our own Start-Process, never a discovered PID.
+  try {
+    $Child.Refresh()
+    if (-not $Child.HasExited) { $Child.Kill(); $Child.WaitForExit() }
+  } finally { $Child.Dispose() }
+}
+
+function Get-BridgeLaunchUpdateScript {
+  # The legacy launcher is installed one directory above the app helpers.
+  $updater = Join-Path $PSScriptRoot 'bridge-update.ps1'
+  if (-not (Test-Path -LiteralPath $updater -PathType Leaf)) {
+    $updater = Join-Path $PSScriptRoot 'app\bridge-update.ps1'
+  }
+  return $updater
+}
+
+function Invoke-BridgeLaunchAutoUpdate {
+  param([string]$WorkerRoot, [object]$Current, [string]$NodePath, [string]$LogRoot)
+  $updateMutex = $null
+  $ownsUpdateMutex = $false
+  $changed = $false
+  $candidate = $null
+  try {
+    # Load helpers within the failure boundary, so even a missing helper falls
+    # back to the current runtime. Dot-sourcing never starts an explicit update.
+    . (Get-BridgeLaunchUpdateScript)
+    if ((Get-BridgeReviewCount -WorkerRoot $WorkerRoot) -gt 0) {
+      Write-BridgeLaunchLog -WorkerRoot $WorkerRoot -Message '편집 중인 요청이 있어 자동 업데이트를 다음 실행으로 미룹니다.'
+      return $null
+    }
+    $context = Get-BridgeUpdateContext
+    if (-not [string]::Equals($context.WorkerRoot, $WorkerRoot, [StringComparison]::OrdinalIgnoreCase)) {
+      throw 'PREPARATION_RUNTIME_CONFIG_INVALID'
+    }
+    $updateMutex = New-Object Threading.Mutex($false, ('Local\WoolimBridgeUpdate-' + $context.WorkerId))
+    try { $ownsUpdateMutex = $updateMutex.WaitOne(0) } catch [Threading.AbandonedMutexException] { $ownsUpdateMutex = $true }
+    # A manual update starts this launcher while it still holds the update mutex.
+    # Use the runtime it selected immediately, without fetching or waiting on it.
+    if (-not $ownsUpdateMutex) { return $null }
+    $approvals = Read-BridgeFetchedApprovals -Context $context
+    $approved = Get-BridgeApproval -Context $context -Approvals $approvals -Arguments @('--latest')
+    if ([string]::Equals($approved.fingerprint, $Current.fingerprint, [StringComparison]::Ordinal) -or -not $approved.url) {
+      return $null
+    }
+    # Validate the complete saved rollback record before a change. A malformed
+    # previous field must not make restoration fail after starting a candidate.
+    $null = Read-BridgeRuntimeConfig -WorkerRoot $WorkerRoot
+    $target = Get-BridgePreparedRuntime -Context $context -Approvals $approvals -Approved $approved
+    Invoke-BridgeRuntimeCheck -NodePath $NodePath -Record $target
+    $null = Get-BridgeApproval -Context $context -Approvals $approvals -Arguments @('--rollback-fingerprint', $Current.fingerprint)
+    Invoke-BridgeRuntimeCheck -NodePath $NodePath -Record $Current
+    if ((Get-BridgeReviewCount -WorkerRoot $WorkerRoot) -gt 0) {
+      Write-BridgeLaunchLog -WorkerRoot $WorkerRoot -Message '편집 중인 요청이 있어 자동 업데이트를 다음 실행으로 미룹니다.'
+      return $null
+    }
+    $next = [pscustomobject]@{ path = $target.path; fingerprint = $target.fingerprint;
+      previous = [pscustomobject]@{ path = $Current.path; fingerprint = $Current.fingerprint } }
+    Write-BridgeRuntimeConfig -WorkerRoot $WorkerRoot -Config $next
+    $changed = $true
+    $candidate = Start-BridgeLaunchChild -NodePath $NodePath -Runtime $target -LogRoot $LogRoot
+    if (-not (Wait-BridgeRuntime -WorkerRoot $WorkerRoot -Fingerprint $target.fingerprint -OldProcessId 0)) {
+      throw 'PREPARATION_BRIDGE_START_TIMEOUT'
+    }
+    Write-BridgeLaunchLog -WorkerRoot $WorkerRoot -Message ('승인된 편집 연결로 자동 업데이트했습니다. 지문: ' + $target.fingerprint)
+    return $candidate
+  } catch {
+    $code = $_.Exception.Message
+    if ($code -cnotmatch '^PREPARATION_[A-Z0-9_]+$') { $code = 'PREPARATION_AUTO_UPDATE_FAILED' }
+    if ($candidate) {
+      try { Stop-BridgeLaunchCandidate -Child $candidate }
+      catch { $code = 'PREPARATION_BRIDGE_RESTORE_FAILED' }
+    }
+    if ($changed) {
+      try { Write-BridgeRuntimeConfig -WorkerRoot $WorkerRoot -Config $Current }
+      catch { $code = 'PREPARATION_BRIDGE_RESTORE_FAILED' }
+    }
+    # Update failure must not prevent the existing runtime from starting.
+    try { Write-BridgeLaunchLog -WorkerRoot $WorkerRoot -Message ('자동 업데이트를 마치지 못해 기존 편집 연결을 시작합니다. 기술 코드: ' + $code) }
+    catch { }
+    return $null
+  } finally {
+    if ($ownsUpdateMutex) { $updateMutex.ReleaseMutex() }
+    if ($updateMutex) { $updateMutex.Dispose() }
+  }
+}
+
 function Invoke-BridgeLaunch {
   $ErrorActionPreference = "Stop"
   $workerRoot = $null
@@ -111,17 +213,14 @@ function Invoke-BridgeLaunch {
     if ((Get-Item -LiteralPath $logRoot).Attributes -band [IO.FileAttributes]::ReparsePoint) {
       throw "BRIDGE_LOG_ROOT_INVALID"
     }
-    $stamp = Get-Date -Format "yyyyMMdd-HHmmss-fff"
     $node = (Get-Command node.exe -CommandType Application -ErrorAction Stop).Source
-    $entryPoint = Join-Path $runtime.path "scripts\run-production-mockup-worker.mjs"
     Write-BridgeRestartNotice -WorkerRoot $workerRoot
     Write-BridgeLaunchLog -WorkerRoot $workerRoot -Message "편집 연결을 시작합니다."
-    $child = Start-Process -FilePath $node -WorkingDirectory $runtime.path `
-      -ArgumentList ("--experimental-strip-types `"{0}`" --expected-fingerprint {1}" -f $entryPoint, $runtime.fingerprint) `
-      -RedirectStandardOutput (Join-Path $logRoot ($stamp + ".stdout.log")) `
-      -RedirectStandardError (Join-Path $logRoot ($stamp + ".stderr.log")) `
-      -WindowStyle Hidden -Wait -PassThru
-    if ($child.ExitCode -ne 0) {
+    $child = Invoke-BridgeLaunchAutoUpdate -WorkerRoot $workerRoot -Current $runtime -NodePath $node -LogRoot $logRoot
+    if (-not $child) { $child = Start-BridgeLaunchChild -NodePath $node -Runtime $runtime -LogRoot $logRoot }
+    try { $child.WaitForExit(); $exitCode = $child.ExitCode }
+    finally { $child.Dispose() }
+    if ($exitCode -ne 0) {
       Write-BridgeLaunchLog -WorkerRoot $workerRoot -Message "편집 연결이 멈췄습니다. PC 편집 연결 업데이트를 실행하거나 개발 담당에게 알려 주세요."
       return 1
     }
