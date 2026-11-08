@@ -2,6 +2,24 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 
 const sha256 = /^[a-fA-F0-9]{64}$/;
+const releasePrefix = "https://github.com/WOOLIM0109/woolimhome/releases/download/";
+
+function validArchive(entry) {
+  const hasUrl = Object.hasOwn(entry, "url");
+  const hasHash = Object.hasOwn(entry, "archiveSha256");
+  if (!hasUrl && !hasHash) return true; // Existing offline approvals remain valid.
+  if (!hasUrl || !hasHash || typeof entry.url !== "string" || typeof entry.archiveSha256 !== "string"
+    || !sha256.test(entry.archiveSha256) || !entry.url.startsWith(releasePrefix)) return false;
+  try {
+    const url = new URL(entry.url);
+    const assetParts = url.pathname.slice("/WOOLIM0109/woolimhome/releases/download/".length).split("/");
+    // URL normalization must not turn an apparently allowed path into another repository or endpoint.
+    return url.protocol === "https:" && url.hostname === "github.com"
+      && !url.username && !url.password && !url.port
+      && url.pathname.startsWith("/WOOLIM0109/woolimhome/releases/download/")
+      && assetParts.length >= 2 && assetParts.every((part) => part.length > 0);
+  } catch { return false; }
+}
 
 /** Entries are ordered oldest first; approval comes only from fetched origin/main. */
 export function getLatestApprovedRuntime(approvals, platform, arch) {
@@ -10,7 +28,7 @@ export function getLatestApprovedRuntime(approvals, platform, arch) {
   for (const entry of approvals) {
     if (!entry || typeof entry.fingerprint !== "string" || !sha256.test(entry.fingerprint) || entry.version !== "1.0.0"
       || typeof entry.platform !== "string" || !entry.platform
-      || typeof entry.arch !== "string" || !entry.arch || typeof entry.note !== "string") {
+      || typeof entry.arch !== "string" || !entry.arch || typeof entry.note !== "string" || !validArchive(entry)) {
       throw new Error("PREPARATION_APPROVAL_LIST_INVALID");
     }
     const key = `${entry.platform}/${entry.arch}/${entry.fingerprint}`;

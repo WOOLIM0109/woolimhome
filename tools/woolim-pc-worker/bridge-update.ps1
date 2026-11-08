@@ -36,7 +36,6 @@ function Get-BridgeUpdateContext {
   if (-not (Test-Path -LiteralPath (Join-Path $repository 'scripts\package-preparation-runtime.mjs') -PathType Leaf)) {
     throw 'PREPARATION_SOURCE_MISSING'
   }
-  if (-not (Test-Path -LiteralPath (Join-Path $repository 'node_modules') -PathType Container)) { throw 'PREPARATION_DEPENDENCY_MISSING' }
   if (-not $env:LOCALAPPDATA -or -not [IO.Path]::IsPathRooted($env:LOCALAPPDATA)) { throw 'PREPARATION_PRIVATE_ROOT_INVALID' }
   $workerRoot = [IO.Path]::GetFullPath((Join-Path $env:LOCALAPPDATA 'WoolimWorker'))
   $repositoryPath = [IO.Path]::GetFullPath($repository).TrimEnd('\')
@@ -87,7 +86,7 @@ function Get-BridgeLegacyRuntime {
 function Read-BridgeFetchedApprovals {
   param([object]$Context)
   $null = Invoke-BridgeCommand -FilePath $Context.GitPath -Arguments @('fetch', 'origin', 'main') `
-    -WorkingDirectory $Context.Repository -FailureCode 'PREPARATION_APPROVAL_FETCH_FAILED'
+    -WorkingDirectory $Context.Repository -FailureCode 'PREPARATION_APPROVAL_FETCH_FAILED' -TimeoutSeconds 30
   return Invoke-BridgeCommand -FilePath $Context.GitPath `
     -Arguments @('show', 'origin/main:tools/woolim-pc-worker/approved-preparation-runtimes.json') `
     -WorkingDirectory $Context.Repository -FailureCode 'PREPARATION_APPROVAL_FETCH_FAILED'
@@ -99,6 +98,85 @@ function Get-BridgeApproval {
     -Arguments (@((Join-Path $PSScriptRoot 'approved-runtime.mjs')) + $Arguments) `
     -InputText $Approvals -WorkingDirectory $Context.Repository -FailureCode 'PREPARATION_APPROVAL_LIST_INVALID'
   try { return $raw | ConvertFrom-Json } catch { throw 'PREPARATION_APPROVAL_LIST_INVALID' }
+}
+
+function New-BridgeStagingDirectory {
+  param([string]$WorkerRoot)
+  New-Item -ItemType Directory -Path $WorkerRoot -Force | Out-Null
+  $stagingRoot = Join-Path $WorkerRoot 'staging'
+  New-Item -ItemType Directory -Path $stagingRoot -Force | Out-Null
+  foreach ($directory in @($WorkerRoot, $stagingRoot)) {
+    if ((Get-Item -LiteralPath $directory).Attributes -band [IO.FileAttributes]::ReparsePoint) {
+      throw 'PREPARATION_STAGING_ROOT_INVALID'
+    }
+  }
+  $staging = Join-Path $stagingRoot ((Get-Date -Format 'yyyyMMdd-HHmmss-fff') + '-' + [guid]::NewGuid().ToString('N'))
+  New-Item -ItemType Directory -Path $staging | Out-Null
+  return $staging
+}
+
+function Assert-BridgeArchiveEntries {
+  param([string]$ArchivePath)
+  # Inspect only after the archive digest passed. Extraction must stay in its new directory.
+  Add-Type -AssemblyName System.IO.Compression.FileSystem
+  $archive = [IO.Compression.ZipFile]::OpenRead($ArchivePath)
+  try {
+    $names = New-Object 'Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
+    $totalBytes = [long]0
+    if ($archive.Entries.Count -eq 0 -or $archive.Entries.Count -gt 10000) { throw 'PREPARATION_ARCHIVE_INVALID' }
+    foreach ($entry in $archive.Entries) {
+      $name = $entry.FullName.TrimEnd('/')
+      if (-not $name -or $name -match '[\\:\x00]' -or $name.StartsWith('/') -or
+        @($name.Split('/') | Where-Object { -not $_ -or $_ -eq '.' -or $_ -eq '..' -or $_ -match '[. ]$' }).Count -gt 0 -or
+        -not $names.Add($name)) { throw 'PREPARATION_ARCHIVE_INVALID' }
+      $totalBytes += $entry.Length
+      if ($totalBytes -gt 268435456) { throw 'PREPARATION_ARCHIVE_INVALID' }
+    }
+  } finally { $archive.Dispose() }
+}
+
+function Get-BridgePreparedRuntime {
+  param([object]$Context, [string]$Approvals, [object]$Approved)
+  $staging = New-BridgeStagingDirectory -WorkerRoot $Context.WorkerRoot
+  if ($Approved.url) {
+    $archivePath = Join-Path $staging 'preparation-runtime.zip'
+    Write-Host '승인된 설치 파일을 받습니다...'
+    try {
+      Invoke-WebRequest -Uri $Approved.url -OutFile $archivePath -UseBasicParsing -TimeoutSec 60 -ErrorAction Stop | Out-Null
+    } catch {
+      if (Test-Path -LiteralPath $archivePath -PathType Leaf) { Remove-Item -LiteralPath $archivePath }
+      throw 'PREPARATION_ARCHIVE_DOWNLOAD_FAILED'
+    }
+    $actualHash = (Get-FileHash -LiteralPath $archivePath -Algorithm SHA256).Hash
+    if (-not [string]::Equals($actualHash, $Approved.archiveSha256, [StringComparison]::OrdinalIgnoreCase)) {
+      Remove-Item -LiteralPath $archivePath
+      throw 'PREPARATION_ARCHIVE_SHA_MISMATCH'
+    }
+    Assert-BridgeArchiveEntries -ArchivePath $archivePath
+    $packageRoot = Join-Path $staging 'runtime'
+    New-Item -ItemType Directory -Path $packageRoot | Out-Null
+    Expand-Archive -LiteralPath $archivePath -DestinationPath $packageRoot -ErrorAction Stop
+  } else {
+    if (-not (Test-Path -LiteralPath (Join-Path $Context.Repository 'node_modules') -PathType Container)) {
+      throw 'PREPARATION_DEPENDENCY_MISSING'
+    }
+    Write-Host '설치 파일을 만들고 승인된 지문과 대조합니다...'
+    $packageRoot = $staging
+    $raw = Invoke-BridgeCommand -FilePath $Context.NodePath -WorkingDirectory $Context.Repository `
+      -Arguments @('scripts/package-preparation-runtime.mjs', '--output', $packageRoot) -FailureCode 'PREPARATION_PACKAGE_FAILED'
+    try { $package = $raw | ConvertFrom-Json } catch { throw 'PREPARATION_PACKAGE_FAILED' }
+    $Approved = Get-BridgeApproval -Context $Context -Approvals $Approvals -Arguments @('--fingerprint', $package.fingerprint)
+  }
+  $raw = Invoke-BridgeCommand -FilePath $Context.NodePath -WorkingDirectory $Context.Repository `
+    -Arguments @('scripts/install-preparation-runtime.mjs', '--package', $packageRoot, '--runtime-root',
+      (Join-Path $Context.WorkerRoot 'preparation-runtimes'), '--expected-fingerprint', $Approved.fingerprint) `
+    -FailureCode 'PREPARATION_INSTALL_FAILED'
+  try { $installed = $raw | ConvertFrom-Json } catch { throw 'PREPARATION_INSTALL_FAILED' }
+  $target = Assert-BridgeRuntimeRecord -Record ([pscustomobject]@{ path = $installed.runtimeRoot; fingerprint = $Approved.fingerprint }) `
+    -WorkerRoot $Context.WorkerRoot
+  if (-not [string]::Equals($installed.fingerprint, $Approved.fingerprint, [StringComparison]::Ordinal) -or
+    $installed.activated -isnot [bool] -or $installed.activated -ne $false) { throw 'PREPARATION_INSTALL_FAILED' }
+  return $target
 }
 
 function Invoke-BridgeUpdate {
@@ -119,29 +197,13 @@ function Invoke-BridgeUpdate {
       }
     }
     $approvals = Read-BridgeFetchedApprovals -Context $context
-    $null = Get-BridgeApproval -Context $context -Approvals $approvals -Arguments @('--latest')
+    $approved = Get-BridgeApproval -Context $context -Approvals $approvals -Arguments @('--latest')
     if ($Rollback) {
       if (-not $current -or -not $current.previous) { throw 'PREPARATION_ROLLBACK_MISSING' }
       $target = Assert-BridgeRuntimeRecord -Record $current.previous -WorkerRoot $context.WorkerRoot
       $approved = Get-BridgeApproval -Context $context -Approvals $approvals -Arguments @('--rollback-fingerprint', $target.fingerprint)
     } else {
-      New-Item -ItemType Directory -Path $context.WorkerRoot -Force | Out-Null
-      $staging = Join-Path (Join-Path $context.WorkerRoot 'staging') ((Get-Date -Format 'yyyyMMdd-HHmmss-fff') + '-' + [guid]::NewGuid().ToString('N'))
-      New-Item -ItemType Directory -Path $staging | Out-Null
-      Write-Host '설치 파일을 만들고 승인된 지문과 대조합니다...'
-      $raw = Invoke-BridgeCommand -FilePath $context.NodePath -WorkingDirectory $context.Repository `
-        -Arguments @('scripts/package-preparation-runtime.mjs', '--output', $staging) -FailureCode 'PREPARATION_PACKAGE_FAILED'
-      try { $package = $raw | ConvertFrom-Json } catch { throw 'PREPARATION_PACKAGE_FAILED' }
-      $approved = Get-BridgeApproval -Context $context -Approvals $approvals -Arguments @('--fingerprint', $package.fingerprint)
-      $raw = Invoke-BridgeCommand -FilePath $context.NodePath -WorkingDirectory $context.Repository `
-        -Arguments @('scripts/install-preparation-runtime.mjs', '--package', $staging, '--runtime-root',
-          (Join-Path $context.WorkerRoot 'preparation-runtimes'), '--expected-fingerprint', $approved.fingerprint) `
-        -FailureCode 'PREPARATION_INSTALL_FAILED'
-      try { $installed = $raw | ConvertFrom-Json } catch { throw 'PREPARATION_INSTALL_FAILED' }
-      $target = Assert-BridgeRuntimeRecord -Record ([pscustomobject]@{ path = $installed.runtimeRoot; fingerprint = $approved.fingerprint }) `
-        -WorkerRoot $context.WorkerRoot
-      if (-not [string]::Equals($installed.fingerprint, $approved.fingerprint, [StringComparison]::Ordinal) -or
-        $installed.activated -isnot [bool] -or $installed.activated -ne $false) { throw 'PREPARATION_INSTALL_FAILED' }
+      $target = Get-BridgePreparedRuntime -Context $context -Approvals $approvals -Approved $approved
     }
     Invoke-BridgeRuntimeCheck -NodePath $context.NodePath -Record $target
     if ($CheckOnly) {
@@ -165,6 +227,8 @@ function Show-BridgeUpdateError {
   $message = switch -Regex ($Code) {
     '^PREPARATION_NODE_22_6_REQUIRED$' { 'Node.js 22.6 이상이 필요합니다. 개발 담당에게 설치를 요청해 주세요.'; break }
     '^PREPARATION_DEPENDENCY_MISSING$' { '필요한 부품 폴더(node_modules)가 없습니다. 개발 담당에게 알려 주세요. 자동으로 내려받지 않습니다.'; break }
+    '^PREPARATION_ARCHIVE_DOWNLOAD_FAILED$' { '설치 파일을 받지 못했습니다. 인터넷 연결을 확인해 주세요.'; break }
+    '^PREPARATION_ARCHIVE_SHA_MISMATCH$' { '받은 설치 파일이 승인된 것과 다릅니다. 설치하지 않았습니다.'; break }
     '^PREPARATION_FINGERPRINT_NOT_APPROVED$' { '이 PC의 파일이 승인된 버전과 다릅니다. 설치하지 않았습니다. (원인 후보: 아직 최신 코드를 받지 않음 / 승인되지 않은 수정). 개발 담당에게 git pull과 승인 목록 확인을 요청해 주세요.'; break }
     '^PREPARATION_PACKAGE_(FILE|MANIFEST|SOURCE|EXTRA)' { '설치 파일이 중간에 바뀌었거나 깨졌습니다. 설치하지 않았습니다. 개발 담당에게 파일을 다시 받아 달라고 요청해 주세요.'; break }
     '^PREPARATION_APPROVAL_' { '최신 승인 목록을 원격 main에서 읽지 못했습니다. 설치하지 않았습니다. 인터넷 연결과 저장소 접근 권한을 확인해 주세요.'; break }
@@ -183,5 +247,7 @@ function Show-BridgeUpdateError {
   Write-Host "기술 코드: $Code" -ForegroundColor DarkGray
 }
 
-try { Invoke-BridgeUpdate -CheckOnly:$CheckOnly -Rollback:$Rollback }
-catch { Show-BridgeUpdateError -Code $_.Exception.Message; exit 1 }
+if ($MyInvocation.InvocationName -ne '.') {
+  try { Invoke-BridgeUpdate -CheckOnly:$CheckOnly -Rollback:$Rollback }
+  catch { Show-BridgeUpdateError -Code $_.Exception.Message; exit 1 }
+}
