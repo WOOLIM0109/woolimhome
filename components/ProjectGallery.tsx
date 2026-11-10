@@ -3,9 +3,10 @@
 import styles from "./PortfolioSuccess.module.css";
 
 import Image from "next/image";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight, Images, X } from "lucide-react";
 import { portfolioProjects, projectDocCategories } from "@/data/content";
+import { galleryProjectUrl, resolveGalleryProject } from "@/lib/portfolio/project-gallery-url";
 
 type PortfolioProject = (typeof portfolioProjects)[number];
 type ProjectCategory = (typeof projectDocCategories)[number]["key"];
@@ -30,6 +31,33 @@ export default function ProjectGallery({
   );
   const [selectedProject, setSelectedProject] = useState<PortfolioProject | null>(null);
   const [activeImage, setActiveImage] = useState(0);
+  const hasReadInitialProject = useRef(false);
+  const lastSyncedProjectId = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (hasReadInitialProject.current) return;
+    hasReadInitialProject.current = true;
+
+    const scopedProjects = allowedCategories
+      ? portfolioProjects.filter((project) => allowedCategories.includes(project.category))
+      : portfolioProjects;
+    const initialSelection = resolveGalleryProject(window.location.search, scopedProjects, activeCategory);
+    if (!initialSelection) return;
+
+    // Read the browser URL after hydration so this gallery can stay prerendered.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setSelectedProject(initialSelection.project);
+    setActiveCategory(initialSelection.activeCategory);
+  }, [activeCategory, allowedCategories]);
+
+  useEffect(() => {
+    const projectId = selectedProject?.id ?? null;
+    // Leave missing/invalid initial values untouched, including during Strict Mode's effect replay.
+    if (lastSyncedProjectId.current === projectId) return;
+
+    window.history.replaceState(window.history.state, "", galleryProjectUrl(window.location.href, projectId));
+    lastSyncedProjectId.current = projectId;
+  }, [selectedProject]);
 
   const visibleProjects = useMemo(
     () => {

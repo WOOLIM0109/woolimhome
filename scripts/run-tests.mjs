@@ -32,7 +32,7 @@ export async function runTestGroups(testFiles, {
   log = console.log,
   requirePowerPoint = false,
 } = {}) {
-  if (testFiles.length === 0) throw new Error("No test files found under lib.");
+  if (testFiles.length === 0) throw new Error("No test files found under lib or components.");
   const serial = new Set(serialFiles);
   const groups = [
     { name: "Parallel", flags: [], files: testFiles.filter((file) => !serial.has(file)) },
