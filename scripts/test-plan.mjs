@@ -19,6 +19,7 @@ export async function discoverTestFiles(root) {
     }
   }
   await visit("lib");
+  await visit("components");
   return files.sort();
 }
 

@@ -3,13 +3,14 @@
 import styles from "./PortfolioSuccess.module.css";
 
 import Image from "next/image";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight, Images, Star, X } from "lucide-react";
 import {
   designPortfolioCategories,
   designPortfolioProjects,
   getDesignCategoryLabel,
 } from "@/data/design-portfolio";
+import { galleryProjectUrl, resolveGalleryProject } from "@/lib/portfolio/project-gallery-url";
 
 type PortfolioProject = (typeof designPortfolioProjects)[number];
 type CategoryKey = (typeof designPortfolioCategories)[number]["key"];
@@ -140,6 +141,8 @@ export default function DesignPortfolioGallery() {
   const [activeCategory, setActiveCategory] = useState<CategoryKey>("all");
   const [selectedProject, setSelectedProject] = useState<PortfolioProject | null>(null);
   const [activeImage, setActiveImage] = useState(0);
+  const hasReadInitialProject = useRef(false);
+  const lastSyncedProjectId = useRef<string | null>(null);
 
   const visibleProjects = useMemo(
     () =>
@@ -168,6 +171,26 @@ export default function DesignPortfolioGallery() {
     if (!selectedProject) return;
     setActiveImage((current) => (current + 1) % selectedProject.images.length);
   }
+
+  useEffect(() => {
+    if (hasReadInitialProject.current) return;
+    hasReadInitialProject.current = true;
+
+    const initial = resolveGalleryProject(window.location.search, designPortfolioProjects, activeCategory);
+    if (!initial) return;
+    // Read the initial browser URL after hydration so this gallery can stay prerendered.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setSelectedProject(initial.project);
+    setActiveCategory(initial.activeCategory);
+  }, [activeCategory]);
+
+  useEffect(() => {
+    const projectId = selectedProject?.id ?? null;
+    if (lastSyncedProjectId.current === projectId) return;
+
+    window.history.replaceState(window.history.state, "", galleryProjectUrl(window.location.href, projectId));
+    lastSyncedProjectId.current = projectId;
+  }, [selectedProject]);
 
   useEffect(() => {
     if (!selectedProject) return;
