@@ -218,7 +218,8 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
   // 보류였던 작업을 바로 승인할 때 예전 보류 기록을 정리하는 데 씁니다.
   let editorialOverride: Record<string, unknown> | null = null;
   let statusBeforeChange: string | null = null;
-  let metadataBeforeChange: Record<string, unknown> | null = null;
+  // undefined 는 아직 조회하지 않은 상태이며, null 은 조회한 metadata 가 비어 있는 상태입니다.
+  let metadataBeforeChange: Record<string, unknown> | null | undefined;
   if (body.status === "published") {
     return NextResponse.json({
       error: "발행 완료는 파트너 발행 완료 등록 화면에서 네이버 게시물 URL을 입력해 처리해 주세요.",
@@ -834,8 +835,37 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
       };
     }
   }
+  let reviewNote = typeof body.review_note === "string" ? body.review_note : undefined;
+  if (body.status === "on_hold") {
+    const { data: current, error: currentError } = await contentAdmin()
+      .from("content_work_items")
+      .select("review_note,metadata")
+      .eq("id", id)
+      .single();
+    if (currentError) return NextResponse.json({ error: currentError.message }, { status: 500 });
+    metadataBeforeChange = (current.metadata || null) as Record<string, unknown> | null;
+    const validation = metadataBeforeChange?.validation as { issues?: unknown } | undefined;
+    const hasValidationIssues = Array.isArray(validation?.issues) && validation.issues.length > 0;
+    const existingNote = typeof current.review_note === "string" ? current.review_note : undefined;
+    const requestedNote = reviewNote?.trim();
+    if (!requestedNote && !existingNote?.trim() && !hasValidationIssues) {
+      return NextResponse.json({
+        error: "보류 사유를 적어 주세요. 나중에 왜 멈췄는지 알 수 있어야 합니다.",
+      }, { status: 400 });
+    }
+    reviewNote = requestedNote || existingNote;
+  }
+  if (body.status && metadataBeforeChange === undefined) {
+    const { data: current, error: currentError } = await contentAdmin()
+      .from("content_work_items")
+      .select("metadata")
+      .eq("id", id)
+      .single();
+    if (currentError) return NextResponse.json({ error: currentError.message }, { status: 500 });
+    metadataBeforeChange = (current.metadata || null) as Record<string, unknown> | null;
+  }
   const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
-  if (typeof body.review_note === "string") patch.review_note = body.review_note;
+  if (typeof reviewNote === "string") patch.review_note = reviewNote;
   if (body.status && STATUSES.includes(body.status)) patch.status = body.status;
   if (approvedMetadata) patch.metadata = approvedMetadata;
   // 보류였던 작업을 바로 승인하면 예전 보류 사유와 복원 표시를 함께 정리합니다.

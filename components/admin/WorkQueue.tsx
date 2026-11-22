@@ -1220,6 +1220,7 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
       {filteredItems.map((item) => {
         const expanded = expandedIds.has(item.id);
         const detailsId = `work-item-details-${item.id}`;
+        const canHold = Array.from((notes[item.id] || "").replace(/\s/g, "")).length >= 2;
         const displayState = item.channel === "naver_design" ? portfolioDisplayState(item) : null;
         const stall = item.channel === "naver_design" && item.format === "portfolio" ? portfolioStallState(item) : null;
         return (
@@ -1744,7 +1745,19 @@ export default function WorkQueue({ channel, reviewMode = false }: { channel?: C
                   </button>
                 )}
                 <button onClick={() => void update(item.id, { status: "approved", review_note: notes[item.id] || "" })} className="btn-gradient rounded-xl px-4 py-2 text-sm font-bold text-white">완성본 승인</button>
-                <button onClick={() => void update(item.id, { status: "on_hold", review_note: notes[item.id] || "" })} className="rounded-xl bg-stone-100 px-4 py-2 text-sm font-bold">보류</button>
+                <button
+                  onClick={() => void update(item.id, { status: "on_hold", review_note: (notes[item.id] || "").trim() })}
+                  disabled={!canHold}
+                  aria-describedby={!canHold ? `hold-reason-hint-${item.id}` : undefined}
+                  className="rounded-xl bg-stone-100 px-4 py-2 text-sm font-bold disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  보류
+                </button>
+                {!canHold && (
+                  <p id={`hold-reason-hint-${item.id}`} className="self-center text-xs text-[var(--muted)]">
+                    보류는 사유를 적어야 걸 수 있습니다.
+                  </p>
+                )}
               </div>
             </div>
           )}
