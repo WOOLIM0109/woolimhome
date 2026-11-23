@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { isAdmin } from "@/lib/auth";
 import { BOT_CATEGORY_LABEL, type BotCategory } from "@/lib/bot-detection";
+import { attributeBotPath } from "@/lib/bot-path-attribution";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 
@@ -8,7 +9,16 @@ export const dynamic = "force-dynamic";
 
 const MAX_ROWS = 10_000;
 const PAGE_SIZE = 1_000;
-const COLUMNS = "bot_name,bot_category,bot_operator,page_kind,entity_slug,requested_path,ip_address,country,accessed_at";
+/**
+ * `user_agent` 가 빠져 있던 탓에, 관리자 화면에서 `unknown-bot`·「자동화 도구」의
+ * 정체를 볼 방법이 없었습니다. 표에는 처음부터 저장돼 있었습니다.
+ * 2026-11-24 실측으로 30일 4,371건 중 3,263건(74.7%)이 이 둘이었습니다.
+ */
+const COLUMNS = "bot_name,bot_category,bot_operator,page_kind,entity_slug,user_agent,requested_path,ip_address,country,accessed_at";
+
+/** 정체를 아직 모르는 분류 둘. 이 둘만 user-agent 별로 따로 세어 보여 줍니다. */
+const UNIDENTIFIED_CATEGORIES = new Set<BotCategory>(["unknown", "tool"]);
+const UNIDENTIFIED_LIMIT = 25;
 
 interface LogRow {
   bot_name: string;
@@ -16,6 +26,7 @@ interface LogRow {
   bot_operator: string | null;
   page_kind: string | null;
   entity_slug: string | null;
+  user_agent: string | null;
   requested_path: string;
   ip_address: string | null;
   country: string | null;
@@ -104,6 +115,7 @@ export async function GET(request: NextRequest) {
   const byDay = new Map<string, number>();
   const byDayBot = new Map<string, Map<string, number>>();
   const byDowHour = new Map<string, number>();
+  const unidentified = new Map<string, { agent: string; botName: string; count: number; ips: Set<string>; lastSeen: string }>();
   let aiHits = 0;
   let searchHits = 0;
 
@@ -111,7 +123,9 @@ export async function GET(request: NextRequest) {
     increment(byCategory, log.bot_category ? BOT_CATEGORY_LABEL[log.bot_category] : null);
     increment(byBot, log.bot_name);
     increment(byOperator, log.bot_operator);
-    increment(byPageKind, log.page_kind);
+    // 저장된 `page_kind` 가 아니라 경로에서 다시 뽑습니다. 분류 규칙이 옛 주소
+    // 기준이던 동안 쌓인 기록까지 제 종류로 보이게 하려는 것입니다.
+    increment(byPageKind, attributeBotPath(log.requested_path).pageKind);
     increment(byCountry, log.country);
     increment(byPath, log.requested_path);
     const day = kstDay(log.accessed_at);
@@ -122,6 +136,15 @@ export async function GET(request: NextRequest) {
     increment(byDowHour, `${kst.getUTCDay()}-${kst.getUTCHours()}`);
     if (log.bot_category === "ai") aiHits += 1;
     if (log.bot_category === "search") searchHits += 1;
+    if (log.bot_category && UNIDENTIFIED_CATEGORIES.has(log.bot_category)) {
+      const agent = (log.user_agent || "").trim() || "(user-agent 없음)";
+      const entry = unidentified.get(agent)
+        || { agent, botName: log.bot_name, count: 0, ips: new Set<string>(), lastSeen: log.accessed_at };
+      entry.count += 1;
+      if (log.ip_address) entry.ips.add(log.ip_address);
+      if (log.accessed_at > entry.lastSeen) entry.lastSeen = log.accessed_at;
+      unidentified.set(agent, entry);
+    }
   }
 
   const days = [...byDay.keys()].sort();
@@ -152,6 +175,15 @@ export async function GET(request: NextRequest) {
       const [dow, hour] = key.split("-").map(Number);
       return { dow, hour, count };
     }),
-    recent: logs.slice(0, 200),
+    unidentifiedAgents: [...unidentified.values()]
+      .sort((a, b) => b.count - a.count)
+      .slice(0, UNIDENTIFIED_LIMIT)
+      .map(({ agent, botName, count, ips, lastSeen }) => ({ agent, botName, count, ipCount: ips.size, lastSeen })),
+    unidentifiedTotal: [...unidentified.values()].reduce((sum, entry) => sum + entry.count, 0),
+    // 화면 표도 같은 규칙으로 보이도록 경로에서 다시 뽑은 종류를 실어 보냅니다.
+    recent: logs.slice(0, 200).map((log) => ({
+      ...log,
+      page_kind: attributeBotPath(log.requested_path).pageKind,
+    })),
   });
 }
