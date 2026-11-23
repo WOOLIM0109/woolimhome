@@ -6,6 +6,7 @@ import {
   AlertTriangle,
   Bot,
   BrainCircuit,
+  Filter,
   RefreshCw,
   Search,
 } from "lucide-react";
@@ -47,6 +48,8 @@ interface DashboardData {
   timeseries: { day: string; total: number }[];
   matrix: { days: string[]; rows: { name: string; total: number; perDay: number[] }[] };
   dowHour: { dow: number; hour: number; count: number }[];
+  totalAll?: number;
+  excluded?: string[];
   unidentifiedAgents?: UnidentifiedAgent[];
   unidentifiedTotal?: number;
   recent: LogRow[];
@@ -211,6 +214,12 @@ function DailyMatrix({ matrix }: { matrix: DashboardData["matrix"] }) {
 
 export default function BotTrafficPage() {
   const [mode, setMode] = useState<RangeMode>("month");
+  /**
+   * 자기 이름을 밝히지 않는 봇(자동화 도구·기타 봇)을 빼고 볼지. 2026-11-24
+   * 기준 30일 방문의 67.8%가 HeadlessChrome 한 종이어서, 켜고 보지 않으면
+   * 경로·페이지·국가·추이가 그 한 종에 덮입니다.
+   */
+  const [hideUnnamed, setHideUnnamed] = useState(false);
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -220,7 +229,8 @@ export default function BotTrafficPage() {
     setError(null);
     const range = rangeFor(mode);
     try {
-      const response = await fetch(`/api/admin/bot-traffic?from=${encodeURIComponent(range.from.toISOString())}&to=${encodeURIComponent(range.to.toISOString())}`, { cache: "no-store" });
+      const exclude = hideUnnamed ? "&exclude=tool,unknown" : "";
+      const response = await fetch(`/api/admin/bot-traffic?from=${encodeURIComponent(range.from.toISOString())}&to=${encodeURIComponent(range.to.toISOString())}${exclude}`, { cache: "no-store" });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || "봇 트래픽을 불러오지 못했습니다.");
       setData(result);
@@ -229,7 +239,7 @@ export default function BotTrafficPage() {
     } finally {
       setLoading(false);
     }
-  }, [mode]);
+  }, [mode, hideUnnamed]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => void load(), 0);
@@ -252,6 +262,15 @@ export default function BotTrafficPage() {
               </button>
             ))}
           </div>
+          <button
+            type="button"
+            onClick={() => setHideUnnamed((value) => !value)}
+            aria-pressed={hideUnnamed}
+            title="이름을 밝히지 않는 봇(자동화 도구·기타 봇)을 통계에서 뺍니다. 기록은 지우지 않습니다."
+            className={`inline-flex items-center gap-2 border px-4 py-2 font-bold ${hideUnnamed ? "border-[#262626] bg-[#262626] text-white" : "border-[var(--line)] bg-white text-[var(--muted)]"}`}
+          >
+            <Filter size={17} /> 이름 없는 봇 제외
+          </button>
           <button type="button" onClick={() => void load()} disabled={loading} className="inline-flex items-center gap-2 border border-[var(--line)] bg-white px-4 py-2 font-bold disabled:opacity-50">
             <RefreshCw size={17} className={loading ? "animate-spin" : ""} /> 새로고침
           </button>
@@ -260,6 +279,16 @@ export default function BotTrafficPage() {
     >
       {error && <div className="mt-6 flex gap-3 border border-amber-300 bg-amber-50 p-5 text-amber-950"><AlertTriangle className="shrink-0" /><div><strong>통계를 불러올 수 없습니다.</strong><p className="mt-1 text-sm">{error}</p></div></div>}
       {data?.truncated && <div className="mt-6 flex gap-3 border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950"><AlertTriangle size={19} className="shrink-0" />선택 기간의 {data.total.toLocaleString()}건 중 최근 {data.sampled.toLocaleString()}건을 기준으로 세부 통계를 표시합니다.</div>}
+
+      {hideUnnamed && (
+        <div className="mt-6 border border-[var(--line)] bg-[#f7f7f7] p-4 text-sm">
+          이름을 밝히지 않는 봇을 뺀 숫자입니다.
+          {typeof data?.totalAll === "number" && typeof data?.total === "number"
+            ? ` 전체 ${data.totalAll.toLocaleString()}건 중 ${data.total.toLocaleString()}건.`
+            : ""}
+          {" "}기록을 지운 것이 아니라 보기에서만 뺀 것입니다.
+        </div>
+      )}
 
       <section className="mt-7 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard icon={<Activity size={17} />} label="전체 봇 방문" value={data?.total || 0} hint="선택 기간의 감지 요청" />

@@ -20,6 +20,22 @@ const COLUMNS = "bot_name,bot_category,bot_operator,page_kind,entity_slug,user_a
 const UNIDENTIFIED_CATEGORIES = new Set<BotCategory>(["unknown", "tool"]);
 const UNIDENTIFIED_LIMIT = 25;
 
+/**
+ * `?exclude=tool,unknown` 으로 특정 분류를 통계에서 뺄 수 있게 합니다.
+ *
+ * 왜 필요한가 — 2026-11-24 기준 30일 방문 4,410건 가운데 2,988건(67.8%)이
+ * 자기 이름을 밝히지 않는 HeadlessChrome 한 종입니다. AI·검색 건수는 분류가
+ * 나뉘어 있어 괜찮지만, 경로·페이지 종류·국가·일자 추이는 전부 이 한 종에
+ * 덮입니다. 「어느 페이지가 실제로 읽히는가」를 보려면 빼고 볼 수 있어야 합니다.
+ *
+ * 지우는 것이 아니라 보기에서만 빼는 것입니다. 그 방문이 누구인지 아직
+ * 모르므로, 기록은 그대로 둡니다.
+ */
+function parseExcluded(raw: string | null): Set<string> {
+  if (!raw) return new Set();
+  return new Set(raw.split(",").map((value) => value.trim()).filter(Boolean));
+}
+
 interface LogRow {
   bot_name: string;
   bot_category: BotCategory | null;
@@ -75,6 +91,7 @@ export async function GET(request: NextRequest) {
     request.nextUrl.searchParams.get("from"),
     new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000),
   );
+  const excluded = parseExcluded(request.nextUrl.searchParams.get("exclude"));
   const admin = createAdminClient();
 
   const countResult = await admin
@@ -119,7 +136,10 @@ export async function GET(request: NextRequest) {
   let aiHits = 0;
   let searchHits = 0;
 
+  const kept: LogRow[] = [];
   for (const log of logs) {
+    if (excluded.size && excluded.has(log.bot_category || "unknown")) continue;
+    kept.push(log);
     increment(byCategory, log.bot_category ? BOT_CATEGORY_LABEL[log.bot_category] : null);
     increment(byBot, log.bot_name);
     increment(byOperator, log.bot_operator);
@@ -157,8 +177,12 @@ export async function GET(request: NextRequest) {
 
   return Response.json({
     window: { from, to },
-    total,
-    sampled: logs.length,
+    // 분류를 빼고 볼 때는 남은 건수를 total 로 내려 화면 숫자가 서로 어긋나지
+    // 않게 합니다. 전체 건수는 totalAll 로 함께 보냅니다.
+    total: excluded.size ? kept.length : total,
+    totalAll: total,
+    excluded: [...excluded],
+    sampled: kept.length,
     truncated: total > logs.length,
     aiHits,
     searchHits,
@@ -181,7 +205,7 @@ export async function GET(request: NextRequest) {
       .map(({ agent, botName, count, ips, lastSeen }) => ({ agent, botName, count, ipCount: ips.size, lastSeen })),
     unidentifiedTotal: [...unidentified.values()].reduce((sum, entry) => sum + entry.count, 0),
     // 화면 표도 같은 규칙으로 보이도록 경로에서 다시 뽑은 종류를 실어 보냅니다.
-    recent: logs.slice(0, 200).map((log) => ({
+    recent: kept.slice(0, 200).map((log) => ({
       ...log,
       page_kind: attributeBotPath(log.requested_path).pageKind,
     })),
