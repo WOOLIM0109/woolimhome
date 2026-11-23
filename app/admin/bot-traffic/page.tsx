@@ -18,10 +18,18 @@ interface LogRow {
   bot_category: string | null;
   bot_operator: string | null;
   page_kind: string | null;
+  user_agent: string | null;
   requested_path: string;
   ip_address: string | null;
   country: string | null;
   accessed_at: string;
+}
+interface UnidentifiedAgent {
+  agent: string;
+  botName: string;
+  count: number;
+  ipCount: number;
+  lastSeen: string;
 }
 interface DashboardData {
   total: number;
@@ -39,6 +47,8 @@ interface DashboardData {
   timeseries: { day: string; total: number }[];
   matrix: { days: string[]; rows: { name: string; total: number; perDay: number[] }[] };
   dowHour: { dow: number; hour: number; count: number }[];
+  unidentifiedAgents?: UnidentifiedAgent[];
+  unidentifiedTotal?: number;
   recent: LogRow[];
   error?: string;
 }
@@ -47,8 +57,11 @@ const PAGE_LABELS: Record<string, string> = {
   home: "홈",
   company: "회사소개",
   service: "사업영역",
-  project: "프로젝트",
-  case: "주요사례",
+  portfolio: "포트폴리오",
+  success: "주요사례",
+  // 아래 둘은 `/projects`·`/cases` 시절에 저장된 옛 값입니다. 지금은 위로 묶입니다.
+  project: "포트폴리오(옛 주소)",
+  case: "주요사례(옛 주소)",
   column: "칼럼",
   news: "알림마당",
   contact: "상담신청",
@@ -286,10 +299,42 @@ export default function BotTrafficPage() {
       <div className="mt-6"><HourHeatmap rows={data?.dowHour || []} /></div>
 
       <section className="mt-6 overflow-hidden border border-[var(--line)] bg-white">
+        <div className="border-b border-[var(--line)] p-5">
+          <h2 className="font-bold">정체를 모르는 방문</h2>
+          <p className="mt-1 text-sm text-[var(--muted)]">
+            「기타 봇」과 「자동화 도구」로 떨어진 방문을 user-agent 별로 세었습니다.
+            이 둘은 이름을 못 붙인 것이라 AI·검색 통계에 들어가지 않습니다.
+            {typeof data?.unidentifiedTotal === "number" && data.unidentifiedTotal > 0 && data?.total
+              ? ` 이 기간 ${data.unidentifiedTotal.toLocaleString()}건(전체의 ${Math.round((data.unidentifiedTotal / data.total) * 100)}%)입니다.`
+              : ""}
+          </p>
+        </div>
+        <div className="max-h-[420px] overflow-auto">
+          <table className="w-full min-w-[900px] text-left text-xs">
+            <thead className="sticky top-0 bg-[#f7f7f7]"><tr><th className="p-3">user-agent</th><th className="p-3">지금 분류</th><th className="p-3">방문</th><th className="p-3">IP 수</th><th className="p-3">마지막</th></tr></thead>
+            <tbody>
+              {(data?.unidentifiedAgents || []).map((row) => (
+                <tr key={row.agent} className="border-t border-[var(--line)]">
+                  <td className="max-w-[520px] break-all p-3 font-mono">{row.agent}</td>
+                  <td className="whitespace-nowrap p-3">{row.botName}</td>
+                  <td className="whitespace-nowrap p-3 font-bold">{row.count.toLocaleString()}</td>
+                  <td className="whitespace-nowrap p-3">{row.ipCount.toLocaleString()}</td>
+                  <td className="whitespace-nowrap p-3 text-[var(--muted)]">{new Date(row.lastSeen).toLocaleString("ko-KR", { hour12: false })}</td>
+                </tr>
+              ))}
+              {!data?.unidentifiedAgents?.length && (
+                <tr><td colSpan={5} className="p-8 text-center text-[var(--muted)]">{loading ? "기록을 불러오는 중입니다." : "정체를 모르는 방문이 없습니다."}</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section className="mt-6 overflow-hidden border border-[var(--line)] bg-white">
         <div className="border-b border-[var(--line)] p-5"><h2 className="font-bold">최근 봇 방문 기록</h2><p className="mt-1 text-sm text-[var(--muted)]">IP는 개인정보 보호를 위해 일부가 가려져 저장됩니다.</p></div>
         <div className="max-h-[680px] overflow-auto">
           <table className="w-full min-w-[900px] text-left text-xs">
-            <thead className="sticky top-0 bg-[#f7f7f7]"><tr><th className="p-3">시각</th><th className="p-3">봇</th><th className="p-3">운영사</th><th className="p-3">페이지</th><th className="p-3">경로</th><th className="p-3">국가</th><th className="p-3">IP</th></tr></thead>
+            <thead className="sticky top-0 bg-[#f7f7f7]"><tr><th className="p-3">시각</th><th className="p-3">봇</th><th className="p-3">운영사</th><th className="p-3">페이지</th><th className="p-3">경로</th><th className="p-3">user-agent</th><th className="p-3">국가</th><th className="p-3">IP</th></tr></thead>
             <tbody>
               {(data?.recent || []).map((row, index) => (
                 <tr key={`${row.accessed_at}-${index}`} className="border-t border-[var(--line)]">
@@ -298,11 +343,12 @@ export default function BotTrafficPage() {
                   <td className="p-3">{row.bot_operator || "-"}</td>
                   <td className="p-3">{PAGE_LABELS[row.page_kind || ""] || row.page_kind || "-"}</td>
                   <td className="max-w-[320px] truncate p-3 font-mono">{row.requested_path}</td>
+                  <td className="max-w-[280px] truncate p-3 font-mono text-[var(--muted)]" title={row.user_agent || ""}>{row.user_agent || "-"}</td>
                   <td className="p-3">{row.country || "-"}</td>
                   <td className="p-3 font-mono text-[var(--muted)]">{row.ip_address || "-"}</td>
                 </tr>
               ))}
-              {!data?.recent?.length && <tr><td colSpan={7} className="p-8 text-center text-[var(--muted)]">{loading ? "기록을 불러오는 중입니다." : "아직 감지된 봇 방문이 없습니다."}</td></tr>}
+              {!data?.recent?.length && <tr><td colSpan={8} className="p-8 text-center text-[var(--muted)]">{loading ? "기록을 불러오는 중입니다." : "아직 감지된 봇 방문이 없습니다."}</td></tr>}
             </tbody>
           </table>
         </div>
