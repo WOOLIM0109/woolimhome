@@ -602,6 +602,8 @@ export type IngestResult = {
   restored: number;
   attachments: number;
   requirements: number;
+  /** 보낸 본문을 남긴 공고 수 (요건 러너가 같은 본문으로 해시를 맞춥니다) */
+  details: number;
   /** 상태를 갱신한 게시판 수 */
   sources: number;
 };
@@ -653,7 +655,8 @@ export async function ingestPrograms(
   const stamp = now().toISOString();
   const result: IngestResult = {
     received: payload.programs.length, inserted: 0, resumed: 0,
-    skipped_existing: 0, retired: 0, restored: 0, attachments: 0, requirements: 0, sources: 0,
+    skipped_existing: 0, retired: 0, restored: 0, attachments: 0, requirements: 0, details: 0,
+    sources: 0,
   };
   result.sources = await recordSourceStatus(admin, payload.sources, stamp);
 
@@ -909,6 +912,9 @@ export async function ingestPrograms(
 
   for (const [index, program] of payload.programs.entries()) {
     let programId = idByFingerprint.get(program.fingerprint);
+    // idByFingerprint 에는 **우리가 넣었거나 이어서 채운 행만** 있습니다.
+    // 아래에서 요건 때문에 서버 행을 빌려 오는 경우와 가르려고 미리 적어 둡니다.
+    const isOurs = Boolean(programId);
     // 우리가 넣지 않은 공고라도 **요건을 들고 왔으면** 그 요건은 써 줍니다.
     // 요건이 없으면 예전처럼 아무것도 건드리지 않습니다 — 첨부만 다시 써서
     // 홈페이지가 다시 뽑게 만들면 돈만 쓰고 몰아서 깨집니다.
@@ -944,6 +950,28 @@ export async function ingestPrograms(
         attachmentIds.set(String((row as Row).sha256), String((row as Row).id));
       }
       result.attachments += attachmentIds.size;
+    }
+
+    // ★ 보낸 본문을 남깁니다 (2026-11-24).
+    // 예전에는 본문을 받아서 해시만 계산하고 버렸습니다. 요건 러너는 본문을
+    // 이 자리(`..._attachment_discovery.detail_text`)에서 읽는데 비어 있으니
+    // 해시가 달라지고, 같은 공고의 요건을 **유료로 다시 뽑았습니다.**
+    // 그 뒤 24시간마다 원본 사이트를 다시 긁어 더 짧은 본문으로 덮었습니다.
+    // 러너가 읽는 바로 그 자리에 보낸 본문을 그대로 둡니다.
+    // 우리 행에만 씁니다 — 서버가 모은 행의 본문은 서버 것입니다.
+    if (isOurs) {
+      const { error: detailError } = await admin
+        .from("openchat_program_attachment_discovery")
+        .upsert({
+          program_id: programId,
+          status: program.attachments.length ? "found" : "none",
+          attachment_count: program.attachments.length,
+          detail_text: program.detail_text,
+          error: null,
+          checked_at: stamp,
+        }, { onConflict: "program_id" });
+      if (detailError) throw new IngestError(500, "DETAIL_WRITE_FAILED", reason(detailError));
+      result.details += 1;
     }
 
     if (!program.requirements) continue;
