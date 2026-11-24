@@ -66,6 +66,18 @@ const 칸: readonly (readonly [string, string, string])[] = [
 // 바꾸므로, 다시 보내지 않으면 화면에서 저장하는 순간 지워집니다.
 const 화면에없는칸 = ["revenue_band", "has_support_history"] as const;
 
+/**
+ * '사업자 추가' 의 새 열쇠. 화면에는 열쇠 칸이 없어서 예전에는 늘 'main' 으로 저장됐고,
+ * 저장은 (고객사, 열쇠) 로 덮어쓰므로 **이미 있는 첫 사업자를 통째로 덮어썼습니다.**
+ */
+function 새사업자열쇠(customer: { entities: { entity_key: string }[] }) {
+  const 있는 = new Set(customer.entities.map((entity) => entity.entity_key));
+  if (!있는.has("main")) return "main";
+  let n = 2;
+  while (있는.has(`entity-${n}`)) n += 1;
+  return `entity-${n}`;
+}
+
 /** 쉼표로 적은 글을 목록으로. 비우면 '모른다' 로 남깁니다. */
 function 목록으로(value: string) {
   const items = value.split(/[,;\n]/).map((item) => item.trim()).filter(Boolean);
@@ -108,7 +120,7 @@ export default function CustomerProfilesPanel() {
     set원래요건(entity?.profile ?? {});
     setCertificationsComplete(entity?.profile.certifications_complete === true);
     setForm({
-      entity_key: entity?.entity_key ?? "",
+      entity_key: entity?.entity_key ?? 새사업자열쇠(customer),
       entity_name: entity?.entity_name ?? customer.name,
       business_number: entity?.business_number ?? "",
       // 울림웍스에 적힌 값이 있으면 첫 값으로 깔아 둡니다. 고쳐 쓰셔도 됩니다.
@@ -123,6 +135,16 @@ export default function CustomerProfilesPanel() {
       item_not_fields: 글자로(entity?.profile.item_not_fields),
       notes: 글자로(entity?.profile.notes),
     });
+  }
+
+  // ★ 목록 칸은 **안 건드렸으면 원래 목록을 그대로** 보냅니다. 화면은 목록을 ', ' 로
+  // 이어 보여 주고 저장할 때 쉼표로 다시 나누므로, '소프트웨어(AI, 빅데이터)' 처럼
+  // 쉼표가 든 값은 다른 칸만 고쳐 저장해도 둘로 쪼개졌습니다.
+  function 목록칸(key: string) {
+    const 적은 = form[key] ?? "";
+    const 원래 = 원래요건[key];
+    if (Array.isArray(원래) && 적은 === 글자로(원래)) return 원래.length ? 원래 : null;
+    return 목록으로(적은);
   }
 
   async function 저장(customerId: string) {
@@ -155,15 +177,15 @@ export default function CustomerProfilesPanel() {
             region: (form.region ?? "").trim() || null,
             founded_on: founded || null,
             business_type: (form.business_type ?? "").trim() || null,
-            industries: 목록으로(form.industries ?? ""),
+            industries: 목록칸("industries"),
             employees,
             revenue_krw: revenue,
             // 확인에 체크했으면 비워도 '없음을 확인했다' 는 뜻이라 빈 목록으로 보냅니다.
-            certifications: 목록으로(form.certifications ?? "")
+            certifications: 목록칸("certifications")
               ?? (certificationsComplete ? [] : null),
             certifications_complete: certificationsComplete,
-            item_fields: 목록으로(form.item_fields ?? ""),
-            item_not_fields: 목록으로(form.item_not_fields ?? ""),
+            item_fields: 목록칸("item_fields"),
+            item_not_fields: 목록칸("item_not_fields"),
             notes: (form.notes ?? "").trim() || null,
           },
         }),
