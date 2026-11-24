@@ -966,7 +966,8 @@ export async function ingestPrograms(
           program_id: programId,
           status: program.attachments.length ? "found" : "none",
           attachment_count: program.attachments.length,
-          detail_text: program.detail_text,
+          // 빈 본문으로는 덮지 않는다 — 저장된 본문이 사라지고 해시가 오간다 (최종 검수).
+          ...(program.detail_text.trim() ? { detail_text: program.detail_text } : {}),
           error: null,
           checked_at: stamp,
         }, { onConflict: "program_id" });

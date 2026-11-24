@@ -14,6 +14,8 @@ type Options = {
   includeExcluded?: boolean; recoveryProgramId?: string;
 };
 type Program = { id: string; deadline_at: string | null; created_at: string; status?: string };
+// worker-ingest.ts 의 COLLECTOR_TAG 와 같은 값. (이 파일은 시험 상자에서 따로 읽혀 import 를 늘리지 않는다)
+const COLLECTOR_TAG = "gonggo-monitor";
 const QUEUE_FIELDS = ["ready", "remaining", "eligible", "withText", "waitingAttachments",
   "requirementsExtracted", "requirementsFailed", "pendingInputChars"] as const;
 type QueueCounts = Record<typeof QUEUE_FIELDS[number], number>;
@@ -129,12 +131,22 @@ export async function runRequirementsTask(options: Options = {}) {
     for (const program of programs) {
       if (end - clock() < 60_000) { summary.stoppedForTime = true; break; }
       const sourceCheckedAt = new Date(clock()).toISOString();
-      const [{ data: discovery, error: detailError }, { data: attachments, error: attachmentError }] = await Promise.all([
+      const [{ data: discovery, error: detailError }, { data: allAttachments, error: attachmentError }, { data: owner, error: ownerError }] = await Promise.all([
         admin.from("openchat_program_attachment_discovery").select("detail_text").eq("program_id", program.id).maybeSingle(),
-        admin.from("openchat_program_attachments").select("id,parent_id,text_content,sha256,file_name,file_ext,text_status,error")
+        admin.from("openchat_program_attachments").select("id,parent_id,text_content,sha256,file_name,file_ext,text_status,error,storage_path")
           .eq("program_id", program.id).order("id"),
+        admin.from("openchat_programs").select("collector:raw_payload->>collector").eq("id", program.id).maybeSingle(),
       ]);
-      if (detailError || attachmentError) throw new Error("요건 원문 조회 실패");
+      if (detailError || attachmentError || ownerError) throw new Error("요건 원문 조회 실패");
+      // ★ PC 수집기 공고는 **수집기가 보낸 첨부만** 원문으로 본다 (2026-11-24).
+      // 예전에 서버가 이 공고들의 상세 페이지를 긁어 첨부를 따로 붙였다 (실측: 238건, 675줄).
+      // 받는 쪽(worker-ingest)은 수집기 첨부로만 해시를 만들므로, 그 첨부까지 섞으면
+      // 해시가 늘 달라 다시 보낼 때마다 요건을 유료로 새로 뽑는다.
+      // 수집기 첨부: 원본 파일을 올리지 않아 storage_path 가 비고, sha256 이 있고, ZIP 하위가 아니다.
+      const ours = (owner as { collector?: string | null } | null)?.collector === COLLECTOR_TAG;
+      const attachments = ours
+        ? allAttachments?.filter((a) => !a.storage_path && a.sha256 && !a.parent_id) ?? []
+        : allAttachments;
       const extracted = attachments?.filter((a) => a.text_status === "extracted" && a.text_content?.trim()) ?? [];
       if (!extracted.length) continue;
       const complete = Boolean(attachments?.every((a) => a.file_ext === "zip"
