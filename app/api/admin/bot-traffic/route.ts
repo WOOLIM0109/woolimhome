@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { isAdmin } from "@/lib/auth";
 import { BOT_CATEGORY_LABEL, type BotCategory } from "@/lib/bot-detection";
 import { attributeBotPath } from "@/lib/bot-path-attribution";
+import { isCitationBot } from "@/lib/citation-bots";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 
@@ -133,8 +134,14 @@ export async function GET(request: NextRequest) {
   const byDayBot = new Map<string, Map<string, number>>();
   const byDowHour = new Map<string, number>();
   const unidentified = new Map<string, { agent: string; botName: string; count: number; ips: Set<string>; lastSeen: string }>();
+  const byCitationBot = new Map<string, number>();
   let aiHits = 0;
   let searchHits = 0;
+  /**
+   * 실시간 인출(=인용)만 따로 셉니다. `aiHits` 는 학습 크롤러까지 포함한 수라
+   * 「AI가 우리를 답에 썼나」를 보려면 쓸 수 없습니다. 기준은 lib/citation-bots.ts.
+   */
+  let citationHits = 0;
 
   const kept: LogRow[] = [];
   for (const log of logs) {
@@ -156,6 +163,10 @@ export async function GET(request: NextRequest) {
     increment(byDowHour, `${kst.getUTCDay()}-${kst.getUTCHours()}`);
     if (log.bot_category === "ai") aiHits += 1;
     if (log.bot_category === "search") searchHits += 1;
+    if (isCitationBot(log.bot_name)) {
+      citationHits += 1;
+      increment(byCitationBot, log.bot_name);
+    }
     if (log.bot_category && UNIDENTIFIED_CATEGORIES.has(log.bot_category)) {
       const agent = (log.user_agent || "").trim() || "(user-agent 없음)";
       const entry = unidentified.get(agent)
@@ -186,6 +197,8 @@ export async function GET(request: NextRequest) {
     truncated: total > logs.length,
     aiHits,
     searchHits,
+    citationHits,
+    byCitationBot: rowsFrom(byCitationBot, 10),
     uniqueBots: byBot.size,
     byCategory: rowsFrom(byCategory),
     byBot: rowsFrom(byBot),

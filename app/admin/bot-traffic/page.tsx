@@ -7,6 +7,7 @@ import {
   Bot,
   BrainCircuit,
   Filter,
+  Quote,
   RefreshCw,
   Search,
 } from "lucide-react";
@@ -38,6 +39,8 @@ interface DashboardData {
   truncated: boolean;
   aiHits: number;
   searchHits: number;
+  citationHits?: number;
+  byCitationBot?: KeyCount[];
   uniqueBots: number;
   byCategory: KeyCount[];
   byBot: KeyCount[];
@@ -290,11 +293,36 @@ export default function BotTrafficPage() {
         </div>
       )}
 
-      <section className="mt-7 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <section className="mt-7 grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
         <StatCard icon={<Activity size={17} />} label="전체 봇 방문" value={data?.total || 0} hint="선택 기간의 감지 요청" />
-        <StatCard icon={<BrainCircuit size={17} />} label="AI·LLM 봇" value={data?.aiHits || 0} hint="ChatGPT·Claude·Perplexity 등" />
+        <StatCard icon={<Quote size={17} />} label="인용 (실시간 인출)" value={data?.citationHits || 0} hint="사용자 질문에 답하려 그 자리에서 가져간 횟수" />
+        <StatCard icon={<BrainCircuit size={17} />} label="AI·LLM 봇 전체" value={data?.aiHits || 0} hint="위 인용 + 학습 크롤러까지" />
         <StatCard icon={<Search size={17} />} label="검색엔진 봇" value={data?.searchHits || 0} hint="네이버·구글·빙 등" />
         <StatCard icon={<Bot size={17} />} label="확인된 봇 종류" value={data?.uniqueBots || 0} hint="서로 다른 봇 이름" />
+      </section>
+
+      <section className="mt-6 grid gap-5 xl:grid-cols-[0.9fr_1.1fr]">
+        <Ranking title="인용 봇별 (실시간 인출)" rows={data?.byCitationBot || []} />
+        <article className="border border-[var(--line)] bg-white p-5">
+          <h2 className="font-bold">「인용」을 어떻게 세는가</h2>
+          <div className="mt-4 space-y-3 text-sm leading-relaxed text-[var(--muted)]">
+            <p>
+              <strong className="text-[var(--fg)]">세는 것</strong> — 사용자가 물었을 때 그 답을 만들려고
+              <strong className="text-[var(--fg)]"> 그 자리에서</strong> 우리 페이지를 가져간 봇입니다.
+              {" "}<code>OAI-SearchBot</code>·<code>ChatGPT-User</code>·<code>Claude-User</code>·<code>PerplexityBot</code>·<code>Perplexity-User</code>.
+            </p>
+            <p>
+              <strong className="text-[var(--fg)]">빼는 것</strong> — 학습용으로 긁어 모으는 크롤러
+              (<code>GPTBot</code>·<code>CCBot</code>·<code>Google-Extended</code>)와 전수 훑기 형태로 오는 것들.
+              같이 세면 숫자가 뜻을 잃습니다.
+            </p>
+            <p className="border-l-2 border-amber-400 pl-3 text-amber-900">
+              <strong>넘겨 읽지 마십시오.</strong> 이 숫자는 「실시간으로 가져갔다」까지가 사실이고,
+              「AI 답에 실렸다」는 아닙니다. 실제로 답에 실렸는지는 ChatGPT 에 직접 물어서만 셀 수 있습니다.
+            </p>
+            <p>기준은 로닛과 같은 목록으로 맞춰 두었습니다. 두 회사 숫자를 나란히 볼 수 있어야 하기 때문입니다.</p>
+          </div>
+        </article>
       </section>
 
       <section className="mt-6 grid gap-5 xl:grid-cols-[1.1fr_0.9fr]">
