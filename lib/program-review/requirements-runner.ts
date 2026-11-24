@@ -2,7 +2,7 @@ import { createAdminClient } from "../supabase/admin";
 import { createClient } from "@supabase/supabase-js";
 import { parseGeminiJson } from "../gemini/json";
 import { GEMINI_AUTOMATION_MODEL, GeminiAutomationBlocked, runBudgetedGeminiAutomation } from "../gemini/automation";
-import { buildRequirementInput, normalizeRequirements, requirementsPrompt, REQUIREMENTS_NORMALIZATION_VERSION, type Requirements } from "./requirements";
+import { buildRequirementInput, normalizeRequirements, requirementsPrompt, REQUIREMENTS_NORMALIZATION_VERSION, storedRequirementSources, storedSourceComplete, type Requirements } from "./requirements";
 import { generateRequirementResponse, RequirementGenerationError, REQUIREMENTS_RESPONSE_MAX_TOKENS } from "./requirements-generation";
 import { loadMatchProfilesSnapshot, MatchProfilesError } from "./profiles-run";
 import { matchProgram } from "./matching";
@@ -135,16 +135,12 @@ export async function runRequirementsTask(options: Options = {}) {
           .eq("program_id", program.id).order("id"),
       ]);
       if (detailError || attachmentError) throw new Error("요건 원문 조회 실패");
-      const extracted = attachments?.filter((a) => a.text_status === "extracted" && a.text_content?.trim()) ?? [];
+      // 받는 쪽(worker-ingest)과 같은 함수로 만든다 — 해시가 어긋나지 않게.
+      const { sources, extracted } = storedRequirementSources(discovery?.detail_text, attachments ?? []);
       if (!extracted.length) continue;
-      const complete = Boolean(attachments?.every((a) => a.file_ext === "zip"
-        ? attachments.some((child) => child.parent_id === a.id) || (a.text_status === "skipped" && a.error === "ZIP 내 지원 문서 없음")
-        : a.text_status === "extracted"));
+      const complete = storedSourceComplete(attachments ?? []);
       summary.considered++;
-      const input = buildRequirementInput([
-        { id: "0:detail", text: discovery?.detail_text ?? "" },
-        ...extracted.map((a) => ({ id: `1:attachment:${a.id}`, text: a.text_content ?? "" })),
-      ]);
+      const input = buildRequirementInput(sources);
       const metadata = { source_complete: complete, input_truncated: input.truncated, source_checked_at: sourceCheckedAt,
         source_manifest: input.sources.map((s) => ({ id: s.id, chars: s.text.length })) };
       const { data: existing, error: existingError } = await admin.from("openchat_program_requirements")

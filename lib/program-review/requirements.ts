@@ -5,6 +5,44 @@ export const REQUIREMENTS_PROMPT_VERSION = "program-requirements-evidence-v1";
 export const REQUIREMENTS_NORMALIZATION_VERSION = 3;
 
 export type RequirementSource = { id: string; text: string };
+
+/** 저장소에 들어 있는 첨부 한 줄 — 요건 원문을 만들 때 쓰는 칸만. */
+export type StoredAttachment = {
+  id: string; parent_id: string | null; text_content: string | null;
+  file_ext: string | null; text_status: string | null; error: string | null;
+};
+
+/**
+ * ★ 요건 원문은 **저장소에 실제로 들어 있는 것**으로 만든다 (2026-11-25).
+ * 받는 쪽(worker-ingest)과 요건 러너가 이 함수 하나를 같이 쓴다. 둘이 따로 만들면
+ * 해시가 어긋나 같은 공고의 요건을 다시 뽑는다 — 실측: 서버가 예전에 붙인 첨부가
+ * 남은 수집기 공고 131건이 다시 보낼 때마다 그랬다.
+ */
+export function storedRequirementSources(
+  detailText: string | null | undefined, attachments: readonly StoredAttachment[],
+): { sources: RequirementSource[]; extracted: StoredAttachment[] } {
+  const extracted = attachments.filter((a) => a.text_status === "extracted" && a.text_content?.trim());
+  return {
+    extracted,
+    sources: [
+      { id: "0:detail", text: detailText ?? "" },
+      ...extracted.map((a) => ({ id: `1:attachment:${a.id}`, text: a.text_content ?? "" })),
+    ],
+  };
+}
+
+/**
+ * 첨부를 다 읽었는가. 서버가 받은 ZIP 은 하위 문서가 풀려 있어야(또는 지원 문서가 없다고
+ * 확인돼야) 다 읽은 것이다. PC 수집기가 보낸 ZIP 은 수집기가 풀어 글자를 담아 보내므로
+ * `extracted` 면 다 읽은 것이다 (서버는 ZIP 을 `extracted` 로 두지 않는다 — 풀어서 하위로 나눈다).
+ */
+export function storedSourceComplete(attachments: readonly StoredAttachment[]): boolean {
+  return attachments.every((a) => a.file_ext === "zip"
+    ? a.text_status === "extracted"
+      || attachments.some((child) => child.parent_id === a.id)
+      || (a.text_status === "skipped" && a.error === "ZIP 내 지원 문서 없음")
+    : a.text_status === "extracted");
+}
 export type RequirementInput = {
   text: string;
   inputHash: string;

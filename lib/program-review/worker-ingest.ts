@@ -32,7 +32,10 @@ import {
   buildRequirementInput,
   normalizeRequirements,
   sourceBlocks,
+  storedRequirementSources,
+  storedSourceComplete,
   type RequirementSource,
+  type StoredAttachment,
 } from "./requirements.ts";
 
 /** 한 번에 받을 공고 수. 서버 실행 시간 안에 끝나야 합니다. */
@@ -572,18 +575,6 @@ function attachEvidence(
   };
 }
 
-/** 요건 입력은 서버가 만듭니다 — 해시가 서버 계산과 같아야 재추출을 피합니다. */
-function requirementSources(program: IngestProgram, attachmentIds: Map<string, string>) {
-  const sources: RequirementSource[] = [{ id: "0:detail", text: program.detail_text }];
-  for (const attachment of program.attachments) {
-    if (attachment.text_status !== "extracted" || !attachment.text.trim()) continue;
-    const id = attachmentIds.get(attachment.sha256);
-    if (!id) continue;
-    sources.push({ id: `1:attachment:${id}`, text: attachment.text });
-  }
-  return sources;
-}
-
 export type IngestDependencies = {
   // 쓰는 것은 `from` 하나뿐입니다. 테스트는 같은 모양의 가짜를 넣습니다.
   admin: Pick<SupabaseClient, "from">;
@@ -966,7 +957,8 @@ export async function ingestPrograms(
           program_id: programId,
           status: program.attachments.length ? "found" : "none",
           attachment_count: program.attachments.length,
-          detail_text: program.detail_text,
+          // 빈 본문으로는 덮지 않는다. 해시는 아래에서 **저장된** 본문으로 만든다.
+          ...(program.detail_text.trim() ? { detail_text: program.detail_text } : {}),
           error: null,
           checked_at: stamp,
         }, { onConflict: "program_id" });
@@ -975,7 +967,24 @@ export async function ingestPrograms(
     }
 
     if (!program.requirements) continue;
-    const input = buildRequirementInput(requirementSources(program, attachmentIds));
+    // ★ 해시는 **저장소에 실제로 들어 있는 본문·첨부 전부**로 만든다 (2026-11-25).
+    // 요건 러너는 저장소를 읽어 해시를 만든다. 보낸 꾸러미로만 만들면, 서버가 예전에
+    // 붙인 첨부 · 지난번에 보낸 첨부 · 비워 보낸 본문 때문에 둘이 어긋나 요건을 다시 뽑는다.
+    const [{ data: storedDetail, error: storedDetailError }, { data: storedAttachments, error: storedAttachmentError }] =
+      await Promise.all([
+        admin.from("openchat_program_attachment_discovery").select("detail_text")
+          .eq("program_id", programId).maybeSingle(),
+        admin.from("openchat_program_attachments")
+          .select("id,parent_id,text_content,file_ext,text_status,error")
+          .eq("program_id", programId).order("id"),
+      ]);
+    if (storedDetailError || storedAttachmentError) {
+      throw new IngestError(500, "REQUIREMENT_SOURCE_READ_FAILED",
+        reason(storedDetailError || storedAttachmentError));
+    }
+    const 저장된첨부 = (storedAttachments ?? []) as StoredAttachment[];
+    const input = buildRequirementInput(storedRequirementSources(
+      (storedDetail as { detail_text?: string | null } | null)?.detail_text, 저장된첨부).sources);
     const requirements = normalizeRequirements(
       attachEvidence(program.requirements, input.sources), input);
     const { error: requirementError } = await admin.from("openchat_program_requirements")
@@ -987,8 +996,7 @@ export async function ingestPrograms(
         normalization_version: REQUIREMENTS_NORMALIZATION_VERSION,
         input_hash: input.inputHash,
         input_truncated: input.truncated,
-        source_complete: program.attachments.every((attachment) =>
-          attachment.text_status === "extracted"),
+        source_complete: storedSourceComplete(저장된첨부),
         source_manifest: input.sources.map((source) => ({ id: source.id, chars: source.text.length })),
         source_checked_at: stamp,
         updated_at: stamp,
