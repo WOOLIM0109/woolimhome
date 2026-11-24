@@ -157,11 +157,11 @@ export async function runRequirementsTask(options: Options = {}) {
       const metadata = { source_complete: complete, input_truncated: input.truncated, source_checked_at: sourceCheckedAt,
         source_manifest: input.sources.map((s) => ({ id: s.id, chars: s.text.length })) };
       const { data: existing, error: existingError } = await admin.from("openchat_program_requirements")
-        .select("input_hash,status,requirements,normalization_version,source_complete,input_truncated")
+        .select("input_hash,status,requirements,normalization_version,source_complete,input_truncated,model")
         .eq("program_id", program.id).maybeSingle();
       if (existingError) throw new Error("요건 처리 이력 조회 실패");
       // 매칭에 넘길 값. 기본은 지금 읽은 원문 기준이고, 수집기 요건을 그대로 쓸 때만 바뀐다.
-      let matchHash = input.inputHash, matchComplete = complete, matchTruncated = input.truncated;
+      let matchHash = input.inputHash, matchComplete = complete, matchTruncated = input.truncated, trusted = false;
       // 요건이 비워진 행은, 다시 부르기 전에 저장해 둔 답으로 되살릴 수 있는지 먼저 본다.
       const restorable = !options.recoveryProgramId && existing?.status === "failed"
         && existing.input_hash === input.inputHash
@@ -192,6 +192,9 @@ export async function runRequirementsTask(options: Options = {}) {
       } else if (!options.recoveryProgramId && existing?.status === "extracted"
         && typeof existing.input_hash === "string" && existing.input_hash
         && existing.normalization_version === REQUIREMENTS_NORMALIZATION_VERSION
+        // 요건을 **수집기가 쓴 것**일 때만이다 (받는 쪽이 model 칸에 표시를 남긴다).
+        // 서버가 뽑아 둔 요건까지 믿으면, 정정공고로 원문이 바뀌어도 옛 요건으로 굳는다.
+        && existing.model === COLLECTOR_TAG
         && await collectorOwned(admin, program.id)) {
         // ★ PC 수집기 공고는 **수집기가 정리해 보낸 요건을 그대로 쓴다** (2026-11-25).
         //
@@ -211,9 +214,10 @@ export async function runRequirementsTask(options: Options = {}) {
           .select("program_id").maybeSingle();
         if (keepError) throw new Error("요건 원문 상태 갱신 실패");
         // 그 사이에 수집기가 새 요건을 보냈다. 다음 실행에서 새것으로 판정한다.
-        if (!kept) continue;
+        if (!kept) { summary.alreadyAttempted++; continue; }
         requirements = existing.requirements as Requirements;
         matchHash = existing.input_hash;
+        trusted = true;
         // 경고 문구는 수집기가 요건을 뽑을 때의 원문 상태를 따른다 (서버 옛 첨부가 아니라).
         matchComplete = existing.source_complete !== false;
         matchTruncated = existing.input_truncated === true;
@@ -354,6 +358,10 @@ export async function runRequirementsTask(options: Options = {}) {
         p_program_id: program.id, p_review_date: date, p_input_hash: matchHash, p_matches: matches,
         p_profile_revision: profileRevision,
       });
+      // 수집기 요건으로 판정하는 사이에 수집기가 새 요건을 보내면 저장이 거절된다
+      // (받는 쪽은 이 실행의 잠금 밖에서 돈다). 그 한 건 때문에 남은 공고까지 멈추지 않는다 —
+      // 다음 실행에서 새 요건으로 다시 판정한다.
+      if (matchError && trusted) { summary.failed++; continue; }
       if (matchError) throw new Error("대상별 매칭 저장 실패");
       summary.matched++;
     }
