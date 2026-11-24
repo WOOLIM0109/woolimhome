@@ -10,6 +10,7 @@ import {
   AttachmentLimitError, expandZipAttachments, extractAttachmentText,
   type ExpandedAttachment, type TextExtractionResult,
 } from "./extract-text";
+import { COLLECTOR_TAG } from "./worker-ingest";
 
 const BUCKET = "program-attachments";
 const RUN_MILLISECONDS = 240_000;
@@ -21,7 +22,9 @@ const DETAIL_BYTES = 2 * 1024 * 1024;
 const SELECT_ATTACHMENT = "id,program_id,parent_id,file_name,file_ext,source_url,storage_path,sha256,attempts,created_at";
 
 type Admin = ReturnType<typeof createAdminClient>;
-type Program = { id: string; source_url: string; created_at: string };
+// `collector` 는 `raw_payload->>collector` 를 별칭으로 읽은 것입니다.
+// PC 수집기가 넣은 공고면 COLLECTOR_TAG 가 들어 있습니다.
+type Program = { id: string; source_url: string; created_at: string; collector?: string | null };
 type Attachment = {
   id: string; program_id: string; parent_id: string | null; file_name: string; file_ext: string;
   source_url: string; storage_path: string | null; sha256: string | null; attempts: number; created_at: string;
@@ -206,8 +209,41 @@ export async function runAttachmentTask(overrides: AttachmentTaskOptions = {}) {
     else summary[result.status]++;
   }
 
+  /** 본문 자리에 이미 글이 있으면 그 행의 첨부 수를, 없으면 null. 본문은 읽지 않습니다. */
+  async function collectorDetail(programId: string) {
+    const { data, error } = await admin.from("openchat_program_attachment_discovery")
+      .select("program_id,attachment_count").eq("program_id", programId).neq("detail_text", "").limit(1)
+      .abortSignal(signal());
+    if (error) throw new Error("본문 자리 조회 실패");
+    return data?.length ? { attachmentCount: Number(data[0].attachment_count) || 0 } : null;
+  }
+
   async function discover(program: Program) {
     discoveryAttempted.add(program.id);
+    // ★ PC 수집기 공고는 **본문과 첨부를 수집기가 맡습니다** (2026-11-24).
+    //
+    // 본문: 여기서 다시 긁은 본문은 `<main>` 만 떼어 자른 **더 짧은** 글이고 실패하면
+    //   빈 글자입니다. 그걸로 수집기 본문을 덮으면 요건 러너의 해시가 달라져 같은
+    //   공고의 요건을 유료로 다시 뽑습니다. 이 서버는 해외에 있어 부산 기관 몇 곳에는
+    //   연결조차 안 됩니다. 다만 **본문 자리가 비어 있으면** (이 변경 전에 들어온
+    //   공고) 긁은 본문으로 채웁니다 — 빈칸으로 굳히지 않습니다.
+    // 첨부: 수집기가 이미 받아 글자로 바꿔 보냅니다. 여기서 또 찾으면 같은 파일이
+    //   다른 주소로 한 번 더 들어가 해시가 흔들립니다. 그래서 찾지 않습니다.
+    const collectorOwned = program.collector === COLLECTOR_TAG;
+    const kept = collectorOwned ? await collectorDetail(program.id) : null;
+    const keepDetail = kept !== null;
+    if (kept) {
+      // 본문이 이미 있으면 **긁지 않습니다.** 긁어도 쓸 데가 없고(본문은 안 덮고 첨부는
+      // 수집기가 맡음), 해외 서버라 연결 안 되는 기관은 매번 20초씩 실행 시간을 먹었습니다.
+      // 확인한 시각만 적어 24시간 뒤에 다시 보게 합니다. 상태도 수집기가 보낸 첨부 수에
+      // 맞춥니다 — 예전 실패(failed)가 남아 있으면 실행마다 다시 잡히기 때문입니다.
+      const { error } = await admin.from("openchat_program_attachment_discovery").upsert({
+        program_id: program.id, status: kept.attachmentCount ? "found" : "none",
+        error: null, checked_at: new Date(now()).toISOString(),
+      }).abortSignal(signal());
+      if (error) throw new Error("상세 탐색 결과 저장 실패");
+      return false;
+    }
     try {
       const resource = await dependencies.fetchResource(program.source_url, DETAIL_BYTES, Math.min(20_000, timeLeft() - 5_000));
       const encoding = resource.headers.get("content-type")?.match(/charset\s*=\s*["']?([^\s;"']+)/i)?.[1] || "utf-8";
@@ -227,24 +263,31 @@ export async function runAttachmentTask(overrides: AttachmentTaskOptions = {}) {
         links = [...new Map([...links, ...parsed.links].map((link) => [link.sourceUrl, link])).values()].slice(0, 50);
         html = parsed.html || html;
       }
-      if (links.length) {
+      if (links.length && !collectorOwned) {
         const { error } = await admin.from("openchat_program_attachments").upsert(links.map((link) => ({
           program_id: program.id, file_name: link.fileName, file_ext: link.fileExt, source_url: link.sourceUrl,
         })), { onConflict: "program_id,source_url", ignoreDuplicates: true }).abortSignal(signal());
         if (error) throw new Error("첨부 목록 저장 실패");
       }
       const { error } = await admin.from("openchat_program_attachment_discovery").upsert({
-        program_id: program.id, status: links.length ? "found" : "none", attachment_count: links.length,
-        detail_text: attachmentDetailText(html), error: null, checked_at: new Date(now()).toISOString(),
+        program_id: program.id, status: links.length ? "found" : "none",
+        // 수집기 공고의 첨부 수는 수집기가 보낸 값입니다 — 여기서 찾은 수로 바꾸지 않습니다.
+        ...(collectorOwned ? {} : { attachment_count: links.length }),
+        ...(keepDetail ? {} : { detail_text: attachmentDetailText(html) }),
+        error: null, checked_at: new Date(now()).toISOString(),
       }).abortSignal(signal());
       if (error) throw new Error("상세 탐색 결과 저장 실패");
       summary.discovered++;
+      if (collectorOwned) return false;
       summary.discoveredAttachments += links.length;
       return links.length > 0;
     } catch {
       summary.discoveryFailed++;
       const { error } = await admin.from("openchat_program_attachment_discovery").upsert({
-        program_id: program.id, status: "failed", attachment_count: 0, detail_text: "",
+        program_id: program.id, status: "failed",
+        // 수집기 공고는 본문과 첨부 수를 그대로 둡니다 — 못 긁은 것은 우리 쪽 사정입니다.
+        ...(collectorOwned ? {} : { attachment_count: 0 }),
+        ...(keepDetail ? {} : { detail_text: "" }),
         error: "기관 상세 페이지 조회 또는 첨부 탐색 실패", checked_at: new Date(now()).toISOString(),
       }).abortSignal(signal());
       if (error) throw new Error("상세 탐색 결과 저장 실패");
@@ -381,7 +424,8 @@ export async function runAttachmentTask(overrides: AttachmentTaskOptions = {}) {
     const eligibleFilter = cursor
       ? `and(or(${deadlineFilter}),or(created_at.lt.${cursor.created_at},and(created_at.eq.${cursor.created_at},id.lt.${cursor.id})))`
       : deadlineFilter;
-    let query = admin.from("openchat_programs").select("id,source_url,created_at").or(eligibleFilter);
+    let query = admin.from("openchat_programs")
+      .select("id,source_url,created_at,collector:raw_payload->>collector").or(eligibleFilter);
     if (deadlineScope === "known") query = query.gte("deadline_at", new Date(now()).toISOString());
     else if (deadlineScope === "unknown") query = query.is("deadline_at", null);
     if (!includeExcluded) query = query.neq("status", "excluded");
@@ -473,7 +517,12 @@ export async function runAttachmentTask(overrides: AttachmentTaskOptions = {}) {
           if (!check && summary.discovered + summary.discoveryFailed < maxDiscovered) {
             newDocuments = Boolean(await discover(program));
           }
-          if (newDocuments || pending.has(program.id)) await processPending(program);
+          // 수집기 공고의 첨부는 수집기가 맡습니다. 수집기가 'failed' 로 보낸 첨부를
+          // 여기서 다시 시도해 성공하면 원천이 늘어 요건 해시가 흔들리고, 다음에 수집기가
+          // 다시 보내면 되돌아가 또 흔들립니다 (P1 검수).
+          if (program.collector !== COLLECTOR_TAG && (newDocuments || pending.has(program.id))) {
+            await processPending(program);
+          }
         }
       }
       // Retry the oldest checked records, not a fixed newest-program prefix.
@@ -503,7 +552,9 @@ export async function runAttachmentTask(overrides: AttachmentTaskOptions = {}) {
             const program = mapped.get(check.program_id);
             if (!program || discoveryAttempted.has(program.id)) continue;
             const newDocuments = await discover(program);
-            if (newDocuments || pending.has(program.id)) await processPending(program);
+            if (program.collector !== COLLECTOR_TAG && (newDocuments || pending.has(program.id))) {
+              await processPending(program);
+            }
           }
           if (checks.length < 100) break;
         }
