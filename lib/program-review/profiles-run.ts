@@ -376,7 +376,7 @@ export async function loadMatchProfilesSnapshot(admin: SupabaseClient, options: 
  * ★ **읽기만 합니다.** 울림웍스에서 새로 받아 오지 않습니다 — 가장 최근에 받아 둔
  *   명단(캐시)과 적어 둔 고객사 요건으로 만듭니다. 받는 통로(ingest)에서 부르므로
  *   느려지거나 깨지면 안 됩니다. 만들 수 없으면 null 입니다 (수집기는 그러면 하던 대로 합니다).
- *   이름·식별자는 내보내지 않습니다. 지역 글자만 나갑니다.
+ *   이름·식별자는 내보내지 않습니다. 지역 칸의 맨 앞 낱말(광역)만 나갑니다.
  */
 export async function latestMatchRegions(admin: SupabaseClient): Promise<string[] | null> {
   try {
@@ -388,7 +388,9 @@ export async function latestMatchRegions(admin: SupabaseClient): Promise<string[
     const profiles = await matchProfiles(admin, customers);
     const regions = new Set<string>();
     for (const profile of profiles) {
-      const region = typeof profile.region === "string" ? profile.region.trim().slice(0, 60) : "";
+      // **맨 앞 낱말만** 보낸다 ('경기 안양시 동안구' → '경기'). 수집기는 광역만 쓰고,
+      // 지역 칸에 주소를 통째로 적어 둔 경우에도 주소가 밖으로 나가지 않는다.
+      const region = typeof profile.region === "string" ? profile.region.trim().split(/\s+/)[0].slice(0, 12) : "";
       if (region) regions.add(region);
     }
     return [...regions].sort().slice(0, 200);
