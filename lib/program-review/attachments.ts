@@ -17,7 +17,11 @@ const FILE = /([^<>"/\\|?*]{1,200}\.(?:hwpx?|pdf|zip))(?=\s|$|[),])/i;
 // require an inspected adapter; this also prevents attacker-controlled DNS rebinding.
 const ATTACHMENT_DOMAINS = ["bizinfo.go.kr", "mss.go.kr", "k-startup.go.kr", "sbiz24.kr", "semas.or.kr",
   "btp.or.kr", "smart-factory.kr", "ripc.org", "fanfandaero.kr", "yeongdo.go.kr", "busanstartup.kr",
-  "kspo.or.kr", "gjtp.or.kr", "touraz.kr", "bsbukgu.go.kr", "bepa.kr", "bsdonggu.go.kr", "mssmiv.com", "smtech.go.kr"];
+  "kspo.or.kr", "gjtp.or.kr", "touraz.kr", "bsbukgu.go.kr", "bepa.kr", "bsdonggu.go.kr", "mssmiv.com", "smtech.go.kr",
+  // 중소벤처기업진흥공단. PC 수집기가 이 사이트 공고를 보내는데 여기만 빠져 있어서,
+  // 다시 긁다가 새로 찾은 첨부는 늘 "검증되지 않은 외부 첨부 호스트" 로 실패했다
+  // (수집기 첨부 68건 전부 www.kosmes.or.kr). 2026-11-24.
+  "kosmes.or.kr"];
 
 function decode(value: string) {
   return value.replace(/&amp;/gi, "&").replace(/&quot;/gi, '"').replace(/&#39;|&apos;/gi, "'")
@@ -91,12 +95,17 @@ export function isPrivateAddress(ip: string) {
     || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 100 && b >= 64 && b <= 127);
 }
 
+/** 첨부를 받아도 되는 기관 주소인가. 하위 주소(www. 등)도 허용한다. */
+export function isAllowedAttachmentHost(hostname: string) {
+  return ATTACHMENT_DOMAINS.some((domain) => hostname === domain || hostname.endsWith(`.${domain}`));
+}
+
 async function assertPublicUrl(url: URL) {
   const hostname = url.hostname.replace(/^\[|\]$/g, "");
   if (!/^https?:$/.test(url.protocol) || url.username || url.password || (url.port && !["80", "443"].includes(url.port))) {
     throw new Error("첨부 URL 형식 거부");
   }
-  if (!ATTACHMENT_DOMAINS.some((domain) => hostname === domain || hostname.endsWith(`.${domain}`))) {
+  if (!isAllowedAttachmentHost(hostname)) {
     throw new Error("검증되지 않은 외부 첨부 호스트");
   }
   const addresses = isIP(hostname) ? [{ address: hostname }] : await lookup(hostname, { all: true });

@@ -42,6 +42,7 @@ const fieldNames: Record<string, string> = {
   evaluation: "평가", method: "평가 방법", criteria_text: "평가 기준", region: "지역", founded_on: "설립일",
   business_type: "사업자 유형", industries: "업종", employees: "근로자 수", revenue_krw: "매출(원)", revenue_band: "매출 구간",
   certifications: "현재 보유 인증", certifications_complete: "현재 인증 목록 확인 완료", has_support_history: "지원 이력 확인 여부", notes: "메모",
+  item_fields: "아이템 분야", item_not_fields: "아닌 분야",
 };
 const statusNames: Record<string, string> = { extracted: "추출 완료", pending: "처리 대기", processing: "처리 중", failed: "처리 실패",
   no_text: "텍스트 없음 · 스캔 확인 필요", skipped: "제한으로 건너뜀", unsupported: "미지원 형식", completed: "완료", success: "성공", ok: "성공", error: "실패", idle: "대기" };

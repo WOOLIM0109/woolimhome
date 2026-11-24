@@ -55,7 +55,28 @@ const 칸: readonly (readonly [string, string, string])[] = [
   ["employees", "직원수", "3"],
   ["revenue_krw", "매출 (원)", "120000000"],
   ["certifications", "보유 인증 (쉼표로 구분)", "여성기업, 벤처기업"],
+  // ★ 아이템 분야. 저장소·저장 API·판정은 이미 받고 있었는데 화면에만 칸이 없어서
+  // SQL 로만 넣을 수 있었습니다. 업종(industries)과는 다른 축입니다 — 무엇을
+  // 만들고 파는지. 분야가 지정된 공고를 판정할 때 씁니다.
+  ["item_fields", "아이템 분야 (쉼표로 구분)", "AI 소프트웨어, 돌봄 플랫폼"],
+  ["item_not_fields", "확실히 아닌 분야 (쉼표로 구분)", "제조, 농식품"],
 ];
+
+// 이 화면에 칸이 없지만 저장소에는 있을 수 있는 요건. 저장은 profile 을 **통째로**
+// 바꾸므로, 다시 보내지 않으면 화면에서 저장하는 순간 지워집니다.
+const 화면에없는칸 = ["revenue_band", "has_support_history"] as const;
+
+/**
+ * '사업자 추가' 의 새 열쇠. 화면에는 열쇠 칸이 없어서 예전에는 늘 'main' 으로 저장됐고,
+ * 저장은 (고객사, 열쇠) 로 덮어쓰므로 **이미 있는 첫 사업자를 통째로 덮어썼습니다.**
+ */
+function 새사업자열쇠(customer: { entities: { entity_key: string }[] }) {
+  const 있는 = new Set(customer.entities.map((entity) => entity.entity_key));
+  if (!있는.has("main")) return "main";
+  let n = 2;
+  while (있는.has(`entity-${n}`)) n += 1;
+  return `entity-${n}`;
+}
 
 /** 쉼표로 적은 글을 목록으로. 비우면 '모른다' 로 남깁니다. */
 function 목록으로(value: string) {
@@ -85,6 +106,8 @@ export default function CustomerProfilesPanel() {
   // 인증은 '적어 둔 것이 전부' 라고 확인해야 판정에 쓰입니다.
   // 확인 없이 '인증 없음' 으로 판정하면 받을 수 있는 공고를 놓칩니다.
   const [certificationsComplete, setCertificationsComplete] = useState(false);
+  // 고치기 시작할 때의 요건. 화면에 없는 칸을 저장할 때 그대로 돌려보냅니다.
+  const [원래요건, set원래요건] = useState<Record<string, unknown>>({});
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
@@ -94,9 +117,10 @@ export default function CustomerProfilesPanel() {
     setMessage(""); setError("");
     setEditing({ customer: customer.id, key: entity?.entity_key ?? "" });
     setActive(entity?.active ?? true);
+    set원래요건(entity?.profile ?? {});
     setCertificationsComplete(entity?.profile.certifications_complete === true);
     setForm({
-      entity_key: entity?.entity_key ?? "",
+      entity_key: entity?.entity_key ?? 새사업자열쇠(customer),
       entity_name: entity?.entity_name ?? customer.name,
       business_number: entity?.business_number ?? "",
       // 울림웍스에 적힌 값이 있으면 첫 값으로 깔아 둡니다. 고쳐 쓰셔도 됩니다.
@@ -107,8 +131,20 @@ export default function CustomerProfilesPanel() {
       employees: 글자로(entity?.profile.employees),
       revenue_krw: 글자로(entity?.profile.revenue_krw),
       certifications: 글자로(entity?.profile.certifications),
+      item_fields: 글자로(entity?.profile.item_fields),
+      item_not_fields: 글자로(entity?.profile.item_not_fields),
       notes: 글자로(entity?.profile.notes),
     });
+  }
+
+  // ★ 목록 칸은 **안 건드렸으면 원래 목록을 그대로** 보냅니다. 화면은 목록을 ', ' 로
+  // 이어 보여 주고 저장할 때 쉼표로 다시 나누므로, '소프트웨어(AI, 빅데이터)' 처럼
+  // 쉼표가 든 값은 다른 칸만 고쳐 저장해도 둘로 쪼개졌습니다.
+  function 목록칸(key: string) {
+    const 적은 = form[key] ?? "";
+    const 원래 = 원래요건[key];
+    if (Array.isArray(원래) && 적은 === 글자로(원래)) return 원래.length ? 원래 : null;
+    return 목록으로(적은);
   }
 
   async function 저장(customerId: string) {
@@ -133,16 +169,23 @@ export default function CustomerProfilesPanel() {
           business_number: (form.business_number ?? "").trim() || null,
           active,
           profile: {
+            // 화면에 없는 칸은 고치기 시작할 때 값 그대로 돌려보냅니다 (아래 칸들이 덮어씁니다).
+            // 비어 있던 칸은 보내지 않습니다 — 참/거짓 칸에 null 을 보내면 서버가 거절합니다.
+            ...Object.fromEntries(화면에없는칸
+              .filter((key) => 원래요건[key] !== undefined && 원래요건[key] !== null)
+              .map((key) => [key, 원래요건[key]])),
             region: (form.region ?? "").trim() || null,
             founded_on: founded || null,
             business_type: (form.business_type ?? "").trim() || null,
-            industries: 목록으로(form.industries ?? ""),
+            industries: 목록칸("industries"),
             employees,
             revenue_krw: revenue,
             // 확인에 체크했으면 비워도 '없음을 확인했다' 는 뜻이라 빈 목록으로 보냅니다.
-            certifications: 목록으로(form.certifications ?? "")
+            certifications: 목록칸("certifications")
               ?? (certificationsComplete ? [] : null),
             certifications_complete: certificationsComplete,
+            item_fields: 목록칸("item_fields"),
+            item_not_fields: 목록칸("item_not_fields"),
             notes: (form.notes ?? "").trim() || null,
           },
         }),
@@ -221,6 +264,7 @@ export default function CustomerProfilesPanel() {
               지역 {display(entity.profile.region)} · 설립일 {display(entity.profile.founded_on)}
               {" · "}업종 {display(entity.profile.industries)} · 직원수 {display(entity.profile.employees)}
               {" · "}매출 {display(entity.profile.revenue_krw)}
+              {" · "}아이템 분야 {display(entity.profile.item_fields)}
             </p>
             {entity.missing.length
               ? <p className="mt-1 text-xs text-amber-800">
