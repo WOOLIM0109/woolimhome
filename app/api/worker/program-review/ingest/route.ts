@@ -7,6 +7,7 @@ import {
   parseIngestBody,
 } from "@/lib/program-review/worker-ingest";
 import { foldDuplicatePrograms } from "@/lib/program-review/dedupe-fold";
+import { latestMatchRegions } from "@/lib/program-review/profiles-run";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -41,8 +42,13 @@ export async function POST(request: Request) {
       console.error("[program-ingest] 중복 접기 실패:",
         error instanceof Error ? error.message.slice(0, 300) : "알 수 없는 오류");
     }
+    // ★ 판정 대상 고객사의 지역을 같이 알려 줍니다 (읽기만, 못 만들면 뺍니다).
+    // 수집기는 이 지역의 공고를 건너뛰지 않습니다 — 다른 지역에 새 고객사가 생기면
+    // 그 지역 공고가 다음 밤부터 올라옵니다. `latestMatchRegions` 주석 참고.
+    const matchRegions = await latestMatchRegions(admin);
     return NextResponse.json(
-      { worker: authentication.worker.id, ...result, ...(folded ? { duplicates: folded } : {}) },
+      { worker: authentication.worker.id, ...result, ...(folded ? { duplicates: folded } : {}),
+        ...(matchRegions ? { match_regions: matchRegions } : {}) },
       { headers: { "Cache-Control": "private, no-store" } },
     );
   } catch (error) {
