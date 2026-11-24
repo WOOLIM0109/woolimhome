@@ -17,6 +17,15 @@ type Program = { id: string; deadline_at: string | null; created_at: string; sta
 const QUEUE_FIELDS = ["ready", "remaining", "eligible", "withText", "waitingAttachments",
   "requirementsExtracted", "requirementsFailed", "pendingInputChars"] as const;
 type QueueCounts = Record<typeof QUEUE_FIELDS[number], number>;
+// worker-ingest.ts 의 COLLECTOR_TAG 와 같은 값이다 (이 파일은 시험 상자에서 따로 읽혀 import 를 늘리지 않는다).
+const COLLECTOR_TAG = "gonggo-monitor";
+/** 대표 PC 수집기가 넣은 공고인가. */
+async function collectorOwned(admin: Admin, programId: string) {
+  const { data, error } = await admin.from("openchat_programs")
+    .select("collector:raw_payload->>collector").eq("id", programId).maybeSingle();
+  if (error) throw new Error("요건 원문 조회 실패");
+  return (data as { collector?: string | null } | null)?.collector === COLLECTOR_TAG;
+}
 class ReviewTimeDeferred extends Error {}
 class RequirementTaskFailure extends Error {
   constructor(readonly code: string) { super(code); }
@@ -148,8 +157,11 @@ export async function runRequirementsTask(options: Options = {}) {
       const metadata = { source_complete: complete, input_truncated: input.truncated, source_checked_at: sourceCheckedAt,
         source_manifest: input.sources.map((s) => ({ id: s.id, chars: s.text.length })) };
       const { data: existing, error: existingError } = await admin.from("openchat_program_requirements")
-        .select("input_hash,status,requirements").eq("program_id", program.id).maybeSingle();
+        .select("input_hash,status,requirements,normalization_version,source_complete,input_truncated")
+        .eq("program_id", program.id).maybeSingle();
       if (existingError) throw new Error("요건 처리 이력 조회 실패");
+      // 매칭에 넘길 값. 기본은 지금 읽은 원문 기준이고, 수집기 요건을 그대로 쓸 때만 바뀐다.
+      let matchHash = input.inputHash, matchComplete = complete, matchTruncated = input.truncated;
       // 요건이 비워진 행은, 다시 부르기 전에 저장해 둔 답으로 되살릴 수 있는지 먼저 본다.
       const restorable = !options.recoveryProgramId && existing?.status === "failed"
         && existing.input_hash === input.inputHash
@@ -176,6 +188,35 @@ export async function runRequirementsTask(options: Options = {}) {
         }).eq("program_id", program.id).eq("input_hash", input.inputHash).eq("status", "extracted")
           .select("program_id").maybeSingle();
         if (refreshError || !refreshed) throw new Error("요건 원문 상태 갱신 실패");
+        summary.reused++;
+      } else if (!options.recoveryProgramId && existing?.status === "extracted"
+        && typeof existing.input_hash === "string" && existing.input_hash
+        && existing.normalization_version === REQUIREMENTS_NORMALIZATION_VERSION
+        && await collectorOwned(admin, program.id)) {
+        // ★ PC 수집기 공고는 **수집기가 정리해 보낸 요건을 그대로 쓴다** (2026-11-25).
+        //
+        // 수집기가 이미 원문을 읽고 요건을 뽑아 보낸다. 그런데 저장소에는 서버가 예전에
+        // 붙인 첨부가 남아 있어(실측 238건) 여기서 다시 묶은 해시가 수집기 것과 달랐고,
+        // 다를 때마다 같은 공고의 요건을 유료로 다시 뽑아 수집기 요건을 덮었다.
+        // 해시를 맞추려던 시도는 6만 자 창에서 수집기 근거가 밀려 값이 비는 문제가 있었다.
+        // 그래서 맞추지 않는다 — 수집기 요건이 있으면 **다시 뽑지도, 다시 다듬지도 않고**
+        // 판정만 한다. 수집기가 새로 보내면 받는 쪽(worker-ingest)이 요건을 바꿔 쓴다.
+        //
+        // 요건이 없거나 실패로 남은 공고는 여기 오지 않는다 — 예전처럼 서버가 뽑는다.
+        // 확인 시각만 적는다. 안 적으면 본문 확인 시각(24시간마다 갱신)보다 늘 옛것이라
+        // 실행마다 다시 잡혀 작업 줄을 차지한다.
+        const { data: kept, error: keepError } = await admin.from("openchat_program_requirements").update({
+          source_checked_at: sourceCheckedAt, updated_at: new Date(clock()).toISOString(),
+        }).eq("program_id", program.id).eq("input_hash", existing.input_hash).eq("status", "extracted")
+          .select("program_id").maybeSingle();
+        if (keepError) throw new Error("요건 원문 상태 갱신 실패");
+        // 그 사이에 수집기가 새 요건을 보냈다. 다음 실행에서 새것으로 판정한다.
+        if (!kept) continue;
+        requirements = existing.requirements as Requirements;
+        matchHash = existing.input_hash;
+        // 경고 문구는 수집기가 요건을 뽑을 때의 원문 상태를 따른다 (서버 옛 첨부가 아니라).
+        matchComplete = existing.source_complete !== false;
+        matchTruncated = existing.input_truncated === true;
         summary.reused++;
       } else {
         if (paidCalls >= max) break;
@@ -303,14 +344,14 @@ export async function runRequirementsTask(options: Options = {}) {
       if ((!includeExcluded && current.data.status === "excluded")
         || (current.data.deadline_at && Date.parse(current.data.deadline_at) < clock())) continue;
       const matches = matchProgram(requirements, profiles, { now: new Date(clock()), programDeadlineAt: current.data.deadline_at }).map((m) => {
-        const caution = [!complete ? "첨부 일부 미추출: 확인 필요" : "", input.truncated ? "입력 6만 자 절단: 확인 필요" : ""].filter(Boolean);
+        const caution = [!matchComplete ? "첨부 일부 미추출: 확인 필요" : "", matchTruncated ? "입력 6만 자 절단: 확인 필요" : ""].filter(Boolean);
         if (!caution.length) return m;
         return { ...m, reasons: [...m.reasons, ...caution,
           ...(m.verdict === "candidate" && !m.reasons.some((reason) => reason.startsWith("조건부 후보:"))
             ? ["조건부 후보: 첨부 원문 전체와 추가 요건은 확인 필요"] : [])] };
       });
       const { error: matchError } = await admin.rpc("save_openchat_program_matches", {
-        p_program_id: program.id, p_review_date: date, p_input_hash: input.inputHash, p_matches: matches,
+        p_program_id: program.id, p_review_date: date, p_input_hash: matchHash, p_matches: matches,
         p_profile_revision: profileRevision,
       });
       if (matchError) throw new Error("대상별 매칭 저장 실패");
