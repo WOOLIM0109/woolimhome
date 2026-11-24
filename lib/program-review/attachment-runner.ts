@@ -209,13 +209,13 @@ export async function runAttachmentTask(overrides: AttachmentTaskOptions = {}) {
     else summary[result.status]++;
   }
 
-  /** 본문 자리에 이미 글이 있는가. 본문을 읽지 않고 있는지만 봅니다. */
-  async function hasDetailText(programId: string) {
+  /** 본문 자리에 이미 글이 있으면 그 행의 첨부 수를, 없으면 null. 본문은 읽지 않습니다. */
+  async function collectorDetail(programId: string) {
     const { data, error } = await admin.from("openchat_program_attachment_discovery")
-      .select("program_id").eq("program_id", programId).neq("detail_text", "").limit(1)
+      .select("program_id,attachment_count").eq("program_id", programId).neq("detail_text", "").limit(1)
       .abortSignal(signal());
     if (error) throw new Error("본문 자리 조회 실패");
-    return Boolean(data?.length);
+    return data?.length ? { attachmentCount: Number(data[0].attachment_count) || 0 } : null;
   }
 
   async function discover(program: Program) {
@@ -230,7 +230,20 @@ export async function runAttachmentTask(overrides: AttachmentTaskOptions = {}) {
     // 첨부: 수집기가 이미 받아 글자로 바꿔 보냅니다. 여기서 또 찾으면 같은 파일이
     //   다른 주소로 한 번 더 들어가 해시가 흔들립니다. 그래서 찾지 않습니다.
     const collectorOwned = program.collector === COLLECTOR_TAG;
-    const keepDetail = collectorOwned && await hasDetailText(program.id);
+    const kept = collectorOwned ? await collectorDetail(program.id) : null;
+    const keepDetail = kept !== null;
+    if (kept) {
+      // 본문이 이미 있으면 **긁지 않습니다.** 긁어도 쓸 데가 없고(본문은 안 덮고 첨부는
+      // 수집기가 맡음), 해외 서버라 연결 안 되는 기관은 매번 20초씩 실행 시간을 먹었습니다.
+      // 확인한 시각만 적어 24시간 뒤에 다시 보게 합니다. 상태도 수집기가 보낸 첨부 수에
+      // 맞춥니다 — 예전 실패(failed)가 남아 있으면 실행마다 다시 잡히기 때문입니다.
+      const { error } = await admin.from("openchat_program_attachment_discovery").upsert({
+        program_id: program.id, status: kept.attachmentCount ? "found" : "none",
+        error: null, checked_at: new Date(now()).toISOString(),
+      }).abortSignal(signal());
+      if (error) throw new Error("상세 탐색 결과 저장 실패");
+      return false;
+    }
     try {
       const resource = await dependencies.fetchResource(program.source_url, DETAIL_BYTES, Math.min(20_000, timeLeft() - 5_000));
       const encoding = resource.headers.get("content-type")?.match(/charset\s*=\s*["']?([^\s;"']+)/i)?.[1] || "utf-8";
