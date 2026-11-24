@@ -365,3 +365,34 @@ export async function loadMatchProfilesSnapshot(admin: SupabaseClient, options: 
     failure("profiles_failed", "매칭 프로필 스냅샷을 확인하지 못했습니다.");
   }
 }
+
+/**
+ * 판정 대상(자사 + 고객사 사업자)의 **지역 글자 모음** — PC 수집기에 알려 주는 용도입니다 (2026-11-25).
+ *
+ * 수집기는 "고객사가 없는 지역" 공고를 읽지 않고 건너뜁니다. 그 "우리 지역" 을 수집기가
+ * 따로 적어 둔 명단에서 읽어, 다른 지역에 새 고객사가 생겨도 그 지역 공고가 올라오지
+ * 않았습니다. 여기서 판정에 실제로 쓰는 명단의 지역을 알려 줍니다.
+ *
+ * ★ **읽기만 합니다.** 울림웍스에서 새로 받아 오지 않습니다 — 가장 최근에 받아 둔
+ *   명단(캐시)과 적어 둔 고객사 요건으로 만듭니다. 받는 통로(ingest)에서 부르므로
+ *   느려지거나 깨지면 안 됩니다. 만들 수 없으면 null 입니다 (수집기는 그러면 하던 대로 합니다).
+ *   이름·식별자는 내보내지 않습니다. 지역 글자만 나갑니다.
+ */
+export async function latestMatchRegions(admin: SupabaseClient): Promise<string[] | null> {
+  try {
+    const { data, error } = await admin.from(CACHE_TABLE).select("payload,fetched_at")
+      .not("fetched_at", "is", null).order("cache_date", { ascending: false }).limit(1).maybeSingle();
+    if (error || !data) return null;
+    const customers = parseCachedProfiles(data.payload);
+    if (!customers) return null;
+    const profiles = await matchProfiles(admin, customers);
+    const regions = new Set<string>();
+    for (const profile of profiles) {
+      const region = typeof profile.region === "string" ? profile.region.trim().slice(0, 60) : "";
+      if (region) regions.add(region);
+    }
+    return [...regions].sort().slice(0, 200);
+  } catch {
+    return null;
+  }
+}
