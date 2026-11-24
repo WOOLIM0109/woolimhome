@@ -983,6 +983,10 @@ export async function ingestPrograms(
         program_id: programId,
         status: "extracted",
         requirements,
+        // ★ 이 요건을 **수집기가 썼다**는 표시입니다 (2026-11-25). 요건 러너는 이 표시가
+        // 있는 수집기 공고의 요건을 다시 뽑지 않고 그대로 씁니다. 서버가 뽑으면 이 칸이
+        // 모델 이름으로 바뀌어, 서버가 뽑은 요건과 섞이지 않습니다.
+        model: COLLECTOR_TAG,
         // 올리지 않습니다. 올리면 기존 행이 전부 재추출됩니다.
         normalization_version: REQUIREMENTS_NORMALIZATION_VERSION,
         input_hash: input.inputHash,
