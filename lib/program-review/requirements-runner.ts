@@ -361,7 +361,11 @@ export async function runRequirementsTask(options: Options = {}) {
       // 수집기 요건으로 판정하는 사이에 수집기가 새 요건을 보내면 저장이 거절된다
       // (받는 쪽은 이 실행의 잠금 밖에서 돈다). 그 한 건 때문에 남은 공고까지 멈추지 않는다 —
       // 다음 실행에서 새 요건으로 다시 판정한다.
-      if (matchError && trusted) { summary.failed++; continue; }
+      // 그 거절('Stale requirements')만 넘긴다. 다른 오류(고객 프로필이 바뀜 등)는 예전처럼 멈춘다.
+      if (matchError && trusted
+        && /Stale requirements/.test(String((matchError as { message?: unknown }).message ?? ""))) {
+        summary.failed++; continue;
+      }
       if (matchError) throw new Error("대상별 매칭 저장 실패");
       summary.matched++;
     }
