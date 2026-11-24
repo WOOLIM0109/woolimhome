@@ -55,7 +55,16 @@ const 칸: readonly (readonly [string, string, string])[] = [
   ["employees", "직원수", "3"],
   ["revenue_krw", "매출 (원)", "120000000"],
   ["certifications", "보유 인증 (쉼표로 구분)", "여성기업, 벤처기업"],
+  // ★ 아이템 분야. 저장소·저장 API·판정은 이미 받고 있었는데 화면에만 칸이 없어서
+  // SQL 로만 넣을 수 있었습니다. 업종(industries)과는 다른 축입니다 — 무엇을
+  // 만들고 파는지. 분야가 지정된 공고를 판정할 때 씁니다.
+  ["item_fields", "아이템 분야 (쉼표로 구분)", "AI 소프트웨어, 돌봄 플랫폼"],
+  ["item_not_fields", "확실히 아닌 분야 (쉼표로 구분)", "제조, 농식품"],
 ];
+
+// 이 화면에 칸이 없지만 저장소에는 있을 수 있는 요건. 저장은 profile 을 **통째로**
+// 바꾸므로, 다시 보내지 않으면 화면에서 저장하는 순간 지워집니다.
+const 화면에없는칸 = ["revenue_band", "has_support_history"] as const;
 
 /** 쉼표로 적은 글을 목록으로. 비우면 '모른다' 로 남깁니다. */
 function 목록으로(value: string) {
@@ -85,6 +94,8 @@ export default function CustomerProfilesPanel() {
   // 인증은 '적어 둔 것이 전부' 라고 확인해야 판정에 쓰입니다.
   // 확인 없이 '인증 없음' 으로 판정하면 받을 수 있는 공고를 놓칩니다.
   const [certificationsComplete, setCertificationsComplete] = useState(false);
+  // 고치기 시작할 때의 요건. 화면에 없는 칸을 저장할 때 그대로 돌려보냅니다.
+  const [원래요건, set원래요건] = useState<Record<string, unknown>>({});
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
@@ -94,6 +105,7 @@ export default function CustomerProfilesPanel() {
     setMessage(""); setError("");
     setEditing({ customer: customer.id, key: entity?.entity_key ?? "" });
     setActive(entity?.active ?? true);
+    set원래요건(entity?.profile ?? {});
     setCertificationsComplete(entity?.profile.certifications_complete === true);
     setForm({
       entity_key: entity?.entity_key ?? "",
@@ -107,6 +119,8 @@ export default function CustomerProfilesPanel() {
       employees: 글자로(entity?.profile.employees),
       revenue_krw: 글자로(entity?.profile.revenue_krw),
       certifications: 글자로(entity?.profile.certifications),
+      item_fields: 글자로(entity?.profile.item_fields),
+      item_not_fields: 글자로(entity?.profile.item_not_fields),
       notes: 글자로(entity?.profile.notes),
     });
   }
@@ -133,6 +147,11 @@ export default function CustomerProfilesPanel() {
           business_number: (form.business_number ?? "").trim() || null,
           active,
           profile: {
+            // 화면에 없는 칸은 고치기 시작할 때 값 그대로 돌려보냅니다 (아래 칸들이 덮어씁니다).
+            // 비어 있던 칸은 보내지 않습니다 — 참/거짓 칸에 null 을 보내면 서버가 거절합니다.
+            ...Object.fromEntries(화면에없는칸
+              .filter((key) => 원래요건[key] !== undefined && 원래요건[key] !== null)
+              .map((key) => [key, 원래요건[key]])),
             region: (form.region ?? "").trim() || null,
             founded_on: founded || null,
             business_type: (form.business_type ?? "").trim() || null,
@@ -143,6 +162,8 @@ export default function CustomerProfilesPanel() {
             certifications: 목록으로(form.certifications ?? "")
               ?? (certificationsComplete ? [] : null),
             certifications_complete: certificationsComplete,
+            item_fields: 목록으로(form.item_fields ?? ""),
+            item_not_fields: 목록으로(form.item_not_fields ?? ""),
             notes: (form.notes ?? "").trim() || null,
           },
         }),
@@ -221,6 +242,7 @@ export default function CustomerProfilesPanel() {
               지역 {display(entity.profile.region)} · 설립일 {display(entity.profile.founded_on)}
               {" · "}업종 {display(entity.profile.industries)} · 직원수 {display(entity.profile.employees)}
               {" · "}매출 {display(entity.profile.revenue_krw)}
+              {" · "}아이템 분야 {display(entity.profile.item_fields)}
             </p>
             {entity.missing.length
               ? <p className="mt-1 text-xs text-amber-800">
