@@ -9,9 +9,10 @@ type CronDependencies = {
 
 const COUNT_FIELDS = [
   "profiles", "queued", "remaining", "considered", "extracted", "reused", "restored", "matched",
-  "failed", "alreadyAttempted", "recoveryRefused", "budgetSkipped",
+  "failed", "alreadyAttempted", "recoveryRefused", "budgetSkipped", "bodyOnly", "bodyOnlyFailed",
 ] as const;
-const FLAG_FIELDS = ["refreshPending", "stoppedForTime", "budgetExhausted", "budgetBlocked", "leaseBusy", "busy"] as const;
+const FLAG_FIELDS = ["refreshPending", "stoppedForTime", "budgetExhausted", "budgetBlocked", "leaseBusy", "busy",
+  "bodyOnlyLookupFailed"] as const;
 
 async function reviewBusinessDay(date: string) {
   // Unlike the publication helper, a failed lookup must not permit new paid work.

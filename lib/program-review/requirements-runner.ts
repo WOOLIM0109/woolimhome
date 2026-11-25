@@ -26,6 +26,107 @@ async function collectorOwned(admin: Admin, programId: string) {
   if (error) throw new Error("요건 원문 조회 실패");
   return (data as { collector?: string | null } | null)?.collector === COLLECTOR_TAG;
 }
+/**
+ * 이 판에 맞춰 판정한 것만 '끝났다' 고 본다. save_openchat_program_matches 가 적는 값과 같다.
+ * SQL 에서 판을 올리면 여기도 올린다. 잊어도 날짜가 바뀌면 다시 판정하므로, 어긋나는 것은 그날 하루다.
+ */
+const MATCH_RULE_VERSION = 5;
+/**
+ * 글만 있는 수집기 공고를 한 번 실행에서 판정하는 건수와, 새 공고의 판정을 **시작하는** 시간.
+ * (시작한 한 건은 끝까지 간다.) 남은 것은 다음 실행이 잇는다.
+ * 실패가 이만큼 쌓이면 그친다 — 한 건만의 문제면 나머지는 판정되고, 전부 실패하는 날에는 시간을 태우지 않는다.
+ */
+const BODY_ONLY_BUDGET_MS = 60_000, BODY_ONLY_LIMIT = 100, BODY_ONLY_MAX_FAILURES = 3;
+/** 원문이 본문 하나뿐인 요건인가 (수집기가 첨부 없이 보낸 공고). */
+function bodyOnlyManifest(value: unknown) {
+  return !Array.isArray(value) || value.length <= 1;
+}
+/**
+ * 글만 있는 수집기 공고 가운데 **오늘 판정할 것**을 찾습니다 (2026-11-25).
+ *
+ * 작업 줄(list_openchat_requirement_work)은 글자가 뽑힌 첨부가 하나라도 있는 공고만
+ * 세웁니다. 그런데 PC 수집기는 첨부가 없는 공고, 첨부가 포스터 그림·PPT·엑셀뿐인
+ * 공고도 **본문에 글자를 합쳐** 요건까지 뽑아 보냅니다. 그 공고들은 요건이 있는데도
+ * 줄에 서지 못해 고객사 판정을 한 번도 받지 못했습니다 (실측 2026-11-25: 살아 있는 43건).
+ *
+ * 여기서는 그런 공고만 따로 찾습니다. 요건은 뽑지 않습니다 — 수집기가 써 둔 요건으로
+ * 판정만 합니다.
+ *
+ * 수집기가 쓴 요건인지는 이렇게 가립니다.
+ *   - 공고가 수집기 것이고, 요건의 원문이 본문 하나뿐이다 (source_manifest 가 한 칸).
+ *   - model 이 수집기 표시다 (2026-11-25 부터 받는 쪽이 남긴다). 또는 **비어 있다** —
+ *     표시를 남기기 전에 받은 요건이다 (실측 43건 중 39건). 서버가 뽑으면 모델 이름이
+ *     적히고, 서버는 첨부 글자가 없는 공고의 요건을 뽑지 않는다.
+ *   빈 model 은 여기, 글만 있는 공고에서만 받아 준다. 첨부가 있는 공고는 표시가 있어야 믿는다.
+ *
+ * 판정이 끝났는지는 판정 저장(save_openchat_program_matches)이 요건 행에 남기는 칸으로
+ * 따집니다 — 오늘 날짜 · 고객 프로필 판 · 판정 규칙 판 · 요건 판 · 원문 확인 시각.
+ * 하나라도 다르면 다시 판정합니다. (작업 줄 SQL 은 '오늘 판정 줄이 실제로 있는가' 도
+ * 보는데, 그것은 여기서 보지 않습니다.)
+ */
+async function bodyOnlyCollectorWork(admin: Admin, scope: {
+  date: string; nowMs: number; profileRevision: number; includeExcluded: boolean;
+  programIds?: string[]; skip: Set<string>;
+}): Promise<Program[]> {
+  const since = new Date(scope.nowMs - 60 * 86400_000).toISOString();
+  // 요건은 공고가 들어온 뒤에 쓰이므로, 60일 안에 만든 공고의 요건은 모두 이 기간에 든다.
+  // 판정한 지 오래된 것(한 번도 안 한 것 포함)부터 받는다 — 1000줄을 넘겨 잘리더라도
+  // 오늘 이미 판정한 것이 먼저 잘린다. (지금은 수십 줄이다. 1000줄에 가까워지면
+  // 마감 지난 공고의 옛 요건이 앞자리를 차지하므로, 그때는 SQL 로 옮겨야 한다.)
+  const { data: rows, error } = await admin.from("openchat_program_requirements")
+    .select("program_id,model,input_hash,normalization_version,source_manifest,source_checked_at,matched_review_date,"
+      + "matched_profile_revision,matched_rule_version,matched_source_checked_at,matched_normalization_version")
+    .eq("status", "extracted").is("source_manifest->1", null)
+    .or(`model.is.null,model.eq.${COLLECTOR_TAG}`).gte("updated_at", since)
+    .order("matched_review_date", { ascending: true, nullsFirst: true })
+    .order("updated_at", { ascending: false }).limit(1000);
+  if (error) throw new Error("글만 있는 공고 요건 조회 실패");
+  type Row = { program_id: string; model: string | null; input_hash: string | null; normalization_version: number | null;
+    source_manifest: unknown; source_checked_at: string | null; matched_review_date: string | null;
+    matched_profile_revision: number | null; matched_rule_version: number | null;
+    matched_source_checked_at: string | null; matched_normalization_version: number | null };
+  const same = (left: string | null, right: string | null) =>
+    left === right || (!!left && !!right && Date.parse(left) === Date.parse(right));
+  const wanted = scope.programIds ? new Set(scope.programIds) : null;
+  const due = ((rows ?? []) as unknown as Row[]).filter((row) =>
+    (row.model === COLLECTOR_TAG || row.model == null)
+    && bodyOnlyManifest(row.source_manifest)
+    && typeof row.input_hash === "string" && !!row.input_hash
+    && row.normalization_version === REQUIREMENTS_NORMALIZATION_VERSION
+    && !scope.skip.has(row.program_id)
+    && (!wanted || wanted.has(row.program_id))
+    && !(row.matched_review_date === scope.date
+      && Number(row.matched_profile_revision) === scope.profileRevision
+      && Number(row.matched_rule_version) >= MATCH_RULE_VERSION
+      && row.matched_normalization_version === row.normalization_version
+      && same(row.matched_source_checked_at, row.source_checked_at)));
+  const found: Program[] = [];
+  for (let index = 0; index < due.length; index += 100) {
+    const { data: programs, error: programError } = await admin.from("openchat_programs")
+      .select("id,status,deadline_at,created_at,collector:raw_payload->>collector")
+      .in("id", due.slice(index, index + 100).map((row) => row.program_id));
+    if (programError) throw new Error("글만 있는 공고 조회 실패");
+    for (const program of (programs ?? []) as unknown as (Program & { collector?: string | null })[]) {
+      if (program.collector !== COLLECTOR_TAG) continue;
+      if (!scope.includeExcluded && program.status === "excluded") continue;
+      if (Date.parse(program.created_at) < scope.nowMs - 60 * 86400_000) continue;
+      if (program.deadline_at && Date.parse(program.deadline_at) < scope.nowMs) continue;
+      found.push({ id: program.id, deadline_at: program.deadline_at, created_at: program.created_at });
+    }
+  }
+  // 마감이 가까운 것부터. 마감이 없는 것은 뒤로.
+  return found.sort((left, right) =>
+    (left.deadline_at ? Date.parse(left.deadline_at) : Infinity) - (right.deadline_at ? Date.parse(right.deadline_at) : Infinity)
+    || left.id.localeCompare(right.id));
+}
+/** 원문을 다 읽지 못했거나 잘린 공고의 판정에는 '확인 필요' 를 덧붙인다. */
+function withCautions<T extends { verdict: string; reasons: string[] }>(matches: T[], complete: boolean, truncated: boolean): T[] {
+  const caution = [!complete ? "첨부 일부 미추출: 확인 필요" : "", truncated ? "입력 6만 자 절단: 확인 필요" : ""].filter(Boolean);
+  if (!caution.length) return matches;
+  return matches.map((m) => ({ ...m, reasons: [...m.reasons, ...caution,
+    ...(m.verdict === "candidate" && !m.reasons.some((reason) => reason.startsWith("조건부 후보:"))
+      ? ["조건부 후보: 첨부 원문 전체와 추가 요건은 확인 필요"] : [])] }));
+}
 class ReviewTimeDeferred extends Error {}
 class RequirementTaskFailure extends Error {
   constructor(readonly code: string) { super(code); }
@@ -88,6 +189,7 @@ export async function runRequirementsTask(options: Options = {}) {
       ? Math.max(1, Math.min(Math.floor(options.limit), 100)) : 100;
     const summary = { date, profiles: 0, queued: 0, scopeProgramCount: options.recoveryProgramId ? 1 : options.programIds?.length ?? 0,
       considered: 0, extracted: 0, reused: 0, restored: 0, matched: 0,
+      bodyOnly: 0, bodyOnlyFailed: 0, bodyOnlyLookupFailed: false,
       failed: 0, alreadyAttempted: 0, recoveryRefused: 0, budgetSkipped: 0, refreshPending: false, stoppedForTime: false,
       ready: 0, remaining: 0, eligible: 0, withText: 0, waitingAttachments: 0,
       requirementsExtracted: 0, requirementsFailed: 0, pendingInputChars: 0 };
@@ -134,6 +236,72 @@ export async function runRequirementsTask(options: Options = {}) {
       programs = data ?? [];
     }
     summary.queued = programs.length;
+    // ── 글만 있는 수집기 공고 (2026-11-25) ─────────────────────────────
+    // 아래 보통 공고의 줄과 **따로** 돈다. 모델을 부르지 않으므로 예산이 막힌 날에도 판정되고,
+    // 여기서 무엇이 실패해도 보통 공고의 판정은 그대로 이어진다 (실패는 세기만 한다).
+    // 먼저 도는 까닭: 뒤에 두면 보통 공고가 시간·예산으로 멈출 때마다 같이 밀린다.
+    // 새 판정을 시작하는 것은 1분까지다. 하루에 한 번 판정하면 끝이라, 다음 실행부터는 거의 할 일이 없다.
+    if (!options.recoveryProgramId) {
+      /** 요건은 그대로 두고 판정만 한다. 판정을 저장했으면 true. */
+      const judgeBodyOnly = async (program: Program) => {
+        const sourceCheckedAt = new Date(clock()).toISOString();
+        const { data: attachments, error: attachmentError } = await admin.from("openchat_program_attachments")
+          .select("id,text_content,text_status").eq("program_id", program.id);
+        if (attachmentError) throw new Error("요건 원문 조회 실패");
+        // 그새 첨부 글자가 생겼으면 보통 공고다 — 작업 줄이 세운다.
+        if (attachments?.some((a) => a.text_status === "extracted" && a.text_content?.trim())) return false;
+        const { data: existing, error: existingError } = await admin.from("openchat_program_requirements")
+          .select("input_hash,status,requirements,normalization_version,source_complete,input_truncated,model,source_manifest")
+          .eq("program_id", program.id).maybeSingle();
+        if (existingError) throw new Error("요건 처리 이력 조회 실패");
+        // 찾은 뒤에 요건이 바뀌었을 수 있다. 판정 직전에 다시 가린다.
+        if (!existing || existing.status !== "extracted"
+          || typeof existing.input_hash !== "string" || !existing.input_hash
+          || existing.normalization_version !== REQUIREMENTS_NORMALIZATION_VERSION
+          || !(existing.model === COLLECTOR_TAG || existing.model == null)
+          || !bodyOnlyManifest(existing.source_manifest)
+          || !(await collectorOwned(admin, program.id))) return false;
+        // 확인 시각만 적는다. 요건은 다듬지도 덮지도 않는다.
+        const { data: kept, error: keepError } = await admin.from("openchat_program_requirements").update({
+          source_checked_at: sourceCheckedAt, updated_at: new Date(clock()).toISOString(),
+        }).eq("program_id", program.id).eq("input_hash", existing.input_hash).eq("status", "extracted")
+          .select("program_id").maybeSingle();
+        if (keepError) throw new Error("요건 원문 상태 갱신 실패");
+        if (!kept) return false;            // 그 사이에 수집기가 새 요건을 보냈다. 다음 실행에서 판정한다.
+        const current = await admin.from("openchat_programs").select("status,deadline_at").eq("id", program.id).maybeSingle();
+        if (current.error || !current.data) throw new Error("매칭 전 공고 상태 확인 실패");
+        if ((!includeExcluded && current.data.status === "excluded")
+          || (current.data.deadline_at && Date.parse(current.data.deadline_at) < clock())) return false;
+        // 경고 문구는 수집기가 요건을 뽑을 때의 원문 상태를 따른다.
+        const matches = withCautions(
+          matchProgram(existing.requirements as Requirements, profiles, { now: new Date(clock()), programDeadlineAt: current.data.deadline_at }),
+          existing.source_complete !== false, existing.input_truncated === true);
+        const { error: matchError } = await admin.rpc("save_openchat_program_matches", {
+          p_program_id: program.id, p_review_date: date, p_input_hash: existing.input_hash, p_matches: matches,
+          p_profile_revision: profileRevision,
+        });
+        if (matchError) throw new Error("대상별 매칭 저장 실패");
+        return true;
+      };
+      const bodyOnlyEnd = Math.min(clock() + BODY_ONLY_BUDGET_MS, end - 120_000);
+      let candidates: Program[] = [];
+      try {
+        candidates = await bodyOnlyCollectorWork(admin, {
+          date, nowMs: clock(), profileRevision, includeExcluded,
+          programIds: options.programIds?.slice(0, 1000), skip: new Set(programs.map((program) => program.id)),
+        });
+      } catch { summary.bodyOnlyLookupFailed = true; }
+      for (const program of candidates) {
+        if (summary.bodyOnly >= BODY_ONLY_LIMIT || clock() >= bodyOnlyEnd) break;
+        try {
+          if (await judgeBodyOnly(program)) { summary.bodyOnly++; summary.matched++; }
+        } catch {
+          // 그 공고만의 문제일 수 있으니 다음 공고로 넘어간다 (마감 가까운 한 건이 날마다
+          // 맨 앞에서 나머지를 막지 않게). 실패가 쌓이면 그치고 보통 공고로 넘어간다.
+          if (++summary.bodyOnlyFailed >= BODY_ONLY_MAX_FAILURES) break;
+        }
+      }
+    }
     let paidCalls = 0;
     for (const program of programs) {
       if (end - clock() < 60_000) { summary.stoppedForTime = true; break; }
@@ -347,13 +515,9 @@ export async function runRequirementsTask(options: Options = {}) {
       if (current.error || !current.data) throw new Error("매칭 전 공고 상태 확인 실패");
       if ((!includeExcluded && current.data.status === "excluded")
         || (current.data.deadline_at && Date.parse(current.data.deadline_at) < clock())) continue;
-      const matches = matchProgram(requirements, profiles, { now: new Date(clock()), programDeadlineAt: current.data.deadline_at }).map((m) => {
-        const caution = [!matchComplete ? "첨부 일부 미추출: 확인 필요" : "", matchTruncated ? "입력 6만 자 절단: 확인 필요" : ""].filter(Boolean);
-        if (!caution.length) return m;
-        return { ...m, reasons: [...m.reasons, ...caution,
-          ...(m.verdict === "candidate" && !m.reasons.some((reason) => reason.startsWith("조건부 후보:"))
-            ? ["조건부 후보: 첨부 원문 전체와 추가 요건은 확인 필요"] : [])] };
-      });
+      const matches = withCautions(
+        matchProgram(requirements, profiles, { now: new Date(clock()), programDeadlineAt: current.data.deadline_at }),
+        matchComplete, matchTruncated);
       const { error: matchError } = await admin.rpc("save_openchat_program_matches", {
         p_program_id: program.id, p_review_date: date, p_input_hash: matchHash, p_matches: matches,
         p_profile_revision: profileRevision,
