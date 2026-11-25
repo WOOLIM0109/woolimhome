@@ -5,6 +5,7 @@ import { applySelfProfileProposal, readApprovedSelfProfiles, strictKeys } from "
 import { entityTargetId, entityTargetName, fetchWoolimworksCustomers, groupByCustomer,
   isConsultingCustomer, listActiveCustomerProfiles, listCustomerProfiles,
   missingFields, parseSave, saveCustomerProfile } from "./customer-profiles.ts";
+import { buildCustomerDeliveries, customerIdOf, DELIVERY_SEND_LIMIT, type DeliveryRequirement } from "./customer-delivery.ts";
 
 type Row = Record<string, unknown>;
 export type AttachmentSummary = { total: number; supported: number; extracted: number; pending: number; failed: number;
@@ -32,6 +33,19 @@ function reviewDto(row: Row): ProgramReviewDto {
     target_id: String(row.target_id), target_name: String(row.target_name), conclusion: String(row.conclusion),
     review_markdown: String(row.review_markdown), missing_documents: strings(row.missing_documents), next_actions: strings(row.next_actions),
     reviewer: String(row.reviewer), created_at: String(row.created_at) };
+}
+function dateKst(now: Date) { return new Date(now.getTime() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10); }
+// 쓰는 칸만 읽는다 (요건 전체는 근거 문장까지 들어 있어 크다). `: string` 은 PostgREST 타입 추론이 별칭을 못 읽어서다.
+const DELIVERY_REQUIREMENT_COLUMNS: string = "program_id,matched_profile_revision,support_amount_text:requirements->support_amount_text,"
+  + "submission_documents:requirements->submission_documents,deadline_at:requirements->>deadline_at";
+function deliveryCustomer(value: unknown) {
+  // 울림웍스 고객 id. 사업자(`:` 뒤)가 아니라 고객사 단위로 적는다.
+  return typeof value === "string" && value.length >= 1 && value.length <= 160 && value === value.trim()
+    && !value.includes(":") && !/[\u0000-\u001f\u007f]/.test(value);
+}
+function realDay(value: unknown): value is string {
+  return typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value)
+    && new Date(`${value}T00:00:00Z`).toISOString().slice(0, 10) === value;
 }
 function supported(row: Row) { return ["hwp", "hwpx", "pdf"].includes(String(row.file_ext)); }
 function attachmentSummary(rows: Row[]): AttachmentSummary {
@@ -230,6 +244,117 @@ export class ProgramAdminService {
       consulting_count: rows.filter(row => row.consulting).length,
       customers: rows, orphans,
     };
+  }
+
+  /**
+   * '고객사 전달' 탭. 가장 최근 판정일(오늘 이전 포함)의 후보를 고객사마다 모아
+   * 보낼 문구를 만듭니다. 이미 보낸 공고는 뺍니다. 보내는 것은 사람이 합니다.
+   */
+  async deliveries() {
+    const today = dateKst(this.now);
+    const latest = checked(await this.admin.from("openchat_program_matches").select("review_date")
+      .eq("target_kind", "customer").lte("review_date", today).order("review_date", { ascending: false })
+      .limit(1).maybeSingle()) as Row | null;
+    const reviewDate = typeof latest?.review_date === "string" ? latest.review_date : null;
+    const sentToday = await allRows((start, end) => this.admin.from("openchat_program_deliveries")
+      .select("id,customer_id,program_id,review_date,delivered_by,delivered_at")
+      .gte("delivered_at", new Date(Date.parse(`${today}T00:00:00+09:00`)).toISOString())
+      .order("delivered_at", { ascending: false }).order("id").range(start, end));
+    const cache = checked(await this.admin.from("openchat_match_profiles_cache").select("payload").not("fetched_at", "is", null)
+      .order("fetched_at", { ascending: false }).limit(1).maybeSingle()) as Row | null;
+    const names = new Map<string, string>();
+    if (Array.isArray(cache?.payload)) for (const row of cache.payload as Row[])
+      if (typeof row.id === "string" && typeof row.name === "string") names.set(row.id, row.name);
+    const matches = !reviewDate ? [] : await allRows((start, end) => this.admin.from("openchat_program_matches")
+      .select("program_id,target_id,target_name,verdict,reasons,score").eq("review_date", reviewDate)
+      .eq("target_kind", "customer").eq("verdict", "candidate").order("program_id").order("target_id").range(start, end));
+    const ids = [...new Set([...matches, ...sentToday].map(row => String(row.program_id)))];
+    const programs: Row[] = [], requirements: Row[] = [];
+    for (let offset = 0; offset < ids.length; offset += 100) {
+      const chunk = ids.slice(offset, offset + 100);
+      const [p, r] = await Promise.all([
+        allRows((start, end) => this.admin.from("openchat_programs").select("id,title,source_url,deadline_at,status,event_like:raw_payload->>event_like")
+          .in("id", chunk).order("id").range(start, end)),
+        // 쓰는 칸만 읽는다. 요건 전체(근거 문장 포함)는 공고마다 크다.
+        allRows((start, end) => this.admin.from("openchat_program_requirements")
+          .select(DELIVERY_REQUIREMENT_COLUMNS)
+          .in("program_id", chunk).order("program_id").range(start, end) as unknown as PromiseLike<{ data: Row[] | null; error: unknown }>),
+      ]);
+      programs.push(...p); requirements.push(...r);
+    }
+    // 오늘 후보인 공고에 대한 기록만 읽는다. 고객사 전체 기록을 읽으면 쌓일수록 무거워진다.
+    const candidateIds = [...new Set(matches.map(row => String(row.program_id)))];
+    const delivered: Row[] = [];
+    for (let offset = 0; offset < candidateIds.length; offset += 100) delivered.push(...await allRows((start, end) =>
+      this.admin.from("openchat_program_deliveries").select("customer_id,program_id")
+        .in("program_id", candidateIds.slice(offset, offset + 100)).order("id").range(start, end)));
+    // 고객사·자사 정보가 바뀐 뒤 아직 다시 판정하지 않은 공고. 그 판정은 예전 정보로 한 것이다.
+    const context = !candidateIds.length ? null : checked(await this.admin.from("openchat_program_match_context")
+      .select("revision").eq("id", "current").maybeSingle()) as Row | null;
+    const staleIds = new Set(context ? requirements.filter(row => String(row.matched_profile_revision) !== String(context.revision))
+      .map(row => String(row.program_id)) : []);
+    // 판정은 평일 아침에 몇 번에 나눠 저장된다. 오늘 판정을 보고 있는데 아직 판정할 공고가 남아 있으면 알린다.
+    // (시각으로만 가늠하면 10시 넘어 덜 끝난 날을 놓친다)
+    let pendingJudging = 0;
+    if (reviewDate === today) {
+      const { data, error } = await this.admin.rpc("openchat_review_queue_status", { p_review_date: today, p_include_excluded: false });
+      const ready = !error && data && typeof data === "object" ? Number((data as Row).ready) : NaN;
+      pendingJudging = Number.isSafeInteger(ready) && ready > 0 ? ready : 0;
+    }
+    const list = buildCustomerDeliveries({
+      matches: matches.map(row => ({ program_id: String(row.program_id), target_id: String(row.target_id),
+        target_name: String(row.target_name), verdict: String(row.verdict), reasons: strings(row.reasons), score: Number(row.score) || 0 })),
+      programs: programs.map(row => ({ id: String(row.id), title: String(row.title ?? ""), status: String(row.status ?? ""),
+        source_url: typeof row.source_url === "string" ? row.source_url : null,
+        deadline_at: typeof row.deadline_at === "string" ? row.deadline_at : null,
+        event_like: row.event_like === true || row.event_like === "true" })),
+      requirements: new Map(requirements.map(row => [String(row.program_id), {
+        support_amount_text: row.support_amount_text, submission_documents: row.submission_documents,
+        deadline_at: row.deadline_at } as DeliveryRequirement])),
+      delivered: new Set(delivered.map(row => `${row.customer_id}|${row.program_id}`)),
+      customerNames: names, now: this.now,
+    });
+    const titles = new Map(programs.map(row => [String(row.id), String(row.title ?? "")]));
+    return { as_of: this.now.toISOString(), today, review_date: reviewDate, customers: list,
+      // 화면에 실제로 보이는 공고만 센다 (마감 지남·이미 보낸 공고는 빼고)
+      stale_programs: new Set(list.flatMap(row => row.items.map(item => item.program_id)).filter(id => staleIds.has(id))).size,
+      pending_judging: pendingJudging,
+      sent_today: sentToday.map(row => ({ id: String(row.id), customer_id: String(row.customer_id),
+        customer_name: names.get(String(row.customer_id)) ?? String(row.customer_id), program_id: String(row.program_id),
+        title: titles.get(String(row.program_id)) ?? "", delivered_by: String(row.delivered_by), delivered_at: String(row.delivered_at) })) };
+  }
+
+  /** '보냈어요'. 그날 그 고객사의 후보였던 공고만 적습니다. 이미 적힌 것은 그대로 둡니다. */
+  async markDelivered(body: Record<string, unknown> | undefined, actor: string) {
+    if (!body) throw new ProgramApiError(400, "INVALID_DELIVERY");
+    strictKeys(body, ["customer_id", "program_ids", "review_date"]);
+    const customerId = body.customer_id, reviewDate = body.review_date, programIds = body.program_ids;
+    if (!deliveryCustomer(customerId) || !realDay(reviewDate) || reviewDate > dateKst(this.now)
+      || !Array.isArray(programIds) || !programIds.length || programIds.length > DELIVERY_SEND_LIMIT
+      || programIds.some(id => typeof id !== "string")) throw new ProgramApiError(400, "INVALID_DELIVERY");
+    const ids = [...new Set(programIds as string[])].map(requireUuid);
+    const matches = await allRows((start, end) => this.admin.from("openchat_program_matches").select("program_id,target_id")
+      .eq("review_date", reviewDate).eq("target_kind", "customer").eq("verdict", "candidate").in("program_id", ids)
+      .order("program_id").order("target_id").range(start, end));
+    const allowed = new Set(matches.filter(row => customerIdOf(String(row.target_id)) === customerId).map(row => String(row.program_id)));
+    if (ids.some(id => !allowed.has(id))) throw new ProgramApiError(409, "NOT_A_CANDIDATE");
+    const by = actor.slice(0, 200) || "admin";
+    // 충돌하면 건너뛴다. 돌려받는 줄은 이번에 **새로 적힌** 것뿐이라, 둘이 동시에 눌러도 한 사람만 새로 적은 것이 된다.
+    const inserted = checked(await this.admin.from("openchat_program_deliveries")
+      .upsert(ids.map(id => ({ customer_id: customerId, program_id: id, review_date: reviewDate, delivered_by: by })),
+        { onConflict: "customer_id,program_id", ignoreDuplicates: true }).select("program_id")) as Row[] | null ?? [];
+    return { delivered: inserted.length, already: ids.length - inserted.length };
+  }
+
+  /** 잘못 누른 '보냈어요' 를 되돌립니다. 그 기록 한 줄만 지웁니다. */
+  async undoDelivery(body: Record<string, unknown> | undefined) {
+    if (!body) throw new ProgramApiError(400, "INVALID_DELIVERY");
+    strictKeys(body, ["id"]);
+    if (typeof body.id !== "string") throw new ProgramApiError(400, "INVALID_DELIVERY");
+    const id = requireUuid(body.id);
+    const removed = checked(await this.admin.from("openchat_program_deliveries").delete().eq("id", id).select("id")) as Row[] | null;
+    if (!removed?.length) throw new ProgramApiError(404, "DELIVERY_NOT_FOUND");
+    return { undone: 1 };
   }
 
   async saveCustomerProfile(body: Record<string, unknown> | undefined, actor: string) {
