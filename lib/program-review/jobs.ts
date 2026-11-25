@@ -3,14 +3,15 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 const COUNT_FIELDS = [
   "profiles", "queued", "remaining", "considered", "extracted", "reused", "restored", "matched", "failed",
-  "alreadyAttempted", "recoveryRefused", "budgetSkipped", "discovered", "discoveredAttachments", "discoveryFailed",
+  "alreadyAttempted", "recoveryRefused", "budgetSkipped", "bodyOnly", "bodyOnlyFailed", "discovered", "discoveredAttachments", "discoveryFailed",
   "processed", "noText", "skipped", "expanded", "deferred", "zipCachePeakBytes", "zipCacheEvictions",
   "ready", "waitingAttachments", "eligible", "withText", "requirementsExtracted", "requirementsFailed",
   "pendingInputChars", "estimatedInputTokens", "estimatedOutputTokens", "remainingDailyCalls", "remainingMonthlyCalls",
   "elapsedMs", "durationMs", "remainingMs", "budgetRemainingCalls",
   "scopeProgramCount",
 ] as const;
-const FLAG_FIELDS = ["refreshPending", "stoppedForTime", "budgetExhausted", "budgetBlocked", "leaseBusy", "busy"] as const;
+const FLAG_FIELDS = ["refreshPending", "stoppedForTime", "budgetExhausted", "budgetBlocked", "leaseBusy", "busy",
+  "bodyOnlyLookupFailed"] as const;
 type JobSummary = Record<string, number | boolean | string>;
 type JobStatus = "completed" | "partial" | "blocked" | "failed";
 type BusyResult = { leaseBusy: true; status: "skipped" };
@@ -71,9 +72,13 @@ export async function withReviewJob<T extends Record<string, unknown>>(
     await finish("failed", {}, "REVIEW_JOB_FAILED");
     throw error;
   }
+  // 글만 있는 공고 쪽 실패도 '일부만 됨' 으로 남긴다 — 숫자만 남고 상태가 '완료' 면 아무도 못 본다.
+  const bodyOnlyTrouble = summary.bodyOnlyLookupFailed === true
+    || (typeof summary.bodyOnlyFailed === "number" && summary.bodyOnlyFailed > 0);
+  // 기존 순서(실패 → 예산 막힘 → 갱신 대기)는 그대로 두고, '완료' 로 남을 자리만 바꾼다.
   const status: JobStatus = typeof summary.failed === "number" && summary.failed > 0 ? "partial"
     : typeof summary.budgetSkipped === "number" && summary.budgetSkipped > 0 ? "blocked"
-      : summary.refreshPending === true ? "partial" : "completed";
+      : summary.refreshPending === true || bodyOnlyTrouble ? "partial" : "completed";
   await finish(status, summary, null);
   return result;
 }
