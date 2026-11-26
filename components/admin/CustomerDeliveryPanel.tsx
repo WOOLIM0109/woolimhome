@@ -8,7 +8,7 @@ import { Badge, Notice, button, date, panel, useResource } from "./ProgramReview
 /**
  * 고객사 전달 화면 (2026-11-26).
  *
- * 그날 판정에서 고객사마다 '후보' 로 나온 공고를 늘어놓고, 분야·업종이 맞은 것은
+ * 그날 판정에서 고객사마다 '후보' 로 나온 공고를 늘어놓고, 분야·업종과 고객사 지역이 맞은 것은
  * 미리 골라 문구를 만들어 둡니다. 지역만 맞은 공고는 직원이 골라야 문구에 들어갑니다.
  * 직원이 읽고, 필요하면 고친 뒤 복사해서 고객사 카톡방에 붙입니다.
  * 붙인 뒤 '보냈어요' 를 누르면 기록이 남고, 그 공고는 다음부터 그 고객사 문구에서 빠집니다.
@@ -19,7 +19,7 @@ const API = "/api/admin/program-review/deliveries";
 
 type Item = { program_id: string; title: string; source_url: string | null; deadline_at: string | null;
   entities: string[]; reasons: string[]; conditional: boolean; support: string; documents: string[]; more_documents: number;
-  score: number; strong: boolean; region_confirmed: boolean; ready: boolean };
+  score: number; strong: boolean; region_confirmed: boolean; nationwide: boolean; ready: boolean };
 type Customer = { customer_id: string; customer_name: string; items: Item[]; omitted: number; suggested: string[]; message: string };
 type Sent = { id: string; customer_id: string; customer_name: string; program_id: string; title: string;
   delivered_by: string; delivered_at: string };
@@ -148,8 +148,8 @@ export default function CustomerDeliveryPanel() {
             <Badge tone="green">고른 공고 {chosenItems.length}건</Badge>
             <Badge>후보 {current.items.length + current.omitted}건</Badge>
           </div>
-          <p className="text-sm leading-6 text-stone-600">분야·업종·필수 인증이 맞고 지역까지 확인된 공고는 근거가 센 순으로 5건까지 미리 골라 두었습니다. 지역이나 사업자 유형만 맞은 공고는
-            이 회사 일과 상관없을 수 있고, 지역을 모르는 공고는 다른 지역 공고일 수 있어 고르지 않았습니다. 보낼 공고에 체크하면 아래 문구가 바뀝니다.
+          <p className="text-sm leading-6 text-stone-600">분야·업종·필수 인증이 맞고 고객사 지역까지 맞은 공고는 근거가 센 순으로 5건까지 미리 골라 두었습니다. 지역이나 사업자 유형만 맞은 공고는
+            이 회사 일과 상관없을 수 있고, 지역을 모르는 공고는 다른 지역 공고일 수 있어 고르지 않았습니다. &lsquo;전국&rsquo; 공고도 입주 공간처럼 실제로는 그 지역으로 가야 하는 것이 섞여 있어 고르지 않았습니다. 보낼 공고에 체크하면 아래 문구가 바뀝니다.
             &lsquo;보냈어요&rsquo;는 체크한 공고를 적습니다. 문구에서 손으로 지운 공고는 체크도 풀어 주세요.
             {current.omitted ? ` 목록에는 근거가 센 순으로 ${current.items.length}건만 보입니다.` : ""}</p>
 
@@ -162,7 +162,8 @@ export default function CustomerDeliveryPanel() {
                 <label htmlFor={id} className="block cursor-pointer break-keep font-medium">{item.title}</label>
                 <span className="mt-1 flex flex-wrap items-center gap-2">
                   {item.strong ? <Badge tone="green">분야·업종 맞음</Badge> : <Badge>분야·업종 근거 없음</Badge>}
-                  {item.strong && !item.ready ? <Badge tone="amber">지역 확인 필요</Badge> : null}
+                  {item.strong && !item.ready ? <Badge tone="amber">{item.nationwide ? "전국 공고 · 실제 대상 지역 확인"
+                    : item.region_confirmed ? "분야와 지역이 다른 명의에서 맞음" : "지역 확인 필요"}</Badge> : null}
                   {item.conditional ? <Badge tone="amber">일부 요건 확인 필요</Badge> : null}
                   {item.entities.length ? <Badge>{item.entities.join(", ")}</Badge> : null}
                   <span className="text-xs text-stone-500">{item.reasons.join(", ") || "근거 없음"} · 마감 {item.deadline_at ? date(item.deadline_at) : "공고문 참조"}</span>
