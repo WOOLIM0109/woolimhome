@@ -19,6 +19,16 @@ const QUEUE_FIELDS = ["ready", "remaining", "eligible", "withText", "waitingAtta
 type QueueCounts = Record<typeof QUEUE_FIELDS[number], number>;
 // worker-ingest.ts 의 COLLECTOR_TAG 와 같은 값이다 (이 파일은 시험 상자에서 따로 읽혀 import 를 늘리지 않는다).
 const COLLECTOR_TAG = "gonggo-monitor";
+/**
+ * 이 원문으로 이미 한 번 뽑기를 시도했는가. 그렇다면 `claim_openchat_requirement` 가 거절한다
+ * (같은 원문은 두 번 부르지 않는다).
+ */
+async function attemptedBefore(admin: Admin, programId: string, inputHash: string) {
+  const { data, error } = await admin.from("openchat_program_requirement_attempts")
+    .select("program_id").eq("program_id", programId).eq("input_hash", inputHash).limit(1);
+  if (error) throw new Error("요건 처리 이력 조회 실패");
+  return Array.isArray(data) && data.length > 0;
+}
 /** 대표 PC 수집기가 넣은 공고인가. */
 async function collectorOwned(admin: Admin, programId: string) {
   const { data, error } = await admin.from("openchat_programs")
@@ -328,7 +338,7 @@ export async function runRequirementsTask(options: Options = {}) {
         .select("input_hash,status,requirements,normalization_version,source_complete,input_truncated,model")
         .eq("program_id", program.id).maybeSingle();
       if (existingError) throw new Error("요건 처리 이력 조회 실패");
-      // 매칭에 넘길 값. 기본은 지금 읽은 원문 기준이고, 수집기 요건을 그대로 쓸 때만 바뀐다.
+      // 매칭에 넘길 값. 기본은 지금 읽은 원문 기준이고, 뽑아 둔 요건을 그대로 쓸 때(수집기 요건, 이미 뽑아 본 원문)만 바뀐다.
       let matchHash = input.inputHash, matchComplete = complete, matchTruncated = input.truncated, trusted = false;
       // 요건이 비워진 행은, 다시 부르기 전에 저장해 둔 답으로 되살릴 수 있는지 먼저 본다.
       const restorable = !options.recoveryProgramId && existing?.status === "failed"
@@ -390,6 +400,57 @@ export async function runRequirementsTask(options: Options = {}) {
         matchComplete = existing.source_complete !== false;
         matchTruncated = existing.input_truncated === true;
         summary.reused++;
+      } else if (!options.recoveryProgramId && existing?.status === "extracted" && existing.requirements != null
+        && typeof existing.input_hash === "string" && existing.input_hash
+        && await attemptedBefore(admin, program.id, input.inputHash)) {
+        // ★ (2026-11-26) 원문이 바뀌었지만 **그 원문으로는 이미 한 번 뽑아 본** 공고.
+        //
+        // 같은 원문은 두 번 부르지 않으므로 아래 claim 이 거절한다. 예전에는 거절된 뒤
+        // 판정까지 건너뛰어, 상세 글이 A→B→A 로 오가는 공고 30건이 11-17~23 이후로
+        // 한 번도 판정되지 않았다 (고객사 누구에게도 안 갔다). 유료 호출 없이 판정한다.
+        //
+        // 1) 그 원문(A)으로 모델이 준 답이 남아 있고 지금 원문으로 근거가 맞으면 그 답을 쓴다.
+        //    지금 원문에 맞는 답이라, 다른 원문(B)으로 뽑은 요건보다 믿을 만하다.
+        // 2) 답이 없으면(그때 호출이 실패했거나 응답이 깨졌다) 뽑아 둔 B 요건으로 판정한다.
+        //    판정이 아예 없는 것보다 낫다. 이 경우는 사람이 부르는 복구로도 고칠 수 없다
+        //    (복구는 실패로 남은 행만 받는다) — 원문이 다시 바뀌면 그때 새로 뽑는다.
+        //
+        // 수집기가 보낸 요건(model 표시)은 서버 답으로 덮지 않는다. 덮으면 표시는 수집기인데
+        // 내용은 서버 답이 되어, 뒤에 수집기 가지가 그것을 수집기 요건으로 믿는다.
+        const answer = existing.model === COLLECTOR_TAG ? null : await restorableRequirements(admin, program.id, input);
+        if (answer) {
+          const { data: restored, error: restoreError } = await admin.from("openchat_program_requirements").update({
+            ...metadata, input_hash: input.inputHash, status: "extracted", requirements: answer, error: null,
+            normalization_version: REQUIREMENTS_NORMALIZATION_VERSION,
+            diagnostics: { stage: "restored", code: "REQUIREMENTS_RESTORED_FROM_ARTIFACT" },
+            extracted_at: new Date(clock()).toISOString(), updated_at: new Date(clock()).toISOString(),
+          }).eq("program_id", program.id).eq("input_hash", existing.input_hash).eq("status", "extracted")
+            .select("program_id").maybeSingle();
+          if (restoreError) throw new Error("요건 되살리기 저장 실패");
+          // 그 사이에 다른 실행이나 수집기가 행을 바꿨다. 다음 실행에서 다시 본다.
+          if (!restored) { summary.alreadyAttempted++; continue; }
+          requirements = answer;
+          // 저장하는 사이 수집기가 행을 바꾸면('Stale requirements') 이 한 건만 넘긴다.
+          trusted = true;
+          summary.restored++;
+        } else {
+          // 판이 옛것이면 그대로 쓰지 않는다 (같은 해시였다면 위에서 다시 다듬었을 요건이다).
+          if (existing.normalization_version !== REQUIREMENTS_NORMALIZATION_VERSION) { summary.alreadyAttempted++; continue; }
+          // 확인 시각만 적는다. 안 적으면 실행마다 다시 잡혀 작업 줄을 차지한다.
+          const { data: kept, error: keepError } = await admin.from("openchat_program_requirements").update({
+            source_checked_at: sourceCheckedAt, updated_at: new Date(clock()).toISOString(),
+          }).eq("program_id", program.id).eq("input_hash", existing.input_hash).eq("status", "extracted")
+            .select("program_id").maybeSingle();
+          if (keepError) throw new Error("요건 원문 상태 갱신 실패");
+          if (!kept) { summary.alreadyAttempted++; continue; }
+          requirements = existing.requirements as Requirements;
+          matchHash = existing.input_hash;
+          // 저장하는 사이 행이 바뀌면('Stale requirements') 이 한 건만 넘기고 다음 실행에서 다시 본다.
+          trusted = true;
+          matchComplete = existing.source_complete !== false;
+          matchTruncated = existing.input_truncated === true;
+          summary.reused++;
+        }
       } else {
         if (paidCalls >= max) break;
         if (end - clock() < 60_000) { summary.stoppedForTime = true; break; }

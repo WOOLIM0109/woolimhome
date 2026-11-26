@@ -30,6 +30,14 @@ export const DELIVERY_LIST_LIMIT = 30;
 export const DELIVERY_SEND_LIMIT = 10;
 /** 이 이유가 하나라도 있으면 '무엇을 하는 회사인지' 까지 맞은 것이다 */
 const STRONG = /^(?:분야|업종|필수 인증)(?:\(|$)/;
+/**
+ * 공고가 '전국' 이라 붙는 지역 일치. 고객사 지역을 본 것이 아니다.
+ * 입주 공간(구리 창업공간, 강동구 청년센터)처럼 실제로는 그 지역으로 가야 하는 공고도 전국으로 읽히므로
+ * 이것만으로는 미리 고르지 않는다.
+ */
+const NATIONWIDE = "지역(전국 대상)";
+/** 고객사 지역이 공고 지역과 직접 맞았다 */
+function localRegion(reason: string) { return reason.startsWith("지역(") && reason !== NATIONWIDE; }
 const NUMBERS = ["①", "②", "③", "④", "⑤", "⑥", "⑦", "⑧", "⑨", "⑩"];
 const CONDITIONAL = "조건부 후보:";
 
@@ -53,10 +61,13 @@ export type DeliveryItem = {
   reasons: string[]; conditional: boolean; support: string; documents: string[]; more_documents: number; score: number;
   /** 분야·업종·필수 인증 중 하나가 맞았다. 지역·사업자 유형만 맞은 것은 아니다 */
   strong: boolean;
-  /** 지역 일치가 확인됐다 (전국 대상 포함) */
+  /** 고객사 지역이 공고 지역과 직접 맞았다. '전국 대상' 은 넣지 않는다 */
   region_confirmed: boolean;
+  /** 지역 근거가 '전국 대상' 뿐이다 */
+  nationwide: boolean;
   /**
-   * 미리 골라도 되는가. **한 사업자 안에서** 분야·업종·인증과 지역이 함께 맞아야 한다.
+   * 미리 골라도 되는가. **한 사업자 안에서** 분야·업종·인증과 고객사 지역이 함께 맞아야 한다.
+   * '전국 대상' 은 지역이 맞은 것으로 치지 않는다 — 직원이 보고 체크한다.
    * 사업자가 여럿인 고객사에서 A 의 분야와 B 의 지역을 합쳐 고르면, 지역을 모르는 공고가 나간다.
    */
   ready: boolean;
@@ -154,7 +165,9 @@ export function deliveryMessage(customerName: string, items: readonly DeliveryIt
   const entries = items.map((item, index) => {
     const lines = [`${NUMBERS[index] ?? `${index + 1}.`} ${titleForCustomer(item.title)}`];
     if (item.entities.length) lines.push(`· 신청 명의: ${item.entities.join(", ")}`);
-    if (item.reasons.length) lines.push(`· 맞는 이유: ${item.reasons.join(", ")}`);
+    // '지역(전국 대상)' 은 고객에게 '지역이 맞는다' 로 읽힌다. 공고가 전국 대상이라는 사실만 적는다.
+    const reasons = item.reasons.map(reason => reason === NATIONWIDE ? "전국 대상 공고" : reason);
+    if (reasons.length) lines.push(`· 맞는 이유: ${reasons.join(", ")}`);
     if (item.support) lines.push(`· 지원: ${item.support}`);
     lines.push(`· 마감: ${formatDeadline(item.deadline_at)}`);
     if (item.documents.length) lines.push(`· 준비 서류: ${item.documents.join(", ")}${item.more_documents ? ` 외 ${item.more_documents}건` : ""}`);
@@ -207,14 +220,18 @@ export function buildCustomerDeliveries(input: {
         documents: documents.slice(0, 3), more_documents: Math.max(0, documents.length - 3),
         score: Math.max(...matches.map(match => Number(match.score) || 0)),
         strong: reasons.some(reason => STRONG.test(reason)),
-        region_confirmed: reasons.some(reason => reason.startsWith("지역(")),
+        region_confirmed: reasons.some(localRegion),
+        nationwide: reasons.includes(NATIONWIDE) && !reasons.some(localRegion),
         ready: matches.some(match => {
           const own = (match.reasons ?? []).map(plainReason).filter((r): r is string => Boolean(r));
-          return own.some(reason => STRONG.test(reason)) && own.some(reason => reason.startsWith("지역("));
+          return own.some(reason => STRONG.test(reason)) && own.some(localRegion);
         }),
       };
     }).sort((a, b) => Number(b.ready) - Number(a.ready)
-      || Number(b.strong) - Number(a.strong) || Number(a.conditional) - Number(b.conditional)
+      || Number(b.strong) - Number(a.strong)
+      // 직원이 손으로 고를 때 지역 근거가 있는 것(고객사 지역·전국)이 지역을 모르는 것보다 위에 온다
+      || Number(b.region_confirmed || b.nationwide) - Number(a.region_confirmed || a.nationwide)
+      || Number(a.conditional) - Number(b.conditional)
       || b.score - a.score
       || deadlineOrder(a.deadline_at) - deadlineOrder(b.deadline_at) || a.title.localeCompare(b.title, "ko"));
     const shown = items.slice(0, DELIVERY_LIST_LIMIT);
